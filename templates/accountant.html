@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Credentials λογιστή</h1>
+  <p class="muted" style="margin-top:0">
+    Κοινό ζεύγος credentials για εταιρείες που έχουν επιλέξει «Χρήση credentials λογιστή».
+    Σε κάθε κλήση στο myDATA στέλνεται αυτόματα το ΑΦΜ της εκάστοτε εταιρείας ως
+    <code>entityVatNumber</code>, όπως προβλέπει η ΑΑΔΕ για διαβίβαση από εκπρόσωπο/λογιστή.
+    Απαιτείται η εταιρεία να έχει εξουσιοδοτήσει τον λογιστή (myTAXISnet → Εξουσιοδοτήσεις)
+    και να έχει καταχωρημένο ΑΦΜ στη Διαχείριση εταιρειών.
+  </p>
+  <form method="post" action="{{ url_for('accountant') }}" class="grid grid-3" style="align-items:end">
+    <div>
+      <label>AADE User ID λογιστή</label>
+      <input type="text" name="user_id" value="{{ acc.user_id or '' }}" autocomplete="off">
+    </div>
+    <div>
+      <label>Subscription Key λογιστή</label>
+      <input type="password" name="subscription_key" value="{{ acc.subscription_key or '' }}"
+             autocomplete="off" onfocus="this.type='text'" onblur="this.type='password'">
+    </div>
+    <div>
+      <label>Περιβάλλον</label>
+      <select name="env">
+        <option value="prod" {% if (acc.env or 'prod') == 'prod' %}selected{% endif %}>prod</option>
+        <option value="dev" {% if acc.env == 'dev' %}selected{% endif %}>dev</option>
+      </select>
+    </div>
+    <div>
+      <button type="submit">Αποθήκευση</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Προμηθευτές</h1>
+  <p class="muted" style="max-width:75ch">
+    Κοινός κατάλογος για <strong>όλες τις εταιρείες</strong> (ΑΦΜ → επωνυμία + προαιρετική
+    πρόταση χαρακτηρισμού). Οι επωνυμίες συμπληρώνονται αυτόματα από τις αναζητήσεις,
+    αλλά μπορείς να προσθέσεις/διορθώσεις και χειροκίνητα ή μαζικά από αρχείο.
+  </p>
+
+  <div class="panel">
+    <h2 id="form_title">Προσθήκη / διόρθωση προμηθευτή</h2>
+    <form method="post" action="{{ url_for('suppliers_save') }}">
+      <div class="grid" style="grid-template-columns:1fr 2fr auto;align-items:end">
+        <div>
+          <label>ΑΦΜ</label>
+          <input type="text" name="vat" id="f_vat" required placeholder="π.χ. 090000045">
+        </div>
+        <div>
+          <label>Επωνυμία</label>
+          <input type="text" name="name" id="f_name" placeholder="π.χ. ΔΕΗ ΑΕ">
+        </div>
+        <div>
+          <button type="submit">💾 Αποθήκευση</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="btn-row">
+    <form method="post" action="{{ url_for('suppliers_import') }}" enctype="multipart/form-data"
+          style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="file" name="file" accept=".txt,text/plain" required style="width:auto">
+      <button type="submit" class="btn-ghost">📥 Εισαγωγή από .txt</button>
+    </form>
+    <a class="btn-ghost btn" href="{{ url_for('suppliers_export') }}">📤 Εξαγωγή σε .txt</a>
+  </div>
+  <p class="muted" style="margin-top:6px">Μορφή αρχείου: μία γραμμή ανά προμηθευτή, <span class="mono">ΑΦΜ&lt;κενό&gt;Επωνυμία</span> (διαχωριστικό το πρώτο κενό).</p>
+</div>
+
+<div class="card">
+  <h2>Κατάλογος <span class="count">{{ suppliers|length }}</span></h2>
+  {% if suppliers %}
+  <div class="table-wrap">
+  <table class="ledger">
+    <thead>
+      <tr><th>ΑΦΜ</th><th>Επωνυμία</th><th>Πρόταση χαρακτηρισμού</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for s in suppliers %}
+      <tr>
+        <td data-label="ΑΦΜ" class="mark">{{ s.vat }}</td>
+        <td data-label="Επωνυμία">{{ s.name or "—" }}</td>
+        <td data-label="Πρόταση" class="mono" style="font-size:.82rem">
+          {% if s.rule_type %}{{ s.rule_category or "" }} / {{ s.rule_type }}{% if s.rule_vat_type %} / {{ s.rule_vat_type }}{% endif %}{% else %}—{% endif %}
+        </td>
+        <td data-label="">
+          <div class="actions">
+            <button type="button" class="btn btn-ghost sup-edit"
+                    data-vat="{{ s.vat }}" data-name="{{ s.name or '' }}">Επεξεργασία</button>
+            <form method="post" action="{{ url_for('suppliers_delete', vat=s.vat) }}" style="display:inline">
+              <button type="submit" class="btn-danger"
+                      onclick="return confirm('Διαγραφή του προμηθευτή {{ s.vat }};')">Διαγραφή</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">Δεν υπάρχουν προμηθευτές ακόμη.</p>
+  {% endif %}
+</div>
+
+<script>
+function editSupplier(vat, name) {
+  document.getElementById('f_vat').value = vat;
+  document.getElementById('f_name').value = name || '';
+  document.getElementById('form_title').textContent = 'Διόρθωση προμηθευτή ' + vat;
+  window.scrollTo({top: 0, behavior: 'smooth'});
+  document.getElementById('f_name').focus();
+}
+document.querySelectorAll('.sup-edit').forEach(function (b) {
+  b.addEventListener('click', function () {
+    editSupplier(b.dataset.vat, b.dataset.name);
+  });
+});
+</script>
+{% endblock %}

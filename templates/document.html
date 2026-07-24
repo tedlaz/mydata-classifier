@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% set status_labels = {'unclassified':'Αχαρακτήριστο','classified':'Χαρακτηρισμένο (τοπικά)','sent':'Απεσταλμένο','confirmed':'Επιβεβαιωμένο'} %}
+{% macro cls_chips(entries) -%}
+  {% for c in entries %}
+    {% if c.transaction_mode %}
+      <span class="chip chip--flag">{{ 'Απόρριψη' if c.transaction_mode == '1' else ('Ακύρωση' if c.transaction_mode == 'cancel' else 'Απόκλιση') }}</span>
+    {% else %}
+      <span class="chip" title="{{ c.category or '' }} · {{ c.type or '' }}">
+        {%- if c.category %}{{ categories.get(c.category, c.category) }}{% endif -%}
+        {%- if c.category and c.type %} / {% endif -%}
+        {%- if c.type %}{{ types.get(c.type) or vat_types.get(c.type) or c.type }}{% endif -%}
+        {%- if c.amount is not none %} · <span class="amt">{{ "%.2f"|format(c.amount) }} €</span>{% endif -%}
+      </span>
+    {% endif %}
+  {% else %}
+    <span class="muted">— (χωρίς χαρακτηρισμό) —</span>
+  {% endfor %}
+{%- endmacro %}
+{% block content %}
+<a class="doc-back" href="{{ back }}">← Πίσω στο βιβλίο</a>
+
+<div class="doc-head">
+  <div>
+    <div class="doc-kicker">Παραστατικό εξόδου</div>
+    <h1 class="doc-mark">{{ inv.mark }}</h1>
+  </div>
+  <span class="status-badge status-{{ status }}">{{ status_labels.get(status, status) }}</span>
+</div>
+
+<div class="card doc-hero">
+  <div class="hero-issuer">
+    <div class="hero-name">{{ inv.issuer_name or "—" }}</div>
+    <div class="hero-vat mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</div>
+    <div class="hero-sub">{{ inv.invoice_type or "—" }}{% if type_desc %} · {{ type_desc }}{% endif %} · σειρά {{ inv.series or "0" }}/{{ inv.aa or "" }} · {{ inv.issue_date or "—" }}</div>
+  </div>
+  <div class="hero-total">
+    <span class="hero-total-k">Σύνολο</span>
+    <span class="hero-total-v">{{ "%.2f"|format(inv.total_gross or 0) }} €</span>
+    <span class="hero-total-sub">Καθαρή {{ "%.2f"|format(inv.total_net or 0) }} € · ΦΠΑ {{ "%.2f"|format(inv.total_vat or 0) }} €</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+  <table class="doc-lines">
+    <thead>
+      <tr>
+        <th class="c-no">#</th>
+        <th class="num">Καθαρή αξία</th>
+        <th class="num">ΦΠΑ</th>
+        <th class="c-vat">Κατηγ. ΦΠΑ</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in inv.lines %}
+      <tr>
+        <td class="c-no mono">{{ line.line_number }}</td>
+        <td class="num">{{ "%.2f"|format(line.net_value or 0) }} €</td>
+        <td class="num">{{ "%.2f"|format(line.vat_amount or 0) }} €</td>
+        <td class="c-vat mono">{{ line.vat_category or "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted" style="text-align:center">— χωρίς αναλυτικές γραμμές —</td></tr>
+      {% endfor %}
+    </tbody>
+    {% if inv.lines %}
+    <tfoot>
+      <tr>
+        <td class="c-no">Σύνολο</td>
+        <td class="num">{{ "%.2f"|format(inv.total_net or 0) }} €</td>
+        <td class="num">{{ "%.2f"|format(inv.total_vat or 0) }} €</td>
+        <td></td>
+      </tr>
+    </tfoot>
+    {% endif %}
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    Χαρακτηρισμός
+    {% if status == 'confirmed' %}<span class="pill" title="Πηγή χαρακτηρισμού">{{ 'Manually (τοπικά)' if source == 'manual' else 'rest (myDATA)' }}</span>{% endif %}
+  </h2>
+  <div class="doc-chips">{{ cls_chips(inv.cls_info) }}</div>
+  {% if classification_mark %}<p class="muted" style="margin-bottom:0">MARK χαρακτηρισμού <span class="mono">{{ classification_mark }}</span></p>{% endif %}
+
+  {% if local_action != 'create' %}
+  <div class="btn-row" style="margin-top:16px">
+    <a class="btn" href="{{ url_for('classify', mark=inv.mark) }}">✏️ Αλλαγή χαρακτηρισμού</a>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card doc-danger">
+  {% if local_action == 'create' and status == 'classified' %}
+  {# Τοπική «Νέα εγγραφή» που ΔΕΝ έχει διαβιβαστεί: επεξεργασία ή διαγραφή. #}
+  <div class="btn-row" style="margin-top:0">
+    <a class="btn" href="{{ url_for('new_expense', edit=inv.mark) }}">✏️ Επεξεργασία εγγραφής</a>
+    <form method="post" action="{{ url_for('draft_delete', mark=inv.mark) }}" style="display:inline">
+      <button type="submit" class="btn-danger"
+              onclick="return confirm('Η τοπική εγγραφή {{ inv.mark }} θα διαγραφεί οριστικά. Συνέχεια;')">🗑️ Διαγραφή</button>
+    </form>
+  </div>
+  {% elif inv.is_self_issued %}
+  <form method="post" action="{{ url_for('cancel', mark=inv.mark) }}" style="margin:0">
+    <button type="submit" class="btn-danger"
+            onclick="return confirm('Το παραστατικό {{ inv.mark }} θα μπει στα «Χαρακτηρισμένα» ως ΑΚΥΡΩΣΗ και θα ακυρωθεί οριστικά με την αποστολή. Συνέχεια;')">🗑️ Ακύρωση παραστατικού</button>
+  </form>
+  {% else %}
+  <form method="post" action="{{ url_for('reject', mark=inv.mark) }}" style="margin:0">
+    <button type="submit" class="btn-danger"
+            onclick="return confirm('Το παραστατικό {{ inv.mark }} θα μπει στα «Χαρακτηρισμένα» ως ΑΠΟΡΡΙΨΗ (transactionMode=1). Συνέχεια;')">🚫 Απόρριψη παραστατικού</button>
+  </form>
+  {% endif %}
+</div>
+
+<style>
+  .doc-back{display:inline-block;margin-bottom:14px;color:var(--accent);font-weight:600;text-decoration:none}
+  .doc-back:hover{text-decoration:underline}
+  .doc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+  .doc-kicker{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--muted)}
+  .doc-mark{font-family:var(--font-data);font-size:clamp(1.1rem,2.4vw,1.5rem);margin:2px 0 0;word-break:break-all}
+  .status-badge{padding:6px 14px;border-radius:999px;font-size:.8rem;font-weight:700;white-space:nowrap;border:1px solid}
+  .status-unclassified{background:#fff6e6;color:#8a6414;border-color:#eeddb7}
+  .status-classified{background:var(--accent-soft);color:var(--accent-deep);border-color:var(--accent-glow)}
+  .status-sent{background:#eef0fb;color:#3b3f8a;border-color:#cfd3f2}
+  .status-confirmed{background:#e3f4ea;color:#146c3a;border-color:#b6e2c6}
+
+  .doc-hero{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
+  .hero-name{font-size:1.15rem;font-weight:700;line-height:1.25}
+  .hero-vat{font-size:.85rem;color:var(--muted);margin-top:2px}
+  .hero-sub{font-size:.82rem;color:var(--ink-2);margin-top:8px;font-family:var(--font-data)}
+  .hero-total{text-align:right;display:flex;flex-direction:column;gap:2px;min-width:180px}
+  .hero-total-k{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .hero-total-v{font-family:var(--font-data);font-size:1.7rem;font-weight:700;color:var(--accent-deep);line-height:1.1}
+  .hero-total-sub{font-size:.8rem;color:var(--muted);font-family:var(--font-data)}
+  @media (max-width:620px){ .doc-hero{flex-direction:column;align-items:flex-start} .hero-total{text-align:left} }
+
+  table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
+  table.doc-lines th{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+      color:var(--muted);padding:8px 12px;border-bottom:2px solid var(--ink);white-space:nowrap}
+  table.doc-lines td{padding:11px 12px;border-bottom:1px solid var(--line-soft)}
+  table.doc-lines tbody tr:hover{background:var(--surface-2)}
+  table.doc-lines .num{text-align:right;font-family:var(--font-data);font-variant-numeric:tabular-nums;white-space:nowrap}
+  table.doc-lines th.num{text-align:right}
+  table.doc-lines .c-no{width:52px;color:var(--muted)}
+  table.doc-lines .c-vat{width:120px;text-align:center}
+  table.doc-lines th.c-vat{text-align:center}
+  table.doc-lines tfoot td{border-top:2px solid var(--line);border-bottom:none;font-weight:700;padding-top:12px}
+  table.doc-lines tfoot .c-no{color:var(--ink-2);text-transform:uppercase;font-size:.75rem;letter-spacing:.06em}
+
+  .doc-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .doc-chips .chip{margin:0}
+  .reclassify{margin-top:18px;padding-top:18px;border-top:1px dashed var(--accent-glow)}
+  .reclassify h3{margin:0 0 4px;font-size:.95rem;color:var(--accent-deep)}
+  .doc-danger{border-color:var(--err-line);background:var(--err-soft)}
+</style>
+{% endblock %}

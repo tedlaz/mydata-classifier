@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Αναφορές</h1>
+  <p class="muted" style="margin-top:0">
+    Σύνοψη <strong>χαρακτηρισμένων</strong> εσόδων και εξόδων για το διάστημα (με βάση την
+    ημερομηνία έκδοσης) και η διαφορά τους <strong>Έσοδα − Έξοδα = Κέρδη</strong>.
+    Κενές ημερομηνίες = χωρίς όριο.
+  </p>
+  <form method="get" action="{{ url_for('reports') }}" class="grid" style="margin-top:14px;grid-template-columns:1fr 1fr auto;align-items:end">
+    <div>
+      <label for="date_from">Από</label>
+      <input type="date" id="date_from" name="date_from" value="{{ date_from }}">
+    </div>
+    <div>
+      <label for="date_to">Έως</label>
+      <input type="date" id="date_to" name="date_to" value="{{ date_to }}">
+    </div>
+    <div>
+      <button type="submit">Υπολογισμός</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Έσοδα − Έξοδα
+    {% if date_from or date_to %}
+      <span class="pill">{{ date_from or '…' }} → {{ date_to or '…' }}</span>
+    {% else %}
+      <span class="pill">όλο το διάστημα</span>
+    {% endif %}
+  </h2>
+  <div class="table-wrap">
+  <table class="ledger report">
+    <thead>
+      <tr>
+        <th></th>
+        <th class="num">Παραστατικά</th>
+        <th class="num">Καθαρή αξία</th>
+        <th class="num">ΦΠΑ</th>
+        <th class="num">Σύνολο</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="r-income">
+        <td data-label=""><b>Έσοδα</b> <span class="muted">(χαρακτηρισμένα)</span></td>
+        <td data-label="Παραστατικά" class="num">{{ income.count }}</td>
+        <td data-label="Καθαρή αξία" class="num">{{ "%.2f"|format(income.net) }} €</td>
+        <td data-label="ΦΠΑ" class="num">{{ "%.2f"|format(income.vat) }} €</td>
+        <td data-label="Σύνολο" class="num"><strong>{{ "%.2f"|format(income.gross) }} €</strong></td>
+      </tr>
+      <tr class="r-expense">
+        <td data-label=""><b>Έξοδα</b> <span class="muted">(χαρακτηρισμένα)</span></td>
+        <td data-label="Παραστατικά" class="num">{{ expense.count }}</td>
+        <td data-label="Καθαρή αξία" class="num">− {{ "%.2f"|format(expense.net) }} €</td>
+        <td data-label="ΦΠΑ" class="num">− {{ "%.2f"|format(expense.vat) }} €</td>
+        <td data-label="Σύνολο" class="num"><strong>− {{ "%.2f"|format(expense.gross) }} €</strong></td>
+      </tr>
+      <tr class="r-profit {{ 'is-neg' if profit.gross < 0 else 'is-pos' }}">
+        <td data-label=""><b>Κέρδη</b> <span class="muted">(Έσοδα − Έξοδα)</span></td>
+        <td data-label="Παραστατικά" class="num"></td>
+        <td data-label="Καθαρή αξία" class="num">{{ "%.2f"|format(profit.net) }} €</td>
+        <td data-label="ΦΠΑ" class="num">{{ "%.2f"|format(profit.vat) }} €</td>
+        <td data-label="Σύνολο" class="num"><strong>{{ "%.2f"|format(profit.gross) }} €</strong></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted" style="margin-top:14px">
+    Έσοδα = χαρακτηρισμένα του «Βιβλίου εσόδων». Έξοδα = χαρακτηρισμένα/απεσταλμένα/επιβεβαιωμένα
+    του «Βιβλίου εξόδων». Η στήλη ΦΠΑ στα Κέρδη είναι η διαφορά ΦΠΑ εκροών−εισροών (ενδεικτική).
+  </p>
+</div>
+
+<style>
+  table.report tbody td{padding:14px 12px;font-size:.95rem}
+  table.report .num{font-size:1rem}
+  .r-income td{color:var(--accent-deep)}
+  .r-expense td{color:#b3261e}
+  .r-profit td{border-top:2px solid var(--ink);font-size:1.05rem}
+  .r-profit.is-pos td strong{color:#1a7a44}
+  .r-profit.is-neg td strong{color:#b3261e}
+  .r-profit td b{font-size:1.02rem}
+</style>
+{% endblock %}

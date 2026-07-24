@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+!.env.example
+# Δεδομένα - ΔΕΝ μπαίνουν στο image, έρχονται από volume
+companies.json
+active_company.json
+supplier_rules*.json
+supplier_names*.json
+.cache/
+# Ό,τι δεν χρειάζεται στο container
+README.md
+.git
+.gitignore
+*.md
+mydata-*.zip

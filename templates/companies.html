@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Διαχείριση εταιρειών</h1>
+  <p class="muted">
+    Τα προφίλ και η ενεργή επιλογή αποθηκεύονται στη βάση. Η <strong>ενεργή</strong>
+    εταιρεία καθορίζει με ποια credentials, ΑΦΜ και περιβάλλον (dev/prod) γίνονται
+    όλες οι κλήσεις προς το myDATA. Οι προμηθευτές είναι <strong>κοινοί</strong> για όλες
+    τις εταιρείες (καρτέλα «Προμηθευτές»).
+  </p>
+  <div class="btn-row">
+    <a href="{{ url_for('companies_export') }}" class="btn btn-ghost" download>📤 Εξαγωγή σε companies.json</a>
+    <form method="post" action="{{ url_for('companies_import') }}" enctype="multipart/form-data" style="display:inline"
+          onsubmit="return confirm('Εισαγωγή εταιρειών &amp; λογιστή από το επιλεγμένο companies.json; Οι υπάρχουσες (ίδια επωνυμία) θα ενημερωθούν.')">
+      <input type="file" name="file" accept=".json,application/json" required
+             onchange="this.form.requestSubmit()" style="display:none" id="companies-import-file">
+      <label for="companies-import-file" class="btn btn-ghost">📥 Εισαγωγή από companies.json</label>
+    </form>
+  </div>
+
+  {% if companies %}
+  {% for c in companies %}
+  <form method="post" action="{{ url_for('companies_update', idx=loop.index0) }}"
+        class="card" style="background:{% if loop.index0 == active %}#e7f3f0{% else %}#fbfcfa{% endif %}">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">
+        {{ c.company_name }}
+        {% if loop.index0 == active %}<span class="pill" style="background:var(--accent);color:#fff">ΕΝΕΡΓΗ</span>{% endif %}
+        <span class="pill">{{ c.MYDATA_ENV or 'prod' }}</span>
+      </h2>
+      <div style="display:flex;gap:8px">
+        {% if loop.index0 != active %}
+        <button formaction="{{ url_for('companies_select', idx=loop.index0) }}" formmethod="post"
+                class="btn-ghost" style="background:transparent;color:var(--accent);border:1px solid var(--accent)">
+          Ορισμός ως ενεργή
+        </button>
+        {% endif %}
+        <button formaction="{{ url_for('companies_delete', idx=loop.index0) }}" formmethod="post"
+                style="background:#fdecea;color:var(--err);border:1px solid #f3c1bd"
+                onclick="return confirm('Διαγραφή της εταιρείας «{{ c.company_name }}»;')">
+          Διαγραφή
+        </button>
+      </div>
+    </div>
+    <div class="grid" style="grid-template-columns:2fr 1.5fr 2fr 1.2fr 1fr auto;gap:10px;align-items:end;margin-top:12px">
+      <div>
+        <label>Επωνυμία</label>
+        <input type="text" name="company_name" value="{{ c.company_name }}" required>
+      </div>
+      <div>
+        <label>AADE User ID</label>
+        <input type="text" name="aade_user_id" value="{{ c.AADE_USER_ID }}" required>
+      </div>
+      <div>
+        <label>Subscription Key</label>
+        <input type="password" name="aade_subscription_key" value="{{ c.AADE_SUBSCRIPTION_KEY }}" required
+               onfocus="this.type='text'" onblur="this.type='password'">
+      </div>
+      <div>
+        <label>ΑΦΜ</label>
+        <input type="text" name="aade_vat_number" value="{{ c.AADE_VAT_NUMBER or '' }}">
+      </div>
+      <div>
+        <label>Περιβάλλον</label>
+        <select name="mydata_env">
+          <option value="prod" {% if (c.MYDATA_ENV or 'prod') == 'prod' %}selected{% endif %}>prod</option>
+          <option value="dev" {% if c.MYDATA_ENV == 'dev' %}selected{% endif %}>dev</option>
+        </select>
+      </div>
+      <div>
+        <button type="submit">Αποθήκευση</button>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:.9rem;color:var(--ink-2);cursor:pointer">
+      <input type="checkbox" name="use_accountant" value="1" style="width:auto"
+             {% if c.use_accountant %}checked{% endif %}>
+      Χρήση credentials λογιστή (στέλνεται το ΑΦΜ της εταιρείας ως entityVatNumber)
+    </label>
+  </form>
+  {% endfor %}
+  {% else %}
+    <p>Δεν έχει οριστεί καμία εταιρεία ακόμα - πρόσθεσε την πρώτη παρακάτω.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Προσθήκη νέας εταιρείας</h2>
+  <form method="post" action="{{ url_for('companies_add') }}">
+    <div class="grid" style="grid-template-columns:2fr 1.5fr 2fr 1.2fr 1fr auto;gap:10px;align-items:end">
+      <div>
+        <label>Επωνυμία</label>
+        <input type="text" name="company_name" placeholder="π.χ. ΔΟΚΙΜΗ ΑΕ" required>
+      </div>
+      <div>
+        <label>AADE User ID</label>
+        <input type="text" name="aade_user_id" required>
+      </div>
+      <div>
+        <label>Subscription Key</label>
+        <input type="text" name="aade_subscription_key" required>
+      </div>
+      <div>
+        <label>ΑΦΜ</label>
+        <input type="text" name="aade_vat_number">
+      </div>
+      <div>
+        <label>Περιβάλλον</label>
+        <select name="mydata_env">
+          <option value="prod">prod</option>
+          <option value="dev">dev</option>
+        </select>
+      </div>
+      <div>
+        <button type="submit">Προσθήκη</button>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:.9rem;color:var(--ink-2);cursor:pointer">
+      <input type="checkbox" name="use_accountant" value="1" style="width:auto">
+      Χρήση credentials λογιστή (στέλνεται το ΑΦΜ της εταιρείας ως entityVatNumber)
+    </label>
+  </form>
+</div>
+{% endblock %}

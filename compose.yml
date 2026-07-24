@@ -1,0 +1,27 @@
+services:
+  mydata:
+    build: .
+    image: mydata-expenses:latest
+    container_name: mydata-expenses
+    restart: unless-stopped
+    ports:
+      - "8341:8000"
+    environment:
+      # ΥΠΟΧΡΕΩΤΙΚΟ: άλλαξέ το σε τυχαία μυστική τιμή
+      FLASK_SECRET: "${FLASK_SECRET:-please-change-me}"
+      # Προαιρετικά: ειδικοί κωδικοί GSIS για εύρεση επωνυμίας ελληνικών ΑΦΜ
+      # (τα κλειδιά myDATA δίνονται μέσα από την εφαρμογή, στη σελίδα Εταιρείες)
+      GSIS_USERNAME: "${GSIS_USERNAME:-}"
+      GSIS_PASSWORD: "${GSIS_PASSWORD:-}"
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      # Τα δεδομένα (εταιρείες, κανόνες, επωνυμίες) επιβιώνουν εκτός container
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 10s
+

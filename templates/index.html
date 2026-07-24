@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Αναζήτηση παραστατικών εξόδων</h1>
+  <p class="muted">
+    Θα κατέβουν τα παραστατικά εξόδων για το διάστημα που θα ορίσεις και θα
+    <strong>αποθηκευτούν μόνιμα</strong> στο βιβλίο. Τα χαρακτηρίζεις/διορθώνεις <strong>τοπικά</strong>,
+    μετά τα στέλνεις <strong>μαζικά</strong> στο myDATA («Απεσταλμένα») και με το κουμπί
+    <strong>«Ενημέρωση»</strong> επιβεβαιώνεις όταν τα δείξει το myDATA (έως ~8 ώρες).
+    <span class="pill">{% if company %}Εταιρεία: {{ company.company_name }} · {% endif %}Περιβάλλον: {{ env }}</span>
+  </p>
+  <form method="post" action="{{ url_for('fetch') }}" class="grid" style="margin-top:18px;grid-template-columns:1fr 1fr auto;align-items:end">
+    <div>
+      <label for="date_from">Από</label>
+      <input type="date" id="date_from" name="date_from" required>
+    </div>
+    <div>
+      <label for="date_to">Έως</label>
+      <input type="date" id="date_to" name="date_to" required>
+    </div>
+    <div>
+      <button type="submit">Αναζήτηση στο myDATA</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

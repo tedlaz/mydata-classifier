@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Συνδυασμοί χαρακτηρισμών</h1>
+  <p class="muted" style="max-width:78ch">
+    Επίσημος πίνακας ΑΑΔΕ «Συνδυασμοί χαρακτηρισμών»: ορίζει ποιες
+    <strong>κατηγορίες</strong> και <strong>τύποι E3</strong> επιτρέπονται ανά τύπο παραστατικού.
+    Όταν είναι φορτωμένος, η φόρμα χαρακτηρισμού <strong>περιορίζει</strong> τις επιλογές αλυσιδωτά.
+    Αν δεν φορτωθεί, εμφανίζονται όλες οι επιλογές (χωρίς περιορισμό).
+  </p>
+
+  {% if count %}
+  <p class="pill" style="background:var(--accent-soft);border-color:var(--accent-glow);color:var(--accent-deep)">
+    ✔ Φορτωμένοι <strong>{{ count }}</strong> συνδυασμοί για <strong>{{ invoice_types|length }}</strong> τύπους παραστατικών.
+  </p>
+  {% else %}
+  <p class="pill" style="background:#fff6e6;border-color:#eeddb7;color:#8a6414">
+    Δεν έχουν φορτωθεί συνδυασμοί — η φόρμα χαρακτηρισμού δείχνει όλες τις επιλογές.
+  </p>
+  {% endif %}
+
+  <div class="btn-row">
+    <form method="post" action="{{ url_for('combinations_import') }}" enctype="multipart/form-data"
+          style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="file" name="file" accept=".xlsx,.csv,.tsv,.txt" required style="width:auto">
+      <button type="submit" class="btn-ghost">📥 Εισαγωγή αρχείου ΑΑΔΕ (.xlsx/.csv)</button>
+    </form>
+    {% if count %}
+    <form method="post" action="{{ url_for('combinations_clear') }}" style="display:inline"
+          onsubmit="return confirm('Καθαρισμός όλων των συνδυασμών;')">
+      <button type="submit" class="btn-danger">🗑️ Καθαρισμός</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="muted" style="margin-top:6px">Αποδεκτά: το επίσημο <span class="mono">syndiasmoi_xaraktirismwn_*.xlsx</span> (ένα φύλλο ανά τύπο) ή csv/tsv με κελιά τύπου 1.1 / category2_x / E3_xxx.</p>
+
+  {% if invoice_types %}
+  <h2 style="margin-top:22px">Τύποι με ορισμένους συνδυασμούς</h2>
+  <p class="mono" style="font-size:.85rem;line-height:2">
+    {% for t in invoice_types %}<span class="pill" style="margin-right:4px">{{ t }}</span>{% endfor %}
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

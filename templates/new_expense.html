@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>{{ 'Επεξεργασία εγγραφής εξόδου' if edit_mark else 'Νέα εγγραφή εξόδου' }}</h1>
+  <p class="muted" style="max-width:70ch">
+    Για έξοδα που διαβιβάζεις εσύ: δικές σου εγγραφές (17.x — μισθοδοσία, αποσβέσεις,
+    τακτοποίηση) ή παραστατικά <strong>μη υπόχρεου εκδότη</strong> (13.x λιανικές/κοινόχρηστα/
+    συνδρομές, 14.x αλλοδαποί προμηθευτές &amp; <strong>14.5 ΕΦΚΑ</strong>, 15.1 συμβόλαιο, 16.1 ενοίκιο).
+    Η εγγραφή <strong>αποθηκεύεται τοπικά</strong> στα «Χαρακτηρισμένα» — μάζεψε κι άλλες και
+    στείλ' τες μαζικά με «Αποστολή στο myDATA».
+  </p>
+
+  <form method="post" action="{{ url_for('new_expense_submit') }}">
+    <input type="hidden" name="edit_mark" value="{{ edit_mark }}">
+
+    <section class="ne-section">
+      <h2>Στοιχεία εγγραφής</h2>
+      <div class="grid" style="grid-template-columns:2fr 1fr 0.7fr 0.7fr">
+        <div>
+          <label>Τύπος εγγραφής</label>
+          <select name="invoice_type" id="invoice_type" required onchange="toggleIssuer()">
+            {% set sel_type = draft.invoice_type if draft else '14.5' %}
+            {% for code, label in self_types.items() %}
+              <option value="{{ code }}" {% if code == sel_type %}selected{% endif %}>{{ code }} · {{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Ημ/νία έκδοσης</label>
+          <input type="date" name="issue_date" value="{{ draft.issue_date if draft else today }}" required>
+        </div>
+        <div>
+          <label>Σειρά</label>
+          <input type="text" name="series" value="{{ draft.series if draft else '0' }}">
+        </div>
+        <div>
+          <label>Α/Α</label>
+          <input type="text" name="aa" value="{{ draft.aa if draft else '1' }}">
+        </div>
+      </div>
+    </section>
+
+    <section class="ne-section" id="issuer_box">
+      <h2>Εκδότης &amp; πληρωμή</h2>
+      <div class="grid" style="grid-template-columns:1.4fr 0.8fr 1.2fr">
+        <div>
+          <label>ΑΦΜ εκδότη (τρίτος μη υπόχρεος)</label>
+          <div style="display:flex;gap:6px">
+            <input type="text" name="issuer_vat" id="issuer_vat" value="{{ draft.issuer_vat if draft else '' }}" placeholder="π.χ. 997072577 για ΕΦΚΑ">
+            <button type="button" onclick="checkVat()" class="btn-ghost" style="white-space:nowrap">Έλεγχος</button>
+          </div>
+          <div id="vat_result" class="muted" style="margin-top:6px;font-size:.85rem"></div>
+        </div>
+        <div>
+          <label>Χώρα (ISO)</label>
+          <input type="text" name="issuer_country" value="{{ draft.issuer_country if draft else 'GR' }}" maxlength="2">
+        </div>
+        <div id="payment_box">
+          <label>Τρόπος πληρωμής</label>
+          <select name="payment_method">
+            {% set sel_pay = draft.payment_method if draft else '5' %}
+            {% for code, label in payment_methods.items() %}
+              <option value="{{ code }}" {% if code == sel_pay %}selected{% endif %}>{{ code }} · {{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <p class="muted" id="issuer_note" style="margin:10px 0 0">
+        Στους τύπους <strong>17.x</strong> εκδότης είσαι εσύ — το πεδίο ΑΦΜ αγνοείται.
+        Στους <strong>14.1–14.4</strong> η χώρα πρέπει να είναι εκτός GR. ΕΦΚΑ: ΑΦΜ 997072577, χώρα GR.
+      </p>
+    </section>
+
+    <section class="ne-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 style="margin:0">Γραμμές</h2>
+        <button type="button" class="btn-ghost" onclick="addLine()">+ Προσθήκη γραμμής</button>
+      </div>
+
+      <div id="lines">
+        {% set form_lines = draft.lines if draft else [none] %}
+        {% for ln in form_lines %}
+        {% set l_cat = ln.classification_category if ln else 'category2_6' %}
+        {% set l_type = ln.classification_type if ln else 'E3_581_002' %}
+        {% set l_vatcat = (ln.vat_category if ln else '8') or '8' %}
+        <div class="line-item">
+          <div class="line-item__head">
+            <span class="line-item__no">Γραμμή {{ loop.index }}</span>
+            <button type="button" class="line-item__del" onclick="removeLine(this)" title="Αφαίρεση γραμμής">✕</button>
+          </div>
+          <div class="grid line-main">
+            <div>
+              <label>Καθαρό ποσό (€)</label>
+              <input type="number" step="0.01" name="line_amount" placeholder="0.00" value="{{ '%.2f'|format(ln.amount) if ln else '' }}" oninput="recalc()">
+            </div>
+            <div>
+              <label>Κατηγορία</label>
+              <select name="line_category">
+                <option value="">— επιλογή —</option>
+                {% for code, label in categories.items() %}
+                  <option value="{{ code }}" {% if code == l_cat %}selected{% endif %}>{{ code }} · {{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label>Τύπος (E3_x)</label>
+              <select name="line_type">
+                <option value="">— επιλογή —</option>
+                {% for code, label in types.items() %}
+                  <option value="{{ code }}" {% if code == l_type %}selected{% endif %}>{{ code }} · {{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="grid line-vat">
+            <div>
+              <label>Κατηγ. ΦΠΑ</label>
+              <select name="line_vat_category">
+                {% for code, label in vat_categories.items() %}
+                  <option value="{{ code }}" {% if code == l_vatcat %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label>ΦΠΑ (€)</label>
+              <input type="number" step="0.01" name="line_vat_amount" value="{{ '%.2f'|format(ln.vat_amount) if ln else '0.00' }}" oninput="recalc()">
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="ne-totals">
+        <span>Σύνολο καθαρής αξίας <b id="t_net">0.00 €</b></span>
+        <span>ΦΠΑ <b id="t_vat">0.00 €</b></span>
+        <span>Γενικό σύνολο <b id="t_gross">0.00 €</b></span>
+      </div>
+    </section>
+
+    <p class="muted" style="max-width:80ch">
+      Παραδείγματα: <strong>ΕΦΚΑ (14.5)</strong> → εργοδοτικές εισφορές E3_581_002 / category2_6,
+      ή εισφορές αυτοαπασχολούμενου E3_585_007 / category2_5 — χωρίς ΦΠΑ (κατηγορία 8).
+      <strong>Μισθοδοσία (17.1)</strong> → μικτές αποδοχές E3_581_001, εργοδοτικές εισφορές
+      E3_581_002, λοιπές παροχές E3_581_003, όλες σε category2_6.
+    </p>
+
+    <div class="btn-row">
+      <button type="submit">💾 {{ 'Ενημέρωση' if edit_mark else 'Αποθήκευση' }} στα «Χαρακτηρισμένα»</button>
+      <a href="{{ url_for('invoices', view='classified') }}" class="btn-ghost">Προβολή «Χαρακτηρισμένα»</a>
+    </div>
+  </form>
+</div>
+
+<style>
+  .ne-section{background:var(--surface-2);border:1px solid var(--line-soft);
+              border-radius:var(--radius);padding:clamp(14px,2vw,20px);margin:0 0 18px}
+  .ne-section > h2{color:var(--accent-deep);margin-bottom:14px}
+  .line-item{background:#fff;border:1px solid var(--line);border-radius:var(--radius-sm);
+             padding:14px;margin-bottom:12px}
+  .line-item__head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .line-item__no{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .line-item__del{background:var(--err-soft);color:var(--err);border:1px solid var(--err-line);
+                  border-radius:999px;width:28px;height:28px;padding:0;font-size:.85rem;line-height:1;display:inline-flex;align-items:center;justify-content:center}
+  .line-item__del:hover{background:#f8dbd8}
+  .line-main{grid-template-columns:0.8fr 2.6fr 2.6fr}
+  .line-vat{grid-template-columns:1fr 1fr;max-width:420px;margin-top:10px}
+  .ne-totals{display:flex;gap:22px;flex-wrap:wrap;justify-content:flex-end;
+             padding:12px 14px;border-top:1px dashed var(--accent-glow);margin-top:4px;
+             font-size:.85rem;color:var(--ink-2)}
+  .ne-totals b{font-family:var(--font-data);color:var(--accent-deep);margin-left:6px}
+  @media (max-width:760px){
+    .ne-section .grid[style]{grid-template-columns:1fr !important}
+    .line-main, .line-vat{grid-template-columns:1fr !important;max-width:none}
+    .ne-totals{justify-content:space-between}
+  }
+</style>
+
+<script>
+function renumber() {
+  document.querySelectorAll('#lines .line-item').forEach((el, i) => {
+    el.querySelector('.line-item__no').textContent = 'Γραμμή ' + (i + 1);
+  });
+}
+function addLine() {
+  const first = document.querySelector('#lines .line-item');
+  const clone = first.cloneNode(true);
+  clone.querySelector('input[name="line_amount"]').value = '';
+  clone.querySelector('input[name="line_vat_amount"]').value = '0.00';
+  document.getElementById('lines').appendChild(clone);
+  renumber();
+  filterLineCat(clone);
+}
+function removeLine(btn) {
+  const items = document.querySelectorAll('#lines .line-item');
+  if (items.length <= 1) { alert('Πρέπει να υπάρχει τουλάχιστον μία γραμμή.'); return; }
+  btn.closest('.line-item').remove();
+  renumber(); recalc();
+}
+function recalc() {
+  let net = 0, vat = 0;
+  document.querySelectorAll('#lines .line-item').forEach(el => {
+    net += parseFloat(el.querySelector('input[name="line_amount"]').value) || 0;
+    vat += parseFloat(el.querySelector('input[name="line_vat_amount"]').value) || 0;
+  });
+  document.getElementById('t_net').textContent = net.toFixed(2) + ' €';
+  document.getElementById('t_vat').textContent = vat.toFixed(2) + ' €';
+  document.getElementById('t_gross').textContent = (net + vat).toFixed(2) + ' €';
+}
+async function checkVat() {
+  const afm = document.getElementById('issuer_vat').value.trim();
+  const country = document.querySelector('input[name="issuer_country"]').value.trim() || 'GR';
+  const out = document.getElementById('vat_result');
+  if (!afm) { out.textContent = 'Συμπλήρωσε πρώτα το ΑΦΜ.'; return; }
+  // 1) Πρώτα τοπικά, στον πίνακα προμηθευτών.
+  out.textContent = 'Έλεγχος στους προμηθευτές...';
+  try {
+    const rl = await fetch(`/supplier_lookup/${encodeURIComponent(afm)}`);
+    const dl = await rl.json();
+    if (dl.found) {
+      out.textContent = '✔ Από προμηθευτές: ' + dl.name;
+      out.style.color = 'var(--accent)';
+      return;
+    }
+  } catch (e) { /* συνεχίζουμε στο VIES */ }
+  // 2) Αν δεν βρέθηκε τοπικά, αναζήτηση στο διαδίκτυο (VIES) - αποθηκεύει και στην cache.
+  out.textContent = 'Δεν βρέθηκε τοπικά — έλεγχος στο VIES...';
+  try {
+    const r = await fetch(`/check_vat/${encodeURIComponent(country)}/${encodeURIComponent(afm)}`);
+    const data = await r.json();
+    out.textContent = data.message || 'Άγνωστη απάντηση.';
+    out.style.color = data.valid ? 'var(--accent)' : 'var(--err)';
+  } catch (e) {
+    out.textContent = 'Σφάλμα επικοινωνίας με την εφαρμογή.';
+    out.style.color = 'var(--err)';
+  }
+}
+// Οικογένειες τύπων όπου το myDATA ΑΠΑΓΟΡΕΥΕΙ τρόπο πληρωμής (σφάλμα 205).
+const NO_PAYMENT = ['14', '16'];
+function toggleIssuer() {
+  const t = document.getElementById('invoice_type').value;
+  const own = t.startsWith('17.');
+  document.getElementById('issuer_vat').disabled = own;
+  document.getElementById('issuer_vat').placeholder =
+    own ? 'Δεν χρειάζεται — εκδότης είσαι εσύ' : 'π.χ. 997072577 για ΕΦΚΑ';
+  document.getElementById('issuer_box').style.opacity = own ? '.72' : '1';
+  // Κρύψε τον τρόπο πληρωμής όπου απαγορεύεται.
+  const prefix = t.split('.')[0];
+  document.getElementById('payment_box').style.display =
+    NO_PAYMENT.includes(prefix) ? 'none' : '';
+  filterAllLines();
+}
+
+// ---- Αλυσιδωτό φιλτράρισμα Κατηγορίας/Τύπου βάσει τύπου παραστατικού ----
+const ALLOWED_ALL = {{ combos_all|tojson }};
+function typeCombos() { return ALLOWED_ALL[document.getElementById('invoice_type').value] || {}; }
+function filterLineCat(row) {
+  const allowed = typeCombos();
+  const active = Object.keys(allowed).length > 0;
+  const sel = row.querySelector('select[name="line_category"]');
+  Array.from(sel.options).forEach(o => {
+    if (o.value === '') return;
+    const ok = !active || Object.prototype.hasOwnProperty.call(allowed, o.value);
+    o.hidden = !ok; o.disabled = !ok;
+  });
+  if (active && sel.value && !Object.prototype.hasOwnProperty.call(allowed, sel.value)) sel.value = '';
+  filterLineType(row, true);
+}
+function filterLineType(row, clearInvalid) {
+  const allowed = typeCombos();
+  const active = Object.keys(allowed).length > 0;
+  const cat = row.querySelector('select[name="line_category"]').value;
+  const sel = row.querySelector('select[name="line_type"]');
+  const list = allowed[cat] || [];
+  const anyE3 = list.includes('*');
+  const noE3 = list.length === 1 && list[0] === '-';
+  Array.from(sel.options).forEach(o => {
+    if (o.value === '') return;
+    let ok;
+    if (!active) ok = true;
+    else if (!cat) ok = false;
+    else if (anyE3) ok = true;
+    else if (noE3) ok = false;
+    else ok = list.includes(o.value);
+    o.hidden = !ok; o.disabled = !ok;
+  });
+  if (clearInvalid && active && sel.value) {
+    const stillOk = anyE3 || (!noE3 && list.includes(sel.value));
+    if (!stillOk) sel.value = '';
+  }
+}
+function filterAllLines() {
+  document.querySelectorAll('#lines .line-item').forEach(r => filterLineCat(r));
+}
+document.getElementById('lines').addEventListener('change', e => {
+  if (e.target.name === 'line_category') filterLineType(e.target.closest('.line-item'), true);
+});
+
+toggleIssuer(); recalc();
+</script>
+{% endblock %}

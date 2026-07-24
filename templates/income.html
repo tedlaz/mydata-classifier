@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% macro sort_link(field, label) -%}
+  {%- set newdir = 'desc' if sort == field and dir == 'asc' else 'asc' -%}
+  <a href="{{ url_for('income', view=view, sort=field, dir=newdir, f_mark=filters.mark, f_date=filters.date, f_issuer=filters.issuer, f_type=filters.type) }}">
+    {{ label }}{% if sort == field %} {{ '▲' if dir == 'asc' else '▼' }}{% endif %}
+  </a>
+{%- endmacro %}
+{% macro tab_url(v) -%}
+  {{ url_for('income', view=v, sort=sort, dir=dir, f_mark=filters.mark, f_date=filters.date, f_issuer=filters.issuer, f_type=filters.type) }}
+{%- endmacro %}
+{% macro pagelink(p, label, disabled=False) -%}
+  {% if disabled %}<span class="pg pg-off">{{ label }}</span>
+  {%- else %}<a class="pg" href="{{ url_for('income', view=view, sort=sort, dir=dir, page=p, f_mark=filters.mark, f_date=filters.date, f_issuer=filters.issuer, f_type=filters.type) }}">{{ label }}</a>{% endif %}
+{%- endmacro %}
+{% macro cls_chips(entries) -%}
+  {% for c in entries %}
+    {% if c.transaction_mode %}
+      <span class="chip chip--flag">{{ 'Απόρριψη' if c.transaction_mode == '1' else 'Απόκλιση' }}</span>
+    {% else %}
+      <span class="chip" title="{{ c.category or '' }} · {{ c.type or '' }}">
+        {%- if c.category %}{{ categories.get(c.category, c.category) }}{% endif -%}
+        {%- if c.category and c.type %} / {% endif -%}
+        {%- if c.type %}{{ types.get(c.type) or vat_types.get(c.type) or c.type }}{% endif -%}
+        {%- if c.amount is not none %} · <span class="amt">{{ "%.2f"|format(c.amount) }} €</span>{% endif -%}
+      </span>
+    {% endif %}
+  {% else %}
+    <span class="muted">—</span>
+  {% endfor %}
+{%- endmacro %}
+{% block content %}
+<div class="card">
+  <h1>Βιβλίο εσόδων</h1>
+  <p class="muted" style="margin-top:0">
+    Κατεβάζει τα παραστατικά <strong>που έχεις εκδώσει εσύ</strong> (έσοδα) για το διάστημα
+    και τα δείχνει ανά κατάσταση χαρακτηρισμού. <em>Φάση προβολής</em> — η αποστολή
+    χαρακτηρισμού εσόδων θα προστεθεί σε επόμενο βήμα.
+  </p>
+  <form method="post" action="{{ url_for('income_fetch') }}" class="grid" style="margin-top:14px;grid-template-columns:1fr 1fr auto;align-items:end">
+    <div>
+      <label for="date_from">Από</label>
+      <input type="date" id="date_from" name="date_from" value="{{ today }}" required>
+    </div>
+    <div>
+      <label for="date_to">Έως</label>
+      <input type="date" id="date_to" name="date_to" value="{{ today }}" required>
+    </div>
+    <div>
+      <button type="submit">Ανάκτηση εσόδων</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="tabs">
+    <a class="tab {{ 'is-active' if view == 'unclassified' }}" href="{{ tab_url('unclassified') }}">Αχαρακτήριστα <span class="count count--unclassified">{{ counts.unclassified }}</span></a>
+    <a class="tab {{ 'is-active' if view == 'classified' }}" href="{{ tab_url('classified') }}">Χαρακτηρισμένα <span class="count count--classified">{{ counts.classified }}</span></a>
+  </div>
+  <p class="muted" style="margin-top:0;display:flex;gap:18px;flex-wrap:wrap">
+    {% if date_range %}<span>Τελευταία ανάκτηση: <span class="mono">{{ date_range }}</span></span>{% endif %}
+    {% if last_mark %}<span title="Τα MARK του myDATA είναι χρονολογικά — έχουμε δεδομένα ως εδώ">Τελευταίο MARK: <span class="mono">{{ last_mark }}</span></span>{% endif %}
+  </p>
+
+  {% set has_filter = filters.mark or filters.date or filters.issuer or filters.type %}
+  {% if counts[view] > 0 %}
+  <form method="get" action="{{ url_for('income') }}" class="filter-bar">
+    <input type="hidden" name="view" value="{{ view }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ dir }}">
+    <input name="f_mark" value="{{ filters.mark }}" placeholder="MARK">
+    <input name="f_date" value="{{ filters.date }}" placeholder="Ημ/νία π.χ. 2026-03">
+    <input name="f_issuer" value="{{ filters.issuer }}" placeholder="Πελάτης / ΑΦΜ">
+    <input name="f_type" value="{{ filters.type }}" placeholder="Τύπος">
+    <button type="submit">Φίλτρο</button>
+    {% if has_filter %}<a class="btn btn-ghost" href="{{ url_for('income', view=view, sort=sort, dir=dir) }}">Καθαρισμός</a>{% endif %}
+  </form>
+  <p class="muted" style="margin:8px 0 4px">{{ total }} αποτελέσματα{% if has_filter %} (φιλτραρισμένα από {{ counts[view] }}){% endif %}{% if total_pages > 1 %} · σελίδα {{ page }}/{{ total_pages }}{% endif %}</p>
+  {% endif %}
+
+  {% if total == 0 %}
+    {% if has_filter %}
+    <p style="margin-top:10px">Κανένα αποτέλεσμα με τα τρέχοντα φίλτρα. <a href="{{ url_for('income', view=view, sort=sort, dir=dir) }}" style="color:var(--accent);font-weight:600">Καθαρισμός φίλτρων</a>.</p>
+    {% else %}
+    <p>Δεν υπάρχουν παραστατικά εσόδων σε αυτή την κατάσταση. Κάνε ανάκτηση για ένα διάστημα παραπάνω.</p>
+    {% endif %}
+  {% else %}
+
+  <div class="table-wrap">
+  <table class="ledger">
+    <thead>
+      <tr>
+        <th>MARK</th>
+        <th>{{ sort_link('date', 'Ημ/νία') }}</th>
+        <th>{{ sort_link('name', 'Πελάτης / ΑΦΜ') }}</th>
+        <th>Τύπος</th><th>Σειρά/ΑΑ</th>
+        <th class="num">Καθαρή αξία</th><th class="num">ΦΠΑ</th>
+        <th class="num">{{ sort_link('total', 'Σύνολο') }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inv in invoices %}
+      <tr>
+        <td data-label="MARK" class="mark">{{ inv.mark }}</td>
+        <td data-label="Ημ/νία" class="doc-date">{{ inv.issue_date or "—" }}</td>
+        <td data-label="Πελάτης">
+          <span class="issuer">
+            <b>{{ inv.issuer_name or "—" }}</b>
+            <span class="vat">{{ inv.issuer_vat or "" }}</span>
+          </span>
+        </td>
+        <td data-label="Τύπος">
+          {% set is_credit = inv.invoice_type in credit_types %}
+          <span class="type-badge {{ 'is-credit' if is_credit else 'is-debit' }}"
+                title="{{ type_names.get(inv.invoice_type, '') }}{% if is_credit %} (πιστωτικό){% endif %}">
+            {{ inv.invoice_type or "—" }}{% if inv.lines %}<span class="type-badge__n" title="Γραμμές παραστατικού">{{ inv.lines|length }}</span>{% endif %}
+          </span>
+        </td>
+        <td data-label="Σειρά/ΑΑ" class="mono" style="font-size:.84rem">{{ inv.series or "" }}/{{ inv.aa or "" }}</td>
+        <td data-label="Καθαρή αξία" class="num">{{ "%.2f"|format(inv.total_net or 0) }} €</td>
+        <td data-label="ΦΠΑ" class="num">{{ "%.2f"|format(inv.total_vat or 0) }} €</td>
+        <td data-label="Σύνολο" class="num"><strong>{{ "%.2f"|format(inv.total_gross or 0) }} €</strong></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <nav class="pager">
+    {{ pagelink(1, '« Πρώτη', disabled=(page <= 1)) }}
+    {{ pagelink(page - 1, '‹ Προηγ.', disabled=(page <= 1)) }}
+    <span class="pg-info">Σελίδα {{ page }} / {{ total_pages }}</span>
+    {{ pagelink(page + 1, 'Επόμ. ›', disabled=(page >= total_pages)) }}
+    {{ pagelink(total_pages, 'Τελευταία »', disabled=(page >= total_pages)) }}
+  </nav>
+  {% endif %}
+
+  {% endif %}
+</div>
+
+<style>
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:-4px 0 16px}
+  .tab{padding:8px 14px;border-radius:10px 10px 0 0;color:var(--muted);font-weight:600;
+       text-decoration:none;border:1px solid transparent;border-bottom:2px solid transparent}
+  .tab:hover{color:var(--text)}
+  .tab.is-active{color:var(--accent);border-bottom-color:var(--accent);background:rgba(0,0,0,.03)}
+  .tab .count{margin-left:6px;font-size:.78rem;font-weight:700;padding:1px 8px;border-radius:999px;
+    background:rgba(0,0,0,.08);color:var(--text);border:1px solid transparent}
+  .tab .count--unclassified{background:#fff2d6;color:#8a5a00;border-color:#f3d99a}
+  .tab .count--classified{background:#dcf5e6;color:#1a7a44;border-color:#b6e6c9}
+  .type-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 4px 3px 9px;border-radius:8px;
+      font-family:var(--font-data);font-size:.8rem;font-weight:600;border:1px solid;white-space:nowrap;cursor:help}
+  .type-badge.is-debit{background:var(--accent-soft);color:var(--accent-deep);border-color:var(--accent-glow)}
+  .type-badge.is-credit{background:#fceceb;color:#b3261e;border-color:#f0c7c3}
+  .type-badge__n{font-size:.72rem;padding:1px 7px;border-radius:999px;background:rgba(0,0,0,.12);font-weight:700}
+  .filter-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 2px;
+      padding:10px 12px;background:var(--surface-2);border:1px solid var(--line-soft);border-radius:var(--radius-sm)}
+  .filter-bar input{width:auto;flex:1 1 150px;min-width:120px;padding:7px 10px;font-size:.85rem}
+  .filter-bar button{padding:7px 14px;font-size:.85rem}
+  .pager{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin:16px 0 2px}
+  .pager .pg{padding:6px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);
+      color:var(--accent);text-decoration:none;font-size:.85rem;font-weight:600;background:#fff}
+  .pager .pg:hover{background:var(--accent-soft)}
+  .pager .pg-off{padding:6px 12px;border:1px solid var(--line-soft);border-radius:var(--radius-sm);
+      color:var(--muted);font-size:.85rem;background:var(--surface-2);cursor:default}
+  .pager .pg-info{font-size:.85rem;color:var(--ink-2);font-weight:600;padding:0 6px}
+</style>
+{% endblock %}
