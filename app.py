@@ -551,6 +551,23 @@ def document(mark):
         flash("Το παραστατικό δεν βρέθηκε. Κάνε νέα αναζήτηση.", "error")
         return redirect(url_for("invoices"))
     inv = _row_to_invoice(row)
+    # Χαρακτηρισμοί ΑΝΑ ΓΡΑΜΜΗ (από τον πίνακα classifications, που κρατά το
+    # line_number) → εμφανίζονται δίπλα σε κάθε γραμμή στην προβολή.
+    cls_by_line: dict[int | None, list[dict]] = {}
+    for c in db.get_local_classification(row["id"]):
+        cls_by_line.setdefault(c.get("line_number"), []).append(
+            {
+                "type": c.get("classification_type"),
+                "category": c.get("classification_category"),
+                "amount": c.get("amount"),
+            }
+        )
+    # Ενέργειες σε επίπεδο παραστατικού (απόρριψη/ακύρωση/απόκλιση) - δεν ανήκουν
+    # σε γραμμή, μένουν στο κάτω μπλοκ.
+    flags = [c for c in (inv.cls_info or []) if c.get("transaction_mode")]
+    has_line_cls = bool(cls_by_line) or any(
+        ln.classifications for ln in inv.lines
+    )
     # URL επιστροφής στη λίστα, διατηρώντας ταξινόμηση/σελίδα/φίλτρα (fallback: view).
     back = request.args.get("back") or url_for("invoices", view=row["status"])
     return render_template(
@@ -562,6 +579,9 @@ def document(mark):
         classification_mark=row.get("classification_mark"),
         type_desc=INVOICE_TYPE_NAMES.get(inv.invoice_type or ""),
         back=back,
+        cls_by_line=cls_by_line,
+        flags=flags,
+        has_line_cls=has_line_cls,
         categories=EXPENSE_CATEGORIES,
         types=EXPENSE_TYPES,
         vat_types=VAT_TYPES,

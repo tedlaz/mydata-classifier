@@ -50,7 +50,11 @@ def check_vat(country: str, number: str, timeout: int = 15) -> dict | None:
         if resp.status_code != 200:
             return None
         data = resp.json()
-    except requests.RequestException, ValueError:
+
+    except requests.RequestException:
+        return None
+
+    except ValueError:
         return None
 
     valid = bool(data.get("isValid") if "isValid" in data else data.get("valid"))

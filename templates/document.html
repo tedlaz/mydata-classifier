@@ -42,6 +42,7 @@
 
 <div class="card">
   <div class="table-wrap">
+  {% set vat_rates = {'1':'24%','2':'13%','3':'6%','4':'17%','5':'9%','6':'4%','7':'0%','8':'χωρίς ΦΠΑ'} %}
   <table class="doc-lines">
     <thead>
       <tr>
@@ -49,18 +50,28 @@
         <th class="num">Καθαρή αξία</th>
         <th class="num">ΦΠΑ</th>
         <th class="c-vat">Κατηγ. ΦΠΑ</th>
+        <th class="c-cls">Χαρακτηρισμός</th>
       </tr>
     </thead>
     <tbody>
       {% for line in inv.lines %}
-      <tr>
+      {% set line_cls = cls_by_line.get(line.line_number) or line.classifications %}
+      <tr class="line-main">
         <td class="c-no mono">{{ line.line_number }}</td>
         <td class="num">{{ "%.2f"|format(line.net_value or 0) }} €</td>
         <td class="num">{{ "%.2f"|format(line.vat_amount or 0) }} €</td>
-        <td class="c-vat mono">{{ line.vat_category or "—" }}</td>
+        <td class="c-vat">
+          {% if line.vat_category %}
+          <span class="vat-badge">{{ line.vat_category }}{% if vat_rates.get(line.vat_category|string) %} · {{ vat_rates[line.vat_category|string] }}{% endif %}</span>
+          {% else %}<span class="mono">—</span>{% endif %}
+        </td>
+        <td class="c-cls">
+          {% if line_cls %}<span class="line-cls-chips">{{ cls_chips(line_cls) }}</span>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="4" class="muted" style="text-align:center">— χωρίς αναλυτικές γραμμές —</td></tr>
+      <tr><td colspan="5" class="muted" style="text-align:center">— χωρίς αναλυτικές γραμμές —</td></tr>
       {% endfor %}
     </tbody>
     {% if inv.lines %}
@@ -69,6 +80,7 @@
         <td class="c-no">Σύνολο</td>
         <td class="num">{{ "%.2f"|format(inv.total_net or 0) }} €</td>
         <td class="num">{{ "%.2f"|format(inv.total_vat or 0) }} €</td>
+        <td></td>
         <td></td>
       </tr>
     </tfoot>
@@ -82,7 +94,13 @@
     Χαρακτηρισμός
     {% if status == 'confirmed' %}<span class="pill" title="Πηγή χαρακτηρισμού">{{ 'Manually (τοπικά)' if source == 'manual' else 'rest (myDATA)' }}</span>{% endif %}
   </h2>
+  {% if flags %}
+  <div class="doc-chips">{{ cls_chips(flags) }}</div>
+  {% elif has_line_cls %}
+  <p class="muted" style="margin-top:0">Οι χαρακτηρισμοί εμφανίζονται <strong>ανά γραμμή</strong> στον πίνακα πιο πάνω.</p>
+  {% else %}
   <div class="doc-chips">{{ cls_chips(inv.cls_info) }}</div>
+  {% endif %}
   {% if classification_mark %}<p class="muted" style="margin-bottom:0">MARK χαρακτηρισμού <span class="mono">{{ classification_mark }}</span></p>{% endif %}
 
   {% if local_action != 'create' %}
@@ -141,12 +159,19 @@
   table.doc-lines th{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
       color:var(--muted);padding:8px 12px;border-bottom:2px solid var(--ink);white-space:nowrap}
   table.doc-lines td{padding:11px 12px;border-bottom:1px solid var(--line-soft)}
-  table.doc-lines tbody tr:hover{background:var(--surface-2)}
+  table.doc-lines tbody tr.line-main:hover{background:var(--surface-2)}
+  table.doc-lines td.c-cls{vertical-align:middle}
+  .line-cls-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .line-cls-chips .chip{margin:0;max-width:none}
+  .vat-badge{display:inline-block;padding:3px 10px;border-radius:999px;background:var(--accent-soft);
+             border:1px solid var(--accent-glow);color:var(--accent-deep);
+             font-family:var(--font-data);font-size:.78rem;font-weight:600;white-space:nowrap}
   table.doc-lines .num{text-align:right;font-family:var(--font-data);font-variant-numeric:tabular-nums;white-space:nowrap}
   table.doc-lines th.num{text-align:right}
   table.doc-lines .c-no{width:52px;color:var(--muted)}
   table.doc-lines .c-vat{width:120px;text-align:center}
   table.doc-lines th.c-vat{text-align:center}
+  table.doc-lines .c-cls{min-width:220px}
   table.doc-lines tfoot td{border-top:2px solid var(--line);border-bottom:none;font-weight:700;padding-top:12px}
   table.doc-lines tfoot .c-no{color:var(--ink-2);text-transform:uppercase;font-size:.75rem;letter-spacing:.06em}
 

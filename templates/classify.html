@@ -33,6 +33,7 @@
       {% for g in line_groups %}
       <div class="cls-line" data-net="{{ '%.2f'|format(g.net) }}" data-gross="{{ '%.2f'|format(g.net + g.vat) }}">
         <div class="cls-line-head">
+          <span class="cls-line-badge">{{ g.line_number }}</span>
           <span class="cls-line-title">Γραμμή {{ g.line_number }}</span>
           <span class="muted">Καθαρή <b>{{ '%.2f'|format(g.net) }} €</b> · ΦΠΑ <b>{{ '%.2f'|format(g.vat) }} €</b> · Μικτή <b>{{ '%.2f'|format(g.net + g.vat) }} €</b></span>
           <span class="cls-line-sum cls-diff"></span>
@@ -98,13 +99,20 @@
 </div>
 
 <style>
-  .cls-line{margin-bottom:16px;padding:12px 14px;border:1px solid var(--line-soft);
-            border-radius:var(--radius-sm);background:#fbfcfa}
-  .cls-line-head{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px;
-                 padding-bottom:8px;border-bottom:1px dashed var(--accent-glow);font-size:.9rem}
-  .cls-line-title{font-weight:700;color:var(--accent-deep)}
+  .cls-line{position:relative;margin-bottom:22px;padding:16px 18px 16px 20px;
+            border:1px solid var(--line);border-left:5px solid var(--accent-glow);
+            border-radius:var(--radius);background:var(--surface-2);
+            box-shadow:0 1px 3px rgba(23,36,44,.06)}
+  .cls-line.line-ok{border-left-color:var(--accent)}
+  .cls-line.line-bad{border-left-color:var(--err)}
+  .cls-line-head{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px;
+                 padding-bottom:12px;border-bottom:1px solid var(--line);font-size:.9rem}
+  .cls-line-badge{display:inline-flex;align-items:center;justify-content:center;
+                  width:30px;height:30px;border-radius:999px;background:var(--accent);
+                  color:#fff;font-family:var(--font-data);font-weight:700;font-size:.9rem;flex:none}
+  .cls-line-title{font-weight:700;color:var(--accent-deep);font-size:.98rem}
   .cls-line-head b{font-family:var(--font-data);color:var(--accent-deep)}
-  .cls-line-sum{margin-left:auto}
+  .cls-line-sum{margin-left:auto;font-family:var(--font-data);font-size:.85rem}
   .cls-row{margin-bottom:10px}
   .cls-grid{display:grid;grid-template-columns:2fr 2fr 1fr 1.4fr auto;gap:10px;align-items:end;
             background:#fff;border:1px solid var(--line-soft);border-radius:var(--radius-sm);padding:12px}
@@ -180,7 +188,8 @@ function recalc() {
     let s = 0;
     line.querySelectorAll('.cls-amount').forEach(i => s += parseFloat(i.value) || 0);
     const el = line.querySelector('.cls-line-sum');
-    if (s >= net - 0.01 && s <= gross + 0.01) {
+    const ok = (s >= net - 0.01 && s <= gross + 0.01);
+    if (ok) {
       el.textContent = 'E3 ' + s.toFixed(2) + ' € ✓';
       el.className = 'cls-line-sum cls-diff ok';
     } else if (s < net) {
@@ -192,6 +201,8 @@ function recalc() {
       el.className = 'cls-line-sum cls-diff bad';
       allOk = false;
     }
+    line.classList.toggle('line-ok', ok);
+    line.classList.toggle('line-bad', !ok);
   });
   document.querySelectorAll('button[type=submit]').forEach(b => b.disabled = !allOk);
 }
