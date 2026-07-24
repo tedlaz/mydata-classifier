@@ -1,8 +1,8 @@
 services:
   mydata:
     build: .
-    image: mydata-expenses:latest
-    container_name: mydata-expenses
+    image: mydata-classifier:latest
+    container_name: mydata-classifier
     restart: unless-stopped
     ports:
       - "8341:8000"
