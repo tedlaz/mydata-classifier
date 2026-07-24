@@ -1,23 +1,130 @@
 {% extends "base.html" %}
+{% macro detailed_section(rows, section_income, section_expense, section_profit) %}
+  <tr class="report-section-heading r-income">
+    <td colspan="5" data-label=""><strong>Έσοδα</strong></td>
+  </tr>
+  {% for group in rows %}
+    {% if group.income.count %}
+    <tr class="r-income report-detail-row">
+      <td data-label="">
+        {% for label in group.labels %}
+          <span class="report-dimension">
+            <strong>{{ label }}</strong>
+          </span>
+        {% endfor %}
+      </td>
+      <td data-label="Παραστατικά" class="num">{{ group.income.count }}</td>
+      <td data-label="Καθαρή αξία" class="num">{{ group.income.net|el_amount }} €</td>
+      <td data-label="ΦΠΑ" class="num">{{ group.income.vat|el_amount }} €</td>
+      <td data-label="Σύνολο" class="num"><strong>{{ group.income.gross|el_amount }} €</strong></td>
+    </tr>
+    {% endif %}
+  {% endfor %}
+  <tr class="report-subtotal r-income">
+    <td data-label=""><strong>Σύνολο εσόδων</strong></td>
+    <td data-label="Παραστατικά" class="num"><strong>{{ section_income.count }}</strong></td>
+    <td data-label="Καθαρή αξία" class="num"><strong>{{ section_income.net|el_amount }} €</strong></td>
+    <td data-label="ΦΠΑ" class="num"><strong>{{ section_income.vat|el_amount }} €</strong></td>
+    <td data-label="Σύνολο" class="num"><strong>{{ section_income.gross|el_amount }} €</strong></td>
+  </tr>
+
+  <tr class="report-section-heading r-expense">
+    <td colspan="5" data-label=""><strong>Έξοδα</strong></td>
+  </tr>
+  {% for group in rows %}
+    {% if group.expense.count %}
+    <tr class="r-expense report-detail-row">
+      <td data-label="">
+        {% for label in group.labels %}
+          <span class="report-dimension">
+            <strong>{{ label }}</strong>
+          </span>
+        {% endfor %}
+      </td>
+      <td data-label="Παραστατικά" class="num">{{ group.expense.count }}</td>
+      <td data-label="Καθαρή αξία" class="num">{{ group.expense.net|el_amount }} €</td>
+      <td data-label="ΦΠΑ" class="num">{{ group.expense.vat|el_amount }} €</td>
+      <td data-label="Σύνολο" class="num"><strong>{{ group.expense.gross|el_amount }} €</strong></td>
+    </tr>
+    {% endif %}
+  {% endfor %}
+  <tr class="report-subtotal r-expense">
+    <td data-label=""><strong>Σύνολο εξόδων</strong></td>
+    <td data-label="Παραστατικά" class="num"><strong>{{ section_expense.count }}</strong></td>
+    <td data-label="Καθαρή αξία" class="num"><strong>{{ section_expense.net|el_amount }} €</strong></td>
+    <td data-label="ΦΠΑ" class="num"><strong>{{ section_expense.vat|el_amount }} €</strong></td>
+    <td data-label="Σύνολο" class="num"><strong>{{ section_expense.gross|el_amount }} €</strong></td>
+  </tr>
+
+  <tr class="r-profit report-grand-total {{ 'is-neg' if section_profit.gross < 0 else 'is-pos' }}">
+    <td data-label=""><strong>Διαφορά εσόδων − εξόδων</strong></td>
+    <td data-label="Παραστατικά" class="num"></td>
+    <td data-label="Καθαρή αξία"
+        class="num difference-amount {{ 'amount-neg' if section_profit.net < 0 else 'amount-pos' if section_profit.net > 0 else 'amount-zero' }}">
+      <strong>{{ section_profit.net|el_amount }} €</strong>
+    </td>
+    <td data-label="ΦΠΑ"
+        class="num difference-amount {{ 'amount-neg' if section_profit.vat < 0 else 'amount-pos' if section_profit.vat > 0 else 'amount-zero' }}">
+      <strong>{{ section_profit.vat|el_amount }} €</strong>
+    </td>
+    <td data-label="Σύνολο"
+        class="num difference-amount {{ 'amount-neg' if section_profit.gross < 0 else 'amount-pos' if section_profit.gross > 0 else 'amount-zero' }}">
+      <strong>{{ section_profit.gross|el_amount }} €</strong>
+    </td>
+  </tr>
+{% endmacro %}
 {% block content %}
 <div class="card">
   <h1>Αναφορές</h1>
   <p class="muted" style="margin-top:0">
     Σύνοψη <strong>χαρακτηρισμένων</strong> εσόδων και εξόδων για το διάστημα (με βάση την
     ημερομηνία έκδοσης) και η διαφορά τους <strong>Έσοδα − Έξοδα = Κέρδη</strong>.
-    Κενές ημερομηνίες = χωρίς όριο.
+    Κενές ημερομηνίες = χωρίς όριο. Χωρίς επιλογή ανάλυσης εμφανίζεται η βασική σύνοψη.
   </p>
-  <form method="get" action="{{ url_for('reports') }}" class="grid" style="margin-top:14px;grid-template-columns:1fr 1fr auto;align-items:end">
-    <div>
-      <label for="date_from">Από</label>
-      <input type="date" id="date_from" name="date_from" value="{{ date_from }}">
+  <form method="get" action="{{ url_for('reports') }}" style="margin-top:14px">
+    <div class="grid report-dates">
+      <div>
+        <label for="date_from">Από</label>
+        <input type="date" id="date_from" name="date_from" value="{{ date_from }}">
+      </div>
+      <div>
+        <label for="date_to">Έως</label>
+        <input type="date" id="date_to" name="date_to" value="{{ date_to }}">
+      </div>
+      <div>
+        <label for="period">Χρονική ανάλυση</label>
+        <select id="period" name="period">
+          <option value="" {{ 'selected' if not period }}>Χωρίς χρονική ανάλυση</option>
+          <option value="day" {{ 'selected' if period == 'day' }}>Ανά ημέρα</option>
+          <option value="month" {{ 'selected' if period == 'month' }}>Ανά μήνα</option>
+          <option value="quarter" {{ 'selected' if period == 'quarter' }}>Ανά τρίμηνο</option>
+        </select>
+      </div>
     </div>
-    <div>
-      <label for="date_to">Έως</label>
-      <input type="date" id="date_to" name="date_to" value="{{ date_to }}">
-    </div>
-    <div>
+    <fieldset class="report-options">
+      <legend>Πρόσθετη ανάλυση</legend>
+      <label>
+        <input type="checkbox" name="group_by" value="invoice_type"
+               {{ 'checked' if 'invoice_type' in group_by }}>
+        Τύπος παραστατικού
+      </label>
+      <label>
+        <input type="checkbox" name="group_by" value="classification"
+               {{ 'checked' if 'classification' in group_by }}>
+        Χαρακτηρισμός
+      </label>
+      <label>
+        <input type="checkbox" name="group_by" value="vat"
+               {{ 'checked' if 'vat' in group_by }}>
+        Κατηγορία ΦΠΑ (24%, 13%, 0% κ.λπ.)
+      </label>
+    </fieldset>
+    <div class="btn-row report-actions">
       <button type="submit">Υπολογισμός</button>
+      {% if detailed %}
+        <a class="btn btn-ghost"
+           href="{{ url_for('reports', date_from=date_from, date_to=date_to) }}">Βασική σύνοψη</a>
+      {% endif %}
     </div>
   </form>
 </div>
@@ -34,7 +141,13 @@
   <table class="ledger report">
     <thead>
       <tr>
-        <th></th>
+        <th>
+          {% if period and detail_dimensions %}
+            {{ detail_dimensions|join(' / ') }}
+          {% elif detailed and not period %}
+            {{ dimensions|join(' / ') }}
+          {% endif %}
+        </th>
         <th class="num">Παραστατικά</th>
         <th class="num">Καθαρή αξία</th>
         <th class="num">ΦΠΑ</th>
@@ -42,27 +155,92 @@
       </tr>
     </thead>
     <tbody>
+    {% if not detailed %}
       <tr class="r-income">
         <td data-label=""><b>Έσοδα</b> <span class="muted">(χαρακτηρισμένα)</span></td>
         <td data-label="Παραστατικά" class="num">{{ income.count }}</td>
-        <td data-label="Καθαρή αξία" class="num">{{ "%.2f"|format(income.net) }} €</td>
-        <td data-label="ΦΠΑ" class="num">{{ "%.2f"|format(income.vat) }} €</td>
-        <td data-label="Σύνολο" class="num"><strong>{{ "%.2f"|format(income.gross) }} €</strong></td>
+        <td data-label="Καθαρή αξία" class="num">{{ income.net|el_amount }} €</td>
+        <td data-label="ΦΠΑ" class="num">{{ income.vat|el_amount }} €</td>
+        <td data-label="Σύνολο" class="num"><strong>{{ income.gross|el_amount }} €</strong></td>
       </tr>
       <tr class="r-expense">
         <td data-label=""><b>Έξοδα</b> <span class="muted">(χαρακτηρισμένα)</span></td>
         <td data-label="Παραστατικά" class="num">{{ expense.count }}</td>
-        <td data-label="Καθαρή αξία" class="num">− {{ "%.2f"|format(expense.net) }} €</td>
-        <td data-label="ΦΠΑ" class="num">− {{ "%.2f"|format(expense.vat) }} €</td>
-        <td data-label="Σύνολο" class="num"><strong>− {{ "%.2f"|format(expense.gross) }} €</strong></td>
+        <td data-label="Καθαρή αξία" class="num">− {{ expense.net|el_amount }} €</td>
+        <td data-label="ΦΠΑ" class="num">− {{ expense.vat|el_amount }} €</td>
+        <td data-label="Σύνολο" class="num"><strong>− {{ expense.gross|el_amount }} €</strong></td>
       </tr>
       <tr class="r-profit {{ 'is-neg' if profit.gross < 0 else 'is-pos' }}">
         <td data-label=""><b>Κέρδη</b> <span class="muted">(Έσοδα − Έξοδα)</span></td>
         <td data-label="Παραστατικά" class="num"></td>
-        <td data-label="Καθαρή αξία" class="num">{{ "%.2f"|format(profit.net) }} €</td>
-        <td data-label="ΦΠΑ" class="num">{{ "%.2f"|format(profit.vat) }} €</td>
-        <td data-label="Σύνολο" class="num"><strong>{{ "%.2f"|format(profit.gross) }} €</strong></td>
+        <td data-label="Καθαρή αξία"
+            class="num difference-amount {{ 'amount-neg' if profit.net < 0 else 'amount-pos' if profit.net > 0 else 'amount-zero' }}">
+          <strong>{{ profit.net|el_amount }} €</strong>
+        </td>
+        <td data-label="ΦΠΑ"
+            class="num difference-amount {{ 'amount-neg' if profit.vat < 0 else 'amount-pos' if profit.vat > 0 else 'amount-zero' }}">
+          <strong>{{ profit.vat|el_amount }} €</strong>
+        </td>
+        <td data-label="Σύνολο"
+            class="num difference-amount {{ 'amount-neg' if profit.gross < 0 else 'amount-pos' if profit.gross > 0 else 'amount-zero' }}">
+          <strong>{{ profit.gross|el_amount }} €</strong>
+        </td>
       </tr>
+    {% elif period_breakdowns %}
+      {% for period_group in period_breakdowns %}
+        <tr class="report-period-heading">
+          <td colspan="5" data-label="">
+            <small>Περίοδος</small>
+            <strong>{{ period_group.label }}</strong>
+          </td>
+        </tr>
+        {{ detailed_section(
+          period_group.rows,
+          period_group.income,
+          period_group.expense,
+          period_group.profit
+        ) }}
+      {% endfor %}
+      <tr class="report-overall-heading">
+        <td colspan="5" data-label=""><strong>Γενικό σύνολο επιλεγμένου διαστήματος</strong></td>
+      </tr>
+      <tr class="r-income report-overall-row">
+        <td data-label=""><strong>Σύνολο εσόδων</strong></td>
+        <td data-label="Παραστατικά" class="num">{{ income.count }}</td>
+        <td data-label="Καθαρή αξία" class="num">{{ income.net|el_amount }} €</td>
+        <td data-label="ΦΠΑ" class="num">{{ income.vat|el_amount }} €</td>
+        <td data-label="Σύνολο" class="num"><strong>{{ income.gross|el_amount }} €</strong></td>
+      </tr>
+      <tr class="r-expense report-overall-row">
+        <td data-label=""><strong>Σύνολο εξόδων</strong></td>
+        <td data-label="Παραστατικά" class="num">{{ expense.count }}</td>
+        <td data-label="Καθαρή αξία" class="num">{{ expense.net|el_amount }} €</td>
+        <td data-label="ΦΠΑ" class="num">{{ expense.vat|el_amount }} €</td>
+        <td data-label="Σύνολο" class="num"><strong>{{ expense.gross|el_amount }} €</strong></td>
+      </tr>
+      <tr class="r-profit report-grand-total report-overall-difference {{ 'is-neg' if profit.gross < 0 else 'is-pos' }}">
+        <td data-label=""><strong>Τελική διαφορά</strong></td>
+        <td data-label="Παραστατικά" class="num"></td>
+        <td data-label="Καθαρή αξία"
+            class="num difference-amount {{ 'amount-neg' if profit.net < 0 else 'amount-pos' if profit.net > 0 else 'amount-zero' }}">
+          <strong>{{ profit.net|el_amount }} €</strong>
+        </td>
+        <td data-label="ΦΠΑ"
+            class="num difference-amount {{ 'amount-neg' if profit.vat < 0 else 'amount-pos' if profit.vat > 0 else 'amount-zero' }}">
+          <strong>{{ profit.vat|el_amount }} €</strong>
+        </td>
+        <td data-label="Σύνολο"
+            class="num difference-amount {{ 'amount-neg' if profit.gross < 0 else 'amount-pos' if profit.gross > 0 else 'amount-zero' }}">
+          <strong>{{ profit.gross|el_amount }} €</strong>
+        </td>
+      </tr>
+    {% elif breakdown %}
+      {{ detailed_section(breakdown, income, expense, profit) }}
+    {% else %}
+      <tr>
+        <td colspan="5" data-label="" class="muted">Δεν βρέθηκαν παραστατικά για τις επιλεγμένες παραμέτρους.</td>
+      </tr>
+    {% endif %}
     </tbody>
   </table>
   </div>
@@ -73,13 +251,56 @@
 </div>
 
 <style>
+  .report-dates{grid-template-columns:repeat(3,minmax(0,1fr));align-items:end}
+  .report-options{border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px;
+    margin:14px 0 0;display:flex;gap:10px 24px;flex-wrap:wrap}
+  .report-options legend{font-size:.72rem;font-weight:700;text-transform:uppercase;
+    letter-spacing:.06em;color:var(--muted);padding:0 6px}
+  .report-options label{display:flex;align-items:center;gap:7px;margin:0;text-transform:none;
+    letter-spacing:0;font-size:.86rem;cursor:pointer}
+  .report-options input{width:auto;margin:0;accent-color:var(--accent)}
+  .report-actions{margin-top:14px}
+  table.report{table-layout:fixed}
+  table.report thead th:first-child{width:40%}
+  table.report thead th:nth-child(2){width:12%}
+  table.report thead th:nth-child(n+3){width:16%}
+  table.report thead th.num{text-align:right}
   table.report tbody td{padding:14px 12px;font-size:.95rem}
   table.report .num{font-size:1rem}
   .r-income td{color:var(--accent-deep)}
   .r-expense td{color:#b3261e}
-  .r-profit td{border-top:2px solid var(--ink);font-size:1.05rem}
-  .r-profit.is-pos td strong{color:#1a7a44}
-  .r-profit.is-neg td strong{color:#b3261e}
+  .r-profit td{border-top:2px solid var(--ink);font-size:1.05rem;font-weight:700}
+  .r-profit td.difference-amount strong{font-weight:800;font-size:1.05em}
+  .r-profit td.difference-amount.amount-pos{color:#137a45}
+  .r-profit td.difference-amount.amount-neg{color:#c02b22}
+  .r-profit td.difference-amount.amount-zero{color:var(--ink-2)}
+  .report-section-heading td{background:var(--surface-2);border-top:2px solid var(--ink);
+    border-bottom:1px solid var(--line);font-size:1rem !important}
+  .report-section-heading strong{font-size:1rem}
+  .report-subtotal td{background:var(--surface-2);border-top:2px solid currentColor}
+  .report-grand-total td{background:var(--surface-2);border-top:3px double var(--ink)}
+  .report-period-heading td{background:var(--ink);color:#fff;border-top:10px solid var(--surface);
+    padding:12px !important}
+  .report-period-heading small{display:block;color:#b9c8c3;font-size:.67rem;text-transform:uppercase;
+    letter-spacing:.08em}
+  .report-period-heading strong{font-size:1.05rem}
+  .report-overall-heading td{background:var(--ink);color:#fff;border-top:16px solid var(--surface);
+    border-bottom:2px solid var(--ink);font-size:1.03rem !important;padding:14px 12px !important}
+  .report-overall-row td{background:var(--surface-2);font-weight:700}
+  .report-overall-difference td{border-bottom:2px solid var(--ink)}
+  .report-overall-difference.is-pos td{background:var(--ok-soft)}
+  .report-overall-difference.is-neg td{background:var(--err-soft)}
+  .report-dimension{display:inline-block;margin:0 22px 0 0}
+  .report-dimension strong{font-size:.82rem;color:var(--ink)}
   .r-profit td b{font-size:1.02rem}
+  @media (max-width:760px){
+    .report-dates{grid-template-columns:1fr}
+    .report-options{display:grid;grid-template-columns:1fr}
+    .report-actions .btn,.report-actions button{width:100%;text-align:center}
+    .report-detail-row td:first-child{display:flex;flex-direction:column;align-items:flex-end}
+    .report-section-heading td{display:block !important}
+    .report-period-heading td,.report-overall-heading td{display:block !important}
+    .report-dimension{margin:0 0 7px}
+  }
 </style>
 {% endblock %}

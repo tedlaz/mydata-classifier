@@ -542,6 +542,64 @@ def sum_totals(
     }
 
 
+def report_documents(
+    company_id: int | None,
+    kind: str,
+    statuses: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[dict]:
+    """Παραστατικά και χαρακτηρισμοί που χρειάζονται για αναλυτικές αναφορές."""
+    if not company_id:
+        return []
+    q = (
+        "SELECT id, issue_date, invoice_type, total_net, total_vat, total_gross, "
+        "lines_json, cls_json FROM documents WHERE company_id = ? AND kind = ?"
+    )
+    params: list = [company_id, kind]
+    if statuses:
+        q += f" AND status IN ({','.join('?' * len(statuses))})"
+        params.extend(statuses)
+    if date_from:
+        q += " AND issue_date >= ?"
+        params.append(date_from)
+    if date_to:
+        q += " AND issue_date <= ?"
+        params.append(date_to)
+
+    with get_conn() as conn:
+        documents = [dict(r) for r in conn.execute(q, params).fetchall()]
+        if not documents:
+            return []
+        ids = [doc["id"] for doc in documents]
+        cls_rows = conn.execute(
+            "SELECT document_id, line_number, classification_type, "
+            "classification_category, amount FROM classifications "
+            f"WHERE document_id IN ({','.join('?' * len(ids))}) ORDER BY id",
+            ids,
+        ).fetchall()
+
+    by_document: dict[int, list[dict]] = {}
+    for row in cls_rows:
+        by_document.setdefault(row["document_id"], []).append(
+            {
+                "line": row["line_number"],
+                "type": row["classification_type"],
+                "category": row["classification_category"],
+                "amount": row["amount"],
+            }
+        )
+    for doc in documents:
+        doc["lines"] = json.loads(doc.pop("lines_json") or "[]")
+        local_cls = by_document.get(doc["id"])
+        doc["classifications"] = (
+            local_cls if local_cls is not None else json.loads(doc.pop("cls_json") or "[]")
+        )
+        if local_cls is not None:
+            doc.pop("cls_json", None)
+    return documents
+
+
 def save_local_classification(
     company_id: int | None, mark: str, entries: list[dict], manual: bool = False
 ) -> bool:
