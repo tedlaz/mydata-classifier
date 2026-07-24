@@ -718,7 +718,9 @@ def submit(mark):
             return redirect(url_for("classify", mark=mark))
         try:
             line_no = int(lno)
-        except ValueError, TypeError:
+        except TypeError:
+            line_no = 1
+        except ValueError:
             line_no = 1
         classifications.append(
             {

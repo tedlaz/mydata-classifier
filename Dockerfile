@@ -1,7 +1,7 @@
 # ---------- Stage 1: build wheels ----------
 # Χτίζουμε τα dependencies ξεχωριστά ώστε το τελικό image να μην κουβαλά
 # compilers/headers. Χρήση Alpine για ελάχιστο μέγεθος.
-FROM python:3.12-alpine AS builder
+FROM python:3.14-alpine AS builder
 
 WORKDIR /build
 RUN apk add --no-cache gcc musl-dev libffi-dev
@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 
 # ---------- Stage 2: runtime ----------
-FROM python:3.12-alpine
+FROM python:3.14-alpine
 
 # Μη-root χρήστης για ασφάλεια
 RUN adduser -D -H -u 10001 appuser
