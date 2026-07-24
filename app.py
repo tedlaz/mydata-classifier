@@ -492,6 +492,7 @@ def invoices():
             date_sub = fd
 
     if any(filters.values()):
+
         def _match(inv):
             if fm and fm not in (inv.mark or ""):
                 return False
@@ -502,9 +503,11 @@ def invoices():
                 return False
             if date_hi and d > date_hi:
                 return False
-            if fi and fi not in (
-                (inv.issuer_name or "") + " " + (inv.issuer_vat or "")
-            ).lower():
+            if (
+                fi
+                and fi
+                not in ((inv.issuer_name or "") + " " + (inv.issuer_vat or "")).lower()
+            ):
                 return False
             if ft and ft not in (inv.invoice_type or ""):
                 return False
@@ -565,9 +568,7 @@ def document(mark):
     # Ενέργειες σε επίπεδο παραστατικού (απόρριψη/ακύρωση/απόκλιση) - δεν ανήκουν
     # σε γραμμή, μένουν στο κάτω μπλοκ.
     flags = [c for c in (inv.cls_info or []) if c.get("transaction_mode")]
-    has_line_cls = bool(cls_by_line) or any(
-        ln.classifications for ln in inv.lines
-    )
+    has_line_cls = bool(cls_by_line) or any(ln.classifications for ln in inv.lines)
     # URL επιστροφής στη λίστα, διατηρώντας ταξινόμηση/σελίδα/φίλτρα (fallback: view).
     back = request.args.get("back") or url_for("invoices", view=row["status"])
     return render_template(
@@ -717,7 +718,7 @@ def submit(mark):
             return redirect(url_for("classify", mark=mark))
         try:
             line_no = int(lno)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             line_no = 1
         classifications.append(
             {
@@ -1174,6 +1175,7 @@ def income():
             date_sub = fd
 
     if any(filters.values()):
+
         def _match(inv):
             if fm and fm not in (inv.mark or ""):
                 return False
@@ -1184,9 +1186,11 @@ def income():
                 return False
             if date_hi and d > date_hi:
                 return False
-            if fi and fi not in (
-                (inv.issuer_name or "") + " " + (inv.issuer_vat or "")
-            ).lower():
+            if (
+                fi
+                and fi
+                not in ((inv.issuer_name or "") + " " + (inv.issuer_vat or "")).lower()
+            ):
                 return False
             return bool(not (ft and ft not in (inv.invoice_type or "")))
 
@@ -1301,11 +1305,7 @@ def new_expense():
 
     # Επιτρεπόμενοι συνδυασμοί ΕΞΟΔΩΝ ανά self-expense τύπο (για αλυσιδωτό φιλτράρισμα).
     combos_all = {
-        t: {
-            k: v
-            for k, v in db.combos_for_type(t).items()
-            if k.startswith("category2")
-        }
+        t: {k: v for k, v in db.combos_for_type(t).items() if k.startswith("category2")}
         for t in SELF_EXPENSE_TYPES
     }
     return render_template(
@@ -1518,11 +1518,26 @@ def reject(mark):
     return redirect(url_for("invoices", view="classified"))
 
 
+@app.route("/parameters")
+def parameters():
+    tab = request.args.get("tab", "companies")
+    if tab not in {"suppliers", "companies", "accountant", "combinations"}:
+        tab = "companies"
+    return render_template(
+        "parameters.html",
+        active_tab=tab,
+        suppliers=db.list_suppliers(),
+        companies=load_companies(),
+        active=get_active_index(),
+        acc=get_accountant(),
+        combinations_count=db.combos_count(),
+        combinations_invoice_types=sorted(db.combos_invoice_types()),
+    )
+
+
 @app.route("/companies")
 def companies():
-    return render_template(
-        "companies.html", companies=load_companies(), active=get_active_index()
-    )
+    return redirect(url_for("parameters", tab="companies"))
 
 
 @app.route("/companies/add", methods=["POST"])
@@ -1539,7 +1554,7 @@ def companies_add():
             "χρησιμοποιούνται credentials λογιστή.",
             "error",
         )
-        return redirect(url_for("companies"))
+        return redirect(url_for("parameters", tab="companies"))
     new_id = db.add_company(
         {
             "company_name": name,
@@ -1553,7 +1568,7 @@ def companies_add():
     if db.get_active_company_id() is None and new_id is not None:
         db.set_active_company_id(new_id)
     flash(f"✔ Προστέθηκε η εταιρεία «{name}».", "ok")
-    return redirect(url_for("companies"))
+    return redirect(url_for("parameters", tab="companies"))
 
 
 @app.route("/companies/update/<int:idx>", methods=["POST"])
@@ -1561,7 +1576,7 @@ def companies_update(idx):
     comps = load_companies()
     if not (0 <= idx < len(comps)):
         flash("Η εταιρεία δεν βρέθηκε.", "error")
-        return redirect(url_for("companies"))
+        return redirect(url_for("parameters", tab="companies"))
     name = request.form.get("company_name", "").strip()
     user_id = request.form.get("aade_user_id", "").strip()
     sub_key = request.form.get("aade_subscription_key", "").strip()
@@ -1573,7 +1588,7 @@ def companies_update(idx):
             "χρησιμοποιούνται credentials λογιστή.",
             "error",
         )
-        return redirect(url_for("companies"))
+        return redirect(url_for("parameters", tab="companies"))
     db.update_company(
         comps[idx]["id"],
         {
@@ -1586,7 +1601,7 @@ def companies_update(idx):
         },
     )
     flash(f"✔ Ενημερώθηκε η εταιρεία «{name}».", "ok")
-    return redirect(url_for("companies"))
+    return redirect(url_for("parameters", tab="companies"))
 
 
 @app.route("/companies/delete/<int:idx>", methods=["POST"])
@@ -1594,17 +1609,19 @@ def companies_delete(idx):
     comps = load_companies()
     if not (0 <= idx < len(comps)):
         flash("Η εταιρεία δεν βρέθηκε.", "error")
-        return redirect(url_for("companies"))
+        return redirect(url_for("parameters", tab="companies"))
     removed = comps[idx]
     was_active = db.get_active_company_id() == removed["id"]
-    db.delete_company(removed["id"])  # cascade: παραστατικά της εταιρείας (οι προμηθευτές είναι κοινοί)
+    db.delete_company(
+        removed["id"]
+    )  # cascade: παραστατικά της εταιρείας (οι προμηθευτές είναι κοινοί)
     # Αν διαγράφηκε η ενεργή, όρισε την πρώτη που απομένει (αν υπάρχει).
     if was_active:
         remaining = load_companies()
         if remaining:
             db.set_active_company_id(remaining[0]["id"])
     flash(f"✔ Διαγράφηκε η εταιρεία «{removed.get('company_name', '')}».", "ok")
-    return redirect(url_for("companies"))
+    return redirect(url_for("parameters", tab="companies"))
 
 
 @app.route("/companies/select/<int:idx>", methods=["POST"])
@@ -1612,10 +1629,10 @@ def companies_select(idx):
     comps = load_companies()
     if not (0 <= idx < len(comps)):
         flash("Η εταιρεία δεν βρέθηκε.", "error")
-        return redirect(url_for("companies"))
+        return redirect(url_for("parameters", tab="companies"))
     db.set_active_company_id(comps[idx]["id"])
     flash(f"✔ Ενεργή εταιρεία: «{comps[idx].get('company_name', '')}».", "ok")
-    return redirect(url_for("companies"))
+    return redirect(url_for("parameters", tab="companies"))
 
 
 @app.route("/supplier_lookup/<vat>")
@@ -1662,8 +1679,8 @@ def accountant():
             }
         )
         flash("✔ Αποθηκεύτηκαν τα credentials λογιστή.", "ok")
-        return redirect(url_for("accountant"))
-    return render_template("accountant.html", acc=get_accountant())
+        return redirect(url_for("parameters", tab="accountant"))
+    return redirect(url_for("parameters", tab="accountant"))
 
 
 # ------------------------------------------------------------------ #
@@ -1671,7 +1688,7 @@ def accountant():
 # ------------------------------------------------------------------ #
 @app.route("/suppliers")
 def suppliers():
-    return render_template("suppliers.html", suppliers=db.list_suppliers())
+    return redirect(url_for("parameters", tab="suppliers"))
 
 
 @app.route("/suppliers/save", methods=["POST"])
@@ -1680,25 +1697,28 @@ def suppliers_save():
     name = request.form.get("name", "").strip()
     if not vat:
         flash("Το ΑΦΜ είναι υποχρεωτικό.", "error")
-        return redirect(url_for("suppliers"))
+        return redirect(url_for("parameters", tab="suppliers"))
     db.upsert_supplier(vat, name)
     flash(f"✔ Αποθηκεύτηκε ο προμηθευτής {vat}.", "ok")
-    return redirect(url_for("suppliers"))
+    return redirect(url_for("parameters", tab="suppliers"))
 
 
 @app.route("/suppliers/delete/<vat>", methods=["POST"])
 def suppliers_delete(vat):
     db.delete_supplier(vat)
     flash(f"✔ Διαγράφηκε ο προμηθευτής {vat}.", "ok")
-    return redirect(url_for("suppliers"))
+    return redirect(url_for("parameters", tab="suppliers"))
 
 
 @app.route("/suppliers/import", methods=["POST"])
 def suppliers_import():
     f = request.files.get("file")
     if not f or not f.filename:
-        flash("Επίλεξε αρχείο .txt (μία γραμμή ανά προμηθευτή: ΑΦΜ<κενό>Επωνυμία).", "error")
-        return redirect(url_for("suppliers"))
+        flash(
+            "Επίλεξε αρχείο .txt (μία γραμμή ανά προμηθευτή: ΑΦΜ<κενό>Επωνυμία).",
+            "error",
+        )
+        return redirect(url_for("parameters", tab="suppliers"))
     data = f.read()
     try:
         text = data.decode("utf-8-sig")
@@ -1706,7 +1726,7 @@ def suppliers_import():
         text = data.decode("utf-8", errors="replace")
     n = db.import_suppliers_txt(text)
     flash(f"✔ Εισήχθησαν/ενημερώθηκαν {n} προμηθευτές.", "ok")
-    return redirect(url_for("suppliers"))
+    return redirect(url_for("parameters", tab="suppliers"))
 
 
 @app.route("/suppliers/export")
@@ -1752,7 +1772,7 @@ def companies_import():
     f = request.files.get("file")
     if not f or not f.filename:
         flash("Επίλεξε αρχείο companies.json.", "error")
-        return redirect(url_for("companies"))
+        return redirect(url_for("parameters", tab="companies"))
     raw = f.read()
     try:
         text = raw.decode("utf-8-sig")
@@ -1762,7 +1782,7 @@ def companies_import():
         data = json.loads(text)
     except (json.JSONDecodeError, ValueError) as e:
         flash(f"Μη έγκυρο companies.json: {e}", "error")
-        return redirect(url_for("companies"))
+        return redirect(url_for("parameters", tab="companies"))
 
     file_companies = data.get("companies", []) if isinstance(data, dict) else data
     accountant = data.get("accountant", {}) if isinstance(data, dict) else {}
@@ -1793,7 +1813,7 @@ def companies_import():
         + ".",
         "ok",
     )
-    return redirect(url_for("companies"))
+    return redirect(url_for("parameters", tab="companies"))
 
 
 # ------------------------------------------------------------------ #
@@ -1801,11 +1821,7 @@ def companies_import():
 # ------------------------------------------------------------------ #
 @app.route("/combinations")
 def combinations():
-    return render_template(
-        "combinations.html",
-        count=db.combos_count(),
-        invoice_types=sorted(db.combos_invoice_types()),
-    )
+    return redirect(url_for("parameters", tab="combinations"))
 
 
 @app.route("/combinations/import", methods=["POST"])
@@ -1813,14 +1829,14 @@ def combinations_import():
     f = request.files.get("file")
     if not f or not f.filename:
         flash("Επίλεξε αρχείο (csv/tsv/txt) με τους συνδυασμούς της ΑΑΔΕ.", "error")
-        return redirect(url_for("combinations"))
+        return redirect(url_for("parameters", tab="combinations"))
     data = f.read()
     if data[:2] == b"PK":  # xlsx (zip) - αρχείο ΑΑΔΕ «Συνδυασμοί χαρακτηρισμών»
         try:
             n = db.import_combos_xlsx(data)
         except Exception as e:  # noqa: BLE001
             flash(f"Αποτυχία ανάγνωσης xlsx: {e}", "error")
-            return redirect(url_for("combinations"))
+            return redirect(url_for("parameters", tab="combinations"))
     else:
         try:
             text = data.decode("utf-8-sig")
@@ -1828,21 +1844,26 @@ def combinations_import():
             text = data.decode("utf-8", errors="replace")
         n = db.import_combos_csv(text)
     if n:
-        flash(f"✔ Εισήχθησαν {n} συνδυασμοί για {len(db.combos_invoice_types())} τύπους παραστατικών.", "ok")
+        flash(
+            f"✔ Εισήχθησαν {n} συνδυασμοί για {len(db.combos_invoice_types())} τύπους παραστατικών.",
+            "ok",
+        )
     else:
         flash(
             "Δεν βρέθηκαν έγκυροι συνδυασμοί στο αρχείο (αναμένονται κελιά όπως 1.1, "
             "category2_4, E3_585_011 ανά γραμμή). Στείλε μου το αρχείο να προσαρμόσω τον parser.",
             "error",
         )
-    return redirect(url_for("combinations"))
+    return redirect(url_for("parameters", tab="combinations"))
 
 
 @app.route("/combinations/clear", methods=["POST"])
 def combinations_clear():
     db.clear_combos()
-    flash("✔ Καθαρίστηκαν οι συνδυασμοί (η φόρμα δείχνει ξανά όλες τις επιλογές).", "ok")
-    return redirect(url_for("combinations"))
+    flash(
+        "✔ Καθαρίστηκαν οι συνδυασμοί (η φόρμα δείχνει ξανά όλες τις επιλογές).", "ok"
+    )
+    return redirect(url_for("parameters", tab="combinations"))
 
 
 @app.context_processor

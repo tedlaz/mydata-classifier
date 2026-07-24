@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h1>Παράμετροι</h1>
+  <p class="muted" style="margin-top:0;max-width:80ch">
+    Συγκεντρωμένη διαχείριση των κοινών ρυθμίσεων της εφαρμογής: προμηθευτές,
+    εταιρίες και credentials λογιστή.
+  </p>
+  <div class="tabs">
+    <a class="tab {{ 'is-active' if active_tab == 'suppliers' }}" href="{{ url_for('parameters', tab='suppliers') }}">Προμηθευτές</a>
+    <a class="tab {{ 'is-active' if active_tab == 'companies' }}" href="{{ url_for('parameters', tab='companies') }}">Εταιρίες</a>
+    <a class="tab {{ 'is-active' if active_tab == 'accountant' }}" href="{{ url_for('parameters', tab='accountant') }}">Λογιστής</a>
+    <a class="tab {{ 'is-active' if active_tab == 'combinations' }}" href="{{ url_for('parameters', tab='combinations') }}">Συνδυασμοί</a>
+  </div>
+</div>
+
+{% if active_tab == 'suppliers' %}
+<div class="card">
+  <h2 id="form_title">Προσθήκη / διόρθωση προμηθευτή</h2>
+  <p class="muted" style="max-width:75ch">
+    Κοινός κατάλογος για <strong>όλες τις εταιρείες</strong> (ΑΦΜ → επωνυμία + προαιρετική
+    πρόταση χαρακτηρισμού). Οι επωνυμίες συμπληρώνονται αυτόματα από τις αναζητήσεις,
+    αλλά μπορείς να προσθέσεις/διορθώσεις και χειροκίνητα ή μαζικά από αρχείο.
+  </p>
+
+  <div class="panel">
+    <form method="post" action="{{ url_for('suppliers_save') }}">
+      <div class="grid" style="grid-template-columns:1fr 2fr auto;align-items:end">
+        <div>
+          <label>ΑΦΜ</label>
+          <input type="text" name="vat" id="f_vat" required placeholder="π.χ. 090000045">
+        </div>
+        <div>
+          <label>Επωνυμία</label>
+          <input type="text" name="name" id="f_name" placeholder="π.χ. ΔΕΗ ΑΕ">
+        </div>
+        <div>
+          <button type="submit">💾 Αποθήκευση</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="btn-row">
+    <form method="post" action="{{ url_for('suppliers_import') }}" enctype="multipart/form-data"
+          style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="file" name="file" accept=".txt,text/plain" required style="width:auto">
+      <button type="submit" class="btn-ghost">📥 Εισαγωγή από .txt</button>
+    </form>
+    <a class="btn-ghost btn" href="{{ url_for('suppliers_export') }}">📤 Εξαγωγή σε .txt</a>
+  </div>
+  <p class="muted" style="margin-top:6px">Μορφή αρχείου: μία γραμμή ανά προμηθευτή, <span class="mono">ΑΦΜ&lt;κενό&gt;Επωνυμία</span> (διαχωριστικό το πρώτο κενό).</p>
+</div>
+
+<div class="card">
+  <h2>Κατάλογος <span class="count">{{ suppliers|length }}</span></h2>
+  {% if suppliers %}
+  <div class="table-wrap">
+  <table class="ledger">
+    <thead>
+      <tr><th>ΑΦΜ</th><th>Επωνυμία</th><th>Πρόταση χαρακτηρισμού</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for s in suppliers %}
+      <tr>
+        <td data-label="ΑΦΜ" class="mark">{{ s.vat }}</td>
+        <td data-label="Επωνυμία">{{ s.name or "—" }}</td>
+        <td data-label="Πρόταση" class="mono" style="font-size:.82rem">
+          {% if s.rule_type %}{{ s.rule_category or "" }} / {{ s.rule_type }}{% if s.rule_vat_type %} / {{ s.rule_vat_type }}{% endif %}{% else %}—{% endif %}
+        </td>
+        <td data-label="">
+          <div class="actions">
+            <button type="button" class="btn btn-ghost sup-edit"
+                    data-vat="{{ s.vat }}" data-name="{{ s.name or '' }}">Επεξεργασία</button>
+            <form method="post" action="{{ url_for('suppliers_delete', vat=s.vat) }}" style="display:inline">
+              <button type="submit" class="btn-danger"
+                      onclick="return confirm('Διαγραφή του προμηθευτή {{ s.vat }};')">Διαγραφή</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">Δεν υπάρχουν προμηθευτές ακόμη.</p>
+  {% endif %}
+</div>
+
+<script>
+function editSupplier(vat, name) {
+  document.getElementById('f_vat').value = vat;
+  document.getElementById('f_name').value = name || '';
+  document.getElementById('form_title').textContent = 'Διόρθωση προμηθευτή ' + vat;
+  window.scrollTo({top: 0, behavior: 'smooth'});
+  document.getElementById('f_name').focus();
+}
+document.querySelectorAll('.sup-edit').forEach(function (b) {
+  b.addEventListener('click', function () {
+    editSupplier(b.dataset.vat, b.dataset.name);
+  });
+});
+</script>
+{% elif active_tab == 'companies' %}
+<div class="card">
+  <h2>Διαχείριση εταιρειών</h2>
+  <p class="muted">
+    Τα προφίλ και η ενεργή επιλογή αποθηκεύονται στη βάση. Η <strong>ενεργή</strong>
+    εταιρεία καθορίζει με ποια credentials, ΑΦΜ και περιβάλλον (dev/prod) γίνονται
+    όλες οι κλήσεις προς το myDATA. Οι προμηθευτές είναι <strong>κοινοί</strong> για όλες
+    τις εταιρείες (καρτέλα «Προμηθευτές»).
+  </p>
+  <div class="btn-row">
+    <a href="{{ url_for('companies_export') }}" class="btn btn-ghost" download>📤 Εξαγωγή σε companies.json</a>
+    <form method="post" action="{{ url_for('companies_import') }}" enctype="multipart/form-data" style="display:inline"
+          onsubmit="return confirm('Εισαγωγή εταιρειών &amp; λογιστή από το επιλεγμένο companies.json; Οι υπάρχουσες (ίδια επωνυμία) θα ενημερωθούν.')">
+      <input type="file" name="file" accept=".json,application/json" required
+             onchange="this.form.requestSubmit()" style="display:none" id="companies-import-file">
+      <label for="companies-import-file" class="btn btn-ghost">📥 Εισαγωγή από companies.json</label>
+    </form>
+  </div>
+
+  {% if companies %}
+  {% for c in companies %}
+  <form method="post" action="{{ url_for('companies_update', idx=loop.index0) }}"
+        class="card" style="background:{% if loop.index0 == active %}#e7f3f0{% else %}#fbfcfa{% endif %}">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">
+        {{ c.company_name }}
+        {% if loop.index0 == active %}<span class="pill" style="background:var(--accent);color:#fff">ΕΝΕΡΓΗ</span>{% endif %}
+        <span class="pill">{{ c.MYDATA_ENV or 'prod' }}</span>
+      </h2>
+      <div style="display:flex;gap:8px">
+        {% if loop.index0 != active %}
+        <button formaction="{{ url_for('companies_select', idx=loop.index0) }}" formmethod="post"
+                class="btn-ghost" style="background:transparent;color:var(--accent);border:1px solid var(--accent)">
+          Ορισμός ως ενεργή
+        </button>
+        {% endif %}
+        <button formaction="{{ url_for('companies_delete', idx=loop.index0) }}" formmethod="post"
+                style="background:#fdecea;color:var(--err);border:1px solid #f3c1bd"
+                onclick="return confirm('Διαγραφή της εταιρείας «{{ c.company_name }}»;')">
+          Διαγραφή
+        </button>
+      </div>
+    </div>
+    <div class="grid" style="grid-template-columns:2fr 1.5fr 2fr 1.2fr 1fr auto;gap:10px;align-items:end;margin-top:12px">
+      <div>
+        <label>Επωνυμία</label>
+        <input type="text" name="company_name" value="{{ c.company_name }}" required>
+      </div>
+      <div>
+        <label>AADE User ID</label>
+        <input type="text" name="aade_user_id" value="{{ c.AADE_USER_ID }}" required>
+      </div>
+      <div>
+        <label>Subscription Key</label>
+        <input type="password" name="aade_subscription_key" value="{{ c.AADE_SUBSCRIPTION_KEY }}" required
+               onfocus="this.type='text'" onblur="this.type='password'">
+      </div>
+      <div>
+        <label>ΑΦΜ</label>
+        <input type="text" name="aade_vat_number" value="{{ c.AADE_VAT_NUMBER or '' }}">
+      </div>
+      <div>
+        <label>Περιβάλλον</label>
+        <select name="mydata_env">
+          <option value="prod" {% if (c.MYDATA_ENV or 'prod') == 'prod' %}selected{% endif %}>prod</option>
+          <option value="dev" {% if c.MYDATA_ENV == 'dev' %}selected{% endif %}>dev</option>
+        </select>
+      </div>
+      <div>
+        <button type="submit">Αποθήκευση</button>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:.9rem;color:var(--ink-2);cursor:pointer">
+      <input type="checkbox" name="use_accountant" value="1" style="width:auto"
+             {% if c.use_accountant %}checked{% endif %}>
+      Χρήση credentials λογιστή (στέλνεται το ΑΦΜ της εταιρείας ως entityVatNumber)
+    </label>
+  </form>
+  {% endfor %}
+  {% else %}
+    <p>Δεν έχει οριστεί καμία εταιρεία ακόμα - πρόσθεσε την πρώτη παρακάτω.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Προσθήκη νέας εταιρείας</h2>
+  <form method="post" action="{{ url_for('companies_add') }}">
+    <div class="grid" style="grid-template-columns:2fr 1.5fr 2fr 1.2fr 1fr auto;gap:10px;align-items:end">
+      <div>
+        <label>Επωνυμία</label>
+        <input type="text" name="company_name" placeholder="π.χ. ΔΟΚΙΜΗ ΑΕ" required>
+      </div>
+      <div>
+        <label>AADE User ID</label>
+        <input type="text" name="aade_user_id" required>
+      </div>
+      <div>
+        <label>Subscription Key</label>
+        <input type="text" name="aade_subscription_key" required>
+      </div>
+      <div>
+        <label>ΑΦΜ</label>
+        <input type="text" name="aade_vat_number">
+      </div>
+      <div>
+        <label>Περιβάλλον</label>
+        <select name="mydata_env">
+          <option value="prod">prod</option>
+          <option value="dev">dev</option>
+        </select>
+      </div>
+      <div>
+        <button type="submit">Προσθήκη</button>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:.9rem;color:var(--ink-2);cursor:pointer">
+      <input type="checkbox" name="use_accountant" value="1" style="width:auto">
+      Χρήση credentials λογιστή (στέλνεται το ΑΦΜ της εταιρείας ως entityVatNumber)
+    </label>
+  </form>
+</div>
+{% elif active_tab == 'accountant' %}
+<div class="card">
+  <h2>Credentials λογιστή</h2>
+  <p class="muted" style="margin-top:0">
+    Κοινό ζεύγος credentials για εταιρείες που έχουν επιλέξει «Χρήση credentials λογιστή».
+    Σε κάθε κλήση στο myDATA στέλνεται αυτόματα το ΑΦΜ της εκάστοτε εταιρείας ως
+    <code>entityVatNumber</code>, όπως προβλέπει η ΑΑΔΕ για διαβίβαση από εκπρόσωπο/λογιστή.
+    Απαιτείται η εταιρεία να έχει εξουσιοδοτήσει τον λογιστή (myTAXISnet → Εξουσιοδοτήσεις)
+    και να έχει καταχωρημένο ΑΦΜ στη Διαχείριση εταιρειών.
+  </p>
+  <form method="post" action="{{ url_for('accountant') }}" class="grid grid-3" style="align-items:end">
+    <div>
+      <label>AADE User ID λογιστή</label>
+      <input type="text" name="user_id" value="{{ acc.user_id or '' }}" autocomplete="off">
+    </div>
+    <div>
+      <label>Subscription Key λογιστή</label>
+      <input type="password" name="subscription_key" value="{{ acc.subscription_key or '' }}"
+             autocomplete="off" onfocus="this.type='text'" onblur="this.type='password'">
+    </div>
+    <div>
+      <label>Περιβάλλον</label>
+      <select name="env">
+        <option value="prod" {% if (acc.env or 'prod') == 'prod' %}selected{% endif %}>prod</option>
+        <option value="dev" {% if acc.env == 'dev' %}selected{% endif %}>dev</option>
+      </select>
+    </div>
+    <div>
+      <button type="submit">Αποθήκευση</button>
+    </div>
+  </form>
+</div>
+{% else %}
+<div class="card">
+  <h2>Συνδυασμοί χαρακτηρισμών</h2>
+  <p class="muted" style="max-width:78ch">
+    Επίσημος πίνακας ΑΑΔΕ «Συνδυασμοί χαρακτηρισμών»: ορίζει ποιες
+    <strong>κατηγορίες</strong> και <strong>τύποι E3</strong> επιτρέπονται ανά τύπο παραστατικού.
+    Όταν είναι φορτωμένος, η φόρμα χαρακτηρισμού <strong>περιορίζει</strong> τις επιλογές αλυσιδωτά.
+    Αν δεν φορτωθεί, εμφανίζονται όλες οι επιλογές (χωρίς περιορισμό).
+  </p>
+
+  {% if combinations_count %}
+  <p class="pill" style="background:var(--accent-soft);border-color:var(--accent-glow);color:var(--accent-deep)">
+    ✔ Φορτωμένοι <strong>{{ combinations_count }}</strong> συνδυασμοί για <strong>{{ combinations_invoice_types|length }}</strong> τύπους παραστατικών.
+  </p>
+  {% else %}
+  <p class="pill" style="background:#fff6e6;border-color:#eeddb7;color:#8a6414">
+    Δεν έχουν φορτωθεί συνδυασμοί — η φόρμα χαρακτηρισμού δείχνει όλες τις επιλογές.
+  </p>
+  {% endif %}
+
+  <div class="btn-row">
+    <form method="post" action="{{ url_for('combinations_import') }}" enctype="multipart/form-data"
+          style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="file" name="file" accept=".xlsx,.csv,.tsv,.txt" required style="width:auto">
+      <button type="submit" class="btn-ghost">📥 Εισαγωγή αρχείου ΑΑΔΕ (.xlsx/.csv)</button>
+    </form>
+    {% if combinations_count %}
+    <form method="post" action="{{ url_for('combinations_clear') }}" style="display:inline"
+          onsubmit="return confirm('Καθαρισμός όλων των συνδυασμών;')">
+      <button type="submit" class="btn-danger">🗑️ Καθαρισμός</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="muted" style="margin-top:6px">Αποδεκτά: το επίσημο <span class="mono">syndiasmoi_xaraktirismwn_*.xlsx</span> (ένα φύλλο ανά τύπο) ή csv/tsv με κελιά τύπου 1.1 / category2_x / E3_xxx.</p>
+
+  {% if combinations_invoice_types %}
+  <h2 style="margin-top:22px">Τύποι με ορισμένους συνδυασμούς</h2>
+  <p class="mono" style="font-size:.85rem;line-height:2">
+    {% for t in combinations_invoice_types %}<span class="pill" style="margin-right:4px">{{ t }}</span>{% endfor %}
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+
+<style>
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 0}
+  .tab{padding:8px 14px;border-radius:10px;color:var(--muted);font-weight:600;
+       text-decoration:none;border:1px solid var(--line);background:var(--surface-2)}
+  .tab:hover{color:var(--accent);border-color:var(--accent-glow)}
+  .tab.is-active{color:#fff;background:var(--accent);border-color:var(--accent)}
+</style>
+{% endblock %}

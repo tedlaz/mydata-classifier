@@ -157,10 +157,7 @@
     <a href="{{ url_for('income') }}">Βιβλίο εσόδων</a>
     <a href="{{ url_for('reports') }}">Αναφορές</a>
     <a href="{{ url_for('new_expense') }}">Νέα εγγραφή</a>
-    <a href="{{ url_for('suppliers') }}">Προμηθευτές</a>
-    <a href="{{ url_for('combinations') }}">Συνδυασμοί</a>
-    <a href="{{ url_for('companies') }}">Εταιρείες</a>
-    <a href="{{ url_for('accountant') }}">Λογιστής</a>
+    <a href="{{ url_for('parameters') }}">Παράμετροι</a>
   </nav>
   {% if active_company %}
   <span class="who">{{ active_company.company_name }} · {{ active_company.MYDATA_ENV or 'prod' }}</span>
