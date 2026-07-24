@@ -568,14 +568,11 @@ def document(mark):
     )
 
 
-def _classification_rows(inv, rule: dict) -> list[dict]:
-    """Γραμμές χαρακτηρισμού (E3) σε επίπεδο παραστατικού: κάθε γραμμή =
-    {category, type, amount, vat_type}. Ζευγαρώνει κάθε E3 με γραμμή ΦΠΑ ίδιου
-    ποσού. Αν δεν υπάρχει χαρακτηρισμός, μία κενή γραμμή με την καθαρή αξία."""
-    cls = inv.cls_info or []
-    e3s = [e for e in cls if e.get("type") and not e["type"].startswith("VAT_")]
-    vats = [e for e in cls if (e.get("type") or "").startswith("VAT_")]
-    pool = list(vats)
+def _pair_cls_rows(entries: list[dict]) -> list[dict]:
+    """Ζευγαρώνει κάθε E3 χαρακτηρισμό με γραμμή ΦΠΑ (VAT_xxx) ίδιου ποσού και
+    επιστρέφει UI rows {category, type, amount, vat_type}."""
+    e3s = [e for e in entries if e.get("type") and not e["type"].startswith("VAT_")]
+    pool = [e for e in entries if (e.get("type") or "").startswith("VAT_")]
     rows = []
     for e in e3s:
         amt = round(float(e.get("amount") or 0), 2)
@@ -592,17 +589,54 @@ def _classification_rows(inv, rule: dict) -> list[dict]:
                 "vat_type": (vt or {}).get("type", ""),
             }
         )
-    if not rows:
-        rows = [
-            {
-                "category": rule.get("category", ""),
-                "type": rule.get("type", ""),
-                "amount": inv.total_net,
-                "vat_type": rule.get("vat_type", "")
-                or ("VAT_361" if (inv.total_vat or 0) > 0 else ""),
-            }
-        ]
     return rows
+
+
+def _line_classification_rows(inv, rule: dict) -> list[dict]:
+    """Ομάδες χαρακτηρισμού ΑΝΑ ΓΡΑΜΜΗ του αρχικού παραστατικού. Το myDATA απαιτεί
+    χαρακτηρισμό ΚΑΘΕ γραμμής, με άθροισμα E3 ίσο με την αξία της (σφάλματα
+    303/304/306 όταν λείπουν γραμμές ή δεν κλείνουν τα ποσά). Κάθε ομάδα =
+    {line_number, net, vat, rows:[{category, type, amount, vat_type}]}."""
+    lines = inv.lines or []
+    if not lines:
+        # Παλιά/ελλιπή δεδομένα χωρίς ανάλυση γραμμών: μία συνθετική γραμμή.
+        lines = [
+            InvoiceLine(
+                line_number=1,
+                net_value=inv.total_net or 0.0,
+                vat_amount=inv.total_vat or 0.0,
+                vat_category=None,
+                has_expenses_classification=False,
+            )
+        ]
+    single = len(lines) == 1
+    groups = []
+    for ln in lines:
+        net = round(ln.net_value or 0, 2)
+        vat = round(ln.vat_amount or 0, 2)
+        # Προσυμπλήρωση: χαρακτηρισμοί της ίδιας γραμμής· για μονόγραμμο
+        # παραστατικό δέξου και τον συγκεντρωτικό (cls_info) ως fallback.
+        src = ln.classifications or (inv.cls_info if single else []) or []
+        rows = _pair_cls_rows(src)
+        if not rows:
+            rows = [
+                {
+                    "category": rule.get("category", ""),
+                    "type": rule.get("type", ""),
+                    "amount": net,
+                    "vat_type": rule.get("vat_type", "")
+                    or ("VAT_361" if vat > 0 else ""),
+                }
+            ]
+        groups.append(
+            {
+                "line_number": ln.line_number or (len(groups) + 1),
+                "net": net,
+                "vat": vat,
+                "rows": rows,
+            }
+        )
+    return groups
 
 
 @app.route("/classify/<mark>")
@@ -617,7 +651,7 @@ def classify(mark):
     return render_template(
         "classify.html",
         inv=inv,
-        rows=_classification_rows(inv, rule),
+        line_groups=_line_classification_rows(inv, rule),
         has_existing=bool(inv.cls_info),
         categories=EXPENSE_CATEGORIES,
         types=EXPENSE_TYPES,
@@ -641,17 +675,19 @@ def submit(mark):
         return redirect(url_for("index"))
     inv = _row_to_invoice(row)
 
-    # Γραμμές χαρακτηρισμού σε επίπεδο παραστατικού (parallel λίστες από τη φόρμα):
-    # κάθε γραμμή = κατηγορία + τύπος E3 + ποσό (+ προαιρετικό ΦΠΑ ίδιου ποσού).
+    # Γραμμές χαρακτηρισμού ΑΝΑ ΓΡΑΜΜΗ παραστατικού (parallel λίστες από τη φόρμα):
+    # κάθε γραμμή = αριθμός γραμμής παραστατικού + κατηγορία + τύπος E3 + ποσό
+    # (+ προαιρετικό ΦΠΑ ίδιου ποσού). Το line_number έρχεται από την ΠΡΑΓΜΑΤΙΚΗ
+    # γραμμή του παραστατικού - όχι σειριακά - ώστε να μη σκάσει σε σφάλμα 303/304.
+    line_nos = request.form.getlist("line_number")
     cats = request.form.getlist("category")
     typs = request.form.getlist("type")
     amounts = request.form.getlist("amount")
     vts = request.form.getlist("vat_type")
 
     classifications = []
-    n = 0
     rule_from = None
-    for ccat, ctype, amount, vat_type in zip(cats, typs, amounts, vts):
+    for lno, ccat, ctype, amount, vat_type in zip(line_nos, cats, typs, amounts, vts):
         if not (ccat and ctype and amount.strip()):
             continue
         try:
@@ -659,10 +695,13 @@ def submit(mark):
         except ValueError:
             flash(f"Μη έγκυρο ποσό «{amount}».", "error")
             return redirect(url_for("classify", mark=mark))
-        n += 1
+        try:
+            line_no = int(lno)
+        except (ValueError, TypeError):
+            line_no = 1
         classifications.append(
             {
-                "line_number": n,
+                "line_number": line_no,
                 "classification_type": ctype,
                 "classification_category": ccat,
                 "amount": amt,
@@ -672,7 +711,7 @@ def submit(mark):
         if vat_type:
             classifications.append(
                 {
-                    "line_number": n,
+                    "line_number": line_no,
                     "classification_type": vat_type,
                     "classification_category": "",
                     "amount": amt,
@@ -685,23 +724,54 @@ def submit(mark):
         flash("Δεν συμπληρώθηκε καμία γραμμή χαρακτηρισμού.", "error")
         return redirect(url_for("classify", mark=mark))
 
-    # Το άθροισμα των E3 πρέπει να πέφτει στο εύρος [καθαρή, μικτή]: καθαρή όταν όλα
-    # τα έξοδα έχουν δικαίωμα έκπτωσης ΦΠΑ (E3=καθαρή + γραμμή ΦΠΑ), μικτή όταν δεν
-    # έχουν (E3=καθαρή+ΦΠΑ, χωρίς γραμμή ΦΠΑ). Εκτός εύρους → πιθανό σφάλμα 306.
-    e3_sum = round(
-        sum(c["amount"] for c in classifications
-            if not c["classification_type"].startswith("VAT_")),
-        2,
-    )
-    net = round(inv.total_net or 0, 2)
-    gross = round(inv.total_gross or 0, 2)
-    if inv.total_net is not None and not (net - 0.01 <= e3_sum <= gross + 0.01):
-        flash(
-            f"⚠ Προσοχή: το άθροισμα των γραμμών E3 ({e3_sum:.2f} €) είναι εκτός του "
-            f"έγκυρου εύρους καθαρή–μικτή ({net:.2f}–{gross:.2f} €). Το myDATA πιθανόν "
-            "να το απορρίψει στην αποστολή.",
-            "error",
-        )
+    # Έλεγχος κάλυψης ΑΝΑ ΓΡΑΜΜΗ: το myDATA απαιτεί χαρακτηρισμό ΚΑΘΕ γραμμής του
+    # αρχικού παραστατικού, με άθροισμα E3 στο εύρος [καθαρή, μικτή] της γραμμής -
+    # καθαρή όταν το έξοδο έχει δικαίωμα έκπτωσης ΦΠΑ (E3=καθαρή + γραμμή ΦΠΑ),
+    # μικτή όταν δεν έχει. Αλλιώς σφάλματα 303 (γραμμή χωρίς χαρακτηρισμό), 304
+    # (πλήθος γραμμών ≠ πλήθος χαρακτηρισμών), 306 (άθροισμα ≠ αξία γραμμής).
+    inv_lines = inv.lines or []
+    if inv_lines:
+        by_line: dict[int, list[dict]] = {}
+        for c in classifications:
+            by_line.setdefault(c["line_number"], []).append(c)
+        errors = []
+        stray = sorted(set(by_line) - {ln.line_number for ln in inv_lines})
+        if stray:
+            errors.append(
+                "γραμμές που δεν υπάρχουν στο παραστατικό: "
+                + ", ".join(map(str, stray))
+            )
+        for ln in inv_lines:
+            net_i = round(ln.net_value or 0, 2)
+            gross_i = round(net_i + (ln.vat_amount or 0), 2)
+            entries = by_line.get(ln.line_number, [])
+            if not entries:
+                errors.append(
+                    f"η γραμμή {ln.line_number} (καθαρή {net_i:.2f} €) "
+                    "δεν χαρακτηρίστηκε"
+                )
+                continue
+            e3_sum = round(
+                sum(
+                    e["amount"]
+                    for e in entries
+                    if not e["classification_type"].startswith("VAT_")
+                ),
+                2,
+            )
+            # Έλεγχος αθροίσματος μόνο όταν ξέρουμε την αξία της γραμμής (net>0).
+            if gross_i > 0 and not (net_i - 0.01 <= e3_sum <= gross_i + 0.01):
+                errors.append(
+                    f"γραμμή {ln.line_number}: άθροισμα E3 {e3_sum:.2f} € εκτός "
+                    f"εύρους {net_i:.2f}–{gross_i:.2f} €"
+                )
+        if errors:
+            flash(
+                "⚠ Ο χαρακτηρισμός δεν καλύπτει σωστά όλες τις γραμμές — το myDATA "
+                "θα τον απέρριπτε (303/304/306): " + " · ".join(errors) + ".",
+                "error",
+            )
+            return redirect(url_for("classify", mark=mark))
 
     # «Χειροκίνητο»: το παραστατικό είναι ήδη χαρακτηρισμένο στην πύλη myDATA - το
     # καταγράφουμε ΜΟΝΟ τοπικά (→ «Επιβεβαιωμένα», tag Manually), χωρίς αποστολή.
