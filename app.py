@@ -509,9 +509,7 @@ def invoices():
                 not in ((inv.issuer_name or "") + " " + (inv.issuer_vat or "")).lower()
             ):
                 return False
-            if ft and ft not in (inv.invoice_type or ""):
-                return False
-            return True
+            return not (ft and ft not in (inv.invoice_type or ""))
 
         items = [i for i in items if _match(i)]
 

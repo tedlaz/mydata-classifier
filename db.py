@@ -765,8 +765,11 @@ def import_combos_csv(text: str) -> int:
     return len(combos)
 
 
-def _col_num(ref: str) -> int:
-    letters = _re.match(r"[A-Z]+", ref).group(0)
+def _col_num(ref: str | None) -> int:
+    match = _re.match(r"[A-Z]+", ref or "")
+    if match is None:
+        raise ValueError(f"Invalid Excel cell reference: {ref!r}")
+    letters = match.group(0)
     n = 0
     for ch in letters:
         n = n * 26 + (ord(ch) - 64)
@@ -797,7 +800,7 @@ def _read_xlsx(data: bytes) -> dict:
 
     sheets = {}
     for s in wb.iter(ns + "sheet"):
-        target = rid2target.get(s.get(rns + "id"), "")
+        target = rid2target.get(s.get(rns + "id")) or ""
         path = target.lstrip("/") if target.startswith("/") else "xl/" + target
         root = ET.fromstring(z.read(path))
         rows = []
@@ -808,6 +811,8 @@ def _read_xlsx(data: bytes) -> dict:
                 v = c.find(ns + "v")
                 istag = c.find(ns + "is")
                 if t == "s" and v is not None:
+                    if v.text is None:
+                        raise ValueError("Missing shared-string index in Excel cell")
                     val = shared[int(v.text)]
                 elif t == "inlineStr" and istag is not None:
                     val = "".join(x.text or "" for x in istag.iter(ns + "t"))
@@ -878,8 +883,6 @@ def import_combos_xlsx(data: bytes) -> int:
                     "δεν" in low and "διαθέσιμο" in low
                 ):
                     combos.add((itype, cat, "-"))
-                elif "παραπάν" in low or "επιτρεπτ" in low or "όλ" in low:
-                    combos.add((itype, cat, "*"))
                 elif low.strip():
                     combos.add((itype, cat, "*"))
     with get_conn() as conn:
