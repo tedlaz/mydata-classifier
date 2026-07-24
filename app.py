@@ -16,6 +16,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
 
@@ -1143,8 +1144,13 @@ _EXPENSE_CLASSIFIED_STATUSES = ["classified", "sent", "confirmed"]
 
 @app.route("/reports")
 def reports():
-    date_from = request.args.get("date_from", "").strip()
-    date_to = request.args.get("date_to", "").strip()
+    # Αν δεν δόθηκαν ρητά στο URL, χρησιμοποίησε τις τελευταίες τιμές της συνεδρίας.
+    if "date_from" in request.args or "date_to" in request.args:
+        date_from = request.args.get("date_from", "").strip()
+        date_to = request.args.get("date_to", "").strip()
+    else:
+        date_from = session.get("reports_date_from", "")
+        date_to = session.get("reports_date_to", "")
 
     # Επικύρωση (αν δόθηκαν): ISO yyyy-mm-dd. Κενά = χωρίς όριο.
     valid = True
@@ -1157,6 +1163,10 @@ def reports():
     if not valid:
         flash("Μη έγκυρες ημερομηνίες.", "error")
         date_from = date_to = ""
+
+    # Απομνημόνευση των τελευταίων έγκυρων τιμών για την επόμενη επίσκεψη.
+    session["reports_date_from"] = date_from
+    session["reports_date_to"] = date_to
 
     cid = _active_company_id()
     submitted = bool(date_from or date_to)
