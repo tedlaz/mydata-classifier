@@ -553,18 +553,21 @@ def report_documents(
     if not company_id:
         return []
     q = (
-        "SELECT id, issue_date, invoice_type, total_net, total_vat, total_gross, "
-        "lines_json, cls_json FROM documents WHERE company_id = ? AND kind = ?"
+        "SELECT d.id, d.issue_date, d.counterparty_vat, s.name AS counterparty_name, "
+        "d.invoice_type, d.total_net, d.total_vat, d.total_gross, "
+        "d.lines_json, d.cls_json FROM documents AS d "
+        "LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
+        "WHERE d.company_id = ? AND d.kind = ?"
     )
     params: list = [company_id, kind]
     if statuses:
-        q += f" AND status IN ({','.join('?' * len(statuses))})"
+        q += f" AND d.status IN ({','.join('?' * len(statuses))})"
         params.extend(statuses)
     if date_from:
-        q += " AND issue_date >= ?"
+        q += " AND d.issue_date >= ?"
         params.append(date_from)
     if date_to:
-        q += " AND issue_date <= ?"
+        q += " AND d.issue_date <= ?"
         params.append(date_to)
 
     with get_conn() as conn:

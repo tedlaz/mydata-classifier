@@ -104,6 +104,11 @@
     <fieldset class="report-options">
       <legend>Πρόσθετη ανάλυση</legend>
       <label>
+        <input type="checkbox" name="group_by" value="counterparty"
+               {{ 'checked' if 'counterparty' in group_by }}>
+        Ανά Πελάτη ή προμηθευτή
+      </label>
+      <label>
         <input type="checkbox" name="group_by" value="invoice_type"
                {{ 'checked' if 'invoice_type' in group_by }}>
         Τύπος παραστατικού

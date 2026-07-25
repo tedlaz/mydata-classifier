@@ -1247,9 +1247,10 @@ def income():
 # επιβεβαιωμένα — όλα έχουν χαρακτηρισμό).
 _INCOME_CLASSIFIED_STATUSES = ["classified"]
 _EXPENSE_CLASSIFIED_STATUSES = ["classified", "sent", "confirmed"]
-_REPORT_GROUPS = ("invoice_type", "classification", "vat")
+_REPORT_GROUPS = ("counterparty", "invoice_type", "classification", "vat")
 _REPORT_GROUP_LABELS = {
     "period": "Περίοδος",
+    "counterparty": "Πελάτης ή προμηθευτής",
     "invoice_type": "Τύπος παραστατικού",
     "classification": "Χαρακτηρισμός",
     "vat": "Κατηγορία ΦΠΑ",
@@ -1386,6 +1387,13 @@ def _report_group_totals(
                 key_parts = []
                 if period:
                     key_parts.append(_report_period(doc.get("issue_date"), period))
+                if "counterparty" in group_by:
+                    key_parts.append(
+                        (
+                            str(doc.get("counterparty_name") or ""),
+                            str(doc.get("counterparty_vat") or ""),
+                        )
+                    )
                 if "invoice_type" in group_by:
                     key_parts.append(str(doc.get("invoice_type") or ""))
                 if by_classification:
@@ -1426,6 +1434,15 @@ def _report_group_label(dimension: str, value) -> str:
             return "Χωρίς τύπο"
         description = INVOICE_TYPE_NAMES.get(value)
         return f"{value} — {description}" if description else value
+    if dimension == "counterparty":
+        name, vat = value
+        if name and vat:
+            return f"{name} — {vat}"
+        if name:
+            return name
+        if vat:
+            return vat
+        return "Χωρίς στοιχεία πελάτη / προμηθευτή"
     if dimension == "classification":
         category, classification_type = value
         if not (category or classification_type):
@@ -1526,7 +1543,16 @@ def reports():
         empty = _empty_report_totals()
 
         def group_sort_key(values):
-            return tuple(str(value) for value in values)
+            def sortable(value):
+                if isinstance(value, tuple):
+                    # Στον αντισυμβαλλόμενο το πρώτο στοιχείο είναι η επωνυμία.
+                    # Αν λείπει, χρησιμοποίησε το ΑΦΜ ως εφεδρικό κλειδί σειράς.
+                    if len(value) == 2 and not value[0]:
+                        return str(value[1]).casefold()
+                    return " ".join(str(part) for part in value).casefold()
+                return str(value).casefold()
+
+            return tuple(sortable(value) for value in values)
 
         if period:
             income_periods = _report_group_totals(income_documents, period, [])
