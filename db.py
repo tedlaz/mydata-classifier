@@ -705,6 +705,21 @@ def delete_document(company_id: int | None, mark: str) -> None:
         )
 
 
+def delete_documents_range(
+    company_id: int | None, kind: str, date_from: str, date_to: str
+) -> int:
+    """Διαγράφει τα παραστατικά ενός βιβλίου και εύρους ημερομηνιών."""
+    if not company_id or kind not in ("expense", "income"):
+        return 0
+    with get_conn() as conn:
+        cursor = conn.execute(
+            "DELETE FROM documents "
+            "WHERE company_id = ? AND kind = ? AND issue_date BETWEEN ? AND ?",
+            (company_id, kind, date_from, date_to),
+        )
+        return cursor.rowcount
+
+
 def stage_action(company_id: int | None, mark: str, action: str) -> bool:
     """Στήνει τοπικά ενέργεια απόρριψης/ακύρωσης στο «Χαρακτηρισμένα» για μαζική
     αποστολή. action: 'reject' | 'cancel'. Επιστρέφει False αν δεν βρέθηκε."""

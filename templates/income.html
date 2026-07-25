@@ -31,22 +31,24 @@
 {% block content %}
 <div class="card">
   <h1>Βιβλίο εσόδων</h1>
-  <p class="muted" style="margin-top:0">
-    Κατεβάζει τα παραστατικά <strong>που έχεις εκδώσει εσύ</strong> (έσοδα) για το διάστημα
-    και τα δείχνει ανά κατάσταση χαρακτηρισμού. <em>Φάση προβολής</em> — η αποστολή
-    χαρακτηρισμού εσόδων θα προστεθεί σε επόμενο βήμα.
-  </p>
+
   <form method="post" action="{{ url_for('income_fetch') }}" class="grid" style="margin-top:14px;grid-template-columns:1fr 1fr auto;align-items:end">
     <div>
       <label for="date_from">Από</label>
-      <input type="date" id="date_from" name="date_from" value="{{ today }}" required>
+      <input type="date" id="date_from" name="date_from" value="{{ range_date_from }}" required>
     </div>
     <div>
       <label for="date_to">Έως</label>
-      <input type="date" id="date_to" name="date_to" value="{{ today }}" required>
+      <input type="date" id="date_to" name="date_to" value="{{ range_date_to }}" required>
     </div>
-    <div>
+    <div class="range-actions">
       <button type="submit">Ανάκτηση εσόδων</button>
+      <button type="submit" class="btn-delete-range"
+              formaction="{{ url_for('delete_documents_range') }}"
+              name="kind" value="income"
+              onclick="return confirm('Θα διαγραφούν οριστικά τα παραστατικά εσόδων της ενεργής εταιρείας για το επιλεγμένο διάστημα. Συνέχεια;')">
+        Διαγραφή
+      </button>
     </div>
   </form>
 </div>

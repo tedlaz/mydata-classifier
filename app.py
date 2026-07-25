@@ -380,11 +380,7 @@ def _row_to_invoice(row: dict, names: dict | None = None) -> ExpenseInvoice:
 
 @app.route("/")
 def index():
-    company = get_active_company()
-    env = (
-        company.get("MYDATA_ENV") if company else os.getenv("MYDATA_ENV", "dev")
-    ) or "prod"
-    return render_template("index.html", env=env, company=company)
+    return redirect(url_for("invoices"))
 
 
 @app.route("/fetch", methods=["POST"])
@@ -397,7 +393,7 @@ def fetch():
         dt = date.fromisoformat(date_to).strftime("%d/%m/%Y")
     except ValueError:
         flash("Μη έγκυρες ημερομηνίες.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("invoices"))
 
     cid = _active_company_id()
     if not cid:
@@ -413,10 +409,10 @@ def fetch():
         classified = client.request_classified_expenses(df, dt)
     except MyDataError as e:
         flash(str(e), "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("invoices"))
     except Exception as e:  # noqa: BLE001 — network κ.λπ., δεν θέλουμε 500 στο route
         flash(f"Σφάλμα επικοινωνίας: {e}", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("invoices"))
 
     enrich_issuer_names(unclassified)
     enrich_issuer_names(classified)
@@ -435,7 +431,45 @@ def fetch():
         "παραστατικά.",
         "ok",
     )
-    return redirect(url_for("invoices"))
+    return redirect(url_for("invoices", date_from=date_from, date_to=date_to))
+
+
+@app.route("/documents/delete-range", methods=["POST"])
+def delete_documents_range():
+    kind = request.form.get("kind", "")
+    destination = "income" if kind == "income" else "invoices"
+    if kind not in ("expense", "income"):
+        flash("Μη έγκυρο είδος βιβλίου.", "error")
+        return redirect(url_for("invoices"))
+
+    date_from = request.form.get("date_from", "")
+    date_to = request.form.get("date_to", "")
+    try:
+        start = date.fromisoformat(date_from)
+        end = date.fromisoformat(date_to)
+    except ValueError:
+        flash("Μη έγκυρες ημερομηνίες.", "error")
+        return redirect(url_for(destination))
+    if start > end:
+        flash("Η ημερομηνία «Από» πρέπει να προηγείται της «Έως».", "error")
+        return redirect(url_for(destination))
+
+    cid = _active_company_id()
+    if not cid:
+        flash(
+            "Δεν έχει οριστεί ενεργή εταιρεία. Πρόσθεσε μία στη σελίδα «Εταιρείες».",
+            "error",
+        )
+        return redirect(url_for("companies"))
+
+    deleted = db.delete_documents_range(cid, kind, date_from, date_to)
+    book = "εσόδων" if kind == "income" else "εξόδων"
+    flash(
+        f"Διαγράφηκαν {deleted} παραστατικά {book} για το διάστημα "
+        f"{start.strftime('%d/%m/%Y')} – {end.strftime('%d/%m/%Y')}.",
+        "ok",
+    )
+    return redirect(url_for(destination, date_from=date_from, date_to=date_to))
 
 
 # Καρτέλες κατάστασης του βιβλίου εξόδων (σειρά ροής).
@@ -447,6 +481,9 @@ PER_PAGE = 50
 
 @app.route("/invoices")
 def invoices():
+    today = datetime.now(ATHENS).strftime("%Y-%m-%d")
+    range_date_from = request.args.get("date_from", "").strip() or today
+    range_date_to = request.args.get("date_to", "").strip() or today
     view = request.args.get("view", "unclassified")
     if view not in _EXPENSE_VIEWS:
         view = "unclassified"
@@ -553,6 +590,8 @@ def invoices():
         total=total,
         per_page=PER_PAGE,
         filters=filters,
+        range_date_from=range_date_from,
+        range_date_to=range_date_to,
     )
 
 
@@ -677,7 +716,7 @@ def classify(mark):
     row = db.get_document(cid, mark) if cid else None
     if row is None:
         flash("Το παραστατικό δεν βρέθηκε. Κάνε νέα αναζήτηση.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("invoices"))
     inv = _row_to_invoice(row)
     rule = load_rules().get(inv.issuer_vat or "", {})
     return render_template(
@@ -704,7 +743,7 @@ def submit(mark):
     row = db.get_document(cid, mark) if cid else None
     if row is None:
         flash("Το παραστατικό δεν βρέθηκε.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("invoices"))
     inv = _row_to_invoice(row)
 
     # Γραμμές χαρακτηρισμού ΑΝΑ ΓΡΑΜΜΗ παραστατικού (parallel λίστες από τη φόρμα):
@@ -1132,11 +1171,14 @@ def income_fetch():
         + (f" · αφαιρέθηκαν {removed} ακυρωμένα." if removed else "."),
         "ok",
     )
-    return redirect(url_for("income"))
+    return redirect(url_for("income", date_from=date_from, date_to=date_to))
 
 
 @app.route("/income")
 def income():
+    today = datetime.now(ATHENS).strftime("%Y-%m-%d")
+    range_date_from = request.args.get("date_from", "").strip() or today
+    range_date_to = request.args.get("date_to", "").strip() or today
     view = request.args.get("view", "unclassified")
     if view not in _INCOME_VIEWS:
         view = "unclassified"
@@ -1235,7 +1277,8 @@ def income():
         total=total,
         per_page=PER_PAGE,
         filters=filters,
-        today=datetime.now(ATHENS).strftime("%Y-%m-%d"),
+        range_date_from=range_date_from,
+        range_date_to=range_date_to,
     )
 
 

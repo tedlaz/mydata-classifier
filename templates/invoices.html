@@ -30,6 +30,30 @@
 {%- endmacro %}
 {% block content %}
 <div class="card">
+  <h1>Βιβλίο εξόδων</h1>
+
+  <form method="post" action="{{ url_for('fetch') }}" class="grid" style="margin-top:14px;grid-template-columns:1fr 1fr auto;align-items:end">
+    <div>
+      <label for="date_from">Από</label>
+      <input type="date" id="date_from" name="date_from" value="{{ range_date_from }}" required>
+    </div>
+    <div>
+      <label for="date_to">Έως</label>
+      <input type="date" id="date_to" name="date_to" value="{{ range_date_to }}" required>
+    </div>
+    <div class="range-actions">
+      <button type="submit">Ανάκτηση εξόδων</button>
+      <button type="submit" class="btn-delete-range"
+              formaction="{{ url_for('delete_documents_range') }}"
+              name="kind" value="expense"
+              onclick="return confirm('Θα διαγραφούν οριστικά τα παραστατικά εξόδων της ενεργής εταιρείας για το επιλεγμένο διάστημα. Συνέχεια;')">
+        Διαγραφή
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
   <div class="tabs">
     <a class="tab {{ 'is-active' if view == 'unclassified' }}" href="{{ tab_url('unclassified') }}">Αχαρακτήριστα <span class="count count--unclassified">{{ counts.unclassified }}</span></a>
     <a class="tab {{ 'is-active' if view == 'classified' }}" href="{{ tab_url('classified') }}">Χαρακτηρισμένα <span class="count count--classified">{{ counts.classified }}</span></a>
@@ -70,7 +94,7 @@
     {% if has_filter %}
     <p style="margin-top:10px">Κανένα αποτέλεσμα με τα τρέχοντα φίλτρα. <a href="{{ url_for('invoices', view=view, sort=sort, dir=dir) }}" style="color:var(--accent);font-weight:600">Καθαρισμός φίλτρων</a>.</p>
     {% else %}
-    <p>Δεν υπάρχουν παραστατικά σε αυτή την κατάσταση. Κάνε <a href="{{ url_for('index') }}" style="color:var(--accent);font-weight:600">νέα αναζήτηση</a>.</p>
+    <p>Δεν υπάρχουν παραστατικά σε αυτή την κατάσταση. Κάνε νέα ανάκτηση από την αναζήτηση στο επάνω μέρος.</p>
     {% endif %}
   {% else %}
 

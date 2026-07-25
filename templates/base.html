@@ -72,10 +72,15 @@
   .btn-ghost:hover{background:var(--accent-soft)}
   .btn-danger{background:var(--err-soft);color:var(--err);border:1px solid var(--err-line)}
   .btn-danger:hover{background:#f8dbd8}
+  .btn-delete-range{background:#e67e22;color:#fff}
+  .btn-delete-range:hover{background:#c9630f}
+  .range-actions{display:flex;gap:8px;align-items:center}
   .grid{display:grid;gap:14px}
   .grid-3{grid-template-columns:repeat(3,1fr)}
   @media (max-width:760px){
     .grid-3, .grid[style*="grid-template-columns"]{grid-template-columns:1fr !important}
+    .range-actions{display:grid;grid-template-columns:1fr}
+    .range-actions button{width:100%}
   }
 
   /* ---------- Flash ---------- */
@@ -152,7 +157,6 @@
 <header>
   <div class="logo">myDATA <span>· Έσοδα-Έξοδα</span></div>
   <nav>
-    <a href="{{ url_for('index') }}">Αναζήτηση</a>
     <a href="{{ url_for('invoices') }}">Βιβλίο εξόδων</a>
     <a href="{{ url_for('income') }}">Βιβλίο εσόδων</a>
     <a href="{{ url_for('reports') }}">Αναφορές</a>
