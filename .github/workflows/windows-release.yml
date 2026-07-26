@@ -1,0 +1,61 @@
+name: Build Windows installer
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build (for example, v1.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+
+      - name: Verify tag matches pyproject.toml
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          $projectVersion = (uv version --short).Trim()
+          $tagVersion = $env:RELEASE_TAG -replace '^v', ''
+          if ($tagVersion -ne $projectVersion) {
+              throw "Tag version '$tagVersion' does not match pyproject.toml version '$projectVersion'."
+          }
+          "value=$projectVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress --yes
+
+      - name: Build installer
+        shell: pwsh
+        run: .\build-windows.ps1
+
+      - name: Upload Windows setup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: myDATA-Classifier-Setup-${{ steps.version.outputs.value }}
+          path: installer-output/myDATA-Classifier-Setup-${{ steps.version.outputs.value }}.exe
+          if-no-files-found: error
+          retention-days: 30
