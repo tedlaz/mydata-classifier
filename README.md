@@ -167,3 +167,22 @@ Dockerfile
 ```
 
 Η βάση ζει στο `<MYDATA_DATA_DIR>/mydata.db` (προεπιλογή: ο φάκελος του project).
+
+
+## Για να δημιουργήσουμε tag και να ενεργοποιήσουμε δημιουργία windows executable
+```bash
+# 1. Update the version
+uv version 0.1.2
+
+# 2. Commit the release
+git add pyproject.toml uv.lock
+git commit -m "Release v0.1.2"
+
+# 3. Tag that commit
+$version = (uv version --short).Trim()
+git tag -a "v$version" -m "Release v$version"
+
+# 4. Push commit and tag
+git push origin HEAD
+git push origin "v$version"
+```

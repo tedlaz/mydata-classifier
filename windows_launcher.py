@@ -1,9 +1,8 @@
 """One-click Windows launcher for the packaged application."""
 
-from __future__ import annotations
-
 import ctypes
 import json
+import logging
 import os
 import socket
 import sys
@@ -12,9 +11,9 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-
 APP_TITLE = "myDATA Classifier"
 MUTEX_NAME = "Local\\myDATAClassifier-8CC7589D-8531-4D61-917B-ED77EDAD83FB"
+LOGGER = logging.getLogger(__name__)
 
 
 def user_data_dir() -> Path:
@@ -34,7 +33,7 @@ def _open_running_instance(runtime_file: Path) -> bool:
         url = str(details["url"])
         with urllib.request.urlopen(url, timeout=1):
             pass
-    except (OSError, ValueError, KeyError):
+    except OSError, ValueError, KeyError:
         return False
     webbrowser.open(url)
     return True
@@ -74,7 +73,8 @@ def main() -> int:
 
     try:
         import tkinter as tk
-        from waitress import create_server
+
+        from waitress.server import create_server
 
         from app import app
 
@@ -135,6 +135,7 @@ def main() -> int:
         root.mainloop()
         return 0
     except Exception as exc:
+        LOGGER.exception("The application failed to start")
         try:
             import tkinter.messagebox
 
@@ -142,7 +143,7 @@ def main() -> int:
                 APP_TITLE, f"Η εφαρμογή δεν μπόρεσε να ξεκινήσει.\n\n{exc}"
             )
         except Exception:
-            pass
+            LOGGER.exception("Could not display the startup error dialog")
         return 1
     finally:
         runtime_file.unlink(missing_ok=True)
