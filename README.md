@@ -43,6 +43,34 @@ uv run app.py
 UID=$(id -u) GID=$(id -g) docker compose up -d --build
 ```
 
+### Windows installer (για τελικούς χρήστες)
+
+Ο τελικός χρήστης δεν χρειάζεται Python, Docker ή γραμμή εντολών. Εκτελεί το
+`myDATA-Classifier-Setup-<version>.exe`, ολοκληρώνει τον οδηγό εγκατάστασης και
+ανοίγει την εφαρμογή από το Start menu. Η εφαρμογή ξεκινά τον τοπικό server,
+ανοίγει αυτόματα τον browser και εμφανίζει ένα μικρό παράθυρο για νέο άνοιγμα ή
+τερματισμό.
+
+Η βάση και οι ρυθμίσεις αποθηκεύονται μόνιμα στο
+`%LOCALAPPDATA%\myDATA Classifier`, έξω από τον φάκελο εγκατάστασης. Έτσι δεν
+χρειάζονται δικαιώματα administrator και οι αναβαθμίσεις/απεγκαταστάσεις δεν
+διαγράφουν τα δεδομένα του χρήστη.
+
+Για δημιουργία νέου installer σε Windows:
+
+1. Εγκατέστησε το [uv](https://docs.astral.sh/uv/) και το
+   [Inno Setup 6](https://jrsoftware.org/isinfo.php).
+2. Από PowerShell στον φάκελο του project εκτέλεσε:
+
+   ```powershell
+   .\build-windows.ps1
+   ```
+
+Η έκδοση και το όνομα του installer προκύπτουν αυτόματα από το πεδίο `version`
+του `pyproject.toml`. Το έτοιμο αρχείο δημιουργείται στο `installer-output`. Για
+portable build χωρίς installer χρησιμοποίησε `-SkipInstaller` και μοίρασε
+ολόκληρο τον φάκελο `dist\myDATA Classifier` (όχι μόνο το `.exe`).
+
 ## Ρύθμιση (credentials)
 
 Τα credentials **δεν** μπαίνουν πλέον στο `.env` — τα διαχειρίζεσαι μέσα από την

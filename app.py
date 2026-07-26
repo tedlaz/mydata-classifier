@@ -30,11 +30,11 @@ from classifications import (
     INVOICE_TYPE_NAMES,
     VAT_TYPES,
 )
-from ensure_env import ensure_env
+from ensure_env import ensure_env, env_path
 from mydata_client import ExpenseInvoice, InvoiceLine, MyDataClient, MyDataError
 
 ensure_env()  # δημιουργεί .env με ασφαλές FLASK_SECRET στην πρώτη εκκίνηση
-load_dotenv()
+load_dotenv(env_path())
 
 # Ώρα Ελλάδας: όλες οι «σήμερα/τώρα» τιμές να είναι ανεξάρτητες από τη ζώνη του server
 ATHENS = ZoneInfo("Europe/Athens")
