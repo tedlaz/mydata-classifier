@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows-installer:
@@ -53,9 +53,34 @@ jobs:
         run: .\build-windows.ps1
 
       - name: Upload Windows setup artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: myDATA-Classifier-Setup-${{ steps.version.outputs.value }}
           path: installer-output/myDATA-Classifier-Setup-${{ steps.version.outputs.value }}.exe
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish installer on GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          PROJECT_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          $installer = "installer-output/myDATA-Classifier-Setup-$env:PROJECT_VERSION.exe"
+
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+              gh release create $env:RELEASE_TAG $installer `
+                  --repo $env:GITHUB_REPOSITORY `
+                  --verify-tag `
+                  --title "myDATA Classifier $env:PROJECT_VERSION" `
+                  --generate-notes
+          } else {
+              gh release upload $env:RELEASE_TAG $installer `
+                  --repo $env:GITHUB_REPOSITORY `
+                  --clobber
+          }
+          if ($LASTEXITCODE -ne 0) {
+              throw "Publishing the GitHub Release asset failed."
+          }

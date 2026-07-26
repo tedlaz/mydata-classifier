@@ -81,8 +81,10 @@ git push origin "v$version"
 ```
 
 Το workflow `.github/workflows/windows-release.yml` εκτελείται σε Windows,
-ελέγχει ότι tag και project version συμφωνούν και ανεβάζει το Setup `.exe` στα
-Artifacts του workflow run για 30 ημέρες.
+ελέγχει ότι tag και project version συμφωνούν, ανεβάζει το Setup `.exe` στα
+Artifacts του workflow run για 30 ημέρες και το επισυνάπτει στο αντίστοιχο
+GitHub Release. Αν το Release δεν υπάρχει, δημιουργείται αυτόματα με release
+notes· σε επανάληψη του workflow το υπάρχον Setup asset αντικαθίσταται.
 
 Αν το tag είχε ήδη γίνει push πριν προστεθεί το workflow, άνοιξε στο GitHub
 `Actions → Build Windows installer → Run workflow`, συμπλήρωσε το υπάρχον tag
