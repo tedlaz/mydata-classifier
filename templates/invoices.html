@@ -113,7 +113,7 @@
           <th>Τύπος</th><th>Σειρά/ΑΑ</th>
           <th class="num">Καθαρή αξία</th><th class="num">ΦΠΑ</th>
           <th class="num">{{ sort_link('total', 'Σύνολο') }}</th>
-          {% if view in ('classified', 'sent') %}<th>Χαρακτηρισμός</th>{% endif %}
+          {% if view == 'sent' %}<th>Χαρακτηρισμός</th>{% endif %}
           {% if view == 'sent' %}<th>MARK χαρακτ.</th>{% endif %}
           <th></th>
         </tr>
@@ -154,7 +154,7 @@
           <td data-label="Καθαρή αξία" class="num">{{ "%.2f"|format(inv.total_net or 0) }} €</td>
           <td data-label="ΦΠΑ" class="num">{{ "%.2f"|format(inv.total_vat or 0) }} €</td>
           <td data-label="Σύνολο" class="num"><strong>{{ "%.2f"|format(inv.total_gross or 0) }} €</strong></td>
-          {% if view in ('classified', 'sent') %}
+          {% if view == 'sent' %}
           <td data-label="Χαρακτηρισμός" class="cell-cls">{{ cls_chips(inv.cls_info) }}</td>
           {% endif %}
           {% if view == 'sent' %}
@@ -241,7 +241,7 @@
     </div>
     {% elif view == 'classified' %}
     <div class="btn-row" style="margin-top:16px">
-      <button type="submit">📤 Αποστολή στο myDATA (επιλεγμένα ή όλα)</button>
+      <button type="submit" class="btn-send">📤 Αποστολή στο myDATA (επιλεγμένα ή όλα)</button>
     </div>
     {% endif %}
   </form>

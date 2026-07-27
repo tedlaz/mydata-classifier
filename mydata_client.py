@@ -106,7 +106,8 @@ class ExpenseInvoice:
     @property
     def is_cancelled(self) -> bool:
         return bool(self.cancelled_by_mark)
-    # Πεδία εμφάνισης που γεμίζουν από το τοπικό ledger (db), όχι από το myDATA XML.
+    # Πεδία εμφάνισης: γεμίζουν από το τοπικό ledger (db) ή, για παραστατικά ήδη
+    # χαρακτηρισμένα στο myDATA, από το classificationMark της υποβολής.
     classification_mark: str = ""
     local_action: str = "classify"
     source: str = "rest"
@@ -165,18 +166,18 @@ class MyDataClient:
     # ------------------------------------------------------------------ #
     def request_docs(
         self, date_from: str, date_to: str
-    ) -> tuple[list[ExpenseInvoice], dict[str, list[dict]], set[str]]:
+    ) -> tuple[list[ExpenseInvoice], dict[str, dict], set[str]]:
         """
         date_from / date_to σε μορφή dd/MM/yyyy. Χειρίζεται pagination με continuationToken.
 
         Επιστρέφει (invoices, cls_map, cancelled_marks):
-        - cls_map: MARK -> λίστα χαρακτηρισμών από το expensesClassificationsDoc
-          (ανά γραμμή, ανά παραστατικό με classificationPostMode=1, ή
-          απόρριψη/απόκλιση μέσω transactionMode).
+        - cls_map: MARK -> {"entries": χαρακτηρισμοί από το expensesClassificationsDoc
+          (ανά γραμμή, ή απόρριψη/απόκλιση μέσω transactionMode),
+          "cls_mark": το MARK χαρακτηρισμού της υποβολής}.
         - cancelled_marks: MARK παραστατικών που έχουν ακυρωθεί (cancelledInvoicesDoc).
         """
         invoices: list[ExpenseInvoice] = []
-        cls_map: dict[str, list[dict]] = {}
+        cls_map: dict[str, dict] = {}
         cancelled_marks: set[str] = set()
         params = self._params({"mark": "0", "dateFrom": date_from, "dateTo": date_to})
 
@@ -219,15 +220,16 @@ class MyDataClient:
         - self_invoices: αυτοτιμολογούμενα παραστατικά ΕΞΟΔΩΝ που διαβίβασε ο ίδιος
           (τύποι 13.x, 14.x, 15.1, 16.1, 17.x - π.χ. μισθοδοσία). Αυτά ΔΕΝ
           επιστρέφονται από την RequestDocs, γιατί εκδότης είναι ο ίδιος ο χρήστης.
-        - cls_map: MARK -> χαρακτηρισμοί που υπέβαλε ο χρήστης μέσω
-          SendExpensesClassification (ανά γραμμή, ανά παραστατικό, transactionMode).
+        - cls_map: MARK -> {"entries", "cls_mark"} για τους χαρακτηρισμούς που
+          υπέβαλε ο χρήστης μέσω SendExpensesClassification (ανά γραμμή,
+          transactionMode) μαζί με το MARK χαρακτηρισμού.
         - cancelled_marks: ακυρωμένες δικές του διαβιβάσεις.
 
         Το date_to εδώ πρέπει να φτάνει μέχρι σήμερα, γιατί ο χαρακτηρισμός μπορεί
         να υποβλήθηκε αργότερα από την ημερομηνία έκδοσης του παραστατικού.
         """
         self_invoices: list[ExpenseInvoice] = []
-        cls_map: dict[str, list[dict]] = {}
+        cls_map: dict[str, dict] = {}
         cancelled_marks: set[str] = set()
         params = self._params({"mark": "0", "dateFrom": date_from, "dateTo": date_to})
 
@@ -304,7 +306,10 @@ class MyDataClient:
             # Τελευταίος ενεργός χαρακτηρισμός: αν υπάρχει ξεχωριστή υποβολή
             # (SendExpensesClassification), υπερισχύει του αρχικού ενσωματωμένου.
             if i.mark in cls_map:
-                i.cls_info = cls_map[i.mark]
+                i.cls_info = cls_map[i.mark]["entries"]
+                # MARK χαρακτηρισμού: υπάρχει μόνο για ξεχωριστές υποβολές
+                # (SendExpensesClassification) — όχι για ενσωματωμένο χαρακτηρισμό.
+                i.classification_mark = cls_map[i.mark]["cls_mark"]
             else:
                 info: list[dict] = []
                 for line in i.lines:
@@ -482,10 +487,11 @@ class MyDataClient:
         return invoices, cls_map, cancelled_marks
 
     @staticmethod
-    def _parse_expenses_classifications(root: ET.Element) -> dict[str, list[dict]]:
+    def _parse_expenses_classifications(root: ET.Element) -> dict[str, dict]:
         """
-        Χάρτης MARK -> λίστα χαρακτηρισμών από το expensesClassificationsDoc.
-        Κάθε στοιχείο: {"type", "category", "amount", "line": <αρ.γραμμής>|None}
+        Χάρτης MARK -> {"entries": [...], "cls_mark": <MARK χαρακτηρισμού>} από το
+        expensesClassificationsDoc.
+        Κάθε στοιχείο του entries: {"type", "category", "amount", "line": <αρ.γραμμής>|None}
         ή {"transaction_mode": "1"/"2"} (1=Απόρριψη, 2=Απόκλιση).
 
         - Νεότερη υποβολή για το ίδιο MARK αντικαθιστά την παλαιότερη.
@@ -493,7 +499,7 @@ class MyDataClient:
           στοιχεία (σκέτη απόρριψη/απόκλιση) - αλλιώς είναι θόρυβος.
         Parsing με local names για ανοχή σε namespaces.
         """
-        result: dict[str, list[dict]] = {}
+        result: dict[str, dict] = {}
         for el in root.iter():
             if _local(el.tag) != "expensesClassificationsDoc":
                 continue
@@ -501,12 +507,15 @@ class MyDataClient:
                 if _local(cls.tag) != "expensesInvoiceClassification":
                     continue
                 mark = None
+                cls_mark = ""
                 entries: list[dict] = []
                 tmode = None
                 for child in cls:
                     tag = _local(child.tag)
                     if tag == "invoiceMark" and child.text:
                         mark = child.text.strip()
+                    elif tag == "classificationMark" and child.text:
+                        cls_mark = child.text.strip()
                     elif tag == "transactionMode" and child.text:
                         tmode = child.text.strip()
                     elif tag == "invoicesExpensesClassificationDetails":
@@ -535,7 +544,7 @@ class MyDataClient:
                     entries.append({"transaction_mode": tmode})
                 if mark:
                     # νεότερη υποβολή για το ίδιο MARK αντικαθιστά την παλαιότερη
-                    result[mark] = entries
+                    result[mark] = {"entries": entries, "cls_mark": cls_mark}
         return result
 
     @staticmethod

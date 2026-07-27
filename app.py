@@ -327,6 +327,8 @@ def _invoice_to_doc(inv) -> dict:
             for ln in inv.lines
         ],
         "cls_info": getattr(inv, "cls_info", []) or [],
+        # MARK χαρακτηρισμού από το myDATA (για όσα ήταν ήδη χαρακτηρισμένα εκεί).
+        "classification_mark": getattr(inv, "classification_mark", "") or "",
     }
 
 
@@ -1097,7 +1099,9 @@ def refresh():
         local = _norm_cls(json.loads(row.get("cls_json") or "[]"))
         # Επιβεβαίωση όταν το myDATA δείχνει τον ίδιο χαρακτηρισμό (ή την απόρριψη).
         if remote and (remote == local or local == {("__TM__", "1")}):
-            db.mark_confirmed(row["id"])
+            db.mark_confirmed(
+                row["id"], getattr(inv, "classification_mark", "") or None
+            )
             confirmed += 1
 
     if confirmed:

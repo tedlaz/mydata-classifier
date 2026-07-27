@@ -416,8 +416,8 @@ def upsert_document(
                 "INSERT INTO documents (company_id, kind, mark, issue_date, "
                 "counterparty_vat, invoice_type, series, aa, "
                 "total_net, total_vat, total_gross, is_self_issued, status, "
-                "lines_json, cls_json, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "lines_json, cls_json, classification_mark, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     company_id,
                     kind,
@@ -434,6 +434,7 @@ def upsert_document(
                     incoming_status,
                     lines_json,
                     cls_json,
+                    doc.get("classification_mark") or "",
                     now,
                 ),
             )
@@ -446,6 +447,11 @@ def upsert_document(
         # Το cls_json από το myDATA το κρατάμε μόνο όταν όντως προχωράμε σε
         # confirmed (τοπικός χαρακτηρισμός έχει δικό του cls_json).
         set_cls = ", cls_json = ?" if not keep else ""
+        # Το MARK χαρακτηρισμού από το myDATA γράφεται όποτε έρχεται μη κενό — και σε
+        # keep — ώστε να συμπληρώνεται και σε ήδη αποθηκευμένα «Επιβεβαιωμένα».
+        # Κενή τιμή (ενσωματωμένος χαρακτηρισμός) δεν σβήνει ό,τι έχουμε τοπικά.
+        cls_mark = doc.get("classification_mark") or ""
+        set_mark = ", classification_mark = ?" if cls_mark else ""
         params = [
             doc.get("issue_date"),
             doc.get("issuer_vat"),
@@ -462,12 +468,15 @@ def upsert_document(
         ]
         if not keep:
             params.append(cls_json)
+        if cls_mark:
+            params.append(cls_mark)
         params.append(existing["id"])
         conn.execute(
             "UPDATE documents SET issue_date = ?, counterparty_vat = ?, "
             "invoice_type = ?, series = ?, aa = ?, "
             "total_net = ?, total_vat = ?, total_gross = ?, is_self_issued = ?, "
-            f"status = ?, lines_json = ?, updated_at = ?{set_cls} WHERE id = ?",
+            f"status = ?, lines_json = ?, updated_at = ?{set_cls}{set_mark} "
+            "WHERE id = ?",
             params,
         )
 
@@ -686,12 +695,20 @@ def mark_sent(doc_id: int, classification_mark: str | None) -> None:
         )
 
 
-def mark_confirmed(doc_id: int) -> None:
+def mark_confirmed(doc_id: int, classification_mark: str | None = None) -> None:
+    """Επιβεβαίωση από το myDATA. Αν δοθεί MARK χαρακτηρισμού (από την απάντηση
+    του myDATA) συμπληρώνεται — χρήσιμο όταν λείπει από την τοπική αποστολή."""
     now = datetime.now(UTC).isoformat(timespec="seconds")
+    set_mark = ", classification_mark = ?" if classification_mark else ""
+    params: list = [now]
+    if classification_mark:
+        params.append(classification_mark)
+    params.append(doc_id)
     with get_conn() as conn:
         conn.execute(
-            "UPDATE documents SET status = 'confirmed', confirmed_at = ? WHERE id = ?",
-            (now, doc_id),
+            "UPDATE documents SET status = 'confirmed', confirmed_at = ?"
+            f"{set_mark} WHERE id = ?",
+            params,
         )
 
 
