@@ -1,7 +1,7 @@
 from PyInstaller.utils.hooks import collect_data_files
 
 
-datas = [("templates", "templates")]
+datas = [("templates", "templates"), ("static", "static")]
 datas += collect_data_files("tzdata")
 
 a = Analysis(

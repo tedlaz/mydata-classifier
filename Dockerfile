@@ -25,6 +25,7 @@ COPY --from=builder /install /usr/local
 # Ο κώδικας της εφαρμογής (μόνο ό,τι χρειάζεται - δες .dockerignore)
 COPY app.py wsgi.py db.py ensure_env.py mydata_client.py classifications.py vies.py gsis.py ./
 COPY templates ./templates
+COPY static ./static
 
 # Φάκελος δεδομένων (mounted volume) - ιδιοκτησία στον μη-root χρήστη
 ENV MYDATA_DATA_DIR=/data

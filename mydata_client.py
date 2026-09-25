@@ -700,7 +700,9 @@ class MyDataClient:
             self.base_url + "SendExpensesClassification",
             data=xml_payload.encode("utf-8"),
             headers={"Content-Type": "application/xml"},
-            params=self._params(),
+            # Χαρακτηρισμός ανά παραστατικό: παράμετρος postPerInvoice=true (οδηγίες ΑΑΔΕ
+            # «SendExpensesClassificationPostPerInvoiceGuidelines»).
+            params=self._params({"postPerInvoice": "true"} if post_per_invoice else None),
             timeout=60,
         )
         if resp.status_code != 200:
@@ -731,7 +733,7 @@ class MyDataClient:
             aa,
             issue_date,
             lines,
-            issuer_vat=issuer_vat,
+            issuer_vat="" if invoice_type in SELF_TYPES_NO_ISSUER else issuer_vat,
             issuer_country=issuer_country,
             counterpart_vat=own_vat if rules["counterpart"] else "",
             include_payment=rules["payment"],
@@ -826,16 +828,26 @@ VAT_CATEGORIES = {
 # Κανόνες δομής ανά οικογένεια τύπων (βάσει validation myDATA):
 # counterpart: αν απαιτείται ο λήπτης (= ο ίδιος ο χρήστης) ως αντισυμβαλλόμενος
 # payment: αν επιτρέπεται/απαιτείται τρόπος πληρωμής
-# payment: επιβεβαιωμένα ΑΠΑΓΟΡΕΥΕΤΑΙ (σφάλμα 205) στα 14.x (αλλοδαποί/ΕΦΚΑ) και
-# 16.1 (ενοίκιο). Στα 17.x (μισθοδοσία/αποσβέσεις/τακτοποιήσεις) είναι ΥΠΟΧΡΕΩΤΙΚΟΣ.
-# 13.x (λιανικές) & 15.1 (συμβόλαιο): επιτρέπεται.
+# payment: επιβεβαιωμένα ΑΠΑΓΟΡΕΥΕΤΑΙ (σφάλμα 205) στα 13.x (λιανικές), 14.x
+# (αλλοδαποί/ΕΦΚΑ) και 16.1 (ενοίκιο). Στα 17.x είναι ΥΠΟΧΡΕΩΤΙΚΟΣ. 15.1: επιτρέπεται.
+# 13.x: αντισυμβαλλόμενος υποχρεωτικός (σφάλμα 204) — επιβεβαιωμένο στο dev.
 SELF_TYPE_RULES = {
-    "13": {"counterpart": False, "payment": True},  # λιανικές - χωρίς αντισυμβαλλόμενο
+    "13": {"counterpart": True, "payment": False},  # λιανικές - errors 204/205
     "14": {"counterpart": True, "payment": False},  # αλλοδαποί/ΕΦΚΑ - error 205
     "15": {"counterpart": True, "payment": True},  # συμβόλαιο
     "16": {"counterpart": True, "payment": False},  # ενοίκιο - error 205
     "17": {"counterpart": False, "payment": True},  # δικές μας εγγραφές - υποχρεωτικός
 }
+
+
+# Κανόνες ανά τύπο, επιβεβαιωμένοι στο dev της ΑΑΔΕ και συμβατοί με τους επίσημους
+# συνδυασμούς (μόνο αυτοί οι τύποι επιτρέπουν κατηγορίες με δικαίωμα έκπτωσης ΦΠΑ):
+# - ΦΠΑ μόνο στις λιανικές 13.1/13.2/13.31· όλοι οι άλλοι: κατηγορία 8, ΦΠΑ 0 (σφάλματα 215/218).
+# - 13.3 κοινόχρηστα & 13.4 συνδρομές: ΧΩΡΙΣ εκδότη (σφάλμα 205 «Issuer is forbidden»).
+SELF_TYPES_WITH_VAT = {"13.1", "13.2", "13.31"}
+SELF_TYPES_NO_ISSUER = {"13.3", "13.4"}
+# Λιανικές: ο εκδότης (ΑΦΜ πωλητή) είναι προαιρετικός — δεκτά και με και χωρίς (dev ΑΑΔΕ).
+SELF_TYPES_ISSUER_OPTIONAL = {"13.1", "13.2", "13.31"}
 
 
 def type_rules(invoice_type: str) -> dict:
@@ -854,6 +866,11 @@ PAYMENT_METHODS = {
     "6": "Web τραπεζικής",
     "7": "POS / e-POS",
 }
+
+
+# Προεπιλεγμένος χαρακτηρισμός ΦΠΑ για γραμμές με ΦΠΑ στη «Νέα εγγραφή» (αγορές & δαπάνες
+# εσωτερικού) — όταν η γραμμή δεν ορίζει δικό της «vat_type».
+VAT_EXPENSE_TYPE = "VAT_361"
 
 
 def build_self_expense_invoice_xml(
@@ -918,6 +935,10 @@ def build_self_expense_invoice_xml(
         total_net += amount
         total_vat += vat_amount
         aggregates[key] = aggregates.get(key, 0.0) + amount
+        # Γραμμή με ΦΠΑ (λιανικές 13.1/13.2/13.31): υποχρεωτικός χαρακτηρισμός ΦΠΑ (σφάλμα 230).
+        if vat_amount > 0:
+            vkey = (line.get("vat_type") or VAT_EXPENSE_TYPE, "")
+            aggregates[vkey] = aggregates.get(vkey, 0.0) + amount
     total_gross = round(total_net + total_vat, 2)
 
     # paymentMethods: μετά το header, πριν τα invoiceDetails (σειρά σχήματος).
@@ -945,6 +966,13 @@ def build_self_expense_invoice_xml(
         ET.SubElement(ecls, f"{{{ECLS_NS}}}classificationCategory").text = ccat
         ET.SubElement(ecls, f"{{{ECLS_NS}}}amount").text = f"{amount:.2f}"
         ET.SubElement(ecls, f"{{{ECLS_NS}}}id").text = "1"
+        if vat_amount > 0:
+            vcls = ET.SubElement(det, f"{{{INV_NS}}}expensesClassification")
+            ET.SubElement(vcls, f"{{{ECLS_NS}}}classificationType").text = (
+                line.get("vat_type") or VAT_EXPENSE_TYPE
+            )
+            ET.SubElement(vcls, f"{{{ECLS_NS}}}amount").text = f"{amount:.2f}"
+            ET.SubElement(vcls, f"{{{ECLS_NS}}}id").text = "2"
 
     summary = ET.SubElement(inv, f"{{{INV_NS}}}invoiceSummary")
     ET.SubElement(summary, f"{{{INV_NS}}}totalNetValue").text = f"{total_net:.2f}"
@@ -958,7 +986,8 @@ def build_self_expense_invoice_xml(
     for (ctype, ccat), amt in aggregates.items():
         agg = ET.SubElement(summary, f"{{{INV_NS}}}expensesClassification")
         ET.SubElement(agg, f"{{{ECLS_NS}}}classificationType").text = ctype
-        ET.SubElement(agg, f"{{{ECLS_NS}}}classificationCategory").text = ccat
+        if ccat:  # ο χαρακτηρισμός ΦΠΑ δεν έχει κατηγορία
+            ET.SubElement(agg, f"{{{ECLS_NS}}}classificationCategory").text = ccat
         ET.SubElement(agg, f"{{{ECLS_NS}}}amount").text = f"{amt:.2f}"
 
     return '<?xml version="1.0" encoding="utf-8"?>' + ET.tostring(
@@ -993,9 +1022,12 @@ def build_expenses_classification_xml(
         )
 
     # ομαδοποίηση ανά γραμμή
+    # Ανά παραστατικό το lineNumber αγνοείται (υποχρεωτικό → συμβολική τιμή 1):
+    # όλοι οι χαρακτηρισμοί σε ένα μπλοκ.
     by_line: dict[int, list[dict]] = {}
     for c in classifications:
-        by_line.setdefault(int(c["line_number"]), []).append(c)
+        key = 1 if post_per_invoice else int(c["line_number"])
+        by_line.setdefault(key, []).append(c)
 
     for line_no in sorted(by_line):
         details = ET.SubElement(
@@ -1020,9 +1052,18 @@ def build_expenses_classification_xml(
             # ΠΡΟΣΟΧΗ: σε χαρακτηρισμό ΑΝΑ ΓΡΑΜΜΗ, τα vatAmount/vatCategory/
             # vatExemptionCategory ΠΡΕΠΕΙ να είναι null (σφάλμα 337). Το ποσό ΦΠΑ
             # μεταφέρεται ως το ίδιο το amount της γραμμής χαρακτηρισμού VAT_xxx.
-
-    if post_per_invoice:
-        ET.SubElement(eic, f"{{{ECLS_NS}}}classificationPostMode").text = "1"
+            # ΑΝΑ ΠΑΡΑΣΤΑΤΙΚΟ: ο χαρακτηρισμός ΦΠΑ δίνει ανά κατηγορία ΦΠΑ τα
+            # αθροίσματα καθαρής (amount) και ΦΠΑ (vatAmount) του παραστατικού.
+            is_vat = (c.get("classification_type") or "").startswith("VAT_")
+            if post_per_invoice and is_vat and c.get("vat_category"):
+                ET.SubElement(data, f"{{{ECLS_NS}}}vatAmount").text = (
+                    f"{float(c.get('vat_amount') or 0):.2f}"
+                )
+                ET.SubElement(data, f"{{{ECLS_NS}}}vatCategory").text = str(
+                    int(c["vat_category"])
+                )
+    # Ανά παραστατικό: ΔΕΝ στέλνεται classificationPostMode στο XML (σφάλμα 340)·
+    # ο τρόπος ορίζεται από την παράμετρο postPerInvoice της κλήσης.
 
     return '<?xml version="1.0" encoding="utf-8"?>' + ET.tostring(
         doc, encoding="unicode"

@@ -1,0 +1,773 @@
+/* =====================================================================
+   myDATA · Έσοδα-Έξοδα — ενιαίο θέμα (light/dark)
+   ===================================================================== */
+:root{
+  --bg:#f4f6fb; --surface:#ffffff; --surface-2:#f8f9fd; --surface-3:#eef1f8;
+  --ink:#141a2e; --ink-2:#3e4863; --muted:#6b7591;
+  --line:#e2e6f0; --line-soft:#edf0f6;
+  --accent:#4a55e8; --accent-deep:#3540c4; --accent-soft:#eceefe; --accent-glow:#c9cdfb;
+  --accent-grad:linear-gradient(135deg,#5b66f5 0%,#4148d6 100%);
+  --on-accent:#fff;
+  --ok:#0e8a5f; --ok-soft:#e3f6ee; --ok-line:#b4e5cf;
+  --warn:#9a6300; --warn-soft:#fff4dc; --warn-line:#f1d99a;
+  --err:#c6322a; --err-soft:#fdecea; --err-line:#f5c6c1;
+  --info:#6a3fd1; --info-soft:#f1ebff; --info-line:#dccdfd;
+  --side:#10142a; --side-2:#1a2040; --side-ink:#aab2d4; --side-ink-hi:#fff;
+
+  --radius:14px; --radius-sm:9px;
+  --shadow:0 1px 2px rgba(20,26,46,.04),0 6px 20px -10px rgba(20,26,46,.14);
+  --shadow-hi:0 2px 4px rgba(20,26,46,.05),0 14px 34px -14px rgba(20,26,46,.26);
+  --font-ui:"Commissioner",system-ui,sans-serif;
+  --font-data:"IBM Plex Mono",ui-monospace,monospace;
+  --ease:cubic-bezier(.2,.7,.2,1);
+  --topbar-h:0px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c1020; --surface:#141a2f; --surface-2:#19203a; --surface-3:#212a48;
+    --ink:#e8ebf7; --ink-2:#b9c0dc; --muted:#8a93b5;
+    --line:#29314f; --line-soft:#212842;
+    --accent:#8a93ff; --accent-deep:#aab1ff; --accent-soft:#232a52; --accent-glow:#3b4485;
+    --accent-grad:linear-gradient(135deg,#6a74ff 0%,#4b52e0 100%);
+    --ok:#4fd1a0; --ok-soft:#10302a; --ok-line:#1f5a47;
+    --warn:#f2c265; --warn-soft:#342a12; --warn-line:#5e4a1c;
+    --err:#ff8a80; --err-soft:#3a1a1c; --err-line:#6a2b2b;
+    --info:#bba2ff; --info-soft:#2a2150; --info-line:#473a82;
+    --side:#090c19; --side-2:#161b33;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.6);
+    --shadow-hi:0 2px 4px rgba(0,0,0,.3),0 16px 36px -14px rgba(0,0,0,.7);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0c1020; --surface:#141a2f; --surface-2:#19203a; --surface-3:#212a48;
+  --ink:#e8ebf7; --ink-2:#b9c0dc; --muted:#8a93b5;
+  --line:#29314f; --line-soft:#212842;
+  --accent:#8a93ff; --accent-deep:#aab1ff; --accent-soft:#232a52; --accent-glow:#3b4485;
+  --accent-grad:linear-gradient(135deg,#6a74ff 0%,#4b52e0 100%);
+  --ok:#4fd1a0; --ok-soft:#10302a; --ok-line:#1f5a47;
+  --warn:#f2c265; --warn-soft:#342a12; --warn-line:#5e4a1c;
+  --err:#ff8a80; --err-soft:#3a1a1c; --err-line:#6a2b2b;
+  --info:#bba2ff; --info-soft:#2a2150; --info-line:#473a82;
+  --side:#090c19; --side-2:#161b33;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.6);
+  --shadow-hi:0 2px 4px rgba(0,0,0,.3),0 16px 36px -14px rgba(0,0,0,.7);
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font-family:var(--font-ui);background:var(--bg);color:var(--ink);
+     font-size:15px;line-height:1.5;transition:background .25s,color .25s}
+a{color:var(--accent)}
+::selection{background:var(--accent-glow)}
+
+/* Ομαλή μετάβαση μεταξύ σελίδων (Chromium/Edge· αλλού απλώς αγνοείται). */
+@view-transition{navigation:auto}
+::view-transition-old(root){animation:vt-out .16s ease both}
+::view-transition-new(root){animation:vt-in .26s var(--ease) both}
+/* Το sidebar μένει σταθερό: χωρίς crossfade μεταξύ σελίδων. */
+::view-transition-group(sidebar),::view-transition-new(sidebar){animation:none}
+::view-transition-old(sidebar){display:none}
+@keyframes vt-out{to{opacity:0}}
+@keyframes vt-in{from{opacity:0;transform:translateY(6px)}}
+
+/* ---------- Shell: sidebar + content ---------- */
+.shell{display:flex;min-height:100vh}
+.sidebar{position:sticky;top:0;height:100vh;width:248px;flex:none;display:flex;flex-direction:column;
+  background:var(--side);color:var(--side-ink);padding:18px 14px;z-index:40;
+  view-transition-name:sidebar}
+.brand{display:flex;align-items:center;gap:11px;padding:4px 8px 14px;color:var(--side-ink-hi);text-decoration:none}
+.brand-mark{width:36px;height:36px;border-radius:11px;background:var(--accent-grad);display:grid;place-items:center;
+  font-weight:800;font-size:.9rem;color:#fff;box-shadow:0 6px 18px -6px rgba(91,102,245,.8);flex:none}
+.brand b{display:block;font-weight:800;font-size:1rem;letter-spacing:.2px;line-height:1.1}
+.brand small{display:block;font-size:.74rem;color:var(--side-ink);font-weight:500}
+.nav{display:flex;flex-direction:column;gap:2px;flex:1;overflow-y:auto}
+.nav-group{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+  color:#6a729a;padding:10px 12px 4px}
+.nav-link{position:relative;display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;
+  color:var(--side-ink);text-decoration:none;font-size:.9rem;font-weight:500;
+  transition:background .18s,color .18s,transform .18s var(--ease)}
+.nav-link svg{width:18px;height:18px;flex:none;opacity:.85}
+.nav-link:hover{background:var(--side-2);color:var(--side-ink-hi);transform:translateX(2px)}
+.nav-link.is-active{background:var(--side-2);color:var(--side-ink-hi);font-weight:600}
+.nav-link.is-active::before{content:"";position:absolute;left:-14px;top:8px;bottom:8px;width:4px;
+  border-radius:0 4px 4px 0;background:var(--accent-grad)}
+.nav-link.is-active svg{opacity:1;color:#9aa2ff}
+.sidebar-foot{border-top:1px solid var(--side-2);padding-top:14px;display:flex;flex-direction:column;gap:10px}
+.who{display:block;padding:10px 12px;border-radius:10px;background:var(--side-2);text-decoration:none;
+  color:var(--side-ink-hi);font-size:.84rem;font-weight:600;line-height:1.3;transition:background .18s}
+.who:hover{background:#232a4d}
+.who small{display:flex;align-items:center;gap:6px;color:var(--side-ink);font-weight:500;font-family:var(--font-data);font-size:.72rem;margin-top:3px}
+.who small::before{content:"";width:7px;height:7px;border-radius:50%;background:#4fd1a0;box-shadow:0 0 0 3px rgba(79,209,160,.2)}
+.who.is-dev small::before{background:#f2c265;box-shadow:0 0 0 3px rgba(242,194,101,.2)}
+.theme-toggle{display:flex;align-items:center;gap:10px;width:100%;background:transparent;border:1px solid var(--side-2);
+  color:var(--side-ink);padding:8px 12px;border-radius:10px;font-size:.84rem;font-weight:500;box-shadow:none}
+.theme-toggle:hover{background:var(--side-2);color:#fff;transform:none;box-shadow:none}
+.theme-toggle svg{width:16px;height:16px}
+.theme-toggle .i-moon,[data-theme-now="dark"] .theme-toggle .i-sun{display:none}
+[data-theme-now="dark"] .theme-toggle .i-moon{display:inline}
+
+.topbar{display:none}
+.content{flex:1;min-width:0}
+main{max-width:1240px;margin:0 auto;padding:30px clamp(14px,3vw,36px) 70px}
+
+@media (max-width:1023px){
+  :root{--topbar-h:56px}
+  .topbar{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:30;height:var(--topbar-h);
+    padding:0 14px;background:color-mix(in srgb,var(--side) 92%,transparent);backdrop-filter:blur(10px);color:#fff}
+  .topbar .brand{padding:0}
+  .topbar .brand-mark{width:30px;height:30px;font-size:.78rem}
+  .menu-btn{background:transparent;border:0;color:#fff;padding:8px;border-radius:9px;box-shadow:none;display:grid;place-items:center}
+  .menu-btn:hover{background:var(--side-2);transform:none;box-shadow:none}
+  .menu-btn svg{width:22px;height:22px}
+  .sidebar{position:fixed;left:0;top:0;transform:translateX(-105%);transition:transform .3s var(--ease);
+    box-shadow:20px 0 40px -20px rgba(0,0,0,.5)}
+  .nav-open .sidebar{transform:none}
+  .scrim{position:fixed;inset:0;background:rgba(8,10,22,.5);z-index:35;opacity:0;pointer-events:none;transition:opacity .3s}
+  .nav-open .scrim{opacity:1;pointer-events:auto}
+  main{padding-top:20px}
+}
+
+/* ---------- Page header ---------- */
+.page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px 24px;flex-wrap:wrap;margin:0 0 20px}
+.page-head h1{margin:0}
+.page-sub{color:var(--muted);font-size:.9rem;margin:4px 0 0;max-width:82ch}
+.kicker{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--muted)}
+.meta{display:flex;gap:6px 18px;flex-wrap:wrap;color:var(--muted);font-size:.84rem;margin:6px 0 0}
+.back{display:inline-flex;align-items:center;gap:6px;margin-bottom:12px;color:var(--accent);font-weight:600;
+  text-decoration:none;font-size:.9rem;transition:gap .18s var(--ease)}
+.back:hover{gap:10px}
+
+/* ---------- Cards & type ---------- */
+.card{--card-pad:clamp(16px,2.5vw,26px);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:var(--card-pad);margin-bottom:20px;box-shadow:var(--shadow);
+  transition:box-shadow .25s,border-color .25s,background .25s}
+main > *{animation:rise .45s var(--ease) both}
+main > :nth-child(2){animation-delay:.05s}
+main > :nth-child(3){animation-delay:.1s}
+main > :nth-child(4){animation-delay:.15s}
+main > :nth-child(n+5){animation-delay:.2s}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}}
+.card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.card-head h2{margin:0}
+h1{font-size:clamp(1.3rem,2.6vw,1.7rem);font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
+h2{font-size:1.02rem;font-weight:700;margin:0 0 10px;letter-spacing:-.005em}
+p{margin:0 0 12px}
+.muted{color:var(--muted);font-size:.88rem}
+.prose{max-width:82ch}
+.mono{font-family:var(--font-data)}
+.small{font-size:.84rem}
+code{font-family:var(--font-data);font-size:.85em;background:var(--surface-3);padding:1px 6px;border-radius:5px}
+.count{display:inline-flex;align-items:center;justify-content:center;min-width:2em;padding:1px 9px;margin-left:6px;
+  border-radius:999px;background:var(--accent-soft);color:var(--accent-deep);font-family:var(--font-data);
+  font-size:.78rem;font-weight:700;vertical-align:2px}
+
+/* ---------- Forms ---------- */
+label{display:block;font-size:.74rem;font-weight:700;margin-bottom:6px;color:var(--ink-2);
+  text-transform:uppercase;letter-spacing:.06em}
+input,select{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);
+  font-size:.92rem;font-family:var(--font-ui);background:var(--surface);color:var(--ink);
+  transition:border-color .18s,box-shadow .18s,background .18s}
+input:hover,select:hover{border-color:var(--accent-glow)}
+input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+input[type=number]{font-family:var(--font-data)}
+input[type=checkbox],input[type=radio]{width:auto;accent-color:var(--accent);margin:0;cursor:pointer}
+input[type=checkbox]{width:17px;height:17px}
+input[type=file]{width:auto;padding:7px;font-size:.84rem}
+input:disabled{opacity:.55;cursor:not-allowed}
+.check{display:flex;align-items:center;gap:9px;margin:12px 0 0;text-transform:none;letter-spacing:0;
+  font-size:.9rem;font-weight:500;color:var(--ink-2);cursor:pointer}
+.input-group{display:flex;gap:6px}
+.input-group button{white-space:nowrap}
+
+button,.btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  background:var(--accent-grad);color:var(--on-accent);border:1px solid transparent;border-radius:var(--radius-sm);
+  padding:10px 18px;font-size:.9rem;font-weight:600;font-family:var(--font-ui);line-height:1.2;cursor:pointer;
+  text-decoration:none;box-shadow:0 4px 14px -6px rgba(74,85,232,.7);
+  text-transform:none;letter-spacing:normal;margin:0;
+  transition:transform .15s var(--ease),box-shadow .2s,background .2s,filter .2s,opacity .2s}
+button:hover,.btn:hover{transform:translateY(-1px);filter:brightness(1.07);box-shadow:0 8px 20px -8px rgba(74,85,232,.8)}
+button:active,.btn:active{transform:translateY(0) scale(.98)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[disabled]{opacity:.45;cursor:not-allowed;transform:none;filter:none}
+.btn-ghost{background:var(--surface);color:var(--accent);border-color:var(--accent-glow);box-shadow:none}
+.btn-ghost:hover{background:var(--accent-soft);filter:none;box-shadow:none}
+.btn-danger{background:var(--err-soft);color:var(--err);border-color:var(--err-line);box-shadow:none}
+.btn-danger:hover{background:var(--err);color:#fff;filter:none;box-shadow:0 6px 16px -8px var(--err)}
+.btn-send{background:linear-gradient(135deg,#12a172,#0c7f59);box-shadow:0 4px 14px -6px rgba(14,138,95,.7)}
+.btn-send:hover{box-shadow:0 8px 20px -8px rgba(14,138,95,.8)}
+.btn-sm{padding:7px 13px;font-size:.82rem}
+.btn-icon{width:34px;height:34px;padding:0;flex:none}
+
+/* Loading κατά την υποβολή (π.χ. ανάκτηση από myDATA) */
+.is-loading{pointer-events:none;color:transparent !important}
+.is-loading::after{content:"";position:absolute;width:16px;height:16px;border-radius:50%;
+  border:2px solid currentColor;border-color:#fff #fff transparent transparent;animation:spin .7s linear infinite}
+.btn-ghost.is-loading::after,.btn-danger.is-loading::after{border-color:var(--accent) var(--accent) transparent transparent}
+@keyframes spin{to{transform:rotate(360deg)}}
+body.is-busy{cursor:progress}
+.progress{position:fixed;top:0;left:0;height:3px;width:0;z-index:100;background:var(--accent-grad);
+  box-shadow:0 0 10px var(--accent);opacity:0}
+body.is-busy .progress{opacity:1;animation:progress 8s cubic-bezier(.1,.8,.2,1) forwards}
+@keyframes progress{to{width:92%}}
+
+.grid{display:grid;gap:14px;align-items:end}
+.grid > *{min-width:0}
+.grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.grid-fetch{grid-template-columns:1fr 1fr auto}
+.grid-supplier{grid-template-columns:1fr 2fr auto}
+.grid-company{grid-template-columns:2fr 1.5fr 2fr 1.2fr 1fr auto;gap:10px}
+.grid-accountant{grid-template-columns:repeat(3,minmax(0,1fr)) auto}
+.grid-entry{grid-template-columns:2fr 1fr .7fr .7fr}
+.grid-issuer{grid-template-columns:1.4fr .8fr 1.2fr;align-items:start}
+.range-actions{display:flex;gap:8px;align-items:center}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.inline-form{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0}
+@media (max-width:1100px){
+  .grid-company{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (max-width:760px){
+  .grid-2,.grid-3,.grid-fetch,.grid-supplier,.grid-company,.grid-accountant,.grid-entry,.grid-issuer{grid-template-columns:1fr}
+  .range-actions{display:grid;grid-template-columns:1fr 1fr}
+  .btn-row > button,.btn-row > .btn,.btn-row > form{width:100%}
+  .btn-row > form > button{flex:1}
+  .grid button{width:100%}
+  .card-head .btn-row,.company-head .btn-row{width:100%}
+  .company-head .btn-row > button{flex:1;width:auto}
+}
+
+/* ---------- Flash ---------- */
+.flash-stack{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
+.flash{display:flex;align-items:flex-start;gap:10px;padding:12px 14px 12px 16px;border-radius:var(--radius-sm);
+  font-size:.9rem;border:1px solid;border-left-width:4px;animation:slide-in .4s var(--ease) both;
+  transition:opacity .3s,transform .3s,margin .3s}
+.flash span{flex:1}
+.flash.error{background:var(--err-soft);color:var(--err);border-color:var(--err-line);border-left-color:var(--err)}
+.flash.ok{background:var(--ok-soft);color:var(--ok);border-color:var(--ok-line);border-left-color:var(--ok)}
+.flash-x{background:transparent;color:inherit;border:0;box-shadow:none;padding:0 4px;font-size:1.1rem;opacity:.6}
+.flash-x:hover{opacity:1;transform:none;box-shadow:none;filter:none}
+.flash.is-gone{opacity:0;transform:translateX(20px)}
+@keyframes slide-in{from{opacity:0;transform:translateY(-8px)}}
+
+/* ---------- Badges / chips ---------- */
+.pill{display:inline-flex;align-items:center;gap:5px;background:var(--surface-3);border:1px solid var(--line-soft);
+  border-radius:999px;padding:2px 10px;font-size:.76rem;font-weight:600;color:var(--ink-2)}
+.pill--accent{background:var(--accent-grad);border-color:transparent;color:#fff}
+.note{display:block;padding:10px 14px;border-radius:var(--radius-sm);border:1px solid;font-size:.86rem;margin:0 0 14px}
+.note--ok{background:var(--ok-soft);border-color:var(--ok-line);color:var(--ok)}
+.note--accent{background:var(--accent-soft);border-color:var(--accent-glow);color:var(--accent-deep)}
+.note--warn{background:var(--warn-soft);border-color:var(--warn-line);color:var(--warn)}
+.chip{display:block;background:var(--accent-soft);border:1px solid var(--accent-glow);border-radius:var(--radius-sm);
+  padding:6px 10px;font-size:.78rem;line-height:1.35;color:var(--accent-deep);margin:0 0 6px;max-width:320px}
+.chip .amt{font-family:var(--font-data);font-weight:600;white-space:nowrap}
+.chip--flag{background:var(--warn-soft);border-color:var(--warn-line);color:var(--warn)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips .chip{margin:0;max-width:none}
+.pill-list{display:flex;flex-wrap:wrap;gap:6px}
+
+/* Τύπος παραστατικού */
+.type-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 4px 3px 9px;border-radius:8px;
+  font-family:var(--font-data);font-size:.8rem;font-weight:600;border:1px solid;white-space:nowrap;cursor:help}
+.type-badge.is-debit{background:var(--accent-soft);color:var(--accent-deep);border-color:var(--accent-glow)}
+.type-badge.is-credit{background:var(--err-soft);color:var(--err);border-color:var(--err-line)}
+.type-badge__n{font-size:.72rem;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,currentColor 16%,transparent);font-weight:700}
+
+/* Καταστάσεις */
+.status-badge{padding:6px 14px;border-radius:999px;font-size:.8rem;font-weight:700;white-space:nowrap;border:1px solid}
+.status-unclassified,.count--unclassified{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)}
+.status-classified,.count--classified{background:var(--accent-soft);color:var(--accent-deep);border-color:var(--accent-glow)}
+.status-sent,.count--sent{background:var(--info-soft);color:var(--info);border-color:var(--info-line)}
+.status-confirmed,.count--confirmed{background:var(--ok-soft);color:var(--ok);border-color:var(--ok-line)}
+
+/* ---------- Tabs (segmented) ---------- */
+.tabs{display:flex;gap:4px;flex-wrap:wrap;padding:4px;background:var(--surface-3);border-radius:12px;
+  width:fit-content;max-width:100%;margin:0 0 16px}
+.tab{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:9px;color:var(--muted);
+  font-weight:600;font-size:.88rem;text-decoration:none;transition:background .2s,color .2s,box-shadow .2s}
+.tab:hover{color:var(--ink)}
+.tab.is-active{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(20,26,46,.12)}
+.tab .count{margin-left:2px;border:1px solid transparent}
+@media (max-width:620px){
+  .tabs{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .tab{justify-content:center}
+}
+
+/* ---------- Filter / pager ---------- */
+.filter-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 2px;padding:10px;
+  background:var(--surface-2);border:1px solid var(--line-soft);border-radius:var(--radius-sm)}
+.filter-bar input{width:auto;flex:1 1 150px;min-width:120px;padding:8px 10px;font-size:.85rem}
+.filter-bar button,.filter-bar .btn{padding:8px 14px;font-size:.85rem}
+.result-info{margin:10px 0 4px}
+.pager{display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap;margin:18px 0 2px}
+.pg{padding:6px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--accent);
+  text-decoration:none;font-size:.85rem;font-weight:600;background:var(--surface);transition:background .18s,transform .15s}
+a.pg:hover{background:var(--accent-soft);transform:translateY(-1px)}
+.pg-off{color:var(--muted);background:var(--surface-2);border-color:var(--line-soft);cursor:default}
+.pg.is-current{background:var(--accent-grad);border-color:transparent;color:#fff;cursor:default;box-shadow:0 4px 12px -6px rgba(74,85,232,.7)}
+.pg-gap{color:var(--muted);padding:0 2px;user-select:none}
+.pg{min-width:36px;text-align:center}
+
+/* ---------- Ledger table ---------- */
+/* Ο πίνακας αλλάζει μορφή με βάση τον δικό του χώρο (όχι την οθόνη): με το μενού
+   αριστερά, οθόνη 1100px αφήνει ~800px — εκεί ήδη δεν χωρά ως πίνακας. */
+.table-wrap{margin:6px -6px 0;container-type:inline-size}
+table.ledger{width:100%;border-collapse:collapse;font-size:.9rem}
+.ledger thead th{position:sticky;top:calc(var(--topbar-h) + var(--toolbar-h, 0px));z-index:5;background:var(--surface);font-family:var(--font-ui);font-size:.7rem;font-weight:700;
+  text-transform:uppercase;letter-spacing:.07em;color:var(--muted);text-align:left;padding:11px 10px;
+  border-bottom:1px solid var(--line);white-space:nowrap}
+.ledger thead th.num{text-align:right}
+.ledger thead th a{color:inherit;text-decoration:none}
+.ledger thead th a:hover{color:var(--accent)}
+.ledger tbody td{padding:13px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+.ledger tbody tr{transition:background .15s}
+.ledger tbody tr:hover{background:var(--surface-2)}
+.ledger tbody tr:has(.sel:checked){background:var(--accent-soft)}
+.ledger tbody tr:nth-child(-n+12){animation:rise .35s var(--ease) both}
+.ledger tbody tr:nth-child(2){animation-delay:.03s} .ledger tbody tr:nth-child(3){animation-delay:.06s}
+.ledger tbody tr:nth-child(4){animation-delay:.09s} .ledger tbody tr:nth-child(5){animation-delay:.12s}
+.ledger tbody tr:nth-child(6){animation-delay:.15s} .ledger tbody tr:nth-child(n+7){animation-delay:.18s}
+.col-check{width:34px}
+.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--font-data);font-size:.86rem;white-space:nowrap}
+.mark{font-family:var(--font-data);font-size:.8rem;color:var(--ink-2);word-break:break-all}
+.mark a{color:var(--accent);text-decoration:none;font-weight:600}
+.mark a:hover{text-decoration:underline}
+.series{font-family:var(--font-data);font-size:.84rem}
+.issuer b{font-weight:600;display:block;line-height:1.3}
+.issuer .vat{font-family:var(--font-data);font-size:.78rem;color:var(--muted)}
+.issuer .pill{margin-top:4px}
+.doc-date{font-family:var(--font-data);font-size:.82rem;white-space:nowrap}
+.actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.actions .btn,.actions button{padding:7px 13px;font-size:.82rem;white-space:nowrap}
+.row-sel{display:flex;align-items:center;gap:10px}
+@container (min-width:1001px){
+  .ledger td.mark{word-break:normal;white-space:nowrap}
+  td.row-head .mark{display:none}
+}
+
+/* Responsive: οι γραμμές γίνονται κάρτες */
+@container (max-width:1000px){
+  .hide-sm{display:none !important}
+  .ledger thead{display:none}
+  .ledger,.ledger tbody,.ledger tr,.ledger td{display:block;width:100%}
+  .ledger tbody tr{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    margin-bottom:12px;padding:6px 0 10px;box-shadow:var(--shadow);overflow:hidden}
+  .ledger tbody tr:hover{background:var(--surface)}
+  .ledger tbody td{border:none;padding:7px 16px;display:flex;justify-content:space-between;align-items:baseline;gap:14px}
+  .ledger tbody td::before{content:attr(data-label);font-family:var(--font-ui);font-size:.68rem;font-weight:700;text-transform:uppercase;
+    letter-spacing:.07em;color:var(--muted);flex:0 0 auto}
+  .ledger tbody td[data-label=""]::before{display:none}
+  .ledger tbody td.row-head{background:var(--surface-2);border-bottom:1px solid var(--line-soft);padding:10px 16px;margin-bottom:4px}
+  .ledger td .issuer{text-align:right}
+  .ledger td.cell-cls{display:block}
+  .ledger td.cell-cls::before{display:block;margin-bottom:6px}
+  .ledger td.cell-cls .chip{max-width:none}
+  .actions{justify-content:stretch;width:100%}
+  .actions .btn,.actions button,.actions form{flex:1;text-align:center}
+  .actions form button{width:100%}
+}
+
+/* ---------- Panels / sections ---------- */
+.panel{background:var(--surface-2);border:1px dashed var(--accent-glow);border-radius:var(--radius);
+  padding:clamp(14px,2vw,22px);margin-top:20px}
+.panel h2{color:var(--accent-deep)}
+.section{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:var(--radius);
+  padding:clamp(14px,2vw,20px);margin:0 0 18px}
+.section > h2,.section-head h2{color:var(--accent-deep);margin-bottom:14px}
+.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.section-head h2{margin:0}
+.card-danger{border-color:var(--err-line);background:var(--err-soft)}
+.empty{text-align:center;padding:30px 10px;color:var(--muted)}
+.empty b{display:block;color:var(--ink);font-size:1rem;margin-bottom:4px}
+
+/* ---------- Παράμετροι: εταιρείες ---------- */
+.company{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;
+  margin:14px 0 0;transition:border-color .2s,box-shadow .2s}
+.company:hover{border-color:var(--accent-glow)}
+.company.is-active{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.company-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.company-head h2{margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.company-head .btn-row{margin:0}
+
+/* ---------- Παραστατικό ---------- */
+.doc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.doc-mark{font-family:var(--font-data);font-size:clamp(1.1rem,2.4vw,1.5rem);margin:2px 0 0;word-break:break-all}
+.doc-hero{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;position:relative;overflow:hidden}
+.doc-hero::after{content:"";position:absolute;right:-60px;top:-60px;width:220px;height:220px;border-radius:50%;
+  background:radial-gradient(circle,var(--accent-soft),transparent 70%);pointer-events:none}
+.hero-name{font-size:1.2rem;font-weight:700;line-height:1.25}
+.hero-vat{font-size:.85rem;color:var(--muted);margin-top:2px}
+.hero-sub{font-size:.82rem;color:var(--ink-2);margin-top:8px;font-family:var(--font-data)}
+.hero-total{text-align:right;display:flex;flex-direction:column;gap:2px;min-width:180px;position:relative;z-index:1}
+.hero-total-v{font-family:var(--font-data);font-size:1.9rem;font-weight:700;color:var(--accent-deep);line-height:1.1}
+.hero-total-sub{font-size:.8rem;color:var(--muted);font-family:var(--font-data)}
+@media (max-width:620px){ .doc-hero{flex-direction:column;align-items:flex-start} .hero-total{text-align:left} }
+table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
+.doc-lines th{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+  padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}
+.doc-lines td{padding:11px 12px;border-bottom:1px solid var(--line-soft)}
+.doc-lines tbody tr:hover{background:var(--surface-2)}
+.doc-lines .num{text-align:right}
+.doc-lines .c-no{width:52px;color:var(--muted)}
+.doc-lines .c-vat{width:120px;text-align:center}
+
+.doc-lines tfoot td{border-top:2px solid var(--line);border-bottom:none;font-weight:700;padding-top:12px}
+.doc-lines tfoot .c-no{color:var(--ink-2);text-transform:uppercase;font-size:.75rem;letter-spacing:.06em}
+.vat-badge{display:inline-block;padding:3px 10px;border-radius:999px;background:var(--accent-soft);border:1px solid var(--accent-glow);
+  color:var(--accent-deep);font-family:var(--font-data);font-size:.78rem;font-weight:600;white-space:nowrap}
+
+/* ---------- Χαρακτηρισμός ---------- */
+.meter{height:6px;border-radius:999px;background:var(--surface-3);overflow:hidden}
+.meter span{display:block;height:100%;width:0;border-radius:inherit;background:var(--accent-grad);
+  transition:width .45s var(--ease),background .3s}
+.cls-summary{display:grid;grid-template-columns:auto 1fr;gap:18px 32px;align-items:center}
+.cls-stats{display:flex;gap:26px;flex-wrap:wrap}
+.cls-stats b{display:block;font-size:1.15rem;margin-top:2px}
+.cls-overall-text{font-size:.88rem;font-weight:600;margin-bottom:8px}
+@media (max-width:860px){ .cls-summary{grid-template-columns:1fr} }
+.help{padding:0}
+.help summary{cursor:pointer;padding:14px clamp(16px,2.5vw,26px);font-weight:600;color:var(--accent-deep);list-style:none}
+.help summary::-webkit-details-marker{display:none}
+.help summary::before{content:"?";display:inline-grid;place-items:center;width:20px;height:20px;margin-right:8px;
+  border-radius:50%;background:var(--accent-soft);font-size:.78rem}
+.help[open] summary{border-bottom:1px solid var(--line-soft)}
+.help ul{margin:0;padding:14px clamp(16px,2.5vw,26px) 16px 44px;color:var(--ink-2);font-size:.9rem;line-height:1.7}
+.cls-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:10px;margin:0 0 12px;flex-wrap:wrap}
+
+.cls-line{--state:var(--accent-glow);position:relative;margin-bottom:18px;padding:18px 20px;background:var(--surface);
+  border:1px solid var(--line);border-left:5px solid var(--state);border-radius:var(--radius);box-shadow:var(--shadow);
+  transition:border-color .3s;animation:rise .4s var(--ease) both}
+.cls-line[data-state=ok]{--state:var(--ok)}
+.cls-line[data-state=short],.cls-line[data-state=incomplete]{--state:var(--warn)}
+.cls-line[data-state=over]{--state:var(--err)}
+.cls-line-head{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.cls-line-badge{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;flex:none;
+  background:var(--accent-grad);color:#fff;font-family:var(--font-data);font-weight:700}
+.cls-line-info{flex:1;min-width:0}
+.cls-line-title{font-weight:700;font-size:1rem}
+.cls-line-figures{display:flex;gap:6px 16px;flex-wrap:wrap;align-items:center;font-size:.84rem;color:var(--muted);margin-top:2px}
+.cls-line-figures b{font-family:var(--font-data);color:var(--ink);font-weight:600}
+.cls-status{margin-left:auto;padding:5px 12px;border-radius:999px;font-size:.8rem;font-weight:700;white-space:nowrap;
+  background:color-mix(in srgb,var(--state) 14%,transparent);color:var(--state);transition:background .3s,color .3s}
+.cls-line[data-state=short] .cls-status,.cls-line[data-state=incomplete] .cls-status{color:var(--warn)}
+.meter--line{margin:14px 0 16px}
+.meter--line span{background:var(--state)}
+.cls-rows{display:flex;flex-direction:column;gap:10px}
+.cls-row{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,2.2fr) minmax(120px,1fr) minmax(0,1.8fr) auto;
+  gap:10px;align-items:start;padding:12px;background:var(--surface-2);border:1px solid var(--line-soft);
+  border-radius:var(--radius-sm);animation:rise .3s var(--ease) both}
+.cls-field label{margin-bottom:4px}
+.cls-row .btn-x{margin-top:22px;width:38px;height:40px}
+.cls-fill{background:none;border:0;box-shadow:none;color:var(--accent);padding:4px 0 0;font-size:.78rem;font-weight:600}
+.cls-fill:hover{background:none;text-decoration:underline;transform:none;box-shadow:none;filter:none}
+.cls-novat{margin:10px 0 0}
+.cls-add{margin-top:12px}
+.cls-footer{position:sticky;bottom:0;z-index:8;display:flex;justify-content:space-between;align-items:center;gap:12px;
+  flex-wrap:wrap;margin:8px calc(-1 * clamp(14px,3vw,36px)) 0;padding:14px clamp(14px,3vw,36px);
+  background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-top:1px solid var(--line)}
+.cls-footer .btn-row{margin:0}
+.cls-footer-status{font-weight:600;font-size:.9rem}
+.cls-footer-status[data-state=ok]{color:var(--ok)}
+.cls-footer-status[data-state=bad]{color:var(--warn)}
+@media (max-width:980px){
+  .cls-row{grid-template-columns:1fr 1fr}
+  .cls-row .btn-x{grid-column:1 / -1;width:100%;height:34px;margin:0}
+}
+@media (max-width:520px){
+  .cls-row{grid-template-columns:1fr}
+  .cls-status{margin-left:0}
+  .cls-footer .btn-row{width:100%}
+}
+
+/* ---------- Νέα εγγραφή ---------- */
+.line-item{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:14px;
+  margin-bottom:12px;animation:rise .3s var(--ease) both}
+.line-item__head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.line-item__no{font-size:.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.line-item .btn-x{width:30px;height:30px;border-radius:999px}
+.line-main{grid-template-columns:.8fr 2.6fr 2.6fr}
+.line-vat{grid-template-columns:1fr 1fr;max-width:420px;margin-top:10px}
+.totals{display:flex;gap:22px;flex-wrap:wrap;justify-content:flex-end;padding:12px 14px;
+  border-top:1px dashed var(--accent-glow);margin-top:4px;font-size:.85rem;color:var(--ink-2)}
+.totals b{font-family:var(--font-data);color:var(--accent-deep);margin-left:6px}
+.is-dimmed{opacity:.6}
+@media (max-width:760px){
+  .line-main,.line-vat{grid-template-columns:1fr;max-width:none}
+  .totals{justify-content:space-between}
+}
+
+/* ---------- Αναφορές ---------- */
+.report-options{border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px;margin:14px 0 0;
+  display:flex;gap:10px 24px;flex-wrap:wrap}
+.report-options legend{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:0 6px}
+.report-options label{display:flex;align-items:center;gap:8px;margin:0;text-transform:none;letter-spacing:0;
+  font-size:.88rem;font-weight:500;cursor:pointer}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:20px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);
+  animation:rise .45s var(--ease) both;transition:transform .2s var(--ease),box-shadow .2s}
+.kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow-hi)}
+.kpi:nth-child(2){animation-delay:.06s} .kpi:nth-child(3){animation-delay:.12s}
+.kpi .kicker{display:flex;justify-content:space-between}
+.kpi-v{font-family:var(--font-data);font-size:clamp(1.2rem,2.4vw,1.6rem);font-weight:700;margin-top:6px;line-height:1.15}
+.kpi-sub{font-size:.8rem;color:var(--muted)}
+.kpi--income{border-top:3px solid var(--ok)} .kpi--income .kpi-v{color:var(--ok)}
+.kpi--expense{border-top:3px solid var(--err)} .kpi--expense .kpi-v{color:var(--err)}
+.kpi--profit{border-top:3px solid var(--accent)} .kpi--profit .kpi-v{color:var(--accent-deep)}
+.kpi--profit.is-neg .kpi-v{color:var(--err)}
+@media (max-width:760px){ .kpis{grid-template-columns:1fr} .report-options{display:grid} }
+
+table.report{table-layout:fixed}
+table.report thead th:first-child{width:40%}
+table.report thead th:nth-child(2){width:12%}
+table.report thead th:nth-child(n+3){width:16%}
+table.report tbody td{padding:14px 12px;font-size:.95rem}
+table.report .num{font-size:1rem}
+.r-income td{color:var(--ok)}
+.r-expense td{color:var(--err)}
+.r-profit td{border-top:2px solid var(--ink);font-size:1.05rem;font-weight:700;color:var(--ink)}
+.r-profit td.amount-pos{color:var(--ok)}
+.r-profit td.amount-neg{color:var(--err)}
+.r-profit td.amount-zero{color:var(--ink-2)}
+.report-section-heading td{background:var(--surface-2);border-top:2px solid var(--ink);border-bottom:1px solid var(--line)}
+.report-subtotal td{background:var(--surface-2);border-top:2px solid currentColor}
+.report-grand-total td{background:var(--surface-2);border-top:3px double var(--ink)}
+.report-period-heading td,.report-overall-heading td{background:var(--side);color:#fff;padding:12px !important}
+.report-period-heading td{border-top:10px solid var(--surface)}
+.report-overall-heading td{border-top:16px solid var(--surface)}
+.report-period-heading small{display:block;color:var(--side-ink);font-size:.67rem;text-transform:uppercase;letter-spacing:.08em}
+.report-overall-row td{background:var(--surface-2);font-weight:700}
+.report-overall-difference.is-pos td{background:var(--ok-soft)}
+.report-overall-difference.is-neg td{background:var(--err-soft)}
+.report-dimension{display:inline-block;margin:0 22px 0 0;font-size:.82rem;color:var(--ink)}
+@container (max-width:1000px){
+  .ledger tbody tr.report-section-heading,.ledger tbody tr.report-period-heading,.ledger tbody tr.report-overall-heading{
+    box-shadow:none;border:0;background:transparent;padding:0;margin:18px 0 8px}
+  .report-detail-row td:first-child{flex-direction:column;align-items:flex-end}
+  .report-dimension{margin:0 0 6px}
+}
+
+/* ---------- Σεβασμός στη μειωμένη κίνηση ---------- */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after,::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){
+    animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+}
+
+/* ---------- Ημερολόγιο (flatpickr) στο θέμα μας ---------- */
+.flatpickr-calendar{background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow-hi);font-family:var(--font-ui)}
+.flatpickr-calendar.arrowTop::after{border-bottom-color:var(--surface)}
+.flatpickr-calendar.arrowBottom::after{border-top-color:var(--surface)}
+.flatpickr-months .flatpickr-month,.flatpickr-current-month .flatpickr-monthDropdown-months,
+.flatpickr-current-month input.cur-year,span.flatpickr-weekday,.flatpickr-day{color:var(--ink);fill:var(--ink)}
+.flatpickr-current-month .flatpickr-monthDropdown-months{background:var(--surface)}
+.flatpickr-months .flatpickr-prev-month,.flatpickr-months .flatpickr-next-month{color:var(--ink);fill:var(--ink)}
+.flatpickr-months .flatpickr-prev-month:hover svg,.flatpickr-months .flatpickr-next-month:hover svg{fill:var(--accent)}
+.flatpickr-day:hover,.flatpickr-day:focus{background:var(--accent-soft);border-color:var(--accent-soft)}
+.flatpickr-day.today{border-color:var(--accent)}
+.flatpickr-day.selected,.flatpickr-day.selected:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+.flatpickr-day.prevMonthDay,.flatpickr-day.nextMonthDay,.flatpickr-day.flatpickr-disabled{color:var(--muted);opacity:.6}
+
+/* ---------- Παραστατικό: στήλες χαρακτηρισμού ---------- */
+.table-scroll{overflow-x:auto}
+.doc-lines .c-cls{min-width:150px;vertical-align:top}
+.doc-lines td.c-cls b{display:block;font-weight:500;font-size:.84rem;line-height:1.3}
+.doc-lines .code{display:block;font-family:var(--font-data);font-size:.72rem;color:var(--muted);margin-top:2px}
+.doc-lines td[rowspan]{vertical-align:top;background:var(--surface)}
+.doc-lines tbody tr.line-first td{border-top:1px solid var(--line)}
+.doc-lines .th-group th{font-size:.66rem;color:var(--accent-deep);border-bottom:1px solid var(--line-soft);text-align:left;padding-bottom:4px}
+.doc-lines .th-group th + th{border-left:2px solid var(--line)}
+.doc-lines td.c-vat + td.c-cls,.doc-lines tr:not(.line-first) td.c-cls:first-child,.doc-lines thead tr:last-child th.c-vat + th{border-left:2px solid var(--line)}
+.doc-lines tbody td{vertical-align:top}
+.doc-lines th{font-family:var(--font-ui)}
+
+/* Λίστα «Απεσταλμένα»: στήλες χαρακτηρισμού, μία τιμή ανά γραμμή */
+.cls-stack{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.cls-stack li{white-space:nowrap;font-family:var(--font-data);font-size:.76rem;line-height:1.6;
+  padding:1px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent-deep);cursor:help}
+.cls-stack li:has(.muted){background:transparent}
+
+.sub-mark{display:block;font-size:.72rem;color:var(--muted);font-weight:400;margin-top:2px}
+@container (min-width:1001px){
+  .table-wrap--wide .ledger{font-size:.84rem}
+  .table-wrap--wide .ledger th,.table-wrap--wide .ledger td{padding-left:5px;padding-right:5px}
+  .table-wrap--wide .num{font-size:.8rem}
+  .table-wrap--wide .cls-stack li{padding:1px 5px;font-size:.72rem}
+  .table-wrap--wide .actions .btn{padding:6px 9px}
+}
+.doc-head .btn-row{margin:0}
+
+/* Υπο-στοιχείο μενού (π.χ. «Νέα εγγραφή» μέσα στα Έξοδα) */
+.nav-link--sub{margin-left:18px;padding-top:6px;padding-bottom:6px;font-size:.86rem}
+.nav-link--sub::after{content:"";position:absolute;left:-8px;top:0;bottom:50%;width:8px;
+  border-left:1px solid var(--side-2);border-bottom:1px solid var(--side-2);border-bottom-left-radius:6px}
+.nav-link--sub svg{width:15px;height:15px}
+
+/* ---------- Βιβλία: καρτέλες + φίλτρα + επικεφαλίδες πάντα ορατά στο scroll ---------- */
+.ledger-toolbar{position:sticky;top:var(--topbar-h);z-index:7;background:var(--surface);
+  margin:calc(-1 * var(--card-pad)) calc(-1 * var(--card-pad)) 0;padding:var(--card-pad) var(--card-pad) 8px;
+  border-radius:var(--radius) var(--radius) 0 0;box-shadow:0 1px 0 var(--line-soft)}
+.ledger-toolbar .result-info{margin-bottom:0}
+/* Κινητό: μένουν σταθερές μόνο οι καρτέλες, για να μην πιάνουν όλη την οθόνη. */
+@media (max-width:760px){
+  .ledger-toolbar{display:contents}
+  .ledger-toolbar > .tabs{position:sticky;top:var(--topbar-h);z-index:7;box-shadow:0 0 0 8px var(--surface)}
+}
+
+/* ---------- Γρήγορη διόρθωση επωνυμίας στα βιβλία ---------- */
+.name-edit{background:none;border:0;box-shadow:none;color:var(--muted);padding:0 6px;margin-left:2px;
+  font-size:.9rem;line-height:1.2;opacity:.35;vertical-align:1px;display:inline}
+.ledger tr:hover .name-edit,.name-edit:focus-visible{opacity:1}
+.name-edit:hover{color:var(--accent);background:none;transform:none;box-shadow:none;filter:none}
+@media (hover:none){ .name-edit{opacity:.8} }
+.issuer .issuer-name{display:inline}
+.issuer .vat{display:block}
+.name-input{padding:5px 8px;font-size:.88rem;font-weight:600;min-width:220px}
+.name-input.is-error{border-color:var(--err);box-shadow:0 0 0 4px var(--err-soft)}
+.issuer-name.is-saved{animation:saved 1.6s var(--ease)}
+@keyframes saved{0%,40%{background:var(--ok-soft);color:var(--ok);box-shadow:0 0 0 4px var(--ok-soft);border-radius:4px}}
+.issuer [hidden]{display:none}
+
+/* Κουμπί αφαίρεσης (χαρακτηρισμός + νέα εγγραφή) */
+.btn-x{background:var(--err-soft);color:var(--err);border:1px solid var(--err-line);box-shadow:none;width:38px;height:40px;padding:0}
+.btn-x:hover{background:var(--err);color:#fff;filter:none;box-shadow:none}
+.cls-fill[hidden]{display:none}
+.cls-line-figures .vat-badge{font-family:var(--font-ui)}
+
+/* Χαρακτηρισμός: επιλογή τρόπου + ΦΠΑ ανά κατηγορία (συγκεντρωτικά) */
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.mode-switch{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;border:0;padding:0;margin:0 0 16px}
+.mode-opt{display:flex;gap:12px;align-items:flex-start;margin:0;padding:14px 16px;cursor:pointer;text-transform:none;
+  letter-spacing:0;font-size:.9rem;color:var(--ink);background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow);transition:border-color .2s,box-shadow .2s}
+.mode-opt:hover{border-color:var(--accent-glow)}
+.mode-opt:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.mode-opt input{margin-top:3px}
+.mode-opt b{display:block}
+.mode-opt small{display:block;color:var(--muted);font-size:.82rem;font-weight:400;margin-top:2px}
+@media (max-width:700px){ .mode-switch{grid-template-columns:1fr} }
+.cls-row--pi{grid-template-columns:minmax(0,2.2fr) minmax(0,2.2fr) minmax(130px,1fr) auto}
+@media (max-width:980px){ .cls-row--pi{grid-template-columns:1fr 1fr} }
+@media (max-width:520px){ .cls-row--pi{grid-template-columns:1fr} }
+.cls-hint{margin:10px 0 0}
+.cls-hint[hidden]{display:none}
+
+/* Συγκεντρωτικά: χαρακτηρισμός ΦΠΑ ανά συγκεντρωτική γραμμή */
+.pi-vat-row{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;margin:12px 0 0;padding:12px;
+  background:var(--surface-2);border:1px dashed var(--accent-glow);border-radius:var(--radius-sm);max-width:560px}
+.pi-vat-row label{margin:0}
+.cls-line-badge--rate{width:auto;min-width:34px;padding:0 8px;border-radius:999px;font-size:.78rem}
+
+/* ---------- Βιβλία: χρωματικός κώδικας ανά κατάσταση ----------
+   Αχαρακτήριστα = πορτοκαλί (θέλουν ενέργεια), Χαρακτηρισμένα = μπλε (έτοιμα για αποστολή),
+   Απεσταλμένα = βιολετί (αναμονή myDATA), Ολοκληρωμένα = πράσινο. Ίδια χρώματα με τους μετρητές. */
+.ledger-card{--view:var(--accent);--view-soft:var(--accent-soft)}
+.ledger-card[data-view=unclassified]{--view:var(--warn);--view-soft:var(--warn-soft)}
+.ledger-card[data-view=sent]{--view:var(--info);--view-soft:var(--info-soft)}
+.ledger-card[data-view=confirmed]{--view:var(--ok);--view-soft:var(--ok-soft)}
+/* Λωρίδα χρώματος στην κορυφή — πάνω στο σταθερό toolbar, ώστε να φαίνεται και στο scroll. */
+.ledger-card .ledger-toolbar{box-shadow:inset 0 5px 0 var(--view),0 1px 0 var(--line-soft)}
+.ledger-card .tab.is-active{color:var(--view);box-shadow:inset 0 -2px 0 var(--view),0 1px 3px rgba(20,26,46,.12)}
+.ledger-card .ledger thead th{background:color-mix(in srgb,var(--view-soft) 70%,var(--surface))}
+.ledger-card .ledger tbody td:first-child{box-shadow:inset 3px 0 0 var(--view)}
+.ledger-card .ledger tbody tr:hover{background:color-mix(in srgb,var(--view-soft) 45%,transparent)}
+.ledger-card .result-info{color:var(--view)}
+@container (max-width:1000px){
+  .ledger-card .ledger tbody tr{border-left:4px solid var(--view)}
+  .ledger-card .ledger tbody td:first-child{box-shadow:none}
+}
+@media (max-width:760px){ .ledger-card{border-top:5px solid var(--view)} }
+/* Σε μορφή καρτών: η δευτερεύουσα γραμμή (MARK χαρακτ., σειρά, καθαρή/ΦΠΑ) πάει από κάτω. */
+@container (max-width:1000px){
+  .ledger tbody td:has(.sub-mark){flex-wrap:wrap}
+  .ledger tbody td .sub-mark{flex-basis:100%;text-align:right}
+}
+/* Κουμπί-εικονίδιο στη στήλη ενεργειών (π.χ. ✎ χαρακτηρισμός) */
+.actions .btn-icon{width:38px;height:34px;padding:0}
+.btn-icon svg{width:17px;height:17px}
+/* Συναλλασσόμενοι: προτάσεις χαρακτηρισμού ανά κατηγορία ΦΠΑ */
+.rule-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.rule-list .pill{font-family:var(--font-ui);min-width:74px;justify-content:center}
+
+/* ---------- Φόρμα χαρακτηρισμού: συμπαγής διάταξη ---------- */
+.cls-top{padding:14px 18px;margin-bottom:12px;position:relative;z-index:9}
+.cls-top-row{display:flex;align-items:center;gap:10px 22px;flex-wrap:wrap}
+.cls-top-row--progress{margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft)}
+.cls-top-title{display:flex;align-items:flex-start;gap:10px;flex:1;min-width:240px}
+.cls-top-title h1{font-size:1.15rem;margin:0}
+.cls-top-title .meta{margin-top:2px;font-size:.8rem;gap:4px 14px}
+.back--inline{margin:0;font-size:1.1rem;line-height:1.3;padding:0 2px}
+.cls-top .cls-stats{gap:18px}
+.cls-top .cls-stats b{font-size:.98rem}
+.cls-top .cls-overall{flex:1;min-width:240px}
+.cls-top .cls-overall-text{font-size:.82rem;margin-bottom:5px}
+.info-btn .count{margin-left:4px}
+.info-btn.has-attention{border-color:var(--warn-line);color:var(--warn)}
+.info-btn.has-attention .count{background:var(--warn-soft);color:var(--warn)}
+.cls-info{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);animation:rise .25s var(--ease) both}
+.cls-info .note{margin:0 0 8px;padding:8px 12px;font-size:.84rem}
+.help-list{margin:4px 0 0;padding-left:20px;font-size:.84rem;color:var(--ink-2);line-height:1.6}
+/* Τρόπος χαρακτηρισμού: μικρός επιλογέας δύο θέσεων */
+.seg{display:inline-flex;gap:2px;padding:3px;margin:0;border:0;border-radius:10px;background:var(--surface-3)}
+.seg label{display:flex;align-items:center;gap:6px;margin:0;padding:6px 12px;border-radius:8px;cursor:pointer;
+  text-transform:none;letter-spacing:0;font-size:.84rem;font-weight:600;color:var(--muted);transition:background .2s,color .2s}
+.seg label:has(input:checked){background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(20,26,46,.12)}
+.seg input{width:14px;height:14px}
+/* Κάρτες γραμμών: λιγότερα κενά */
+#cls-form .cls-line{padding:10px 14px;margin-bottom:10px}
+#cls-form .cls-line-head{gap:10px}
+#cls-form .cls-line-badge{width:28px;height:28px;font-size:.82rem}
+#cls-form .cls-line-title{font-size:.92rem}
+#cls-form .cls-line-figures{font-size:.78rem;gap:2px 12px}
+#cls-form .cls-status{padding:3px 10px;font-size:.76rem}
+#cls-form .meter--line{height:4px;margin:8px 0}
+#cls-form .cls-rows{gap:6px}
+#cls-form .cls-row{padding:8px 10px;gap:8px}
+#cls-form .cls-field label{font-size:.64rem;margin-bottom:2px}
+#cls-form .cls-row select,#cls-form .cls-row input{padding:7px 9px;font-size:.85rem}
+#cls-form .cls-row .btn-x{margin-top:18px;width:34px;height:34px}
+/* Ετικέτες μόνο στην πρώτη γραμμή Ε3 κάθε κάρτας */
+#cls-form .cls-row + .cls-row .cls-field label{display:none}
+#cls-form .cls-row + .cls-row .btn-x{margin-top:0}
+#cls-form .cls-fill{padding-top:2px;font-size:.74rem}
+#cls-form .cls-add{margin-top:6px;padding:4px 10px}
+#cls-form .cls-novat{margin:6px 0 0}
+#cls-form .cls-toolbar{margin:0 0 8px}
+.pi-vat-row{display:flex;align-items:center;gap:10px;max-width:none;margin:6px 0 0;padding:6px 10px}
+.pi-vat-row label{white-space:nowrap;font-size:.7rem}
+.pi-vat-row select{max-width:420px;padding:6px 9px;font-size:.85rem}
+@media (max-width:980px){ #cls-form .cls-row + .cls-row .cls-field label{display:block} }
+/* Ίδιες στήλες σε όλες τις κάρτες → ετικέτες μόνο στην πρώτη κάρτα (σε φαρδιές οθόνες). */
+@media (min-width:981px){
+  #cls-lines .cls-line + .cls-line .cls-field label,
+  .pi-group ~ .pi-group .cls-field label{display:none}
+  #cls-lines .cls-line + .cls-line .cls-row .btn-x,
+  .pi-group ~ .pi-group .cls-row .btn-x{margin-top:0}
+}
+
+/* ---------- Νέα εγγραφή: συμπαγής διάταξη (ίδια λογική με τον χαρακτηρισμό) ---------- */
+#ne-form .cls-top-row--progress{margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft)}
+#ne-form .grid{gap:10px}
+#ne-form label{font-size:.66rem;margin-bottom:3px}
+#ne-form select,#ne-form input:not([type=checkbox]){padding:7px 9px;font-size:.86rem}
+.ne-card{padding:12px 16px;margin-bottom:12px}
+.ne-card-head{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;margin-bottom:8px}
+.ne-card-head h2{margin:0;font-size:.95rem;color:var(--accent-deep)}
+.ne-card-head .btn-sm{margin-left:auto;padding:4px 10px}
+#ne-form .input-group .btn-sm{padding:6px 10px}
+#ne-form #vat_result,#ne-form #country_hint{margin-top:2px}
+/* Κάθε γραμμή σε μία σειρά πεδίων */
+#ne-form .line-item{display:grid;grid-template-columns:24px minmax(90px,.9fr) minmax(0,2.2fr) minmax(0,2.2fr) minmax(0,1fr) minmax(80px,.8fr) auto;
+  gap:8px;align-items:end;padding:6px 8px;margin-bottom:6px;background:var(--surface-2);border-color:var(--line-soft)}
+#ne-form .line-item__no{align-self:end;padding-bottom:9px;text-align:center;font-family:var(--font-data);font-size:.8rem}
+#ne-form .line-item .btn-x{width:32px;height:32px;border-radius:var(--radius-sm)}
+@media (min-width:981px){ #ne-form .line-item + .line-item label{display:none} }
+@media (max-width:980px){
+  #ne-form .line-item{grid-template-columns:24px 1fr 1fr}
+  #ne-form .line-item .ne-field:nth-of-type(2),#ne-form .line-item .ne-field:nth-of-type(3){grid-column:span 2}
+}
+@media (max-width:520px){ #ne-form .line-item{grid-template-columns:1fr} #ne-form .line-item .ne-field{grid-column:auto !important} }
+/* Νέα εγγραφή: + στήλη «Χαρ. ΦΠΑ» στη σειρά κάθε γραμμής */
+#ne-form .line-item{grid-template-columns:24px minmax(84px,.8fr) minmax(0,2fr) minmax(0,2fr) minmax(0,.9fr) minmax(74px,.7fr) minmax(0,1.3fr) auto}
+@media (max-width:980px){ #ne-form .line-item{grid-template-columns:24px 1fr 1fr} }
+@media (max-width:520px){ #ne-form .line-item{grid-template-columns:1fr} }

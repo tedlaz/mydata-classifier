@@ -220,3 +220,41 @@ VAT_TYPES = {
     "VAT_365": "Ενδοκοινοτικές λήψεις υπηρεσιών άρθρ. 14.2.α",
     "VAT_366": "Λοιπές πράξεις λήπτη",
 }
+
+# Κατηγορία ΦΠΑ γραμμής (vatCategory) → ποσοστό, για εμφάνιση.
+VAT_CATEGORY_RATES = {
+    "1": "24%", "2": "13%", "3": "6%", "4": "17%",
+    "5": "9%", "6": "4%", "7": "0%", "8": "χωρίς ΦΠΑ",
+}
+
+# Χώρες εκδότη για τη «Νέα εγγραφή». Κρατάμε μόνο την ΕΕ· τις λοιπές χώρες
+# (και τα ελληνικά ονόματα) τις δίνει ο browser μέσω Intl.DisplayNames.
+EU_COUNTRIES = set(
+    "AT BE BG CY CZ DE DK EE ES FI FR HR HU IE IT LT LU LV MT NL PL PT RO SE SI SK".split()
+)
+
+
+def country_rule(invoice_type: str) -> str:
+    """Ποια ομάδα χωρών επιτρέπεται: 'gr' (μόνο Ελλάδα: ΕΦΚΑ, συμβόλαιο, ενοίκιο,
+    κοινόχρηστα), 'eu' (14.1/14.3 ενδοκοινοτικά), 'third' (14.2/14.4 τρίτες χώρες)
+    ή 'any' (όλοι οι άλλοι τύποι, default GR)."""
+    if invoice_type in ("13.3", "14.5", "15.1", "16.1"):
+        return "gr"
+    if invoice_type in ("14.1", "14.3"):
+        return "eu"
+    if invoice_type in ("14.2", "14.4"):
+        return "third"
+    return "any"
+
+
+def country_allowed(invoice_type: str, country: str) -> bool:
+    if len(country) != 2 or not country.isascii() or not country.isalpha():
+        return False
+    rule = country_rule(invoice_type)
+    if rule == "gr":
+        return country == "GR"
+    if rule == "eu":
+        return country in EU_COUNTRIES
+    if rule == "third":
+        return country != "GR" and country not in EU_COUNTRIES
+    return True

@@ -1,217 +1,502 @@
 {% extends "base.html" %}
+{% block title %}Χαρακτηρισμός {{ inv.mark }}{% endblock %}
+
+{# Ένα E3 χαρακτηρισμός μέσα σε γραμμή παραστατικού. Χρησιμοποιείται και ως πρότυπο για «+ Προσθήκη». #}
+{% macro cls_row(line_number, r) -%}
+<div class="cls-row">
+  <input type="hidden" name="line_number" value="{{ line_number }}">
+  <div class="cls-field cls-field--cat">
+    <label>Κατηγορία εξόδου</label>
+    <select name="category" data-f="category">
+      <option value="">— επίλεξε κατηγορία —</option>
+      {% for code, label in categories.items() %}
+        <option value="{{ code }}" {% if r.category == code %}selected{% endif %}>{{ label }} · {{ code }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="cls-field cls-field--type">
+    <label>Τύπος Ε3</label>
+    <select name="type" data-f="type">
+      <option value="">— επίλεξε τύπο —</option>
+      {% for code, label in types.items() %}
+        <option value="{{ code }}" {% if r.type == code %}selected{% endif %}>{{ code }} · {{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="cls-field cls-field--amount">
+    <label>Ποσό (€)</label>
+    <input type="number" step="0.01" name="amount" class="cls-amount" inputmode="decimal"
+           value="{{ '%.2f'|format(r.amount) if r.amount is not none else '' }}">
+    <button type="button" class="cls-fill" hidden>+ υπόλοιπο</button>
+  </div>
+  <div class="cls-field cls-field--vat">
+    <label>Χαρακτηρισμός ΦΠΑ</label>
+    <select name="vat_type">
+      {% for code, label in vat_types.items() %}
+        <option value="{{ code }}" {% if r.vat_type == code %}selected{% endif %}>{{ label }}{% if code %} · {{ code }}{% endif %}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button type="button" class="btn-x cls-del" title="Αφαίρεση αυτού του χαρακτηρισμού" aria-label="Αφαίρεση">✕</button>
+</div>
+{%- endmacro %}
+
+{# Ένας χαρακτηρισμός Ε3 μιας συγκεντρωτικής γραμμής (group = κατηγορία ΦΠΑ). #}
+{% macro pi_row(group, r) -%}
+<div class="cls-row cls-row--pi">
+  <input type="hidden" name="pi_group" value="{{ group }}">
+  <div class="cls-field">
+    <label>Κατηγορία εξόδου</label>
+    <select name="pi_category" data-f="category">
+      <option value="">— επίλεξε κατηγορία —</option>
+      {% for code, label in categories.items() %}
+        <option value="{{ code }}" {% if r.category == code %}selected{% endif %}>{{ label }} · {{ code }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="cls-field">
+    <label>Τύπος Ε3</label>
+    <select name="pi_type" data-f="type">
+      <option value="">— επίλεξε τύπο —</option>
+      {% for code, label in types.items() %}
+        <option value="{{ code }}" {% if r.type == code %}selected{% endif %}>{{ code }} · {{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="cls-field cls-field--amount">
+    <label>Ποσό (€)</label>
+    <input type="number" step="0.01" name="pi_amount" class="cls-amount" inputmode="decimal"
+           value="{{ '%.2f'|format(r.amount) if r.amount is not none else '' }}">
+    <button type="button" class="cls-fill" hidden>+ υπόλοιπο</button>
+  </div>
+  <button type="button" class="btn-x cls-del" title="Αφαίρεση αυτού του χαρακτηρισμού" aria-label="Αφαίρεση">✕</button>
+</div>
+{%- endmacro %}
+
 {% block content %}
-<div class="card">
-  <a class="doc-back" href="{{ url_for('document', mark=inv.mark) }}" style="color:var(--accent);font-weight:600;text-decoration:none">← Πίσω στο παραστατικό</a>
-  <h1 style="margin-top:10px">Χαρακτηρισμός · <span class="mono">{{ inv.mark }}</span></h1>
-  <p class="muted">
-    {{ inv.issuer_name or "" }} (ΑΦΜ {{ inv.issuer_vat or "—" }}) · Τύπος {{ inv.invoice_type }} ·
-    {{ inv.issue_date }} · Καθαρή αξία <strong>{{ "%.2f"|format(inv.total_net or 0) }} €</strong> ·
-    ΦΠΑ {{ "%.2f"|format(inv.total_vat or 0) }} €
-  </p>
+{% set notes = [] %}
+{% if has_existing %}{% set _ = notes.append(('warn', '✏️ <strong>Διόρθωση:</strong> η φόρμα έχει ήδη τον υπάρχοντα χαρακτηρισμό — ό,τι αποθηκεύσεις θα τον αντικαταστήσει.')) %}{% endif %}
+{% if remote_pi %}{% set _ = notes.append(('warn', '🧮 Ο χαρακτηρισμός στο myDATA έγινε <strong>συγκεντρωτικά</strong> — η φόρμα άνοιξε στον συγκεντρωτικό τρόπο με τα ποσά του, ανά κατηγορία ΦΠΑ.')) %}{% endif %}
+{% if learned and not has_existing %}{% set _ = notes.append(('ok', '💡 Προσυμπληρώθηκε από τις προτάσεις του συναλλασσόμενου <strong>ανά κατηγορία ΦΠΑ</strong> — κάθε γραμμή πήρε τον χαρακτηρισμό που είχαν οι γραμμές ίδιου ΦΠΑ σε προηγούμενο παραστατικό του.')) %}{% endif %}
+{% if combos %}{% set _ = notes.append(('accent', '🔒 Εμφανίζονται μόνο οι κατηγορίες και οι τύποι Ε3 που επιτρέπει η ΑΑΔΕ για τον τύπο ' ~ inv.invoice_type ~ '.')) %}{% endif %}
+{% set attention = notes|selectattr(0, 'equalto', 'warn')|list %}
 
-  {% if has_existing %}
-  <p class="pill">✏️ Διόρθωση: προσυμπληρώθηκε ο υπάρχων χαρακτηρισμός — ο νέος θα τον αντικαταστήσει.</p>
-  {% endif %}
-
-  <p class="muted" style="max-width:82ch">
-    Ο χαρακτηρισμός γίνεται <strong>ανά γραμμή του παραστατικού</strong>: το myDATA απαιτεί να
-    χαρακτηριστεί <strong>κάθε γραμμή</strong>, με το άθροισμα των E3 της να ισούται με την αξία της
-    (αλλιώς σφάλματα 303/304/306). Για έξοδα <strong>με</strong> δικαίωμα έκπτωσης ΦΠΑ: ποσό =
-    <strong>καθαρή αξία</strong> της γραμμής και επίλεξε τύπο ΦΠΑ. Για έξοδα <strong>χωρίς</strong>
-    δικαίωμα έκπτωσης ΦΠΑ (π.χ. category2_5): ποσό = <strong>μικτή αξία</strong> (καθαρή + ΦΠΑ)
-    και <strong>άφησε τον τύπο ΦΠΑ κενό</strong>.
-  </p>
-
-  {% if combos %}
-  <p class="pill" style="background:var(--accent-soft);border-color:var(--accent-glow);color:var(--accent-deep)">
-    🔒 Οι επιλογές Κατηγορίας/Τύπου περιορίζονται στους επιτρεπόμενους συνδυασμούς για τον τύπο {{ inv.invoice_type }}.
-  </p>
-  {% endif %}
-
-  <form method="post" action="{{ url_for('submit', mark=inv.mark) }}">
-    <div id="cls-lines">
-      {% for g in line_groups %}
-      <div class="cls-line" data-net="{{ '%.2f'|format(g.net) }}" data-gross="{{ '%.2f'|format(g.net + g.vat) }}">
-        <div class="cls-line-head">
-          <span class="cls-line-badge">{{ g.line_number }}</span>
-          <span class="cls-line-title">Γραμμή {{ g.line_number }}</span>
-          <span class="muted">Καθαρή <b>{{ '%.2f'|format(g.net) }} €</b> · ΦΠΑ <b>{{ '%.2f'|format(g.vat) }} €</b> · Μικτή <b>{{ '%.2f'|format(g.net + g.vat) }} €</b></span>
-          <span class="cls-line-sum cls-diff"></span>
-        </div>
-        <div class="cls-rows">
-          {% for r in g.rows %}
-          <div class="cls-row">
-            <div class="cls-grid">
-              <input type="hidden" name="line_number" value="{{ g.line_number }}">
-              <div>
-                <label>Κατηγορία</label>
-                <select name="category">
-                  <option value="">— επιλογή —</option>
-                  {% for code, label in categories.items() %}
-                    <option value="{{ code }}" {% if r.category == code %}selected{% endif %}>{{ code }} · {{ label }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <div>
-                <label>Τύπος (E3_x)</label>
-                <select name="type">
-                  <option value="">— επιλογή —</option>
-                  {% for code, label in types.items() %}
-                    <option value="{{ code }}" {% if r.type == code %}selected{% endif %}>{{ code }} · {{ label }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <div>
-                <label>Ποσό (€)</label>
-                <input type="number" step="0.01" name="amount" class="cls-amount"
-                       value="{{ '%.2f'|format(r.amount) if r.amount is not none else '' }}" oninput="recalc()">
-              </div>
-              <div>
-                <label>Χαρακτηρισμός ΦΠΑ</label>
-                <select name="vat_type">
-                  {% for code, label in vat_types.items() %}
-                    <option value="{{ code }}" {% if r.vat_type == code %}selected{% endif %}>{{ label }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <button type="button" class="cls-del" onclick="delRow(this)" title="Αφαίρεση γραμμής">✕</button>
-            </div>
+<form method="post" action="{{ url_for('submit', mark=inv.mark) }}" id="cls-form">
+  {# Συμπαγής κεφαλίδα: στοιχεία + ποσά + πληροφορίες, πρόοδος + τρόπος χαρακτηρισμού. #}
+  <div class="card cls-top">
+    <div class="cls-top-row">
+      <div class="cls-top-title">
+        <a class="back back--inline" href="{{ url_for('document', mark=inv.mark) }}" title="Πίσω στο παραστατικό">←</a>
+        <div>
+          <h1>{{ inv.issuer_name or "Χωρίς επωνυμία" }}</h1>
+          <div class="meta">
+            <span>ΑΦΜ <span class="mono">{{ inv.issuer_vat or "—" }}</span></span>
+            <span>{{ inv.invoice_type }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
+            <span>{{ inv.issue_date }}</span>
+            <span>MARK <span class="mono">{{ inv.mark }}</span></span>
           </div>
-          {% endfor %}
-        </div>
-        <div class="btn-row" style="margin-top:6px">
-          <button type="button" class="btn-ghost" onclick="addRow(this)">+ Προσθήκη E3 σε αυτή τη γραμμή</button>
         </div>
       </div>
-      {% endfor %}
-    </div>
-
-    <div class="btn-row" style="margin-top:18px">
-      <button type="submit" name="action" value="local">💾 Αποθήκευση χαρακτηρισμού (τοπικά)</button>
-      <button type="submit" name="action" value="manual" class="btn-ghost"
-              title="Το παραστατικό είναι ήδη χαρακτηρισμένο στην πύλη myDATA - καταγραφή μόνο τοπικά, χωρίς αποστολή"
-              onclick="return confirm('Το παραστατικό είναι ΗΔΗ χαρακτηρισμένο στο myDATA (π.χ. χειροκίνητα στην πύλη). Θα καταγραφεί ΜΟΝΟ τοπικά στα «Επιβεβαιωμένα», χωρίς αποστολή. Συνέχεια;')">
-        ✓ Ήδη χαρακτηρισμένο στο myDATA (καταγραφή τοπικά)
+      <div class="cls-stats">
+        <div><span class="kicker">Καθαρή</span><b class="mono">{{ inv.total_net|el_amount }} €</b></div>
+        <div><span class="kicker">ΦΠΑ</span><b class="mono">{{ inv.total_vat|el_amount }} €</b></div>
+        <div><span class="kicker">Σύνολο</span><b class="mono">{{ inv.total_gross|el_amount }} €</b></div>
+      </div>
+      <button type="button" class="btn-ghost btn-sm info-btn {{ 'has-attention' if attention }}"
+              data-toggle="#cls-info" aria-expanded="false" aria-controls="cls-info">
+        ℹ Πληροφορίες{% if notes %} <span class="count">{{ notes|length }}</span>{% endif %}
       </button>
-      <a class="btn btn-ghost" href="{{ url_for('document', mark=inv.mark) }}">Άκυρο</a>
     </div>
-  </form>
-</div>
 
-<style>
-  .cls-line{position:relative;margin-bottom:22px;padding:16px 18px 16px 20px;
-            border:1px solid var(--line);border-left:5px solid var(--accent-glow);
-            border-radius:var(--radius);background:var(--surface-2);
-            box-shadow:0 1px 3px rgba(23,36,44,.06)}
-  .cls-line.line-ok{border-left-color:var(--accent)}
-  .cls-line.line-bad{border-left-color:var(--err)}
-  .cls-line-head{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px;
-                 padding-bottom:12px;border-bottom:1px solid var(--line);font-size:.9rem}
-  .cls-line-badge{display:inline-flex;align-items:center;justify-content:center;
-                  width:30px;height:30px;border-radius:999px;background:var(--accent);
-                  color:#fff;font-family:var(--font-data);font-weight:700;font-size:.9rem;flex:none}
-  .cls-line-title{font-weight:700;color:var(--accent-deep);font-size:.98rem}
-  .cls-line-head b{font-family:var(--font-data);color:var(--accent-deep)}
-  .cls-line-sum{margin-left:auto;font-family:var(--font-data);font-size:.85rem}
-  .cls-row{margin-bottom:10px}
-  .cls-grid{display:grid;grid-template-columns:2fr 2fr 1fr 1.4fr auto;gap:10px;align-items:end;
-            background:#fff;border:1px solid var(--line-soft);border-radius:var(--radius-sm);padding:12px}
-  .cls-del{background:var(--err-soft);color:var(--err);border:1px solid var(--err-line);border-radius:8px;
-           width:34px;height:38px;padding:0;font-size:.9rem;line-height:1;cursor:pointer}
-  .cls-del:hover{background:#f8dbd8}
-  .cls-diff{font-weight:700}
-  .cls-diff.ok{color:var(--accent)}
-  .cls-diff.bad{color:var(--err)}
-  button[disabled]{opacity:.5;cursor:not-allowed}
-  @media (max-width:820px){ .cls-grid{grid-template-columns:1fr 1fr;} .cls-del{width:100%;height:34px} }
-</style>
+    <div class="cls-info" id="cls-info" hidden>
+      {% for kind, text in notes %}<p class="note note--{{ kind }}">{{ text|safe }}</p>{% endfor %}
+      <ul class="help-list">
+        <li><strong>Κάθε γραμμή</strong> του παραστατικού χαρακτηρίζεται χωριστά — το myDATA το απαιτεί.</li>
+        <li>Διάλεξε <strong>κατηγορία εξόδου</strong> και μετά <strong>τύπο Ε3</strong> (οι τύποι φιλτράρονται βάσει της κατηγορίας).</li>
+        <li><strong>Με δικαίωμα έκπτωσης ΦΠΑ</strong>: ποσό = <strong>καθαρή αξία</strong> και χαρακτηρισμός ΦΠΑ.</li>
+        <li><strong>Χωρίς δικαίωμα έκπτωσης</strong> (π.χ. category2_5): ποσό = <strong>μικτή αξία</strong>, «Χωρίς χαρακτηρισμό ΦΠΑ» — γίνεται αυτόματα.</li>
+        <li>«<strong>Ανά γραμμή</strong>»: κάθε γραμμή χωριστά. «<strong>Συγκεντρωτικά</strong>»: οι γραμμές αθροίζονται ανά κατηγορία ΦΠΑ (24%, 13%, χωρίς ΦΠΑ) και χαρακτηρίζονται μαζί.</li>
+        <li>Μοίρασμα σε περισσότερα Ε3: «<strong>+ Ε3</strong>» — το ποσό συμπληρώνεται με ό,τι απομένει.</li>
+      </ul>
+    </div>
 
+    <div class="cls-top-row cls-top-row--progress">
+      <div class="cls-overall">
+        <div class="cls-overall-text"><span id="overall-text">…</span><span id="overall-count" class="muted"></span></div>
+        <div class="meter"><span id="overall-bar"></span></div>
+      </div>
+      {% if pi_allowed %}
+      <fieldset class="seg" title="Τρόπος χαρακτηρισμού">
+        <legend class="sr-only">Τρόπος χαρακτηρισμού</legend>
+        <label title="Κάθε γραμμή του παραστατικού χαρακτηρίζεται χωριστά">
+          <input type="radio" name="post_mode" value="0" {{ 'checked' if not post_mode }}> Ανά γραμμή</label>
+        <label title="Οι γραμμές αθροίζονται ανά κατηγορία ΦΠΑ και χαρακτηρίζονται μαζί">
+          <input type="radio" name="post_mode" value="1" {{ 'checked' if post_mode }}> Συγκεντρωτικά</label>
+      </fieldset>
+      {% endif %}
+    </div>
+  </div>
+
+  <div data-mode-panel="0">
+  {% if line_groups|length > 1 %}
+  <div class="cls-toolbar">
+    <button type="button" class="btn-ghost btn-sm" id="copy-first" title="Κατηγορία, τύπος και ΦΠΑ της 1ης γραμμής σε όλες">⤓ Ίδιο με την 1η σε όλες</button>
+  </div>
+  {% endif %}
+
+  <div id="cls-lines">
+    {% for g in line_groups %}
+    <section class="cls-line" data-net="{{ '%.2f'|format(g.net) }}" data-vat="{{ '%.2f'|format(g.vat) }}"
+             data-gross="{{ '%.2f'|format(g.net + g.vat) }}">
+      <header class="cls-line-head">
+        <span class="cls-line-badge">{{ g.line_number }}</span>
+        <div class="cls-line-info">
+          <span class="cls-line-title">Γραμμή {{ g.line_number }}</span>
+          <div class="cls-line-figures">
+            <span>Καθαρή <b>{{ g.net|el_amount }} €</b></span>
+            <span>ΦΠΑ <b>{{ g.vat|el_amount }} €</b></span>
+            <span>Μικτή <b>{{ (g.net + g.vat)|el_amount }} €</b></span>
+            <span class="vat-badge" title="Κατηγορία ΦΠΑ γραμμής">
+              Κατηγ. ΦΠΑ {{ g.vat_category or '—' }}{% if vat_rates.get(g.vat_category) %} · {{ vat_rates[g.vat_category] }}{% endif %}
+            </span>
+          </div>
+        </div>
+        <span class="cls-status" aria-live="polite"></span>
+      </header>
+      <div class="meter meter--line"><span></span></div>
+
+      <div class="cls-rows">
+        {% for r in g.rows %}{{ cls_row(g.line_number, r) }}{% endfor %}
+      </div>
+      <button type="button" class="btn-ghost btn-sm cls-add" title="Μοίρασμα της γραμμής σε περισσότερα Ε3">+ Ε3</button>
+    </section>
+    {% endfor %}
+  </div>
+  </div>
+
+  {% if pi_allowed %}
+  <div data-mode-panel="1" hidden>
+    {% if vat_groups|length > 1 %}
+    <div class="cls-toolbar">
+      <button type="button" class="btn-ghost btn-sm" id="pi-copy-first" title="Κατηγορία, τύπος και ΦΠΑ της 1ης συγκεντρωτικής γραμμής σε όλες">⤓ Ίδιο με την 1η σε όλες</button>
+    </div>
+    {% endif %}
+    <p class="muted small cls-hint" id="pi-hint" hidden></p>
+
+    {# Μία συγκεντρωτική γραμμή ανά κατηγορία ΦΠΑ (π.χ. 24%, 13%, χωρίς ΦΠΑ). #}
+    {% for g in vat_groups %}
+    {% set rate = vat_rates.get(g.vat_category, '') %}
+    <section class="cls-line pi-group" data-group="{{ g.vat_category }}" data-net="{{ '%.2f'|format(g.net) }}"
+             data-vat="{{ '%.2f'|format(g.vat) }}" data-classify-vat="{{ 1 if g.classify_vat else 0 }}">
+      <header class="cls-line-head">
+        <span class="cls-line-badge cls-line-badge--rate">{{ rate if rate[:1].isdigit() else '—' }}</span>
+        <div class="cls-line-info">
+          <span class="cls-line-title">{{ 'ΦΠΑ ' ~ rate if rate[:1].isdigit() else 'Χωρίς ΦΠΑ' }}
+            <span class="muted small">· {{ g.lines }} {{ 'γραμμή' if g.lines == 1 else 'γραμμές' }} · κατηγ. ΦΠΑ {{ g.vat_category or '—' }}</span></span>
+          <div class="cls-line-figures">
+            <span>Καθαρή <b>{{ g.net|el_amount }} €</b></span>
+            <span>ΦΠΑ <b>{{ g.vat|el_amount }} €</b></span>
+            <span>Ε3 πρέπει να κλείσει στο <b class="pi-target">…</b></span>
+          </div>
+        </div>
+        <span class="cls-status" aria-live="polite"></span>
+      </header>
+      <div class="meter meter--line"><span></span></div>
+      <div class="cls-rows">
+        {% for r in pi_e3[g.vat_category] %}{{ pi_row(g.vat_category, r) }}{% endfor %}
+      </div>
+      {% if g.classify_vat %}
+      <div class="pi-vat-row">
+        <label for="pi_vat_{{ g.vat_category }}">ΦΠΑ {{ g.vat|el_amount }} €</label>
+        <select name="pi_vat_type_{{ g.vat_category }}" id="pi_vat_{{ g.vat_category }}" class="pi-vat"
+                title="«Χωρίς χαρακτηρισμό ΦΠΑ» (π.χ. κατηγορία 2.5): ο ΦΠΑ προστίθεται στο Ε3">
+          {% for code, label in vat_types.items() %}
+            <option value="{{ code }}" {% if pi_vat.get(g.vat_category, '') == code %}selected{% endif %}>{{ label }}{% if code %} · {{ code }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% else %}
+      <p class="muted small cls-novat">Χωρίς ΦΠΑ — δεν χρειάζεται χαρακτηρισμός ΦΠΑ.</p>
+      {% endif %}
+      <button type="button" class="btn-ghost btn-sm cls-add" title="Μοίρασμα σε περισσότερα Ε3">+ Ε3</button>
+    </section>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="cls-footer">
+    <div class="cls-footer-status" id="footer-status" aria-live="polite"></div>
+    <div class="btn-row">
+      <a class="btn btn-ghost" href="{{ url_for('document', mark=inv.mark) }}">Άκυρο</a>
+      <button type="submit" name="action" value="manual" class="btn-ghost"
+              title="Το παραστατικό είναι ήδη χαρακτηρισμένο στην πύλη myDATA — καταγραφή μόνο τοπικά, χωρίς αποστολή"
+              data-confirm="Το παραστατικό είναι ΗΔΗ χαρακτηρισμένο στο myDATA (π.χ. χειροκίνητα στην πύλη). Θα καταγραφεί ΜΟΝΟ τοπικά στα «Ολοκληρωμένα», χωρίς αποστολή. Συνέχεια;">
+        ✓ Ήδη χαρακτηρισμένο στο myDATA
+      </button>
+      <button type="submit" name="action" value="local">💾 Αποθήκευση χαρακτηρισμού</button>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
 <script>
 // Επιτρεπόμενοι συνδυασμοί {category: [E3,...]} για τον τύπο· κενό = χωρίς φίλτρο.
 const ALLOWED = {{ combos|tojson }};
 const FILTER = Object.keys(ALLOWED).length > 0;
+const NO_VAT_RIGHT = 'category2_5';  // χωρίς δικαίωμα έκπτωσης ΦΠΑ: ο ΦΠΑ πάει στο Ε3
+const THIRD_PARTY = 'category2_9';   // για λογαριασμό τρίτων: ένα Ε3, κανένας ΦΠΑ
+const form = document.getElementById('cls-form');
+const money = v => v.toLocaleString('el-GR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+const num = el => parseFloat(el.value) || 0;
+const f = (row, name) => row.querySelector('[data-f=' + name + ']');
+const mode = () => (form.querySelector('[name=post_mode]:checked') || {value: '0'}).value;
+const isPi = line => line.classList.contains('pi-group');
+const piGroups = () => [...document.querySelectorAll('.pi-group')];
+const piRows = () => [...document.querySelectorAll('.pi-group .cls-row')];
+const lineData = line => ({
+  net: parseFloat(line.dataset.net) || 0,
+  vat: parseFloat(line.dataset.vat) || 0,
+  gross: parseFloat(line.dataset.gross) || 0,
+});
 
+// ---- Φιλτράρισμα κατηγορίας/τύπου βάσει των συνδυασμών της ΑΑΔΕ ----
 function filterCats(row) {
   if (!FILTER) return;
-  const sel = row.querySelector('select[name=category]');
-  Array.from(sel.options).forEach(o => {
-    if (o.value === '') return;
+  [...f(row, 'category').options].forEach(o => {
+    if (!o.value) return;
     const ok = Object.prototype.hasOwnProperty.call(ALLOWED, o.value);
-    o.hidden = !ok; o.disabled = !ok;
+    o.hidden = o.disabled = !ok;
   });
 }
 function filterTypes(row, clearInvalid) {
   if (!FILTER) return;
-  const cat = row.querySelector('select[name=category]').value;
-  const sel = row.querySelector('select[name=type]');
+  const cat = f(row, 'category').value;
+  const sel = f(row, 'type');
   const allowed = ALLOWED[cat] || [];
-  const anyE3 = allowed.includes('*');            // οποιοδήποτε E3
-  const noE3 = allowed.length === 1 && allowed[0] === '-';  // χωρίς E3
-  Array.from(sel.options).forEach(o => {
-    if (o.value === '') return;
-    const ok = !cat ? false : anyE3 ? true : noE3 ? false : allowed.includes(o.value);
-    o.hidden = !ok; o.disabled = !ok;
-  });
-  if (clearInvalid && sel.value) {
-    const stillOk = anyE3 || (!noE3 && allowed.includes(sel.value));
-    if (!stillOk) sel.value = '';
-  }
+  const anyE3 = allowed.includes('*');
+  const noE3 = allowed.length === 1 && allowed[0] === '-';
+  const ok = v => !!cat && (anyE3 || (!noE3 && allowed.includes(v)));
+  [...sel.options].forEach(o => { if (o.value) o.hidden = o.disabled = !ok(o.value); });
+  if (clearInvalid && sel.value && !ok(sel.value)) sel.value = '';
 }
-function applyFilter(row, clearInvalid) { filterCats(row); filterTypes(row, clearInvalid); }
 
-function addRow(btn) {
-  const line = btn.closest('.cls-line');
-  const rows = line.querySelector('.cls-rows');
-  const clone = rows.querySelector('.cls-row').cloneNode(true);
-  clone.querySelectorAll('select').forEach(s => s.selectedIndex = 0);
-  clone.querySelector('.cls-amount').value = '';
-  rows.appendChild(clone);
-  applyFilter(clone, false);
-  recalc();
+// ---- Κατάσταση: ποσό Ε3 σε σχέση με το εύρος [min, max] που πρέπει να καλύψει ----
+function rangeState(rows, min, max) {
+  let sum = 0;
+  rows.forEach(r => { sum += num(r.querySelector('.cls-amount')); });
+  const missing = rows.some(r => !f(r, 'category').value || !f(r, 'type').value || !r.querySelector('.cls-amount').value);
+  if (sum < min - 0.01) return {kind: 'short', sum, left: min - sum, missing, target: min};
+  if (sum > max + 0.01) return {kind: 'over', sum, over: sum - max, missing, target: max};
+  return {kind: missing ? 'incomplete' : 'ok', sum, left: 0, missing, target: min};
 }
-function delRow(btn) {
-  const rows = btn.closest('.cls-rows');
-  if (rows.querySelectorAll('.cls-row').length <= 1) {
-    alert('Κάθε γραμμή παραστατικού πρέπει να έχει τουλάχιστον έναν χαρακτηρισμό.');
-    return;
+// Ανά γραμμή: καθαρή ≤ Ε3 ≤ μικτή.
+function lineState(line) {
+  const {net, gross} = lineData(line);
+  return rangeState([...line.querySelectorAll('.cls-row')], net, gross);
+}
+// Συγκεντρωτική γραμμή (ανά κατηγορία ΦΠΑ): Ε3 = καθαρή + ΦΠΑ που μένει χωρίς χαρακτηρισμό ΦΠΑ.
+function groupState(group) {
+  const {net, vat} = lineData(group);
+  const sel = group.querySelector('.pi-vat');
+  const leftVat = sel && sel.value ? 0 : vat;
+  const st = rangeState([...group.querySelectorAll('.cls-row')], net + leftVat, net + leftVat);
+  const rows = piRows();
+  if (rows.length > 1 && rows.some(r => f(r, 'category').value === THIRD_PARTY)) {
+    st.kind = 'incomplete';
+    st.note = 'Με κατηγορία 2.9 επιτρέπεται μόνο ένας χαρακτηρισμός Ε3';
   }
-  btn.closest('.cls-row').remove();
+  st.leftVat = leftVat;
+  return st;
+}
+const stateOf = line => (isPi(line) ? groupState(line) : lineState(line));
+
+function paint(line, st) {
+  const status = line.querySelector('.cls-status');
+  if (st.kind === 'ok') status.textContent = '✓ Πλήρης';
+  else if (st.kind === 'short') status.textContent = 'Αχαρακτήριστο: ' + money(st.left);
+  else if (st.kind === 'over') status.textContent = 'Υπέρβαση κατά ' + money(st.over);
+  else status.textContent = st.note || 'Συμπλήρωσε κατηγορία, τύπο και ποσό';
+  line.dataset.state = st.kind;
+  line.querySelector('.meter--line span').style.width =
+    (st.target > 0 ? Math.min(100, st.sum / st.target * 100) : (st.sum ? 100 : 0)) + '%';
+  // «+ υπόλοιπο»: μόνο όταν λείπει ποσό, κάτω από το τελευταίο ποσό
+  const fills = line.querySelectorAll('.cls-fill');
+  fills.forEach((b, i) => {
+    b.hidden = !(st.kind === 'short' && i === fills.length - 1);
+    b.textContent = '+ υπόλοιπο ' + money(st.left || 0);
+  });
+}
+
+function recalc() {
+  const pi = mode() === '1';
+  let ready = 0, total = 0, done = 0, target = 0;
+  const lines = pi ? piGroups() : [...document.querySelectorAll('#cls-lines .cls-line')];
+  lines.forEach(line => {
+    const st = stateOf(line);
+    paint(line, st);
+    total++;
+    if (st.kind === 'ok') ready++;
+    const base = pi ? st.target : lineData(line).net;
+    done += Math.min(st.sum, base);
+    target += base;
+    if (pi) {
+      line.querySelector('.pi-target').textContent = money(st.target) +
+        (st.leftVat ? ' (καθαρή + ΦΠΑ ' + money(st.leftVat) + ')' : '');
+    }
+  });
+  if (pi) {
+    const hint = document.getElementById('pi-hint');
+    hint.hidden = !piRows().some(r => f(r, 'category').value === THIRD_PARTY);
+    hint.textContent = 'Κατηγορία 2.9 (για λογαριασμό τρίτων): ένας μόνο χαρακτηρισμός Ε3 σε όλο το παραστατικό και κανένας χαρακτηρισμός ΦΠΑ.';
+  }
+  const allOk = ready === total;
+  const noun = pi ? ['συγκεντρωτική γραμμή', 'συγκεντρωτικές γραμμές'] : ['γραμμή', 'γραμμές'];
+  document.getElementById('overall-text').textContent = 'Χαρακτηρισμένα ' + money(done) + ' από ' + money(target);
+  document.getElementById('overall-count').textContent = ' · ' + ready + ' από ' + total + ' ' + noun[1] + ' έτοιμες';
+  document.getElementById('overall-bar').style.width = (target ? done / target * 100 : 100) + '%';
+  const fs = document.getElementById('footer-status');
+  const bad = total - ready;
+  fs.textContent = allOk ? '✓ Έτοιμο για αποθήκευση.'
+    : '⚠ ' + bad + ' ' + (bad === 1 ? noun[0] + ' θέλει' : noun[1] + ' θέλουν') + ' προσοχή πριν την αποθήκευση.';
+  fs.dataset.state = allOk ? 'ok' : 'bad';
+  form.querySelectorAll('button[type=submit]').forEach(b => { b.disabled = !allOk; });
+}
+
+// ---- Εναλλαγή τρόπου: η ανενεργή ενότητα απενεργοποιείται (δεν υποβάλλεται) ----
+function applyMode() {
+  const m = mode();
+  document.querySelectorAll('[data-mode-panel]').forEach(p => {
+    const on = p.dataset.modePanel === m;
+    p.hidden = !on;
+    p.querySelectorAll('input, select, button').forEach(el => { el.disabled = !on; });
+  });
+  if (m === '1') syncThirdParty();
   recalc();
 }
-// Επικύρωση ανά γραμμή: το άθροισμα E3 πρέπει να πέφτει στο εύρος καθαρή–μικτή της
-// ΓΡΑΜΜΗΣ. Απενεργοποιεί την υποβολή όσο κάποια γραμμή είναι εκτός ορίων.
-function recalc() {
-  let allOk = true;
-  document.querySelectorAll('.cls-line').forEach(line => {
-    const net = parseFloat(line.dataset.net) || 0;
-    const gross = parseFloat(line.dataset.gross) || 0;
-    let s = 0;
-    line.querySelectorAll('.cls-amount').forEach(i => s += parseFloat(i.value) || 0);
-    const el = line.querySelector('.cls-line-sum');
-    const ok = (s >= net - 0.01 && s <= gross + 0.01);
-    if (ok) {
-      el.textContent = 'E3 ' + s.toFixed(2) + ' € ✓';
-      el.className = 'cls-line-sum cls-diff ok';
-    } else if (s < net) {
-      el.textContent = 'E3 ' + s.toFixed(2) + ' € · ' + (s - net).toFixed(2) + ' € κάτω από την καθαρή';
-      el.className = 'cls-line-sum cls-diff bad';
-      allOk = false;
-    } else {
-      el.textContent = 'E3 ' + s.toFixed(2) + ' € · +' + (s - gross).toFixed(2) + ' € πάνω από τη μικτή';
-      el.className = 'cls-line-sum cls-diff bad';
-      allOk = false;
-    }
-    line.classList.toggle('line-ok', ok);
-    line.classList.toggle('line-bad', !ok);
-  });
-  document.querySelectorAll('button[type=submit]').forEach(b => b.disabled = !allOk);
+
+// ---- Έξυπνες προεπιλογές ----
+// Ανά γραμμή: 2.5 → ΦΠΑ κενός + ποσό = μικτή, και αντίστροφα.
+function syncVat(row, prevCat) {
+  const line = row.closest('.cls-line');
+  if (isPi(line)) return syncPi(row, prevCat);
+  const {net, vat, gross} = lineData(line);
+  const cat = f(row, 'category').value;
+  const vt = row.querySelector('[name=vat_type]');
+  const amt = row.querySelector('.cls-amount');
+  const single = line.querySelectorAll('.cls-row').length === 1;
+  if (vat === 0) { vt.value = ''; return; }
+  if (cat === NO_VAT_RIGHT) {
+    vt.value = '';
+    if (single && Math.abs(num(amt) - net) < 0.005) amt.value = gross.toFixed(2);
+  } else if (prevCat === NO_VAT_RIGHT) {
+    if (!vt.value) vt.value = 'VAT_361';
+    if (single && Math.abs(num(amt) - gross) < 0.005) amt.value = net.toFixed(2);
+  }
 }
-// Αλυσιδωτό: αλλαγή κατηγορίας → φιλτράρισμα των επιτρεπόμενων τύπων E3.
-document.getElementById('cls-lines').addEventListener('change', e => {
-  if (e.target.name === 'category') filterTypes(e.target.closest('.cls-row'), true);
+// Συγκεντρωτική γραμμή: 2.5 → ο ΦΠΑ της χωρίς χαρακτηρισμό (μπαίνει στο Ε3), και αντίστροφα.
+function syncPi(row, prevCat) {
+  const group = row.closest('.pi-group');
+  const cat = f(row, 'category').value;
+  const sel = group.querySelector('.pi-vat');
+  const amt = row.querySelector('.cls-amount');
+  const single = group.querySelectorAll('.cls-row').length === 1;
+  const before = groupState(group).target;
+  const special = [NO_VAT_RIGHT, THIRD_PARTY];
+  if (sel && cat === NO_VAT_RIGHT && prevCat !== NO_VAT_RIGHT) sel.value = '';
+  else if (sel && special.includes(prevCat) && !special.includes(cat) && !sel.value) sel.value = 'VAT_361';
+  syncThirdParty();
+  // Αν το ποσό «έκλεινε» πριν, το κρατάμε κλειστό και μετά την αλλαγή.
+  if (single && Math.abs(num(amt) - before) < 0.005) amt.value = groupState(group).target.toFixed(2);
+}
+// 2.9 (σε όλο το παραστατικό): κανένας χαρακτηρισμός ΦΠΑ (κλειδωμένα στο «Χωρίς»).
+function syncThirdParty() {
+  const third = piRows().some(r => f(r, 'category').value === THIRD_PARTY);
+  document.querySelectorAll('.pi-vat').forEach(s => {
+    if (third) s.value = '';
+    s.disabled = third || mode() !== '1';
+  });
+}
+function addRow(line) {
+  const rows = line.querySelector('.cls-rows');
+  const last = rows.lastElementChild;
+  const clone = last.cloneNode(true);
+  f(clone, 'category').value = f(last, 'category').value;
+  f(clone, 'type').value = '';
+  const vt = clone.querySelector('[name=vat_type]');
+  if (vt) vt.value = last.querySelector('[name=vat_type]').value;
+  const st = stateOf(line);
+  clone.querySelector('.cls-amount').value = st.kind === 'short' ? st.left.toFixed(2) : '';
+  rows.appendChild(clone);
+  filterCats(clone);
+  filterTypes(clone, false);
+  if (vt) syncVat(clone);
+  recalc();
+  f(clone, 'type').focus();
+}
+// Κατηγορία/τύπος (+ΦΠΑ) της 1ης γραμμής → σε όλες.
+function copyFirst(lines, withVat) {
+  const src = lines[0].querySelector('.cls-row');
+  const srcVat = lines[0].querySelector('.pi-vat');
+  lines.forEach(line => {
+    line.querySelectorAll('.cls-row').forEach(r => {
+      const prev = f(r, 'category').value;
+      f(r, 'category').value = f(src, 'category').value;
+      filterTypes(r, true);
+      f(r, 'type').value = f(src, 'type').value;
+      const vt = r.querySelector('[name=vat_type]');
+      if (vt) vt.value = src.querySelector('[name=vat_type]').value;
+      syncVat(r, prev);
+    });
+    const sel = line.querySelector('.pi-vat');
+    if (withVat && sel && srcVat) sel.value = srcVat.value;
+    // Συγκεντρωτικά με ένα Ε3: το ποσό κλείνει μόνο του.
+    const rows = line.querySelectorAll('.cls-row');
+    if (withVat && rows.length === 1) rows[0].querySelector('.cls-amount').value = groupState(line).target.toFixed(2);
+  });
+  recalc();
+}
+
+// ---- Συμβάντα ----
+const prevCats = new WeakMap();
+form.addEventListener('focusin', e => {
+  if (e.target.dataset.f === 'category') prevCats.set(e.target, e.target.value);
 });
-// Αρχική εφαρμογή φίλτρου (χωρίς να σβήνει τυχόν υπάρχουσες τιμές).
-document.querySelectorAll('.cls-row').forEach(r => applyFilter(r, false));
-recalc();
+form.addEventListener('change', e => {
+  if (e.target.name === 'post_mode') { applyMode(); return; }
+  const row = e.target.closest('.cls-row');
+  if (row && e.target.dataset.f === 'category') {
+    filterTypes(row, true);
+    syncVat(row, prevCats.get(e.target));
+    prevCats.set(e.target, e.target.value);
+  }
+  recalc();
+});
+form.addEventListener('input', e => { if (e.target.classList.contains('cls-amount')) recalc(); });
+form.addEventListener('click', e => {
+  const line = e.target.closest('.cls-line');
+  if (e.target.closest('.cls-add')) addRow(line);
+  else if (e.target.closest('.cls-del')) {
+    if (line.querySelectorAll('.cls-row').length <= 1) {
+      alert('Χρειάζεται τουλάχιστον ένας χαρακτηρισμός Ε3.');
+      return;
+    }
+    e.target.closest('.cls-row').remove();
+    if (isPi(line)) syncThirdParty();
+    recalc();
+  } else if (e.target.closest('.cls-fill')) {
+    const amt = e.target.closest('.cls-row').querySelector('.cls-amount');
+    amt.value = (num(amt) + stateOf(line).left).toFixed(2);
+    recalc();
+  } else if (e.target.closest('#copy-first')) {
+    copyFirst([...document.querySelectorAll('#cls-lines .cls-line')], false);
+  } else if (e.target.closest('#pi-copy-first')) {
+    copyFirst(piGroups(), true);
+  }
+});
+
+// Αρχική κατάσταση (χωρίς να σβήνονται υπάρχουσες τιμές)
+form.querySelectorAll('.cls-row').forEach(r => { filterCats(r); filterTypes(r, false); });
+applyMode();
 </script>
 {% endblock %}

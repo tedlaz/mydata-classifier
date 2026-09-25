@@ -73,16 +73,22 @@
     </td>
   </tr>
 {% endmacro %}
+{% block title %}Αναφορές{% endblock %}
 {% block content %}
+<div class="page-head">
+  <div>
+    <h1>Αναφορές</h1>
+    <p class="page-sub">
+      Σύνοψη <strong>χαρακτηρισμένων</strong> εσόδων και εξόδων για το διάστημα (με βάση την
+      ημερομηνία έκδοσης) και η διαφορά τους <strong>Έσοδα − Έξοδα = Κέρδη</strong>.
+      Κενές ημερομηνίες = χωρίς όριο.
+    </p>
+  </div>
+</div>
+
 <div class="card">
-  <h1>Αναφορές</h1>
-  <p class="muted" style="margin-top:0">
-    Σύνοψη <strong>χαρακτηρισμένων</strong> εσόδων και εξόδων για το διάστημα (με βάση την
-    ημερομηνία έκδοσης) και η διαφορά τους <strong>Έσοδα − Έξοδα = Κέρδη</strong>.
-    Κενές ημερομηνίες = χωρίς όριο. Χωρίς επιλογή ανάλυσης εμφανίζεται η βασική σύνοψη.
-  </p>
-  <form method="get" action="{{ url_for('reports') }}" style="margin-top:14px">
-    <div class="grid report-dates">
+  <form method="get" action="{{ url_for('reports') }}">
+    <div class="grid grid-3">
       <div>
         <label for="date_from">Από</label>
         <input type="date" id="date_from" name="date_from" value="{{ date_from }}">
@@ -103,35 +109,38 @@
     </div>
     <fieldset class="report-options">
       <legend>Πρόσθετη ανάλυση</legend>
+      {% for value, label in [('counterparty', 'Ανά συναλλασσόμενο'), ('invoice_type', 'Τύπος παραστατικού'), ('classification', 'Χαρακτηρισμός'), ('vat', 'Κατηγορία ΦΠΑ (24%, 13%, 0% κ.λπ.)')] %}
       <label>
-        <input type="checkbox" name="group_by" value="counterparty"
-               {{ 'checked' if 'counterparty' in group_by }}>
-        Ανά Πελάτη ή προμηθευτή
+        <input type="checkbox" name="group_by" value="{{ value }}" {{ 'checked' if value in group_by }}>
+        {{ label }}
       </label>
-      <label>
-        <input type="checkbox" name="group_by" value="invoice_type"
-               {{ 'checked' if 'invoice_type' in group_by }}>
-        Τύπος παραστατικού
-      </label>
-      <label>
-        <input type="checkbox" name="group_by" value="classification"
-               {{ 'checked' if 'classification' in group_by }}>
-        Χαρακτηρισμός
-      </label>
-      <label>
-        <input type="checkbox" name="group_by" value="vat"
-               {{ 'checked' if 'vat' in group_by }}>
-        Κατηγορία ΦΠΑ (24%, 13%, 0% κ.λπ.)
-      </label>
+      {% endfor %}
     </fieldset>
-    <div class="btn-row report-actions">
+    <div class="btn-row">
       <button type="submit">Υπολογισμός</button>
       {% if detailed %}
-        <a class="btn btn-ghost"
-           href="{{ url_for('reports', date_from=date_from, date_to=date_to) }}">Βασική σύνοψη</a>
+        <a class="btn btn-ghost" href="{{ url_for('reports', date_from=date_from, date_to=date_to) }}">Βασική σύνοψη</a>
       {% endif %}
     </div>
   </form>
+</div>
+
+<div class="kpis">
+  <div class="kpi kpi--income">
+    <div class="kicker">Έσοδα <span>{{ income.count }} παρ.</span></div>
+    <div class="kpi-v">{{ income.gross|el_amount }} €</div>
+    <div class="kpi-sub">Καθαρή {{ income.net|el_amount }} €</div>
+  </div>
+  <div class="kpi kpi--expense">
+    <div class="kicker">Έξοδα <span>{{ expense.count }} παρ.</span></div>
+    <div class="kpi-v">{{ expense.gross|el_amount }} €</div>
+    <div class="kpi-sub">Καθαρή {{ expense.net|el_amount }} €</div>
+  </div>
+  <div class="kpi kpi--profit {{ 'is-neg' if profit.gross < 0 }}">
+    <div class="kicker">Κέρδη <span>Έσοδα − Έξοδα</span></div>
+    <div class="kpi-v">{{ profit.gross|el_amount }} €</div>
+    <div class="kpi-sub">Καθαρή {{ profit.net|el_amount }} €</div>
+  </div>
 </div>
 
 <div class="card">
@@ -249,63 +258,10 @@
     </tbody>
   </table>
   </div>
-  <p class="muted" style="margin-top:14px">
-    Έσοδα = χαρακτηρισμένα του «Βιβλίου εσόδων». Έξοδα = χαρακτηρισμένα/απεσταλμένα/επιβεβαιωμένα
+  <p class="muted small">
+    Έσοδα = χαρακτηρισμένα του «Βιβλίου εσόδων». Έξοδα = χαρακτηρισμένα/απεσταλμένα/ολοκληρωμένα
     του «Βιβλίου εξόδων». Η στήλη ΦΠΑ στα Κέρδη είναι η διαφορά ΦΠΑ εκροών−εισροών (ενδεικτική).
   </p>
 </div>
 
-<style>
-  .report-dates{grid-template-columns:repeat(3,minmax(0,1fr));align-items:end}
-  .report-options{border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px;
-    margin:14px 0 0;display:flex;gap:10px 24px;flex-wrap:wrap}
-  .report-options legend{font-size:.72rem;font-weight:700;text-transform:uppercase;
-    letter-spacing:.06em;color:var(--muted);padding:0 6px}
-  .report-options label{display:flex;align-items:center;gap:7px;margin:0;text-transform:none;
-    letter-spacing:0;font-size:.86rem;cursor:pointer}
-  .report-options input{width:auto;margin:0;accent-color:var(--accent)}
-  .report-actions{margin-top:14px}
-  table.report{table-layout:fixed}
-  table.report thead th:first-child{width:40%}
-  table.report thead th:nth-child(2){width:12%}
-  table.report thead th:nth-child(n+3){width:16%}
-  table.report thead th.num{text-align:right}
-  table.report tbody td{padding:14px 12px;font-size:.95rem}
-  table.report .num{font-size:1rem}
-  .r-income td{color:var(--accent-deep)}
-  .r-expense td{color:#b3261e}
-  .r-profit td{border-top:2px solid var(--ink);font-size:1.05rem;font-weight:700}
-  .r-profit td.difference-amount strong{font-weight:800;font-size:1.05em}
-  .r-profit td.difference-amount.amount-pos{color:#137a45}
-  .r-profit td.difference-amount.amount-neg{color:#c02b22}
-  .r-profit td.difference-amount.amount-zero{color:var(--ink-2)}
-  .report-section-heading td{background:var(--surface-2);border-top:2px solid var(--ink);
-    border-bottom:1px solid var(--line);font-size:1rem !important}
-  .report-section-heading strong{font-size:1rem}
-  .report-subtotal td{background:var(--surface-2);border-top:2px solid currentColor}
-  .report-grand-total td{background:var(--surface-2);border-top:3px double var(--ink)}
-  .report-period-heading td{background:var(--ink);color:#fff;border-top:10px solid var(--surface);
-    padding:12px !important}
-  .report-period-heading small{display:block;color:#b9c8c3;font-size:.67rem;text-transform:uppercase;
-    letter-spacing:.08em}
-  .report-period-heading strong{font-size:1.05rem}
-  .report-overall-heading td{background:var(--ink);color:#fff;border-top:16px solid var(--surface);
-    border-bottom:2px solid var(--ink);font-size:1.03rem !important;padding:14px 12px !important}
-  .report-overall-row td{background:var(--surface-2);font-weight:700}
-  .report-overall-difference td{border-bottom:2px solid var(--ink)}
-  .report-overall-difference.is-pos td{background:var(--ok-soft)}
-  .report-overall-difference.is-neg td{background:var(--err-soft)}
-  .report-dimension{display:inline-block;margin:0 22px 0 0}
-  .report-dimension strong{font-size:.82rem;color:var(--ink)}
-  .r-profit td b{font-size:1.02rem}
-  @media (max-width:760px){
-    .report-dates{grid-template-columns:1fr}
-    .report-options{display:grid;grid-template-columns:1fr}
-    .report-actions .btn,.report-actions button{width:100%;text-align:center}
-    .report-detail-row td:first-child{display:flex;flex-direction:column;align-items:flex-end}
-    .report-section-heading td{display:block !important}
-    .report-period-heading td,.report-overall-heading td{display:block !important}
-    .report-dimension{margin:0 0 7px}
-  }
-</style>
 {% endblock %}

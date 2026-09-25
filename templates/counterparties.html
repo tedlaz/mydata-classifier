@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pager with context %}
+{% block title %}Συναλλασσόμενοι{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Συναλλασσόμενοι</h1>
+    <p class="page-sub">Πελάτες και προμηθευτές, κοινοί για όλες τις εταιρείες: επωνυμία ανά ΑΦΜ και προαιρετική πρόταση χαρακτηρισμού.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2 id="form_title">Προσθήκη / διόρθωση συναλλασσόμενου</h2>
+  <p class="muted prose">
+    Κοινός κατάλογος <strong>πελατών και προμηθευτών</strong> για <strong>όλες τις εταιρείες</strong> (ΑΦΜ → επωνυμία + προαιρετική
+    πρόταση χαρακτηρισμού). Οι επωνυμίες συμπληρώνονται αυτόματα από τις αναζητήσεις,
+    αλλά μπορείς να προσθέσεις/διορθώσεις και χειροκίνητα ή μαζικά από αρχείο.
+  </p>
+
+  <form method="post" action="{{ url_for('suppliers_save') }}" class="panel grid grid-supplier">
+    <div>
+      <label for="f_vat">ΑΦΜ</label>
+      <input type="text" name="vat" id="f_vat" required placeholder="π.χ. 090000045">
+    </div>
+    <div>
+      <label for="f_name">Επωνυμία</label>
+      <input type="text" name="name" id="f_name" placeholder="π.χ. ΔΕΗ ΑΕ">
+    </div>
+    <div>
+      <button type="submit">💾 Αποθήκευση</button>
+    </div>
+  </form>
+
+  <div class="btn-row">
+    <form method="post" action="{{ url_for('suppliers_import') }}" enctype="multipart/form-data" class="inline-form">
+      <input type="file" name="file" accept=".txt,text/plain" required>
+      <button type="submit" class="btn-ghost">📥 Εισαγωγή από .txt</button>
+    </form>
+    <a class="btn btn-ghost" href="{{ url_for('suppliers_export') }}">📤 Εξαγωγή σε .txt</a>
+  </div>
+  <p class="muted small">Μορφή αρχείου: μία γραμμή ανά συναλλασσόμενο, <span class="mono">ΑΦΜ&lt;κενό&gt;Επωνυμία</span> (διαχωριστικό το πρώτο κενό).</p>
+</div>
+
+<div class="card">
+  <h2>Κατάλογος <span class="count">{{ suppliers_total }}</span></h2>
+  {% if suppliers %}
+  <div class="table-wrap">
+  <table class="ledger">
+    <thead>
+      <tr><th>ΑΦΜ</th><th>Επωνυμία</th><th>Πρόταση χαρακτηρισμού</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for s in suppliers %}
+      <tr>
+        <td data-label="ΑΦΜ" class="mark">{{ s.vat }}</td>
+        <td data-label="Επωνυμία">{{ s.name or "—" }}</td>
+        <td data-label="Πρόταση" class="series">
+          {% set pats = patterns.get(s.vat, {}) %}
+          {% if pats %}
+            {# Προτάσεις ανά κατηγορία ΦΠΑ γραμμής (μαθαίνονται από κάθε χαρακτηρισμό). #}
+            <ul class="rule-list">
+              {% for cat, p in pats|dictsort %}
+              <li><span class="pill">{{ vat_label(cat) }}</span> {{ p.category }} / {{ p.type }}{% if p.vat_type %} / {{ p.vat_type }}{% endif %}</li>
+              {% endfor %}
+            </ul>
+          {% elif s.rule_type %}{{ s.rule_category or "" }} / {{ s.rule_type }}{% if s.rule_vat_type %} / {{ s.rule_vat_type }}{% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td data-label="">
+          <div class="actions">
+            <button type="button" class="btn-ghost sup-edit"
+                    data-vat="{{ s.vat }}" data-name="{{ s.name or '' }}">Επεξεργασία</button>
+            <form method="post" action="{{ url_for('suppliers_delete', vat=s.vat) }}" class="inline-form">
+              <button type="submit" class="btn-danger" data-confirm="Διαγραφή του συναλλασσόμενου {{ s.vat }};">Διαγραφή</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {{ pager('suppliers', {}, page, total_pages) }}
+  {% else %}
+  <div class="empty"><b>Δεν υπάρχουν συναλλασσόμενοι ακόμη</b>Πρόσθεσε έναν παραπάνω ή κάνε εισαγωγή από αρχείο.</div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.sup-edit').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.getElementById('f_vat').value = b.dataset.vat;
+    document.getElementById('f_name').value = b.dataset.name || '';
+    document.getElementById('form_title').textContent = 'Διόρθωση συναλλασσόμενου ' + b.dataset.vat;
+    window.scrollTo({top: 0, behavior: 'smooth'});
+    document.getElementById('f_name').focus({preventScroll: true});
+  });
+});
+</script>
+{% endblock %}

@@ -23,15 +23,25 @@ from flask import (
 import db
 from classifications import (
     CREDIT_INVOICE_TYPES,
+    EU_COUNTRIES,
     EXPENSE_CATEGORIES,
     EXPENSE_TYPES,
     INCOME_CATEGORIES,
     INCOME_TYPES,
     INVOICE_TYPE_NAMES,
+    VAT_CATEGORY_RATES,
     VAT_TYPES,
+    country_allowed,
+    country_rule,
 )
 from ensure_env import ensure_env, env_path
-from mydata_client import ExpenseInvoice, InvoiceLine, MyDataClient, MyDataError
+from mydata_client import (
+    SELF_EXPENSE_TYPES,
+    ExpenseInvoice,
+    InvoiceLine,
+    MyDataClient,
+    MyDataError,
+)
 
 ensure_env()  # δημιουργεί .env με ασφαλές FLASK_SECRET στην πρώτη εκκίνηση
 load_dotenv(env_path())
@@ -132,6 +142,40 @@ def load_rules() -> dict:
 
 def save_rule(issuer_vat: str | None, ctype: str, ccat: str, vat_type: str = ""):
     db.save_rule(issuer_vat, ctype, ccat, vat_type)
+
+
+def _learn_patterns(inv, entries: list[dict]) -> dict:
+    """Προτάσεις από έναν χαρακτηρισμό, ανά κατηγορία ΦΠΑ γραμμής:
+    {vat_category: {category, type, vat_type}}. Για κάθε κατηγορία ΦΠΑ κρατά το Ε3 με το
+    μεγαλύτερο ποσό και τον χαρακτηρισμό ΦΠΑ της ίδιας γραμμής/ομάδας. Δέχεται εγγραφές
+    ανά γραμμή (line_number) ή ανά παραστατικό (line_number None + vat_category ομάδας)."""
+    line_cat = {ln.line_number: str(ln.vat_category or "") for ln in inv.lines or []}
+    best: dict = {}
+    vat_of: dict = {}
+    for e in entries:
+        if e.get("line_number") is None:
+            key = str(e.get("vat_category") or "")
+        else:
+            key = line_cat.get(e["line_number"], "")
+        ctype = e.get("classification_type") or ""
+        if ctype.startswith("VAT_"):
+            vat_of.setdefault(key, ctype)
+        elif ctype and (key not in best or (e.get("amount") or 0) > (best[key].get("amount") or 0)):
+            best[key] = e
+    return {
+        k: {"category": e["classification_category"], "type": e["classification_type"], "vat_type": vat_of.get(k, "")}
+        for k, e in best.items()
+    }
+
+
+def _learn(inv, entries: list[dict]) -> None:
+    """Ενημερώνει τις προτάσεις του συναλλασσόμενου από τον χαρακτηρισμό που αποθηκεύτηκε."""
+    db.save_rule_patterns(inv.issuer_vat, _learn_patterns(inv, entries))
+
+
+def _patterns_for(vat: str | None) -> dict:
+    """Προτάσεις ανά κατηγορία ΦΠΑ για έναν συναλλασσόμενο ({} αν δεν υπάρχουν)."""
+    return db.load_rule_patterns(vat).get(vat, {}) if vat else {}
 
 
 def load_names() -> dict:
@@ -395,7 +439,7 @@ def fetch():
         dt = date.fromisoformat(date_to).strftime("%d/%m/%Y")
     except ValueError:
         flash("Μη έγκυρες ημερομηνίες.", "error")
-        return redirect(url_for("invoices"))
+        return redirect(url_for("invoices_sync", date_from=date_from, date_to=date_to))
 
     cid = _active_company_id()
     if not cid:
@@ -411,17 +455,17 @@ def fetch():
         classified = client.request_classified_expenses(df, dt)
     except MyDataError as e:
         flash(str(e), "error")
-        return redirect(url_for("invoices"))
+        return redirect(url_for("invoices_sync", date_from=date_from, date_to=date_to))
     except Exception as e:  # noqa: BLE001 — network κ.λπ., δεν θέλουμε 500 στο route
         flash(f"Σφάλμα επικοινωνίας: {e}", "error")
-        return redirect(url_for("invoices"))
+        return redirect(url_for("invoices_sync", date_from=date_from, date_to=date_to))
 
     enrich_issuer_names(unclassified)
     enrich_issuer_names(classified)
 
     # Αποθήκευση στο μόνιμο ledger (SQLite). Το upsert ΔΕΝ χαμηλώνει την τοπική
     # πρόοδο: αχαρακτήριστα που τοπικά είναι classified/sent μένουν ως έχουν,
-    # ενώ όσα το myDATA δείχνει χαρακτηρισμένα περνούν σε «Επιβεβαιωμένα».
+    # ενώ όσα το myDATA δείχνει χαρακτηρισμένα περνούν σε «Ολοκληρωμένα».
     for inv in unclassified:
         db.upsert_document(cid, "expense", _invoice_to_doc(inv), "unclassified")
     for inv in classified:
@@ -433,16 +477,19 @@ def fetch():
         "παραστατικά.",
         "ok",
     )
-    return redirect(url_for("invoices", date_from=date_from, date_to=date_to))
+    return redirect(url_for("invoices"))
 
 
 @app.route("/documents/delete-range", methods=["POST"])
 def delete_documents_range():
-    kind = request.form.get("kind", "")
+    # «Διαγραφή και ανάκτηση»: το κουμπί στέλνει refetch=<kind> αντί για kind.
+    refetch = request.form.get("refetch", "")
+    kind = request.form.get("kind", "") or refetch
     destination = "income" if kind == "income" else "invoices"
+    sync_page = f"{destination}_sync"  # σφάλματα: πίσω στη φόρμα, με τις ημερομηνίες
     if kind not in ("expense", "income"):
         flash("Μη έγκυρο είδος βιβλίου.", "error")
-        return redirect(url_for("invoices"))
+        return redirect(url_for("invoices_sync"))
 
     date_from = request.form.get("date_from", "")
     date_to = request.form.get("date_to", "")
@@ -451,10 +498,10 @@ def delete_documents_range():
         end = date.fromisoformat(date_to)
     except ValueError:
         flash("Μη έγκυρες ημερομηνίες.", "error")
-        return redirect(url_for(destination))
+        return redirect(url_for(sync_page, date_from=date_from, date_to=date_to))
     if start > end:
         flash("Η ημερομηνία «Από» πρέπει να προηγείται της «Έως».", "error")
-        return redirect(url_for(destination))
+        return redirect(url_for(sync_page, date_from=date_from, date_to=date_to))
 
     cid = _active_company_id()
     if not cid:
@@ -471,7 +518,9 @@ def delete_documents_range():
         f"{start.strftime('%d/%m/%Y')} – {end.strftime('%d/%m/%Y')}.",
         "ok",
     )
-    return redirect(url_for(destination, date_from=date_from, date_to=date_to))
+    if refetch:  # ίδια ανάκτηση με το κουμπί «Ανάκτηση» (ίδιες ημερομηνίες από τη φόρμα)
+        return income_fetch() if kind == "income" else fetch()
+    return redirect(url_for(destination))
 
 
 # Καρτέλες κατάστασης του βιβλίου εξόδων (σειρά ροής).
@@ -481,21 +530,69 @@ _EXPENSE_VIEWS = ("unclassified", "classified", "sent", "confirmed")
 PER_PAGE = 50
 
 
+def paginate(items: list, page_arg) -> tuple[list, int, int]:
+    """(στοιχεία σελίδας, τρέχουσα σελίδα, σύνολο σελίδων) με PER_PAGE ανά σελίδα."""
+    try:
+        page = max(1, int(page_arg or 1))
+    except ValueError:
+        page = 1
+    total_pages = max(1, -(-len(items) // PER_PAGE))
+    page = min(page, total_pages)
+    start = (page - 1) * PER_PAGE
+    return items[start : start + PER_PAGE], page, total_pages
+
+
+@app.template_global()
+def page_numbers(page: int, total: int, edge: int = 2, around: int = 1) -> list:
+    """Αριθμοί σελίδων για το pager: πάντα οι πρώτες/τελευταίες `edge`, και `around`
+    γύρω από την τρέχουσα· None = κενό («…»). Ένα μόνο κενό γεμίζει με τον αριθμό."""
+    keep = sorted(
+        p for p in range(1, total + 1)
+        if p <= edge or p > total - edge or abs(p - page) <= around
+    )
+    out, prev = [], 0
+    for p in keep:
+        if p - prev == 2:
+            out.append(p - 1)
+        elif p - prev > 2:
+            out.append(None)
+        out.append(p)
+        prev = p
+    return out
+
+
+
+def _sync_page(kind: str):
+    """Χωριστή σελίδα ανάκτησης από το myDATA / διαγραφής διαστήματος, ανά βιβλίο."""
+    today = datetime.now(ATHENS).strftime("%Y-%m-%d")
+    return render_template(
+        "sync.html",
+        kind=kind,
+        range_date_from=request.args.get("date_from", "").strip() or today,
+        range_date_to=request.args.get("date_to", "").strip() or today,
+        date_range=db.get_setting(
+            "last_income_range" if kind == "income" else "last_range"
+        ),
+    )
+
+
+@app.route("/invoices/sync")
+def invoices_sync():
+    return _sync_page("expense")
+
+
+@app.route("/income/sync")
+def income_sync():
+    return _sync_page("income")
+
 @app.route("/invoices")
 def invoices():
-    today = datetime.now(ATHENS).strftime("%Y-%m-%d")
-    range_date_from = request.args.get("date_from", "").strip() or today
-    range_date_to = request.args.get("date_to", "").strip() or today
     view = request.args.get("view", "unclassified")
     if view not in _EXPENSE_VIEWS:
         view = "unclassified"
     sort = request.args.get("sort", "date")
     direction = request.args.get("dir", "asc")
     reverse = direction == "desc"
-    try:
-        page = max(1, int(request.args.get("page", 1)))
-    except ValueError:
-        page = 1
     filters = {
         "mark": request.args.get("f_mark", "").strip(),
         "date": request.args.get("f_date", "").strip(),
@@ -567,10 +664,11 @@ def invoices():
 
     items = sorted(items, key=sort_key, reverse=reverse)
     total = len(items)
-    total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
-    page = min(page, total_pages)
-    start = (page - 1) * PER_PAGE
-    page_items = items[start : start + PER_PAGE]
+    page_items, page, total_pages = paginate(items, request.args.get("page"))
+    if view == "sent":
+        for inv in page_items:
+            inv.cls_rows = _cls_list_rows(inv.cls_info)
+            inv.cls_flags = [e for e in inv.cls_info or [] if e.get("transaction_mode")]
 
     return render_template(
         "invoices.html",
@@ -592,8 +690,6 @@ def invoices():
         total=total,
         per_page=PER_PAGE,
         filters=filters,
-        range_date_from=range_date_from,
-        range_date_to=range_date_to,
     )
 
 
@@ -606,21 +702,10 @@ def document(mark):
         flash("Το παραστατικό δεν βρέθηκε. Κάνε νέα αναζήτηση.", "error")
         return redirect(url_for("invoices"))
     inv = _row_to_invoice(row)
-    # Χαρακτηρισμοί ΑΝΑ ΓΡΑΜΜΗ (από τον πίνακα classifications, που κρατά το
-    # line_number) → εμφανίζονται δίπλα σε κάθε γραμμή στην προβολή.
-    cls_by_line: dict[int | None, list[dict]] = {}
-    for c in db.get_local_classification(row["id"]):
-        cls_by_line.setdefault(c.get("line_number"), []).append(
-            {
-                "type": c.get("classification_type"),
-                "category": c.get("classification_category"),
-                "amount": c.get("amount"),
-            }
-        )
     # Ενέργειες σε επίπεδο παραστατικού (απόρριψη/ακύρωση/απόκλιση) - δεν ανήκουν
     # σε γραμμή, μένουν στο κάτω μπλοκ.
     flags = [c for c in (inv.cls_info or []) if c.get("transaction_mode")]
-    has_line_cls = bool(cls_by_line) or any(ln.classifications for ln in inv.lines)
+    line_cls, doc_cls = _document_cls_rows(db.get_local_classification(row["id"]), inv)
     # URL επιστροφής στη λίστα, διατηρώντας ταξινόμηση/σελίδα/φίλτρα (fallback: view).
     back = request.args.get("back") or url_for("invoices", view=row["status"])
     return render_template(
@@ -631,20 +716,28 @@ def document(mark):
         source=row.get("source") or "rest",
         classification_mark=row.get("classification_mark"),
         type_desc=INVOICE_TYPE_NAMES.get(inv.invoice_type or ""),
+        vat_rates=VAT_CATEGORY_RATES,
         back=back,
-        cls_by_line=cls_by_line,
+        line_cls=line_cls,
+        doc_cls=doc_cls,
         flags=flags,
-        has_line_cls=has_line_cls,
         categories=EXPENSE_CATEGORIES,
         types=EXPENSE_TYPES,
         vat_types=VAT_TYPES,
     )
 
 
-def _pair_cls_rows(entries: list[dict]) -> list[dict]:
+def _pair_cls_rows(entries: list[dict], keep_all: bool = False) -> list[dict]:
     """Ζευγαρώνει κάθε E3 χαρακτηρισμό με γραμμή ΦΠΑ (VAT_xxx) ίδιου ποσού και
-    επιστρέφει UI rows {category, type, amount, vat_type}."""
-    e3s = [e for e in entries if e.get("type") and not e["type"].startswith("VAT_")]
+    επιστρέφει UI rows {category, type, amount, vat_type}.
+    keep_all (για εμφάνιση): κρατά και κατηγορίες χωρίς E3 και όσους ΦΠΑ
+    χαρακτηρισμούς δεν ζευγάρωσαν, σε δική τους γραμμή."""
+    e3s = [
+        e
+        for e in entries
+        if (e.get("type") or (keep_all and e.get("category")))
+        and not (e.get("type") or "").startswith("VAT_")
+    ]
     pool = [e for e in entries if (e.get("type") or "").startswith("VAT_")]
     rows = []
     for e in e3s:
@@ -662,14 +755,220 @@ def _pair_cls_rows(entries: list[dict]) -> list[dict]:
                 "vat_type": (vt or {}).get("type", ""),
             }
         )
+    if keep_all:
+        rows += [
+            {"category": "", "type": "", "amount": v.get("amount"), "vat_type": v["type"]}
+            for v in pool
+        ]
     return rows
 
 
-def _line_classification_rows(inv, rule: dict) -> list[dict]:
+def _cls_list_rows(entries: list[dict]) -> list[dict]:
+    """Όλοι οι χαρακτηρισμοί ενός παραστατικού ως {category, type, vat_type, amount}
+    για τη λίστα· ζευγάρωμα ΦΠΑ ανά γραμμή όπου είναι γνωστή. Χωρίς σημαίες."""
+    grouped: dict = {}
+    for e in entries or []:
+        if not e.get("transaction_mode"):
+            grouped.setdefault(e.get("line"), []).append(e)
+    return [r for es in grouped.values() for r in _pair_cls_rows(es, keep_all=True)]
+
+
+def _document_cls_rows(local: list[dict], inv) -> tuple[dict, list[dict]]:
+    """Χαρακτηρισμοί για την προβολή παραστατικού, σε στήλες
+    {category, type, vat_type, amount}:
+    (ανά αριθμό γραμμής, σε επίπεδο παραστατικού — χωρίς αριθμό γραμμής).
+    Πηγή κατά προτεραιότητα: τοπικός χαρακτηρισμός → ξεχωριστή υποβολή στο
+    myDATA (cls_info με «line») → ενσωματωμένος στις γραμμές του παραστατικού."""
+    if local:
+        entries = [
+            {
+                "line": c.get("line_number"),
+                "type": c.get("classification_type"),
+                "category": c.get("classification_category"),
+                "amount": c.get("amount"),
+            }
+            for c in local
+        ]
+    elif any("line" in e for e in inv.cls_info or []):
+        # Συγκεντρωτικός στο myDATA: οι «γραμμές» του είναι συμβολικές → επίπεδο παραστατικού.
+        per_invoice = _looks_per_invoice(inv)
+        entries = [
+            dict(e, line=None) if per_invoice else e
+            for e in inv.cls_info
+            if not e.get("transaction_mode")
+        ]
+    else:
+        entries = [
+            dict(c, line=ln.line_number) for ln in inv.lines for c in ln.classifications
+        ]
+        if not entries:
+            # Συγκεντρωτικός χαρακτηρισμός χωρίς αντιστοίχιση σε γραμμές.
+            entries = [
+                dict(e, line=None)
+                for e in inv.cls_info or []
+                if not e.get("transaction_mode")
+            ]
+    # Αριθμός γραμμής που δεν υπάρχει στο παραστατικό → επίπεδο παραστατικού.
+    valid = {ln.line_number for ln in inv.lines}
+    grouped: dict = {}
+    for e in entries:
+        line = e.get("line") if e.get("line") in valid else None
+        grouped.setdefault(line, []).append(e)
+    rows = {ln: _pair_cls_rows(es, keep_all=True) for ln, es in grouped.items()}
+    return rows, rows.pop(None, [])
+
+
+# ---- Χαρακτηρισμός ανά παραστατικό (postPerInvoice) ---------------------------
+# Κανόνες ΑΑΔΕ («SendExpensesClassificationPostPerInvoiceGuidelines»). Οι γραμμές
+# αθροίζονται σε μία συγκεντρωτική γραμμή ανά κατηγορία ΦΠΑ (π.χ. 24%, 13%, χωρίς ΦΠΑ)·
+# κάθε ομάδα παίρνει Ε3 και —μόνο οι κατηγορίες 1–6— χαρακτηρισμό ΦΠΑ με τα αθροίσματα
+# καθαρής/ΦΠΑ της. Οι 7 (0%) και 8 (άνευ ΦΠΑ) δεν χαρακτηρίζονται ως ΦΠΑ.
+# ponytail: δεν υποστηρίζεται το άρθρο 39α (vatExemptionCategory 16) — δεν κρατάμε
+# αιτία εξαίρεσης ανά γραμμή· αν χρειαστεί, αποθήκευση της και ομαδοποίηση κατά (cat, exemption).
+_PI_VAT_CATEGORIES = ("1", "2", "3", "4", "5", "6")
+THIRD_PARTY = "category2_9"  # έξοδα για λογαριασμό τρίτων
+
+
+def _vat_groups(inv) -> list[dict]:
+    """Συγκεντρωτικές γραμμές ανά κατηγορία ΦΠΑ: [{vat_category, net, vat, lines,
+    classify_vat}]. classify_vat = η ομάδα παίρνει χαρακτηρισμό ΦΠΑ (κατηγορίες 1–6)."""
+    groups: dict[str, list] = {}
+    for ln in inv.lines or []:
+        g = groups.setdefault(str(ln.vat_category or ""), [0.0, 0.0, 0])
+        g[0] += ln.net_value or 0
+        g[1] += ln.vat_amount or 0
+        g[2] += 1
+    return [
+        {"vat_category": c, "net": round(n, 2), "vat": round(v, 2), "lines": k,
+         "classify_vat": c in _PI_VAT_CATEGORIES}
+        for c, (n, v, k) in sorted(groups.items())
+    ]
+
+
+def _per_invoice_errors(inv, e3: dict, vat_choice: dict) -> list[str]:
+    """Έλεγχος χαρακτηρισμού ανά παραστατικό. e3 = {vat_category: [{category, type,
+    amount}]} ανά συγκεντρωτική γραμμή, vat_choice = {vat_category: VAT_xxx ή ""}."""
+    rows = [r for rs in e3.values() for r in rs]
+    if not rows:
+        return ["συμπλήρωσε τουλάχιστον έναν χαρακτηρισμό Ε3"]
+    errors = []
+    if any(r["category"] == THIRD_PARTY for r in rows):
+        if len(rows) > 1:
+            errors.append("με κατηγορία 2.9 επιτρέπεται μόνο ένας χαρακτηρισμός Ε3")
+        if any(vat_choice.values()):
+            errors.append("με κατηγορία 2.9 δεν υποβάλλεται χαρακτηρισμός ΦΠΑ")
+    for g in _vat_groups(inv):
+        cat = g["vat_category"]
+        # ΦΠΑ που δεν χαρακτηρίζεται ως ΦΠΑ (π.χ. χωρίς δικαίωμα έκπτωσης) προστίθεται στο Ε3.
+        left_vat = g["vat"] if not (g["classify_vat"] and vat_choice.get(cat)) else 0.0
+        expected = round(g["net"] + left_vat, 2)
+        got = round(sum(r["amount"] for r in e3.get(cat, [])), 2)
+        if abs(got - expected) > 0.01:
+            errors.append(
+                f"{_vat_group_label(cat)}: Ε3 {got:.2f} € ενώ πρέπει {expected:.2f} € "
+                f"(καθαρή {g['net']:.2f} € + αχαρακτήριστος ΦΠΑ {left_vat:.2f} €)"
+            )
+    return errors
+
+
+def _is_vat_entry(e: dict) -> bool:
+    return (e.get("type") or "").startswith("VAT_")
+
+
+def _looks_per_invoice(inv) -> bool:
+    """Ο χαρακτηρισμός του myDATA (cls_info, με «line») έγινε συγκεντρωτικά; Τότε οι
+    «γραμμές» του είναι συμβολικές: τα ποσά Ε3 δεν χωράνε ανά γραμμή του παραστατικού,
+    αλλά χωράνε στο σύνολό του (καθαρή ≤ Ε3 ≤ μικτή, με ανοχή στρογγυλοποίησης)."""
+    e3 = [e for e in inv.cls_info or [] if "line" in e and not _is_vat_entry(e)
+          and not e.get("transaction_mode") and (e.get("type") or e.get("category"))]
+    if not e3 or not inv.lines:
+        return False
+    by_line: dict = {}
+    for e in e3:
+        by_line[e["line"]] = by_line.get(e["line"], 0.0) + (e.get("amount") or 0)
+    fits_lines = all(
+        (ln.net_value or 0) - 0.01 <= by_line.get(ln.line_number, 0.0)
+        <= (ln.net_value or 0) + (ln.vat_amount or 0) + 0.01
+        for ln in inv.lines
+    ) and set(by_line) <= {ln.line_number for ln in inv.lines}
+    net = sum(ln.net_value or 0 for ln in inv.lines)
+    gross = net + sum(ln.vat_amount or 0 for ln in inv.lines)
+    return not fits_lines and net - 0.05 <= sum(by_line.values()) <= gross + 0.05
+
+
+def _remote_per_invoice(inv) -> tuple[dict, dict] | None:
+    """Προσυμπλήρωση του συγκεντρωτικού τρόπου από χαρακτηρισμό που έγινε έτσι στο
+    myDATA: (pi_e3 ανά ομάδα ΦΠΑ, pi_vat). Κάθε Ε3/ΦΠΑ πάει στην ομάδα με το πλησιέστερο
+    ποσό (το myDATA δεν επιστρέφει κατηγορία ΦΠΑ). None αν δεν είναι συγκεντρωτικός."""
+    if not _looks_per_invoice(inv):
+        return None
+    groups = _vat_groups(inv)
+    pi_e3: dict[str, list] = {g["vat_category"]: [] for g in groups}
+    pi_vat: dict[str, str] = {}
+    vat_groups = [g for g in groups if g["classify_vat"]]
+    for e in inv.cls_info:
+        amount = e.get("amount") or 0
+        if e.get("transaction_mode"):
+            continue
+        if _is_vat_entry(e):
+            if vat_groups:
+                g = min(vat_groups, key=lambda g: abs(g["net"] - amount))
+                pi_vat[g["vat_category"]] = e["type"]
+        elif e.get("type") or e.get("category"):
+            g = min(groups, key=lambda g: min(abs(g["net"] - amount), abs(g["net"] + g["vat"] - amount)))
+            pi_e3[g["vat_category"]].append(
+                {"category": e.get("category") or "", "type": e.get("type") or "", "amount": amount}
+            )
+    return pi_e3, pi_vat
+
+
+def _vat_group_label(cat: str) -> str:
+    rate = VAT_CATEGORY_RATES.get(cat)
+    return f"ΦΠΑ {rate}" if rate and rate[0].isdigit() else "Χωρίς ΦΠΑ"
+
+
+def _per_invoice_entries(inv, e3: dict, vat_choice: dict) -> list[dict]:
+    """Εγγραφές για αποθήκευση/αποστολή (line_number None = επίπεδο παραστατικού).
+    Κάθε Ε3 κρατά την κατηγορία ΦΠΑ της ομάδας του (για την επανεμφάνιση στη φόρμα)·
+    στο myDATA τα πεδία ΦΠΑ στέλνονται μόνο στους χαρακτηρισμούς ΦΠΑ."""
+    entries = []
+    for g in _vat_groups(inv):
+        cat = g["vat_category"]
+        group_cat = int(cat) if cat.isdigit() else None
+        for r in e3.get(cat, []):
+            entries.append(
+                {
+                    "line_number": None,
+                    "classification_type": r["type"],
+                    "classification_category": r["category"],
+                    "amount": r["amount"],
+                    "vat_category": group_cat,
+                }
+            )
+        vt = vat_choice.get(cat)
+        if g["classify_vat"] and vt:
+            entries.append(
+                {
+                    "line_number": None,
+                    "classification_type": vt,
+                    "classification_category": "",
+                    "amount": g["net"],
+                    "vat_category": group_cat,
+                    "vat_amount": g["vat"],
+                }
+            )
+    return entries
+
+
+def _line_classification_rows(
+    inv, rule: dict, existing: dict | None = None, patterns: dict | None = None
+) -> list[dict]:
     """Ομάδες χαρακτηρισμού ΑΝΑ ΓΡΑΜΜΗ του αρχικού παραστατικού. Το myDATA απαιτεί
     χαρακτηρισμό ΚΑΘΕ γραμμής, με άθροισμα E3 ίσο με την αξία της (σφάλματα
     303/304/306 όταν λείπουν γραμμές ή δεν κλείνουν τα ποσά). Κάθε ομάδα =
-    {line_number, net, vat, rows:[{category, type, amount, vat_type}]}."""
+    {line_number, net, vat, vat_category, rows:[{category, type, amount, vat_type}]}.
+    existing: υπάρχοντες χαρακτηρισμοί ανά γραμμή (από _document_cls_rows) για προσυμπλήρωση.
+    patterns: προτάσεις του συναλλασσόμενου ανά κατηγορία ΦΠΑ (υπερισχύουν της βασικής rule)."""
     lines = inv.lines or []
     if not lines:
         # Παλιά/ελλιπή δεδομένα χωρίς ανάλυση γραμμών: μία συνθετική γραμμή.
@@ -689,16 +988,22 @@ def _line_classification_rows(inv, rule: dict) -> list[dict]:
         vat = round(ln.vat_amount or 0, 2)
         # Προσυμπλήρωση: χαρακτηρισμοί της ίδιας γραμμής· για μονόγραμμο
         # παραστατικό δέξου και τον συγκεντρωτικό (cls_info) ως fallback.
-        src = ln.classifications or (inv.cls_info if single else []) or []
-        rows = _pair_cls_rows(src)
+        rows = [r for r in (existing or {}).get(ln.line_number, []) if r["type"] or r["category"]]
         if not rows:
+            src = ln.classifications or (inv.cls_info if single else []) or []
+            rows = _pair_cls_rows(src)
+        if not rows:
+            # Πρόταση του συναλλασσόμενου για την κατηγορία ΦΠΑ της γραμμής, αλλιώς η βασική.
+            r = (patterns or {}).get(str(ln.vat_category or "")) or rule
+            no_vat_right = r.get("category") == NO_VAT_RIGHT
             rows = [
                 {
-                    "category": rule.get("category", ""),
-                    "type": rule.get("type", ""),
-                    "amount": net,
-                    "vat_type": rule.get("vat_type", "")
-                    or ("VAT_361" if vat > 0 else ""),
+                    "category": r.get("category", ""),
+                    "type": r.get("type", ""),
+                    # Κατηγορία 2.5 (χωρίς δικαίωμα έκπτωσης): ο ΦΠΑ μπαίνει στο Ε3.
+                    "amount": round(net + vat, 2) if no_vat_right else net,
+                    # Γραμμή χωρίς ΦΠΑ (ή 2.5) → «Χωρίς χαρακτηρισμό ΦΠΑ», ό,τι κι αν λέει ο κανόνας.
+                    "vat_type": "" if (vat == 0 or no_vat_right) else (r.get("vat_type") or "VAT_361"),
                 }
             ]
         groups.append(
@@ -706,6 +1011,7 @@ def _line_classification_rows(inv, rule: dict) -> list[dict]:
                 "line_number": ln.line_number or (len(groups) + 1),
                 "net": net,
                 "vat": vat,
+                "vat_category": str(ln.vat_category or ""),
                 "rows": rows,
             }
         )
@@ -721,11 +1027,59 @@ def classify(mark):
         return redirect(url_for("invoices"))
     inv = _row_to_invoice(row)
     rule = load_rules().get(inv.issuer_vat or "", {})
+    patterns = _patterns_for(inv.issuer_vat)  # προτάσεις ανά κατηγορία ΦΠΑ
+    # Υπάρχων χαρακτηρισμός από όλες τις πηγές (τοπικός → myDATA → ενσωματωμένος).
+    local = db.get_local_classification(row["id"])
+    post_mode = int(row.get("cls_post_mode") or 0)
+    line_cls, doc_cls = _document_cls_rows([] if post_mode else local, inv)
+    if doc_cls and len(inv.lines) <= 1:  # συγκεντρωτικός σε μονόγραμμο → στη γραμμή του
+        line_cls.setdefault(inv.lines[0].line_number if inv.lines else 1, []).extend(doc_cls)
+    # Συγκεντρωτικά (ανά παραστατικό): προσυμπλήρωση από τον αποθηκευμένο, αλλιώς από τον κανόνα.
+    # pi_e3 = {κατηγορία ΦΠΑ: [Ε3]} ανά συγκεντρωτική γραμμή.
+    vat_groups = _vat_groups(inv)
+    cats = [g["vat_category"] for g in vat_groups]
+    is_vat = lambda e: (e["classification_type"] or "").startswith("VAT_")  # noqa: E731
+    pi_e3: dict[str, list] = {c: [] for c in cats}
+    if post_mode:
+        for e in local:
+            if not is_vat(e):
+                cat = str(e["vat_category"] or "")
+                pi_e3[cat if cat in pi_e3 else cats[0]].append(
+                    {"category": e["classification_category"], "type": e["classification_type"], "amount": e["amount"]}
+                )
+        pi_vat = {str(e["vat_category"]): e["classification_type"] for e in local if is_vat(e) and e["vat_category"]}
+    else:
+        pi_vat = {}
+        for g in vat_groups:
+            # Πρόταση για την κατηγορία ΦΠΑ της ομάδας, αλλιώς η βασική του συναλλασσόμενου.
+            r = patterns.get(g["vat_category"]) or rule
+            # Κατηγορία 2.5 (χωρίς δικαίωμα έκπτωσης): χωρίς χαρακτηρισμό ΦΠΑ, ο ΦΠΑ στο Ε3.
+            if g["classify_vat"]:
+                pi_vat[g["vat_category"]] = "" if r.get("category") == NO_VAT_RIGHT else (r.get("vat_type") or "VAT_361")
+            amount = g["net"] if pi_vat.get(g["vat_category"]) else g["net"] + g["vat"]
+            pi_e3[g["vat_category"]].append(
+                {"category": r.get("category", ""), "type": r.get("type", ""), "amount": round(amount, 2)}
+            )
+    # Χωρίς τοπικό χαρακτηρισμό: αν ο υπάρχων του myDATA έγινε συγκεντρωτικά, η φόρμα
+    # ανοίγει στον συγκεντρωτικό τρόπο με τα δικά του ποσά.
+    remote_pi = None if (post_mode or local) else _remote_per_invoice(inv)
+    if remote_pi:
+        pi_e3, pi_vat = remote_pi
+    empty = {"category": "", "type": "", "amount": None}
     return render_template(
         "classify.html",
         inv=inv,
-        line_groups=_line_classification_rows(inv, rule),
+        post_mode=1 if remote_pi else post_mode,
+        remote_pi=bool(remote_pi),
+        pi_allowed=inv.invoice_type != "1.5" and bool(inv.lines),
+        vat_groups=vat_groups,
+        pi_e3={c: rows or [empty] for c, rows in pi_e3.items()},
+        pi_vat=pi_vat,
+        line_groups=_line_classification_rows(inv, rule, line_cls, patterns),
+        learned=len(patterns) > 1,
         has_existing=bool(inv.cls_info),
+        type_desc=INVOICE_TYPE_NAMES.get(inv.invoice_type or ""),
+        vat_rates=VAT_CATEGORY_RATES,
         categories=EXPENSE_CATEGORIES,
         types=EXPENSE_TYPES,
         vat_types=VAT_TYPES,
@@ -747,6 +1101,46 @@ def submit(mark):
         flash("Το παραστατικό δεν βρέθηκε.", "error")
         return redirect(url_for("invoices"))
     inv = _row_to_invoice(row)
+    manual = request.form.get("action") == "manual"
+
+    # Συγκεντρωτικά (ανά παραστατικό): μία συγκεντρωτική γραμμή ανά κατηγορία ΦΠΑ,
+    # με Ε3 (+ χαρακτηρισμό ΦΠΑ στις κατηγορίες 1–6).
+    if request.form.get("post_mode") == "1":
+        if inv.invoice_type == "1.5" or not inv.lines:
+            flash("Ο χαρακτηρισμός ανά παραστατικό δεν επιτρέπεται για αυτό το παραστατικό.", "error")
+            return redirect(url_for("classify", mark=mark))
+        e3: dict[str, list] = {}
+        for grp, ccat, ctype, amount in zip(
+            request.form.getlist("pi_group"),
+            request.form.getlist("pi_category"),
+            request.form.getlist("pi_type"),
+            request.form.getlist("pi_amount"),
+        ):
+            if not (ccat and ctype and amount.strip()):
+                continue
+            try:
+                e3.setdefault(grp, []).append(
+                    {"category": ccat, "type": ctype, "amount": round(float(amount), 2)}
+                )
+            except ValueError:
+                flash(f"Μη έγκυρο ποσό «{amount}».", "error")
+                return redirect(url_for("classify", mark=mark))
+        # Τα ποσά ΦΠΑ τα υπολογίζει ο server από τις γραμμές — η φόρμα δίνει μόνο τον τύπο.
+        vat_choice = {
+            g["vat_category"]: request.form.get(f"pi_vat_type_{g['vat_category']}", "")
+            for g in _vat_groups(inv)
+            if g["classify_vat"]
+        }
+        errors = _per_invoice_errors(inv, e3, vat_choice)
+        if errors:
+            flash("⚠ Ο συγκεντρωτικός χαρακτηρισμός δεν είναι σωστός: " + " · ".join(errors) + ".", "error")
+            return redirect(url_for("classify", mark=mark))
+        entries = _per_invoice_entries(inv, e3, vat_choice)
+        db.save_local_classification(cid, mark, entries, manual=manual, post_mode=1)
+        _learn(inv, entries)
+        first = next(r for rs in e3.values() for r in rs)
+        save_rule(inv.issuer_vat, first["type"], first["category"], next(iter(vat_choice.values()), ""))
+        return _classified_redirect(manual)
 
     # Γραμμές χαρακτηρισμού ΑΝΑ ΓΡΑΜΜΗ παραστατικού (parallel λίστες από τη φόρμα):
     # κάθε γραμμή = αριθμός γραμμής παραστατικού + κατηγορία + τύπος E3 + ποσό
@@ -849,17 +1243,22 @@ def submit(mark):
             return redirect(url_for("classify", mark=mark))
 
     # «Χειροκίνητο»: το παραστατικό είναι ήδη χαρακτηρισμένο στην πύλη myDATA - το
-    # καταγράφουμε ΜΟΝΟ τοπικά (→ «Επιβεβαιωμένα», tag Manually), χωρίς αποστολή.
-    manual = request.form.get("action") == "manual"
+    # καταγράφουμε ΜΟΝΟ τοπικά (→ «Ολοκληρωμένα», tag Manually), χωρίς αποστολή.
     db.save_local_classification(cid, mark, classifications, manual=manual)
+    _learn(inv, classifications)  # προτάσεις ανά κατηγορία ΦΠΑ
 
-    # αποθήκευση κανόνα ανά προμηθευτή από την πρώτη γραμμή χαρακτηρισμού
+    # αποθήκευση κανόνα ανά συναλλασσόμενο από την πρώτη γραμμή χαρακτηρισμού
     if rule_from:
         save_rule(inv.issuer_vat, rule_from[0], rule_from[1], rule_from[2])
+    return _classified_redirect(manual)
+
+
+def _classified_redirect(manual: bool):
+    """Μήνυμα + μετάβαση μετά την αποθήκευση χαρακτηρισμού (και για τους δύο τρόπους)."""
     if manual:
         flash(
             "✔ Καταγράφηκε τοπικά ως ήδη χαρακτηρισμένο στο myDATA (χειροκίνητο). "
-            "Θα το βρεις στα «Επιβεβαιωμένα».",
+            "Θα το βρεις στα «Ολοκληρωμένα».",
             "ok",
         )
         return redirect(url_for("invoices", view="confirmed"))
@@ -871,20 +1270,62 @@ def submit(mark):
     return redirect(url_for("invoices", view="classified"))
 
 
+NO_VAT_RIGHT = "category2_5"  # γενικά έξοδα χωρίς δικαίωμα έκπτωσης ΦΠΑ
+
+
+def _combo_allowed(invoice_type: str, category: str, e3_type: str) -> bool:
+    """Επιτρέπει η ΑΑΔΕ τον συνδυασμό κατηγορίας/τύπου Ε3 για τον τύπο παραστατικού;
+    Χωρίς φορτωμένους συνδυασμούς για τον τύπο: δεν περιορίζουμε."""
+    combos = {k: v for k, v in db.combos_for_type(invoice_type).items() if k.startswith("category2")}
+    if not combos:
+        return True
+    allowed = combos.get(category) or []
+    return "*" in allowed or e3_type in allowed
+
+
+def _bulk_line_entries(line, category: str, e3_type: str, vat_choice: str) -> list[dict]:
+    """Χαρακτηρισμός μίας γραμμής στον μαζικό χαρακτηρισμό. vat_choice: "auto" (VAT_361
+    όπου υπάρχει ΦΠΑ), "none" (χωρίς χαρακτηρισμό ΦΠΑ) ή συγκεκριμένο VAT_xxx.
+    Χωρίς χαρακτηρισμό ΦΠΑ — και πάντα στην κατηγορία 2.5 — ο ΦΠΑ της γραμμής μπαίνει
+    στο Ε3 (ποσό = μικτή)· αλλιώς Ε3 = καθαρή + χαρακτηρισμός ΦΠΑ με ποσό την καθαρή."""
+    net = round(line.net_value or 0, 2)
+    vat = round(line.vat_amount or 0, 2)
+    no_vat_cls = vat > 0 and (vat_choice == "none" or category == NO_VAT_RIGHT)
+    entries = [
+        {
+            "line_number": line.line_number,
+            "classification_type": e3_type,
+            "classification_category": category,
+            "amount": round(net + vat, 2) if no_vat_cls else net,
+        }
+    ]
+    if vat > 0 and not no_vat_cls:
+        entries.append(
+            {
+                "line_number": line.line_number,
+                "classification_type": vat_choice if vat_choice.startswith("VAT_") else "VAT_361",
+                "classification_category": "",
+                "amount": net,
+            }
+        )
+    return entries
+
+
 @app.route("/bulk_classify", methods=["POST"])
 def bulk_classify():
     """
     Συνολικός χαρακτηρισμός: ο ίδιος συνδυασμός εφαρμόζεται σε κάθε γραμμή
     ενός ή περισσότερων επιλεγμένων παραστατικών (ανά γραμμή - το myDATA δεν
-    δέχεται πλέον classificationPostMode, σφάλμα 340).
+    δέχεται το στοιχείο classificationPostMode στο XML, σφάλμα 340· ο συγκεντρωτικός
+    χαρακτηρισμός γίνεται από τη φόρμα με την παράμετρο postPerInvoice).
     """
     marks = request.form.getlist("marks")
     ctype = request.form.get("bulk_type", "")
     ccat = request.form.get("bulk_category", "")
-    vat_type = request.form.get("bulk_vat_type", "")
+    vat_type = request.form.get("bulk_vat_type", "auto")
     use_rules = (
         request.form.get("action") == "rules"
-    )  # "με βάση την πρόταση ανά προμηθευτή"
+    )  # "με βάση την πρόταση ανά συναλλασσόμενο"
     rules = load_rules()
 
     if not marks:
@@ -892,6 +1333,9 @@ def bulk_classify():
         return redirect(url_for("invoices"))
     if not use_rules and not (ctype and ccat):
         flash("Επίλεξε κατηγορία και τύπο χαρακτηρισμού.", "error")
+        return redirect(url_for("invoices"))
+    if vat_type not in ("auto", "none") and vat_type not in VAT_TYPES:
+        flash("Μη έγκυρος χαρακτηρισμός ΦΠΑ.", "error")
         return redirect(url_for("invoices"))
 
     cid = _active_company_id()
@@ -909,27 +1353,8 @@ def bulk_classify():
             )
             continue
 
-        # επιλογή συνδυασμού: κανόνας προμηθευτή ή κοινή επιλογή από τη φόρμα
-        if use_rules:
-            rule = rules.get(inv.issuer_vat or "")
-            if not rule or not (rule.get("type") and rule.get("category")):
-                failed.append(
-                    f"{mark}: δεν υπάρχει αποθηκευμένη πρόταση για τον προμηθευτή "
-                    f"{inv.issuer_vat or '—'}"
-                )
-                continue
-            use_type, use_cat, use_vat = (
-                rule["type"],
-                rule["category"],
-                rule.get("vat_type", ""),
-            )
-        else:
-            use_type, use_cat, use_vat = ctype, ccat, vat_type
-
-        # Ο ίδιος συνδυασμός (type/category) εφαρμόζεται σε ΚΑΘΕ γραμμή του
-        # παραστατικού, με ποσό την καθαρή αξία της γραμμής. Το myDATA πλέον δεν
-        # δέχεται classificationPostMode=1 (σφάλμα 340) - ο χαρακτηρισμός γίνεται
-        # ανά γραμμή. Fallback σε συμβολική γραμμή 1 αν λείπουν γραμμές.
+        # Ο χαρακτηρισμός γίνεται ανά γραμμή (το myDATA δεν δέχεται το στοιχείο XML
+        # classificationPostMode=1, σφάλμα 340). Fallback σε συμβολική γραμμή 1 αν λείπουν γραμμές.
         src_lines = inv.lines or [
             InvoiceLine(
                 line_number=1,
@@ -939,32 +1364,48 @@ def bulk_classify():
                 has_expenses_classification=False,
             )
         ]
-        classifications = []
-        for line in src_lines:
-            classifications.append(
-                {
-                    "line_number": line.line_number,
-                    "classification_type": use_type,
-                    "classification_category": use_cat,
-                    "amount": line.net_value,
-                }
-            )
-            # Γραμμή με ΦΠΑ ΠΡΕΠΕΙ να έχει χαρακτηρισμό ΦΠΑ (σφάλμα 306). Αν δεν
-            # δόθηκε, προεπιλέγεται VAT_361 (εγχώριες αγορές/δαπάνες). Το ποσό της
-            # γραμμής VAT_xxx ισούται με την ΚΑΘΑΡΗ ΑΞΙΑ (σφάλμα 306), vatAmount null (337).
-            if (line.vat_amount or 0) > 0:
-                classifications.append(
-                    {
-                        "line_number": line.line_number,
-                        "classification_type": use_vat or "VAT_361",
-                        "classification_category": "",
-                        "amount": line.net_value,
-                    }
+
+        # Συνδυασμός ανά γραμμή: (type, category, vat). Με «πρόταση ανά συναλλασσόμενο» κάθε
+        # γραμμή παίρνει την πρόταση της κατηγορίας ΦΠΑ της, αλλιώς τη βασική του.
+        if use_rules:
+            default = rules.get(inv.issuer_vat or "") or {}
+            pats = _patterns_for(inv.issuer_vat)
+            choice = {}
+            for line in src_lines:
+                r = pats.get(str(line.vat_category or "")) or default
+                if r.get("type") and r.get("category"):
+                    choice[line.line_number] = (r["type"], r["category"], r.get("vat_type") or "auto")
+            if len(choice) < len(src_lines):
+                failed.append(
+                    f"{mark}: δεν υπάρχει αποθηκευμένη πρόταση για τον συναλλασσόμενο "
+                    f"{inv.issuer_vat or '—'}"
                 )
+                continue
+        else:
+            choice = {line.line_number: (ctype, ccat, vat_type) for line in src_lines}
+
+        # Επίσημοι συνδυασμοί ΑΑΔΕ για τον τύπο του παραστατικού (αλλιώς απόρριψη στην αποστολή).
+        bad = sorted({(c, t) for t, c, _ in choice.values() if not _combo_allowed(inv.invoice_type, c, t)})
+        if bad:
+            failed.append(
+                f"{mark}: ο συνδυασμός {' , '.join(f'{c} / {t}' for c, t in bad)} δεν επιτρέπεται "
+                f"από την ΑΑΔΕ για τον τύπο {inv.invoice_type}"
+            )
+            continue
+
+        # Το ποσό της γραμμής VAT_xxx ισούται με την ΚΑΘΑΡΗ ΑΞΙΑ (σφάλμα 306), vatAmount null (337).
+        classifications = [
+            e
+            for line in src_lines
+            for e in _bulk_line_entries(line, choice[line.line_number][1], choice[line.line_number][0],
+                                        choice[line.line_number][2])
+        ]
 
         # Αποθήκευση ΤΟΠΙΚΑ (χωρίς αποστολή στο myDATA).
         db.save_local_classification(cid, mark, classifications)
-        save_rule(inv.issuer_vat, use_type, use_cat, use_vat)
+        _learn(inv, classifications)
+        if not use_rules:  # ρητή επιλογή → γίνεται και η βασική πρόταση του συναλλασσόμενου
+            save_rule(inv.issuer_vat, ctype, ccat, vat_type if vat_type.startswith("VAT_") else "")
         ok.append(mark)
 
     if ok:
@@ -1026,13 +1467,17 @@ def send():
                         "classification_type": e["classification_type"],
                         "classification_category": e["classification_category"] or "",
                         "amount": e["amount"],
+                        "vat_category": e.get("vat_category"),
+                        "vat_amount": e.get("vat_amount"),
                     }
                     for e in db.get_local_classification(row["id"])
                 ]
                 if not classifications:
                     failed.append(f"{mark}: λείπει ο τοπικός χαρακτηρισμός")
                     continue
-                result = client.send_expenses_classification(mark, classifications)
+                result = client.send_expenses_classification(
+                    mark, classifications, post_per_invoice=bool(row.get("cls_post_mode"))
+                )
         except MyDataError as e:
             failed.append(f"{mark}: {e}")
             continue
@@ -1066,7 +1511,7 @@ def send():
 def refresh():
     """Ενημέρωση: ζητά από το myDATA το διάστημα των «Απεσταλμένων» (από τη
     μικρότερη έως τη μεγαλύτερη ημερομηνία έκδοσης). Όσα το myDATA δείχνει πλέον
-    με τον ίδιο χαρακτηρισμό περνούν σε «Επιβεβαιωμένα»."""
+    με τον ίδιο χαρακτηρισμό περνούν σε «Ολοκληρωμένα»."""
     cid = _active_company_id()
     sent = db.get_documents(cid, "expense", ["sent"]) if cid else []
     if not sent:
@@ -1132,7 +1577,7 @@ def income_fetch():
         dt = date.fromisoformat(date_to).strftime("%d/%m/%Y")
     except ValueError:
         flash("Μη έγκυρες ημερομηνίες.", "error")
-        return redirect(url_for("income"))
+        return redirect(url_for("income_sync", date_from=date_from, date_to=date_to))
 
     cid = _active_company_id()
     if not cid:
@@ -1146,10 +1591,10 @@ def income_fetch():
         unclassified, classified, cancelled_marks = get_client().request_income(df, dt)
     except MyDataError as e:
         flash(str(e), "error")
-        return redirect(url_for("income"))
+        return redirect(url_for("income_sync", date_from=date_from, date_to=date_to))
     except Exception as e:  # noqa: BLE001 — network κ.λπ.
         flash(f"Σφάλμα επικοινωνίας: {e}", "error")
-        return redirect(url_for("income"))
+        return redirect(url_for("income_sync", date_from=date_from, date_to=date_to))
 
     # Επωνυμίες πελατών: ίδια τεχνική & ίδιος κοινός πίνακας (suppliers) με τους
     # προμηθευτές — εκμάθηση + cache + VIES/GSIS για άγνωστα ΑΦΜ.
@@ -1175,24 +1620,17 @@ def income_fetch():
         + (f" · αφαιρέθηκαν {removed} ακυρωμένα." if removed else "."),
         "ok",
     )
-    return redirect(url_for("income", date_from=date_from, date_to=date_to))
+    return redirect(url_for("income"))
 
 
 @app.route("/income")
 def income():
-    today = datetime.now(ATHENS).strftime("%Y-%m-%d")
-    range_date_from = request.args.get("date_from", "").strip() or today
-    range_date_to = request.args.get("date_to", "").strip() or today
     view = request.args.get("view", "unclassified")
     if view not in _INCOME_VIEWS:
         view = "unclassified"
     sort = request.args.get("sort", "date")
     direction = request.args.get("dir", "asc")
     reverse = direction == "desc"
-    try:
-        page = max(1, int(request.args.get("page", 1)))
-    except ValueError:
-        page = 1
     filters = {
         "mark": request.args.get("f_mark", "").strip(),
         "date": request.args.get("f_date", "").strip(),
@@ -1257,10 +1695,7 @@ def income():
 
     items = sorted(items, key=sort_key, reverse=reverse)
     total = len(items)
-    total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
-    page = min(page, total_pages)
-    start = (page - 1) * PER_PAGE
-    page_items = items[start : start + PER_PAGE]
+    page_items, page, total_pages = paginate(items, request.args.get("page"))
 
     return render_template(
         "income.html",
@@ -1281,8 +1716,6 @@ def income():
         total=total,
         per_page=PER_PAGE,
         filters=filters,
-        range_date_from=range_date_from,
-        range_date_to=range_date_to,
     )
 
 
@@ -1297,7 +1730,7 @@ _EXPENSE_CLASSIFIED_STATUSES = ["classified", "sent", "confirmed"]
 _REPORT_GROUPS = ("counterparty", "invoice_type", "classification", "vat")
 _REPORT_GROUP_LABELS = {
     "period": "Περίοδος",
-    "counterparty": "Πελάτης ή προμηθευτής",
+    "counterparty": "Συναλλασσόμενος",
     "invoice_type": "Τύπος παραστατικού",
     "classification": "Χαρακτηρισμός",
     "vat": "Κατηγορία ΦΠΑ",
@@ -1489,7 +1922,7 @@ def _report_group_label(dimension: str, value) -> str:
             return name
         if vat:
             return vat
-        return "Χωρίς στοιχεία πελάτη / προμηθευτή"
+        return "Χωρίς στοιχεία συναλλασσόμενου"
     if dimension == "classification":
         category, classification_type = value
         if not (category or classification_type):
@@ -1675,9 +2108,67 @@ def reports():
     )
 
 
+def _copy_lines(inv, local: list[dict]) -> list[dict]:
+    """Γραμμές φόρμας «Νέας εγγραφής» από υπάρχον παραστατικό: μία γραμμή ανά E3
+    χαρακτηρισμό. Σε split γραμμή ο ΦΠΑ μοιράζεται αναλογικά (υπόλοιπο στην τελευταία)."""
+    line_rows, doc_rows = _document_cls_rows(local, inv)
+    out = []
+    for ln in inv.lines:
+        net, vat = ln.net_value or 0.0, ln.vat_amount or 0.0
+        rows = [r for r in line_rows.get(ln.line_number, []) if r["type"]] or [
+            {"category": "", "type": "", "amount": net}
+        ]
+        vat_left = vat
+        for i, r in enumerate(rows):
+            amt = net if len(rows) == 1 or r["amount"] is None else r["amount"]
+            v = vat_left if i == len(rows) - 1 else round(vat * amt / net, 2) if net else 0.0
+            vat_left = round(vat_left - v, 2)
+            out.append(
+                {
+                    "amount": round(amt, 2),
+                    "classification_category": r["category"],
+                    "classification_type": r["type"],
+                    "vat_category": str(ln.vat_category or "8"),
+                    "vat_amount": round(v, 2),
+                    "vat_type": r.get("vat_type", "") if v > 0 else "",
+                }
+            )
+    if not out:  # χωρίς αναλυτικές γραμμές: από τον συγκεντρωτικό χαρακτηρισμό
+        out = [
+            {
+                "amount": r["amount"] or 0.0,
+                "classification_category": r["category"],
+                "classification_type": r["type"],
+                "vat_category": "8",
+                "vat_amount": 0.0,
+            }
+            for r in doc_rows
+            if r["type"]
+        ]
+    return out
+
+
+def _copy_draft(row: dict) -> dict:
+    """Draft νέας εγγραφής ως αντίγραφο υπάρχουσας: ίδια στοιχεία και γραμμές,
+    σημερινή ημερομηνία, κενός Α/Α."""
+    draft = json.loads(row.get("draft_json") or "{}")
+    if not draft.get("lines"):
+        inv = _row_to_invoice(row)
+        draft = {
+            "invoice_type": inv.invoice_type,
+            "series": inv.series or "",
+            "issuer_vat": "" if (inv.invoice_type or "").startswith("17.") else inv.issuer_vat or "",
+            "issuer_country": "GR",
+            "lines": _copy_lines(inv, db.get_local_classification(row["id"])),
+        }
+    draft["issue_date"] = datetime.now(ATHENS).strftime("%Y-%m-%d")
+    draft["aa"] = ""  # ο Α/Α πληκτρολογείται από τον χρήστη
+    return draft
+
+
 @app.route("/new_expense")
 def new_expense():
-    from mydata_client import PAYMENT_METHODS, SELF_EXPENSE_TYPES, VAT_CATEGORIES
+    from mydata_client import SELF_EXPENSE_TYPES
 
     # Επεξεργασία υπάρχοντος τοπικού draft (Νέα εγγραφή στα «Χαρακτηρισμένα»).
     edit_mark = request.args.get("edit", "").strip()
@@ -1691,6 +2182,40 @@ def new_expense():
             flash("Η εγγραφή προς επεξεργασία δεν βρέθηκε.", "error")
             edit_mark = ""
 
+    # Αντιγραφή ολοκληρωμένης δικής μας εγγραφής (χωρίς υπόχρεο εκδότη) σε νέα.
+    copy_mark = request.args.get("copy", "").strip()
+    if copy_mark and not draft:
+        cid = _active_company_id()
+        row = db.get_document(cid, copy_mark) if cid else None
+        if (
+            row
+            and row.get("status") == "confirmed"
+            and row.get("invoice_type") in SELF_EXPENSE_TYPES
+        ):
+            draft = _copy_draft(row)
+        else:
+            flash(
+                "Αντιγραφή γίνεται μόνο από ολοκληρωμένη εγγραφή τύπου 13.x–17.x.",
+                "error",
+            )
+            copy_mark = ""
+
+    return _render_new_expense(draft, edit_mark if draft else "", copy_mark)
+
+
+def _render_new_expense(draft: dict | None, edit_mark: str = "", copy_mark: str = "", status: int = 200):
+    """Η φόρμα «Νέας εγγραφής» — κενή, με draft (επεξεργασία/αντιγραφή) ή ξανά με τις
+    τιμές του χρήστη μετά από σφάλμα, ώστε να μη χάνεται ό,τι συμπλήρωσε."""
+    from mydata_client import (
+        PAYMENT_METHODS,
+        SELF_EXPENSE_TYPES,
+        SELF_TYPE_RULES,
+        SELF_TYPES_ISSUER_OPTIONAL,
+        SELF_TYPES_NO_ISSUER,
+        SELF_TYPES_WITH_VAT,
+        VAT_CATEGORIES,
+    )
+
     # Επιτρεπόμενοι συνδυασμοί ΕΞΟΔΩΝ ανά self-expense τύπο (για αλυσιδωτό φιλτράρισμα).
     combos_all = {
         t: {k: v for k, v in db.combos_for_type(t).items() if k.startswith("category2")}
@@ -1702,12 +2227,53 @@ def new_expense():
         categories=EXPENSE_CATEGORIES,
         types=EXPENSE_TYPES,
         vat_categories=VAT_CATEGORIES,
+        vat_types={k: v for k, v in VAT_TYPES.items() if k},  # χαρακτηρισμοί ΦΠΑ γραμμής
         payment_methods=PAYMENT_METHODS,
         today=datetime.now(ATHENS).strftime("%Y-%m-%d"),
         draft=draft,
-        edit_mark=edit_mark if draft else "",
+        edit_mark=edit_mark,
+        copy_mark=copy_mark,
+        eu_countries=sorted(EU_COUNTRIES),
+        country_rules={t: country_rule(t) for t in SELF_EXPENSE_TYPES},
+        # Κανόνες ΑΑΔΕ ανά τύπο για τη φόρμα (ίδια πηγή με το mydata_client).
+        with_vat=sorted(SELF_TYPES_WITH_VAT),
+        no_issuer=sorted(SELF_TYPES_NO_ISSUER),
+        issuer_optional=sorted(SELF_TYPES_ISSUER_OPTIONAL),
+        no_payment=sorted(f for f, r in SELF_TYPE_RULES.items() if not r["payment"]),
         combos_all=combos_all,
-    )
+    ), status
+
+
+def _draft_from_form() -> dict:
+    """Οι τιμές που έστειλε ο χρήστης (και οι κενές γραμμές), στη μορφή draft της φόρμας."""
+    f = request.form
+
+    def num(v: str):
+        try:
+            return float(v) if v.strip() else None
+        except ValueError:
+            return None
+
+    cols = [f.getlist(k) for k in
+            ("line_amount", "line_category", "line_type", "line_vat_category", "line_vat_amount",
+             "line_vat_type")]
+    at = lambda col, i, default="": col[i] if i < len(col) else default  # noqa: E731
+    lines = [
+        {
+            "amount": num(at(cols[0], i)),
+            "classification_category": at(cols[1], i),
+            "classification_type": at(cols[2], i),
+            "vat_category": at(cols[3], i, "8") or "8",
+            "vat_amount": num(at(cols[4], i)) or 0.0,
+            "vat_type": at(cols[5], i),
+        }
+        for i in range(len(cols[0]))
+    ]
+    return {
+        **{k: f.get(k, "").strip() for k in
+           ("invoice_type", "issue_date", "series", "aa", "issuer_vat", "issuer_country", "payment_method")},
+        "lines": lines or [None],
+    }
 
 
 @app.route("/draft/<mark>/delete", methods=["POST"])
@@ -1725,16 +2291,31 @@ def draft_delete(mark):
 
 @app.route("/new_expense", methods=["POST"])
 def new_expense_submit():
-    from mydata_client import SELF_EXPENSE_TYPES
+    from mydata_client import (
+        SELF_EXPENSE_TYPES,
+        SELF_TYPES_ISSUER_OPTIONAL,
+        SELF_TYPES_NO_ISSUER,
+        SELF_TYPES_WITH_VAT,
+    )
+
+    edit_mark = request.form.get("edit_mark", "").strip()
+
+    def again():
+        """Σφάλμα: ξανά η φόρμα με ό,τι συμπλήρωσε ο χρήστης (όχι κενή), για διόρθωση."""
+        return _render_new_expense(_draft_from_form(), edit_mark, "", 422)
 
     invoice_type = request.form.get("invoice_type", "")
-    series = request.form.get("series", "0").strip()
-    aa = request.form.get("aa", "1").strip()
+    series = request.form.get("series", "").strip()
+    aa = request.form.get("aa", "").strip()
     issue_date = request.form.get("issue_date", "")
+
+    if not series or not aa:
+        flash("Συμπλήρωσε τη σειρά και τον Α/Α της εγγραφής.", "error")
+        return again()
 
     if invoice_type not in SELF_EXPENSE_TYPES:
         flash("Μη έγκυρος τύπος εγγραφής.", "error")
-        return redirect(url_for("new_expense"))
+        return again()
 
     # γραμμές: παράλληλες λίστες από τη φόρμα
     amounts = request.form.getlist("line_amount")
@@ -1742,13 +2323,24 @@ def new_expense_submit():
     typs = request.form.getlist("line_type")
     vat_cats = request.form.getlist("line_vat_category")
     vat_amts = request.form.getlist("line_vat_amount")
+    vat_types = request.form.getlist("line_vat_type")
     lines = []
     for i, (amt, cat, typ) in enumerate(zip(amounts, cats, typs)):
         if not amt.strip():
             continue
         if not (cat and typ):
             flash("Κάθε γραμμή με ποσό πρέπει να έχει κατηγορία και τύπο.", "error")
-            return redirect(url_for("new_expense"))
+            return again()
+        try:
+            vat_amount = float(vat_amts[i]) if i < len(vat_amts) and vat_amts[i].strip() else 0.0
+        except ValueError:
+            flash(f"Μη έγκυρο ποσό ΦΠΑ στη γραμμή {i + 1}.", "error")
+            return again()
+        # Χαρακτηρισμός ΦΠΑ της γραμμής (μόνο αν έχει ΦΠΑ· προεπιλογή VAT_361).
+        vat_type = (vat_types[i] if i < len(vat_types) else "") or "VAT_361"
+        if not vat_type.startswith("VAT_") or vat_type not in VAT_TYPES:
+            flash(f"Μη έγκυρος χαρακτηρισμός ΦΠΑ στη γραμμή {i + 1}.", "error")
+            return again()
         try:
             lines.append(
                 {
@@ -1756,18 +2348,30 @@ def new_expense_submit():
                     "classification_category": cat,
                     "classification_type": typ,
                     "vat_category": (vat_cats[i] if i < len(vat_cats) else "8") or "8",
-                    "vat_amount": float(vat_amts[i])
-                    if i < len(vat_amts) and vat_amts[i].strip()
-                    else 0.0,
+                    "vat_amount": vat_amount,
+                    "vat_type": vat_type if vat_amount > 0 else "",
                 }
             )
         except ValueError:
             flash(f"Μη έγκυρο ποσό στη γραμμή {i + 1}.", "error")
-            return redirect(url_for("new_expense"))
+            return again()
 
     if not lines:
         flash("Συμπλήρωσε τουλάχιστον μία γραμμή.", "error")
-        return redirect(url_for("new_expense"))
+        return again()
+
+    # ΦΠΑ μόνο στις λιανικές 13.1/13.2/13.31 (ΑΑΔΕ: αλλιώς σφάλματα 215/218).
+    if invoice_type not in SELF_TYPES_WITH_VAT:
+        if any(ln["vat_amount"] for ln in lines):
+            flash(
+                f"Ο τύπος {invoice_type} δεν έχει ΦΠΑ — ΦΠΑ επιτρέπεται μόνο στα "
+                "13.1, 13.2 και 13.31.",
+                "error",
+            )
+            return again()
+        for ln in lines:
+            ln["vat_category"] = "8"
+            ln["vat_type"] = ""
 
     # Το δικό μας ΑΦΜ χρειάζεται πάντα: ως εκδότης στα 17.x, ως αντισυμβαλλόμενος
     # (λήπτης) στα 14.x/15.1/16.1 - error 204 "Counterpart is mandatory".
@@ -1780,10 +2384,16 @@ def new_expense_submit():
             "ή ως λήπτης στους άλλους τύπους.",
             "error",
         )
-        return redirect(url_for("new_expense"))
+        return again()
 
     if invoice_type.startswith("17."):
         issuer_vat = own_vat
+        issuer_country = "GR"
+    elif invoice_type in SELF_TYPES_NO_ISSUER or (  # κοινόχρηστα/συνδρομές: χωρίς εκδότη
+        invoice_type in SELF_TYPES_ISSUER_OPTIONAL  # λιανικές: προαιρετικός — εδώ κενός
+        and not request.form.get("issuer_vat", "").strip()
+    ):
+        issuer_vat = ""
         issuer_country = "GR"
     else:
         issuer_vat = request.form.get("issuer_vat", "").strip()
@@ -1796,7 +2406,18 @@ def new_expense_submit():
                 "(π.χ. 997072577 για τον ΕΦΚΑ).",
                 "error",
             )
-            return redirect(url_for("new_expense"))
+            return again()
+        if not country_allowed(invoice_type, issuer_country):
+            rule = country_rule(invoice_type)
+            flash(
+                f"Μη αποδεκτή χώρα εκδότη «{issuer_country}» για τον τύπο {invoice_type}: "
+                + ("επιτρέπεται μόνο Ελλάδα (GR)." if rule == "gr"
+                   else "απαιτείται χώρα της ΕΕ (εκτός GR)." if rule == "eu"
+                   else "απαιτείται χώρα εκτός ΕΕ." if rule == "third"
+                   else "δώσε έγκυρο κωδικό 2 γραμμάτων."),
+                "error",
+            )
+            return again()
 
     cid = _active_company_id()
     if not cid:
@@ -1807,6 +2428,13 @@ def new_expense_submit():
     # στο myDATA» θα εκτελέσει το SendInvoices (δημιουργία+διαβίβαση+χαρακτηρισμός).
     total_net = round(sum(line["amount"] for line in lines), 2)
     total_vat = round(sum(line["vat_amount"] for line in lines), 2)
+    def line_cls(line):  # Ε3 + (αν υπάρχει ΦΠΑ) ο χαρακτηρισμός ΦΠΑ της γραμμής
+        out = [{"type": line["classification_type"], "category": line["classification_category"],
+                "amount": line["amount"]}]
+        if line["vat_type"]:
+            out.append({"type": line["vat_type"], "category": "", "amount": line["amount"]})
+        return out
+
     disp_lines = [
         {
             "line_number": i + 1,
@@ -1814,18 +2442,11 @@ def new_expense_submit():
             "vat_amount": line["vat_amount"],
             "vat_category": line["vat_category"],
             "has_expenses_classification": True,
-            "classifications": [],
+            "classifications": line_cls(line),
         }
         for i, line in enumerate(lines)
     ]
-    cls_info = [
-        {
-            "type": line["classification_type"],
-            "category": line["classification_category"],
-            "amount": line["amount"],
-        }
-        for line in lines
-    ]
+    cls_info = [c for line in lines for c in line_cls(line)]
     draft = {
         "invoice_type": invoice_type,
         "series": series,
@@ -1877,7 +2498,7 @@ def cancel(mark):
     if not _row_to_invoice(row).is_self_issued:
         flash(
             "Μόνο παραστατικά που έχεις διαβιβάσει εσύ (π.χ. 17.x) μπορούν να ακυρωθούν. "
-            "Για παραστατικά προμηθευτών χρησιμοποίησε την Απόρριψη.",
+            "Για παραστατικά τρίτων εκδοτών χρησιμοποίησε την Απόρριψη.",
             "error",
         )
         return redirect(url_for("invoices"))
@@ -1909,12 +2530,13 @@ def reject(mark):
 @app.route("/parameters")
 def parameters():
     tab = request.args.get("tab", "companies")
-    if tab not in {"suppliers", "companies", "accountant", "combinations"}:
+    if tab == "suppliers":  # παλιοί σύνδεσμοι: οι συναλλασσόμενοι έχουν δική τους σελίδα
+        return redirect(url_for("suppliers"))
+    if tab not in {"companies", "accountant", "combinations"}:
         tab = "companies"
     return render_template(
         "parameters.html",
         active_tab=tab,
-        suppliers=db.list_suppliers(),
         companies=load_companies(),
         active=get_active_index(),
         acc=get_accountant(),
@@ -2072,11 +2694,22 @@ def accountant():
 
 
 # ------------------------------------------------------------------ #
-# Προμηθευτές (κοινοί για όλες τις εταιρείες)
+# Συναλλασσόμενοι — πελάτες & προμηθευτές (κοινοί για όλες τις εταιρείες)
 # ------------------------------------------------------------------ #
 @app.route("/suppliers")
 def suppliers():
-    return redirect(url_for("parameters", tab="suppliers"))
+    """Κατάλογος συναλλασσόμενων (πελάτες & προμηθευτές), με σελιδοποίηση."""
+    all_suppliers = db.list_suppliers()
+    page_items, page, total_pages = paginate(all_suppliers, request.args.get("page"))
+    return render_template(
+        "counterparties.html",
+        suppliers=page_items,
+        suppliers_total=len(all_suppliers),
+        page=page,
+        total_pages=total_pages,
+        patterns=db.load_rule_patterns(),
+        vat_label=_vat_group_label,
+    )
 
 
 @app.route("/suppliers/save", methods=["POST"])
@@ -2085,17 +2718,29 @@ def suppliers_save():
     name = request.form.get("name", "").strip()
     if not vat:
         flash("Το ΑΦΜ είναι υποχρεωτικό.", "error")
-        return redirect(url_for("parameters", tab="suppliers"))
+        return redirect(url_for("suppliers"))
     db.upsert_supplier(vat, name)
-    flash(f"✔ Αποθηκεύτηκε ο προμηθευτής {vat}.", "ok")
-    return redirect(url_for("parameters", tab="suppliers"))
+    flash(f"✔ Αποθηκεύτηκε ο συναλλασσόμενος {vat}.", "ok")
+    return redirect(url_for("suppliers"))
+
+
+@app.route("/suppliers/rename", methods=["POST"])
+def suppliers_rename():
+    """Γρήγορη διόρθωση επωνυμίας από τους πίνακες των βιβλίων (χωρίς ανανέωση σελίδας).
+    Ενημερώνει τον κοινό κατάλογο ΑΦΜ → επωνυμία· η πρόταση χαρακτηρισμού μένει ως έχει."""
+    vat = request.form.get("vat", "").strip()
+    name = " ".join(request.form.get("name", "").split())[:200]
+    if not vat or not name:
+        return {"ok": False, "error": "Απαιτούνται ΑΦΜ και επωνυμία."}, 400
+    db.upsert_supplier(vat, name)
+    return {"ok": True, "name": name}
 
 
 @app.route("/suppliers/delete/<vat>", methods=["POST"])
 def suppliers_delete(vat):
     db.delete_supplier(vat)
-    flash(f"✔ Διαγράφηκε ο προμηθευτής {vat}.", "ok")
-    return redirect(url_for("parameters", tab="suppliers"))
+    flash(f"✔ Διαγράφηκε ο συναλλασσόμενος {vat}.", "ok")
+    return redirect(url_for("suppliers"))
 
 
 @app.route("/suppliers/import", methods=["POST"])
@@ -2103,18 +2748,18 @@ def suppliers_import():
     f = request.files.get("file")
     if not f or not f.filename:
         flash(
-            "Επίλεξε αρχείο .txt (μία γραμμή ανά προμηθευτή: ΑΦΜ<κενό>Επωνυμία).",
+            "Επίλεξε αρχείο .txt (μία γραμμή ανά συναλλασσόμενο: ΑΦΜ<κενό>Επωνυμία).",
             "error",
         )
-        return redirect(url_for("parameters", tab="suppliers"))
+        return redirect(url_for("suppliers"))
     data = f.read()
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         text = data.decode("utf-8", errors="replace")
     n = db.import_suppliers_txt(text)
-    flash(f"✔ Εισήχθησαν/ενημερώθηκαν {n} προμηθευτές.", "ok")
-    return redirect(url_for("parameters", tab="suppliers"))
+    flash(f"✔ Εισήχθησαν/ενημερώθηκαν {n} συναλλασσόμενοι.", "ok")
+    return redirect(url_for("suppliers"))
 
 
 @app.route("/suppliers/export")
@@ -2122,7 +2767,7 @@ def suppliers_export():
     return Response(
         db.export_suppliers_txt(),
         mimetype="text/plain; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=suppliers.txt"},
+        headers={"Content-Disposition": "attachment; filename=counterparties.txt"},
     )
 
 
@@ -2256,7 +2901,8 @@ def combinations_clear():
 
 @app.context_processor
 def inject_company():
-    return {"active_company": get_active_company()}
+    # self_types: τύποι που εκδίδουμε εμείς (13.x–17.x) → επιτρέπεται «Αντιγραφή».
+    return {"active_company": get_active_company(), "self_types": SELF_EXPENSE_TYPES}
 
 
 if __name__ == "__main__":

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_macros.html" import fetch_form with context %}
+{% block title %}Ανάκτηση {{ 'εσόδων' if kind == 'income' else 'εξόδων' }}{% endblock %}
+{% block content %}
+{% set income = kind == 'income' %}
+{% set book = 'income' if income else 'invoices' %}
+<a class="back" href="{{ url_for(book) }}">← {{ 'Βιβλίο εσόδων' if income else 'Βιβλίο εξόδων' }}</a>
+<div class="page-head">
+  <div>
+    <h1>Ανάκτηση / διαγραφή {{ 'εσόδων' if income else 'εξόδων' }}</h1>
+    <div class="meta">
+      {% if date_range %}<span>Τελευταία ανάκτηση: <span class="mono">{{ date_range }}</span></span>{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if income %}
+{{ fetch_form('income_fetch', 'Ανάκτηση εσόδων', 'income', 'εσόδων') }}
+{% else %}
+{{ fetch_form('fetch', 'Ανάκτηση εξόδων', 'expense', 'εξόδων') }}
+{% endif %}
+
+<div class="card">
+  <h2>Τι κάνει κάθε κουμπί</h2>
+  <p class="muted prose">
+    <strong>Ανάκτηση</strong>: φέρνει από το myDATA τα παραστατικά {{ 'εσόδων' if income else 'εξόδων' }}
+    της ενεργής εταιρείας για το διάστημα και τα αποθηκεύει στο τοπικό βιβλίο. Όσα υπάρχουν ήδη
+    ενημερώνονται — δεν δημιουργούνται διπλότυπα.
+  </p>
+  <p class="muted prose">
+    <strong>Διαγραφή</strong>: αφαιρεί <strong>μόνο από το τοπικό βιβλίο</strong> τα παραστατικά του
+    διαστήματος, μαζί με τους τοπικούς χαρακτηρισμούς τους. Στο myDATA δεν αλλάζει τίποτα·
+    μια νέα ανάκτηση ξαναφέρνει τα παραστατικά.
+  </p>
+  <p class="muted prose">
+    <strong>Διαγραφή και ανάκτηση</strong>: τα δύο μαζί, για «καθαρή» επαναφόρτωση του διαστήματος —
+    πρώτα διαγράφονται τα τοπικά παραστατικά και μετά ξαναφέρνονται από το myDATA όπως είναι εκεί
+    (π.χ. μετά από αλλαγές απευθείας στην πύλη).
+  </p>
+  <p class="note note--warn">
+    Χάνονται οριστικά ό,τι υπήρχε <strong>μόνο τοπικά</strong>: χαρακτηρισμοί που δεν έχουν σταλεί
+    {%- if not income %} και «Νέες εγγραφές» που δεν έχουν διαβιβαστεί{% endif %}.
+  </p>
+</div>
+{% endblock %}

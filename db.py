@@ -65,6 +65,18 @@ CREATE TABLE IF NOT EXISTS suppliers (
     rule_vat_type    TEXT
 );
 
+-- Προτάσεις χαρακτηρισμού ανά συναλλασσόμενο ΚΑΙ κατηγορία ΦΠΑ γραμμής: ένα παραστατικό
+-- μπορεί να έχει π.χ. γραμμές 24% (έξοδα με ΦΠΑ) και 0% (χωρίς δικαίωμα έκπτωσης)· στο
+-- επόμενο παραστατικό κάθε γραμμή παίρνει την πρόταση της κατηγορίας ΦΠΑ της.
+CREATE TABLE IF NOT EXISTS supplier_rules (
+    vat            TEXT NOT NULL,
+    vat_category   TEXT NOT NULL,
+    rule_category  TEXT,
+    rule_type      TEXT,
+    rule_vat_type  TEXT,
+    PRIMARY KEY (vat, vat_category)
+);
+
 CREATE TABLE IF NOT EXISTS documents (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id          INTEGER NOT NULL,
@@ -120,6 +132,13 @@ _DOCUMENT_COLUMNS = {
     "local_action": "TEXT DEFAULT 'classify'",
     "draft_json": "TEXT",
     "source": "TEXT DEFAULT 'rest'",
+    # Τρόπος χαρακτηρισμού: 0 = ανά γραμμή, 1 = ανά παραστατικό (postPerInvoice).
+    "cls_post_mode": "INTEGER DEFAULT 0",
+}
+# Ανά παραστατικό, ο χαρακτηρισμός ΦΠΑ κρατά κατηγορία ΦΠΑ + ποσό ΦΠΑ της ομάδας.
+_CLASSIFICATION_COLUMNS = {
+    "vat_category": "INTEGER",
+    "vat_amount": "REAL",
 }
 
 
@@ -147,6 +166,10 @@ def init_db() -> None:
         for col, decl in _DOCUMENT_COLUMNS.items():
             if col not in doc_cols:
                 conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {decl}")
+        cls_cols = {r["name"] for r in conn.execute("PRAGMA table_info(classifications)")}
+        for col, decl in _CLASSIFICATION_COLUMNS.items():
+            if col not in cls_cols:
+                conn.execute(f"ALTER TABLE classifications ADD COLUMN {col} {decl}")
         if "counterparty_name" in doc_cols:
             conn.execute("ALTER TABLE documents DROP COLUMN counterparty_name")
 
@@ -306,6 +329,36 @@ def save_rule(vat: str | None, ctype: str, ccat: str, vat_type: str = "") -> Non
         )
 
 
+def load_rule_patterns(vat: str | None = None) -> dict:
+    """{vat: {vat_category: {"category", "type", "vat_type"}}} — προτάσεις ανά κατηγορία ΦΠΑ."""
+    q = "SELECT * FROM supplier_rules" + (" WHERE vat = ?" if vat else "")
+    with get_conn() as conn:
+        rows = conn.execute(q, (vat,) if vat else ()).fetchall()
+    out: dict = {}
+    for r in rows:
+        out.setdefault(r["vat"], {})[r["vat_category"]] = {
+            "category": r["rule_category"],
+            "type": r["rule_type"],
+            "vat_type": r["rule_vat_type"] or "",
+        }
+    return out
+
+
+def save_rule_patterns(vat: str | None, patterns: dict) -> None:
+    """Αποθηκεύει/ανανεώνει προτάσεις {vat_category: {category, type, vat_type}}·
+    οι κατηγορίες ΦΠΑ που δεν εμφανίζονται στο νέο παραστατικό μένουν ως είχαν."""
+    if not vat or not patterns:
+        return
+    with get_conn() as conn:
+        conn.executemany(
+            "INSERT INTO supplier_rules (vat, vat_category, rule_category, rule_type, rule_vat_type) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(vat, vat_category) DO UPDATE SET "
+            "rule_category = excluded.rule_category, rule_type = excluded.rule_type, "
+            "rule_vat_type = excluded.rule_vat_type",
+            [(vat, cat, p["category"], p["type"], p.get("vat_type") or "") for cat, p in patterns.items()],
+        )
+
+
 def load_names() -> dict:
     with get_conn() as conn:
         rows = conn.execute(
@@ -357,6 +410,7 @@ def upsert_supplier(vat: str, name: str | None) -> None:
 def delete_supplier(vat: str) -> None:
     with get_conn() as conn:
         conn.execute("DELETE FROM suppliers WHERE vat = ?", (vat,))
+        conn.execute("DELETE FROM supplier_rules WHERE vat = ?", (vat,))
 
 
 def import_suppliers_txt(text: str) -> int:
@@ -613,9 +667,13 @@ def report_documents(
 
 
 def save_local_classification(
-    company_id: int | None, mark: str, entries: list[dict], manual: bool = False
+    company_id: int | None,
+    mark: str,
+    entries: list[dict],
+    manual: bool = False,
+    post_mode: int = 0,
 ) -> bool:
-    """Αποθηκεύει ΤΟΠΙΚΑ τον χαρακτηρισμό ανά γραμμή.
+    """Αποθηκεύει ΤΟΠΙΚΑ τον χαρακτηρισμό (post_mode 0 = ανά γραμμή, 1 = ανά παραστατικό).
     - manual=False → status='classified' (θα σταλεί στο myDATA με το «Αποστολή»).
     - manual=True → status='confirmed', source='manual': παραστατικό ήδη χαρακτηρισμένο
       χειροκίνητα στην πύλη myDATA, καταγράφεται μόνο τοπικά (ΔΕΝ στέλνεται).
@@ -641,7 +699,8 @@ def save_local_classification(
         conn.execute("DELETE FROM classifications WHERE document_id = ?", (doc_id,))
         conn.executemany(
             "INSERT INTO classifications (document_id, line_number, classification_type, "
-            "classification_category, vat_type, amount) VALUES (?, ?, ?, ?, ?, ?)",
+            "classification_category, vat_type, amount, vat_category, vat_amount) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     doc_id,
@@ -650,9 +709,14 @@ def save_local_classification(
                     e.get("classification_category") or "",
                     e.get("vat_type") or "",
                     e.get("amount"),
+                    e.get("vat_category"),
+                    e.get("vat_amount"),
                 )
                 for e in entries
             ],
+        )
+        conn.execute(
+            "UPDATE documents SET cls_post_mode = ? WHERE id = ?", (post_mode, doc_id)
         )
         if manual:
             conn.execute(
@@ -678,7 +742,8 @@ def get_local_classification(doc_id: int) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT line_number, classification_type, classification_category, "
-            "vat_type, amount FROM classifications WHERE document_id = ? "
+            "vat_type, amount, vat_category, vat_amount FROM classifications "
+            "WHERE document_id = ? "
             "ORDER BY line_number, id",
             (doc_id,),
         ).fetchall()
