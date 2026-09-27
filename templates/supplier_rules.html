@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Προτάσεις {{ vat }}{% endblock %}
+
+{# Μία πρόταση: κατηγορία ΦΠΑ γραμμής → κατηγορία εξόδου + τύπος Ε3 + χαρακτηρισμός ΦΠΑ. #}
+{% macro rule_row(r) -%}
+<div class="cls-row rule-row">
+  <div class="cls-field">
+    <label>Κατηγορία ΦΠΑ γραμμής</label>
+    <select name="vat_category">
+      <option value="{{ default_rule }}" {{ 'selected' if r.vat_category == default_rule }}>Βασική (όλες οι άλλες)</option>
+      {% for code, rate in vat_rates.items() %}
+        <option value="{{ code }}" {{ 'selected' if r.vat_category == code }}>{{ code }} · {{ rate }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="cls-field">
+    <label>Κατηγορία εξόδου</label>
+    <select name="category">
+      <option value="">— επίλεξε κατηγορία —</option>
+      {% for code, label in categories.items() %}
+        <option value="{{ code }}" {{ 'selected' if r.category == code }}>{{ label }} · {{ code }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="cls-field">
+    <label>Τύπος Ε3</label>
+    <select name="type">
+      <option value="">— επίλεξε τύπο —</option>
+      {% for code, label in types.items() %}
+        <option value="{{ code }}" {{ 'selected' if r.type == code }}>{{ code }} · {{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="cls-field">
+    <label>Χαρακτηρισμός ΦΠΑ</label>
+    <select name="vat_type">
+      {% for code, label in vat_types.items() %}
+        <option value="{{ code }}" {{ 'selected' if r.vat_type == code }}>{{ label }}{% if code %} · {{ code }}{% endif %}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button type="button" class="btn-x rule-del" title="Αφαίρεση γραμμής" aria-label="Αφαίρεση">✕</button>
+</div>
+{%- endmacro %}
+
+{% block content %}
+<a class="back" href="{{ back }}">← Πίσω στους συναλλασσόμενους</a>
+<div class="page-head">
+  <div>
+    <h1>Προτάσεις χαρακτηρισμού</h1>
+    <p class="page-sub">{{ name or "Χωρίς επωνυμία" }} · ΑΦΜ <span class="mono">{{ vat }}</span> · ενεργή εταιρεία</p>
+  </div>
+</div>
+
+<form method="post" class="card" id="rules-form">
+  <input type="hidden" name="back" value="{{ back }}">
+  <p class="muted prose">
+    Κάθε γραμμή παραστατικού του προμηθευτή προσυμπληρώνεται με την πρόταση της <strong>κατηγορίας ΦΠΑ</strong> της
+    (π.χ. 24% → έξοδα με ΦΠΑ, 0% → χωρίς δικαίωμα έκπτωσης). Η <strong>βασική</strong> ισχύει για όσες κατηγορίες ΦΠΑ
+    δεν έχουν δική τους γραμμή· αν λείπει, βασική γίνεται η πρώτη. Χωρίς καμία γραμμή, οι προτάσεις διαγράφονται.
+  </p>
+  <div id="rule-rows">
+    {% for r in rows %}{{ rule_row(r) }}{% endfor %}
+  </div>
+  <template id="rule-tpl">{{ rule_row({'vat_category': '1', 'category': '', 'type': '', 'vat_type': 'VAT_361'}) }}</template>
+  <div class="btn-row">
+    <button type="button" class="btn-ghost btn-sm" id="rule-add">+ Γραμμή</button>
+  </div>
+  <div class="btn-row">
+    <a class="btn btn-ghost" href="{{ back }}">Άκυρο</a>
+    <button type="submit">💾 Αποθήκευση προτάσεων</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const rows = document.getElementById('rule-rows');
+document.getElementById('rule-add').addEventListener('click', () => {
+  rows.appendChild(document.getElementById('rule-tpl').content.cloneNode(true));
+  rows.lastElementChild.querySelector('[name=category]').focus();
+});
+rows.addEventListener('click', e => {
+  if (e.target.closest('.rule-del')) e.target.closest('.rule-row').remove();
+});
+// 2.5 (χωρίς δικαίωμα έκπτωσης ΦΠΑ) → χωρίς χαρακτηρισμό ΦΠΑ, όπως στη φόρμα χαρακτηρισμού.
+rows.addEventListener('change', e => {
+  if (e.target.name === 'category' && e.target.value === 'category2_5')
+    e.target.closest('.rule-row').querySelector('[name=vat_type]').value = '';
+});
+</script>
+{% endblock %}

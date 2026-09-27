@@ -778,3 +778,16 @@ table.report .num{font-size:1rem}
 .modal[open]{animation:rise .25s var(--ease) both}
 .modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
 .modal-head h2{margin:0}
+/* Προτάσεις προμηθευτή: κατηγορία ΦΠΑ + κατηγορία + Ε3 + ΦΠΑ + ✕ */
+.rule-row{grid-template-columns:minmax(0,1.2fr) minmax(0,2.2fr) minmax(0,2.2fr) minmax(0,1.8fr) auto;margin-bottom:10px}
+.rule-row + .rule-row .cls-field label{display:none}
+@media (max-width:980px){ .rule-row{grid-template-columns:1fr} .rule-row + .rule-row .cls-field label{display:block} }
+/* Πρότυπα «Νέας εγγραφής» */
+.tpl-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 14px;margin-bottom:12px}
+.tpl-chip{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;background:var(--surface);overflow:hidden}
+.tpl-chip a{padding:5px 4px 5px 12px;font-size:.85rem;font-weight:600;text-decoration:none;color:var(--ink)}
+.tpl-chip.is-current{border-color:var(--accent)}
+.tpl-chip a:hover{color:var(--accent)}
+.tpl-del{background:none;border:0;box-shadow:none;color:var(--muted);padding:5px 10px 5px 6px;font-size:.8rem}
+.tpl-del:hover{color:var(--err);background:none;transform:none;box-shadow:none;filter:none}
+.tpl-save input{width:210px}

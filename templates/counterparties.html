@@ -98,6 +98,8 @@
         </td>
         <td data-label="">
           <div class="actions">
+            <a class="btn btn-ghost" href="{{ url_for('supplier_rules', vat=s.vat, back=request.full_path) }}"
+               title="Αλλαγή προτάσεων χαρακτηρισμού (ανά κατηγορία ΦΠΑ)">Προτάσεις</a>
             <form method="post" action="{{ url_for('suppliers_delete', vat=s.vat) }}" class="inline-form">
               <button type="submit" class="btn-danger" data-confirm="Διαγραφή του συναλλασσόμενου {{ s.vat }};">Διαγραφή</button>
             </form>

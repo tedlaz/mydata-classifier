@@ -118,6 +118,16 @@ CREATE TABLE IF NOT EXISTS classifications (
     FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 );
 
+-- Πρότυπα «Νέας εγγραφής» ανά εταιρεία (π.χ. ΕΦΚΑ, ενοίκιο): η φόρμα χωρίς ημ/νία και Α/Α.
+CREATE TABLE IF NOT EXISTS expense_templates (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id  INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    draft_json  TEXT NOT NULL,
+    UNIQUE (company_id, name),
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+);
+
 -- Επιτρεπόμενοι συνδυασμοί χαρακτηρισμού ανά τύπο παραστατικού (ΑΑΔΕ «Συνδυασμοί
 -- χαρακτηρισμών»): invoice_type → category2_x → E3_xxx. Κενός = χωρίς περιορισμό.
 CREATE TABLE IF NOT EXISTS classification_combos (
@@ -406,6 +416,20 @@ def save_rule_patterns(company_id: int | None, vat: str | None, patterns: dict) 
                 for cat, p in patterns.items()
             ],
         )
+
+
+def replace_rule_patterns(company_id: int | None, vat: str | None, patterns: dict) -> None:
+    """Αντικαθιστά ΟΛΕΣ τις προτάσεις του συναλλασσόμενου στην εταιρεία (και τη βασική '*')."""
+    if not company_id or not vat:
+        return
+    with get_conn() as conn:
+        conn.execute("DELETE FROM supplier_rules WHERE company_id = ? AND vat = ?", (company_id, vat))
+    save_rule_patterns(company_id, vat, patterns)
+
+
+def load_all_rule_patterns(company_id: int | None, vat: str) -> dict:
+    """{vat_category: rule} του συναλλασσόμενου, μαζί με τη βασική ('*')."""
+    return _load_all_rules(company_id, vat).get(vat, {})
 
 
 def foreign_rule(company_id: int | None, vat: str | None) -> dict | None:
@@ -1174,3 +1198,64 @@ def combos_for_type(invoice_type: str | None) -> dict:
         if "*" in lst:
             out[cat] = union if union else ["*"]
     return out
+
+
+# --------------------------------------------------------------------- #
+# Πρότυπα «Νέας εγγραφής» (ανά εταιρεία)
+# --------------------------------------------------------------------- #
+def list_templates(company_id: int | None) -> list[dict]:
+    if not company_id:
+        return []
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, name FROM expense_templates WHERE company_id = ? ORDER BY name", (company_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_template(company_id: int | None, template_id) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, name, draft_json FROM expense_templates WHERE company_id = ? AND id = ?",
+            (company_id or 0, template_id),
+        ).fetchone()
+    return {"id": row["id"], "name": row["name"], "draft": json.loads(row["draft_json"])} if row else None
+
+
+def save_template(company_id: int, name: str, draft: dict) -> int:
+    """Νέο πρότυπο ή αντικατάσταση του ομώνυμου· επιστρέφει το id."""
+    with get_conn() as conn:
+        return conn.execute(
+            "INSERT INTO expense_templates (company_id, name, draft_json) VALUES (?, ?, ?) "
+            "ON CONFLICT(company_id, name) DO UPDATE SET draft_json = excluded.draft_json RETURNING id",
+            (company_id, name, json.dumps(draft, ensure_ascii=False)),
+        ).fetchone()[0]
+
+
+def delete_template(company_id: int | None, template_id) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM expense_templates WHERE company_id = ? AND id = ?", (company_id or 0, template_id))
+
+
+def next_aa(company_id: int | None, counterparty_vat: str, series: str) -> int:
+    """Επόμενος Α/Α: ο Α/Α του τελευταίου (κατά ημ/νία έκδοσης) παραστατικού εξόδου με ίδιο
+    συναλλασσόμενο και ίδια σειρά + 1. Μετράνε και τα τοπικά drafts, ώστε δύο εγγραφές του
+    μήνα να μη συγκρούονται· μη αριθμητικοί Α/Α παραλείπονται."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT aa FROM documents WHERE company_id = ? AND kind = 'expense' "
+            "AND COALESCE(counterparty_vat, '') = ? AND series = ? "
+            "ORDER BY issue_date DESC, id DESC",
+            (company_id or 0, counterparty_vat or "", series),
+        ).fetchall()
+    last = next((int(r["aa"]) for r in rows if (r["aa"] or "").strip().isdigit()), 0)
+    return last + 1
+
+
+def template_with_series(company_id: int | None, series: str, exclude_name: str) -> str | None:
+    """Όνομα ΑΛΛΟΥ προτύπου της εταιρείας με την ίδια σειρά (κάθε πρότυπο έχει δική του)."""
+    for r in list_templates(company_id):
+        tp = get_template(company_id, r["id"])
+        if tp["name"] != exclude_name and (tp["draft"].get("series") or "").strip() == series:
+            return tp["name"]
+    return None

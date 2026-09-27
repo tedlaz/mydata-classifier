@@ -2,6 +2,21 @@
 {% block title %}Νέα εγγραφή{% endblock %}
 {% block content %}
 {% set title = 'Επεξεργασία εγγραφής εξόδου' if edit_mark else 'Νέα εγγραφή εξόδου' %}
+{# Πρότυπα της εταιρείας (π.χ. ΕΦΚΑ, ενοίκιο): ένα κλικ = νέα εγγραφή με τα στοιχεία του. #}
+{% if templates and not edit_mark %}
+<div class="card tpl-bar">
+  <span class="kicker">Πρότυπα</span>
+  {% for tp in templates %}
+  <span class="tpl-chip {{ 'is-current' if template and template.id == tp.id }}">
+    <a href="{{ url_for('new_expense', template=tp.id) }}" title="Νέα εγγραφή από το πρότυπο">📌 {{ tp.name }}</a>
+    <form method="post" action="{{ url_for('expense_template_delete', tid=tp.id) }}" class="inline-form">
+      <button type="submit" class="tpl-del" aria-label="Διαγραφή προτύπου {{ tp.name }}" title="Διαγραφή προτύπου"
+              data-confirm="Διαγραφή του προτύπου «{{ tp.name }}»;">✕</button>
+    </form>
+  </span>
+  {% endfor %}
+</div>
+{% endif %}
 <form method="post" action="{{ url_for('new_expense_submit') }}" id="ne-form">
   <input type="hidden" name="edit_mark" value="{{ edit_mark }}">
 
@@ -19,13 +34,14 @@
         <div><span class="kicker">ΦΠΑ</span><b class="mono" id="t_vat">0.00 €</b></div>
         <div><span class="kicker">Σύνολο</span><b class="mono" id="t_gross">0.00 €</b></div>
       </div>
-      <button type="button" class="btn-ghost btn-sm info-btn {{ 'has-attention' if copy_mark }}"
+      <button type="button" class="btn-ghost btn-sm info-btn {{ 'has-attention' if copy_mark or template }}"
               data-toggle="#ne-info" aria-expanded="false" aria-controls="ne-info">
-        ℹ Πληροφορίες{% if copy_mark %} <span class="count">1</span>{% endif %}
+        ℹ Πληροφορίες{% if copy_mark or template %} <span class="count">1</span>{% endif %}
       </button>
     </div>
 
     <div class="cls-info" id="ne-info" hidden>
+      {% if template %}<p class="note note--warn">📌 Από το πρότυπο <strong>{{ template.name }}</strong> — σειρά <span class="mono">{{ draft.series }}</span>, Α/Α <span class="mono">{{ draft.aa }}</span> (επόμενος του τελευταίου παραστατικού με ίδιο συναλλασσόμενο και σειρά). Έλεγξε ημερομηνία και ποσά πριν την αποθήκευση.</p>{% endif %}
       {% if copy_mark %}<p class="note note--warn">📄 Αντίγραφο της εγγραφής <a class="mono" href="{{ url_for('document', mark=copy_mark) }}">{{ copy_mark }}</a> — συμπλήρωσε τον Α/Α και έλεγξε ημερομηνία και ποσά πριν την αποθήκευση.</p>{% endif %}
       <ul class="help-list">
         <li>Για έξοδα που διαβιβάζεις εσύ: δικές σου εγγραφές (<strong>17.x</strong> — μισθοδοσία, αποσβέσεις, τακτοποίηση) ή παραστατικά <strong>μη υπόχρεου εκδότη</strong> (13.x λιανικές/κοινόχρηστα/συνδρομές, 14.x αλλοδαποί &amp; <strong>14.5 ΕΦΚΑ</strong>, 15.1 συμβόλαιο, 16.1 ενοίκιο).</li>
@@ -169,6 +185,15 @@
   <div class="cls-footer">
     <div class="cls-footer-status muted">{{ title }}</div>
     <div class="btn-row">
+      {% if not edit_mark %}
+      {# Χωρίς έλεγχο υποχρεωτικών (formnovalidate): το πρότυπο δεν κρατά ημ/νία και Α/Α. #}
+      <div class="input-group tpl-save">
+        <input name="template_name" value="{{ template.name if template else '' }}" placeholder="Όνομα προτύπου, π.χ. ΕΦΚΑ"
+               aria-label="Όνομα προτύπου" maxlength="80">
+        <button type="submit" class="btn-ghost" formaction="{{ url_for('expense_template_save') }}" formnovalidate
+                title="Αποθήκευση της φόρμας (χωρίς ημ/νία και Α/Α) ως πρότυπο — κάθε πρότυπο με δική του σειρά, ο Α/Α συνεχίζει αυτόματα· ίδιο όνομα = αντικατάσταση">📌 Αποθήκευση ως πρότυπο</button>
+      </div>
+      {% endif %}
       <a href="{{ url_for('invoices', view='classified') }}" class="btn btn-ghost">Προβολή «Χαρακτηρισμένα»</a>
       <button type="submit">💾 {{ 'Ενημέρωση' if edit_mark else 'Αποθήκευση' }} στα «Χαρακτηρισμένα»</button>
     </div>

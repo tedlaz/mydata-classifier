@@ -2285,10 +2285,64 @@ def new_expense():
             )
             copy_mark = ""
 
-    return _render_new_expense(draft, edit_mark if draft else "", copy_mark)
+    # Πρότυπο (π.χ. ΕΦΚΑ, ενοίκιο): η αποθηκευμένη φόρμα με σημερινή ημ/νία και κενό Α/Α.
+    template = None
+    if request.args.get("template") and not draft:
+        template = db.get_template(_active_company_id(), request.args["template"])
+        if template:
+            d = template["draft"]
+            # Κάθε πρότυπο έχει δική του σειρά· ο Α/Α συνεχίζει από την τελευταία εγγραφή της.
+            aa = db.next_aa(_active_company_id(), _self_counterparty(d), d.get("series", ""))
+            draft = dict(d, issue_date=datetime.now(ATHENS).strftime("%Y-%m-%d"), aa=str(aa))
+        else:
+            flash("Το πρότυπο δεν βρέθηκε.", "error")
+
+    return _render_new_expense(draft, edit_mark if draft else "", copy_mark, template=template)
 
 
-def _render_new_expense(draft: dict | None, edit_mark: str = "", copy_mark: str = "", status: int = 200):
+def _self_counterparty(draft: dict) -> str:
+    """Ο συναλλασσόμενος (counterparty_vat) που θα αποθηκευτεί για τη «Νέα εγγραφή» — ίδιοι
+    κανόνες με το new_expense_submit: 17.x = εμείς, 13.3/13.4 = κανένας, αλλιώς ο εκδότης."""
+    from mydata_client import SELF_TYPES_NO_ISSUER
+
+    itype = draft.get("invoice_type") or ""
+    if itype.startswith("17."):
+        return get_own_vat()
+    return "" if itype in SELF_TYPES_NO_ISSUER else (draft.get("issuer_vat") or "").strip()
+
+
+@app.route("/new_expense/template", methods=["POST"])
+def expense_template_save():
+    """Η τρέχουσα φόρμα «Νέας εγγραφής» ως πρότυπο (χωρίς ημ/νία και Α/Α)."""
+    cid = _active_company_id()
+    name = " ".join(request.form.get("template_name", "").split())[:80]
+    if not cid or not name:
+        flash("Δώσε όνομα προτύπου (π.χ. «ΕΦΚΑ εργοδότη»).", "error")
+        return _render_new_expense(_draft_from_form(), request.form.get("edit_mark", "").strip(), "", 422)
+    draft = _draft_from_form()
+    series = draft.get("series", "")
+    other = db.template_with_series(cid, series, name) if series else None
+    if not series or other:
+        flash(f"Η σειρά «{series}» χρησιμοποιείται ήδη από το πρότυπο «{other}» — κάθε πρότυπο θέλει δική του σειρά."
+              if other else "Δώσε σειρά στο πρότυπο — ο Α/Α του συνεχίζει μέσα στη σειρά.", "error")
+        return _render_new_expense(draft, request.form.get("edit_mark", "").strip(), "", 422)
+    draft.pop("issue_date", None)
+    draft.pop("aa", None)
+    draft["lines"] = [ln for ln in draft["lines"] if ln] or [None]
+    tid = db.save_template(cid, name, draft)
+    flash(f"✔ Αποθηκεύτηκε το πρότυπο «{name}».", "ok")
+    return redirect(url_for("new_expense", template=tid))
+
+
+@app.route("/new_expense/template/<int:tid>/delete", methods=["POST"])
+def expense_template_delete(tid):
+    db.delete_template(_active_company_id(), tid)
+    flash("✔ Το πρότυπο διαγράφηκε.", "ok")
+    return redirect(url_for("new_expense"))
+
+
+def _render_new_expense(draft: dict | None, edit_mark: str = "", copy_mark: str = "", status: int = 200,
+                        template: dict | None = None):
     """Η φόρμα «Νέας εγγραφής» — κενή, με draft (επεξεργασία/αντιγραφή) ή ξανά με τις
     τιμές του χρήστη μετά από σφάλμα, ώστε να μη χάνεται ό,τι συμπλήρωσε."""
     from mydata_client import (
@@ -2318,6 +2372,8 @@ def _render_new_expense(draft: dict | None, edit_mark: str = "", copy_mark: str 
         draft=draft,
         edit_mark=edit_mark,
         copy_mark=copy_mark,
+        template=template,
+        templates=db.list_templates(_active_company_id()),
         eu_countries=sorted(EU_COUNTRIES),
         country_rules={t: country_rule(t) for t in SELF_EXPENSE_TYPES},
         # Κανόνες ΑΑΔΕ ανά τύπο για τη φόρμα (ίδια πηγή με το mydata_client).
@@ -2821,6 +2877,60 @@ def suppliers_rules_from_latest():
         _save_as_rule(cid, vat, pats)
     flash(f"✔ Ορίστηκαν προτάσεις για {len(latest)} συναλλασσόμενους από την τελευταία ολοκληρωμένη εγγραφή τους.", "ok")
     return redirect(url_for("suppliers", q=request.form.get("q") or None))
+
+
+@app.route("/suppliers/<vat>/rules", methods=["GET", "POST"])
+def supplier_rules(vat):
+    """Επεξεργασία προτάσεων χαρακτηρισμού του συναλλασσόμενου (ενεργή εταιρεία): μία
+    γραμμή ανά κατηγορία ΦΠΑ, '*' = βασική (όταν δεν ταιριάζει κατηγορία ΦΠΑ)."""
+    cid = _active_company_id()
+    if not cid:
+        flash("Δεν έχει οριστεί ενεργή εταιρεία.", "error")
+        return redirect(url_for("suppliers"))
+    back = request.values.get("back", "")
+    back = back if back.startswith("/") and not back.startswith("//") else url_for("suppliers")
+    if request.method == "POST":
+        patterns: dict = {}
+        errors = []
+        for vc, ccat, ctype, vt in zip(
+            request.form.getlist("vat_category"), request.form.getlist("category"),
+            request.form.getlist("type"), request.form.getlist("vat_type"),
+        ):
+            if not (ccat or ctype):
+                continue  # κενή γραμμή
+            label = "Βασική" if vc == db.DEFAULT_RULE else _vat_group_label(vc)
+            if vc != db.DEFAULT_RULE and vc not in VAT_CATEGORY_RATES:
+                errors.append(f"άγνωστη κατηγορία ΦΠΑ «{vc}»")
+            elif not (ccat in EXPENSE_CATEGORIES and ctype in EXPENSE_TYPES and vt in VAT_TYPES):
+                errors.append(f"{label}: συμπλήρωσε κατηγορία και τύπο Ε3")
+            elif vc in patterns:
+                errors.append(f"{label}: υπάρχει δεύτερη γραμμή για την ίδια κατηγορία ΦΠΑ")
+            else:
+                patterns[vc] = {"category": ccat, "type": ctype, "vat_type": vt}
+        if errors:
+            flash("⚠ " + " · ".join(errors) + ".", "error")
+            return redirect(url_for("supplier_rules", vat=vat, back=back))
+        # Χωρίς βασική: γίνεται βασική η πρώτη γραμμή (fallback για άγνωστες κατηγορίες ΦΠΑ).
+        if patterns and db.DEFAULT_RULE not in patterns:
+            patterns[db.DEFAULT_RULE] = next(iter(patterns.values()))
+        db.replace_rule_patterns(cid, vat, patterns)
+        flash(f"✔ Αποθηκεύτηκαν οι προτάσεις του {vat}." if patterns else f"✔ Διαγράφηκαν οι προτάσεις του {vat}.", "ok")
+        return redirect(back)
+
+    pats = db.load_all_rule_patterns(cid, vat)
+    rows = [dict(p, vat_category=vc) for vc, p in sorted(pats.items(), key=lambda kv: (kv[0] != db.DEFAULT_RULE, kv[0]))]
+    return render_template(
+        "supplier_rules.html",
+        vat=vat,
+        name=db.get_supplier_name(vat),
+        rows=rows or [{"vat_category": db.DEFAULT_RULE, "category": "", "type": "", "vat_type": "VAT_361"}],
+        back=back,
+        default_rule=db.DEFAULT_RULE,
+        vat_rates=VAT_CATEGORY_RATES,
+        categories=EXPENSE_CATEGORIES,
+        types=EXPENSE_TYPES,
+        vat_types=VAT_TYPES,
+    )
 
 
 @app.route("/suppliers/save", methods=["POST"])
