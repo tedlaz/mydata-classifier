@@ -227,4 +227,24 @@ assert got == [("category2_4", "E3_585_011", "VAT_361", 50.0),
                ("category2_5", "E3_585_009", "", 20.0),
                ("category2_3", "E3_585_001", "VAT_361", 10.0)], got
 
+# 15) «Ορισμός ως πρόταση προμηθευτή»: προτάσεις από χαρακτηρισμό myDATA (ανά γραμμή ή συγκεντρωτικό).
+import json  # noqa: E402
+
+from app import _doc_patterns  # noqa: E402
+
+
+def doc_row(src):
+    lines = [{"line_number": ln.line_number, "net_value": ln.net_value, "vat_amount": ln.vat_amount,
+              "vat_category": ln.vat_category} for ln in src.lines]
+    return {"id": -1, "mark": "1", "lines_json": json.dumps(lines), "cls_json": json.dumps(src.cls_info)}
+
+
+assert _doc_patterns(doc_row(per_line)) == {
+    "1": {"category": "category2_4", "type": "E3_585_016", "vat_type": "VAT_361"},
+    "7": {"category": "category2_4", "type": "E3_585_016", "vat_type": ""}}
+assert _doc_patterns(doc_row(deh)) == {
+    "3": {"category": "category2_4", "type": "E3_585_011", "vat_type": "VAT_361"},
+    "7": {"category": "category2_5", "type": "E3_585_009", "vat_type": ""}}
+assert _doc_patterns(doc_row(NS(lines=deh.lines, cls_info=[]))) == {}
+
 print("OK")

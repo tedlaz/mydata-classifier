@@ -14,6 +14,13 @@
     {% if status == 'confirmed' and inv.invoice_type in self_types %}
     <a class="btn btn-ghost btn-sm" href="{{ url_for('new_expense', copy=inv.mark) }}" title="Νέα εγγραφή με τα ίδια στοιχεία και χαρακτηρισμούς">📄 Αντιγραφή σε νέα εγγραφή</a>
     {% endif %}
+    {% if status == 'confirmed' and inv.issuer_vat %}
+    <form method="post" action="{{ url_for('document_as_rule', mark=inv.mark) }}">
+      <input type="hidden" name="back" value="{{ back }}">
+      <button type="submit" class="btn-ghost btn-sm" title="Κατηγορία, τύπος Ε3 και ΦΠΑ ανά κατηγορία ΦΠΑ — προσυμπληρώνονται στα επόμενα παραστατικά του προμηθευτή"
+              data-confirm="Οι χαρακτηρισμοί αυτού του παραστατικού θα γίνουν οι προτάσεις του προμηθευτή (αντικαθιστούν τις υπάρχουσες για τις ίδιες κατηγορίες ΦΠΑ). Συνέχεια;">💡 Ορισμός ως πρόταση προμηθευτή</button>
+    </form>
+    {% endif %}
     <span class="status-badge status-{{ status }}">{{ status_labels.get(status, status) }}</span>
   </div>
 </div>

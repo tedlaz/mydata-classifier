@@ -770,3 +770,11 @@ table.report .num{font-size:1rem}
 #ne-form .line-item{grid-template-columns:24px minmax(84px,.8fr) minmax(0,2fr) minmax(0,2fr) minmax(0,.9fr) minmax(74px,.7fr) minmax(0,1.3fr) auto}
 @media (max-width:980px){ #ne-form .line-item{grid-template-columns:24px 1fr 1fr} }
 @media (max-width:520px){ #ne-form .line-item{grid-template-columns:1fr} }
+
+/* ---------- Modal (<dialog>) ---------- */
+.modal{width:min(720px,calc(100vw - 32px));max-height:calc(100vh - 48px);padding:20px 22px;border:1px solid var(--line);
+  border-radius:var(--radius);background:var(--surface);color:var(--ink);box-shadow:var(--shadow-hi)}
+.modal::backdrop{background:rgba(10,14,28,.45)}
+.modal[open]{animation:rise .25s var(--ease) both}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+.modal-head h2{margin:0}

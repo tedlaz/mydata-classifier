@@ -5,6 +5,7 @@ myDATA Expense Classifier - Flask UI
 
 import json
 import os
+import unicodedata
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -166,6 +167,40 @@ def _learn_patterns(inv, entries: list[dict]) -> dict:
         k: {"category": e["classification_category"], "type": e["classification_type"], "vat_type": vat_of.get(k, "")}
         for k, e in best.items()
     }
+
+
+def _doc_patterns(row: dict) -> dict:
+    """Προτάσεις {vat_category: {category, type, vat_type}} από τον χαρακτηρισμό ενός
+    παραστατικού (τοπικός → συγκεντρωτικός myDATA → ανά γραμμή myDATA)."""
+    inv = _row_to_invoice(row)
+    entries = db.get_local_classification(row["id"])
+    if entries:
+        return _learn_patterns(inv, entries)
+
+    def add(line, cat, r):
+        entries.append({"line_number": line, "vat_category": cat, "classification_type": r["type"],
+                        "classification_category": r["category"], "amount": r["amount"] or 0})
+        if r.get("vat_type"):
+            entries.append({"line_number": line, "vat_category": cat, "classification_type": r["vat_type"],
+                            "classification_category": "", "amount": 0})
+
+    remote = _remote_per_invoice(inv)
+    if remote:
+        pi_e3, pi_vat = remote
+        for cat, rows in pi_e3.items():
+            for r in rows:
+                add(None, cat, dict(r, vat_type=pi_vat.get(cat, "")))
+    else:
+        line_cls, doc_cls = _document_cls_rows([], inv)
+        if doc_cls and len(inv.lines) == 1:  # συγκεντρωτικός σε μονόγραμμο → στη γραμμή του
+            line_cls.setdefault(inv.lines[0].line_number, []).extend(doc_cls)
+            doc_cls = []
+        for ln, rows in line_cls.items():
+            for r in rows:
+                add(ln, None, r)
+        for r in doc_cls:
+            add(None, None, r)
+    return _learn_patterns(inv, entries)
 
 
 def _learn(inv, entries: list[dict]) -> None:
@@ -725,6 +760,49 @@ def document(mark):
         types=EXPENSE_TYPES,
         vat_types=VAT_TYPES,
     )
+
+
+def _save_as_rule(cid: int, vat: str, patterns: dict) -> None:
+    """Προτάσεις ανά κατηγορία ΦΠΑ + βασική (η πρώτη) για τον προμηθευτή."""
+    db.save_rule_patterns(cid, vat, patterns)
+    first = next(iter(patterns.values()))
+    db.save_rule(cid, vat, first["type"], first["category"], first["vat_type"])
+
+
+def _latest_patterns(cid: int | None, vats: set) -> dict:
+    """{vat: (row, patterns)}: η πιο πρόσφατη ολοκληρωμένη εγγραφή εξόδου με χαρακτηρισμό Ε3."""
+    out: dict = {}
+    if not (cid and vats):
+        return out
+    confirmed = sorted(
+        (d for d in db.get_documents(cid, "expense", ["confirmed"]) if d["counterparty_vat"] in vats),
+        key=lambda d: (d["issue_date"] or "", d["mark"]), reverse=True,
+    )
+    for d in confirmed:
+        if d["counterparty_vat"] not in out and (pats := _doc_patterns(d)):
+            out[d["counterparty_vat"]] = (d, pats)
+    return out
+
+
+@app.route("/document/<mark>/as-rule", methods=["POST"])
+def document_as_rule(mark):
+    """Ο χαρακτηρισμός ολοκληρωμένου παραστατικού εξόδου γίνεται πρόταση του προμηθευτή
+    (ανά κατηγορία ΦΠΑ + βασική)."""
+    cid = _active_company_id()
+    row = db.get_document(cid, mark) if cid else None
+    if row is None or row["kind"] != "expense" or row["status"] != "confirmed" or not row["counterparty_vat"]:
+        flash("Προτάσεις ορίζονται μόνο από ολοκληρωμένο παραστατικό εξόδου με ΑΦΜ εκδότη.", "error")
+        return redirect(url_for("document", mark=mark))
+    patterns = _doc_patterns(row)
+    if not patterns:
+        flash("Το παραστατικό δεν έχει χαρακτηρισμό Ε3 για να γίνει πρόταση.", "error")
+        return redirect(url_for("document", mark=mark))
+    _save_as_rule(cid, row["counterparty_vat"], patterns)
+    flash("✔ Οι χαρακτηρισμοί του παραστατικού ορίστηκαν ως προτάσεις του προμηθευτή.", "ok")
+    nxt = request.form.get("next", "")
+    if nxt.startswith("/") and not nxt.startswith("//"):  # μόνο εσωτερική επιστροφή (π.χ. Συναλλασσόμενοι)
+        return redirect(nxt)
+    return redirect(url_for("document", mark=mark, back=request.form.get("back") or None))
 
 
 def _pair_cls_rows(entries: list[dict], keep_all: bool = False) -> list[dict]:
@@ -2707,17 +2785,42 @@ def accountant():
 def suppliers():
     """Κατάλογος συναλλασσόμενων (πελάτες & προμηθευτές), με σελιδοποίηση."""
     all_suppliers = db.list_suppliers(_active_company_id() or 0)  # μόνο της ενεργής εταιρείας
-    page_items, page, total_pages = paginate(all_suppliers, request.args.get("page"))
+    # Φίλτρο: substring σε ΑΦΜ ή επωνυμία (χωρίς διάκριση πεζών/κεφαλαίων και τόνων).
+    def fold(s: str) -> str:
+        return "".join(c for c in unicodedata.normalize("NFD", s.casefold()) if not unicodedata.combining(c))
+
+    q = request.args.get("q", "").strip()
+    items = [s for s in all_suppliers if fold(q) in fold(f"{s['vat']} {s['name'] or ''}")]
+    page_items, page, total_pages = paginate(items, request.args.get("page"))
+    cid = _active_company_id()
+    patterns, rules = db.load_rule_patterns(cid), load_rules()
+    # Χωρίς πρόταση: η πιο πρόσφατη ολοκληρωμένη εγγραφή εξόδου με χαρακτηρισμό (για αντιγραφή).
+    latest = _latest_patterns(cid, {s["vat"] for s in all_suppliers} - set(patterns) - set(rules))
     return render_template(
         "counterparties.html",
+        latest={vat: d for vat, (d, _) in latest.items()},
         suppliers=page_items,
         suppliers_total=len(all_suppliers),
+        filtered_total=len(items),
+        q=q,
         page=page,
         total_pages=total_pages,
-        patterns=db.load_rule_patterns(_active_company_id()),
-        rules=load_rules(),
+        patterns=patterns,
+        rules=rules,
         vat_label=_vat_group_label,
     )
+
+
+@app.route("/suppliers/rules-from-latest", methods=["POST"])
+def suppliers_rules_from_latest():
+    """Μαζικά: όσοι δεν έχουν πρόταση παίρνουν τον χαρακτηρισμό της τελευταίας ολοκληρωμένης εγγραφής τους."""
+    cid = _active_company_id()
+    have = set(db.load_rule_patterns(cid)) | set(load_rules())
+    latest = _latest_patterns(cid, {s["vat"] for s in db.list_suppliers(cid or 0)} - have)
+    for vat, (_, pats) in latest.items():
+        _save_as_rule(cid, vat, pats)
+    flash(f"✔ Ορίστηκαν προτάσεις για {len(latest)} συναλλασσόμενους από την τελευταία ολοκληρωμένη εγγραφή τους.", "ok")
+    return redirect(url_for("suppliers", q=request.form.get("q") or None))
 
 
 @app.route("/suppliers/save", methods=["POST"])
