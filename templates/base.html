@@ -10,9 +10,7 @@
 (function(){var r=document.documentElement,t;try{t=localStorage.getItem('theme')}catch(e){}
 if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')})();
 </script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Commissioner:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/fonts/fonts.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/flatpickr.min.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 <script src="{{ url_for('static', filename='vendor/flatpickr.min.js') }}" defer></script>
