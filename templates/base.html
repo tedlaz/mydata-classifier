@@ -10,6 +10,8 @@
 (function(){var r=document.documentElement,t;try{t=localStorage.getItem('theme')}catch(e){}
 if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')})();
 </script>
+{# Inline opt-in: ο Chrome το ελέγχει πριν φορτωθεί το app.css → αλλιώς «ViewTransition opt-in disabled». #}
+<style>@view-transition{navigation:auto}</style>
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fonts/fonts.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/flatpickr.min.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">

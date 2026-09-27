@@ -64,7 +64,6 @@ a{color:var(--accent)}
 ::selection{background:var(--accent-glow)}
 
 /* Ομαλή μετάβαση μεταξύ σελίδων (Chromium/Edge· αλλού απλώς αγνοείται). */
-@view-transition{navigation:auto}
 ::view-transition-old(root){animation:vt-out .16s ease both}
 ::view-transition-new(root){animation:vt-in .26s var(--ease) both}
 /* Το sidebar μένει σταθερό: χωρίς crossfade μεταξύ σελίδων. */
