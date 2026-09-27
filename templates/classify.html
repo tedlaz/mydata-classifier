@@ -78,6 +78,7 @@
 {% if has_existing %}{% set _ = notes.append(('warn', '✏️ <strong>Διόρθωση:</strong> η φόρμα έχει ήδη τον υπάρχοντα χαρακτηρισμό — ό,τι αποθηκεύσεις θα τον αντικαταστήσει.')) %}{% endif %}
 {% if remote_pi %}{% set _ = notes.append(('warn', '🧮 Ο χαρακτηρισμός στο myDATA έγινε <strong>συγκεντρωτικά</strong> — η φόρμα άνοιξε στον συγκεντρωτικό τρόπο με τα ποσά του, ανά κατηγορία ΦΠΑ.')) %}{% endif %}
 {% if learned and not has_existing %}{% set _ = notes.append(('ok', '💡 Προσυμπληρώθηκε από τις προτάσεις του συναλλασσόμενου <strong>ανά κατηγορία ΦΠΑ</strong> — κάθε γραμμή πήρε τον χαρακτηρισμό που είχαν οι γραμμές ίδιου ΦΠΑ σε προηγούμενο παραστατικό του.')) %}{% endif %}
+{% if rule_source and not has_existing %}{% set _ = notes.append(('warn', '🏢 Η ενεργή εταιρεία δεν έχει πρόταση για αυτόν τον συναλλασσόμενο — προσυμπληρώθηκε από την πρόταση της εταιρείας <strong>' ~ (rule_source|e) ~ '</strong>. Έλεγξέ την πριν την αποθήκευση.')) %}{% endif %}
 {% if combos %}{% set _ = notes.append(('accent', '🔒 Εμφανίζονται μόνο οι κατηγορίες και οι τύποι Ε3 που επιτρέπει η ΑΑΔΕ για τον τύπο ' ~ inv.invoice_type ~ '.')) %}{% endif %}
 {% set attention = notes|selectattr(0, 'equalto', 'warn')|list %}
 

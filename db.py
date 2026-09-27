@@ -5,7 +5,8 @@
 supplier_rules_*, pending_classifications_*) και το per-session pickle cache.
 
 - Εταιρείες / λογιστής / ρυθμίσεις: πίνακες companies / accountant / settings.
-- Προμηθευτές (επωνυμία + κανόνας χαρακτηρισμού): πίνακας suppliers, ανά εταιρεία.
+- Συναλλασσόμενοι (ΑΦΜ → επωνυμία): πίνακας suppliers, κοινός για όλες τις εταιρείες.
+- Προτάσεις χαρακτηρισμού: πίνακας supplier_rules, ανά εταιρεία.
 - Παραστατικά (το ledger): πίνακας documents με στήλη status
   (unclassified → classified → sent → confirmed), scoped ανά company_id.
 - Τοπικός χαρακτηρισμός ανά γραμμή: πίνακας classifications.
@@ -56,25 +57,26 @@ CREATE TABLE IF NOT EXISTS settings (
     value  TEXT
 );
 
--- Προμηθευτές: ΚΟΙΝΟΙ για όλες τις εταιρείες (επωνυμία + κανόνας χαρακτηρισμού).
+-- Συναλλασσόμενοι: ΚΟΙΝΟΙ για όλες τις εταιρείες (ΑΦΜ → επωνυμία).
 CREATE TABLE IF NOT EXISTS suppliers (
     vat              TEXT PRIMARY KEY,
-    name             TEXT,
-    rule_type        TEXT,
-    rule_category    TEXT,
-    rule_vat_type    TEXT
+    name             TEXT
 );
 
--- Προτάσεις χαρακτηρισμού ανά συναλλασσόμενο ΚΑΙ κατηγορία ΦΠΑ γραμμής: ένα παραστατικό
--- μπορεί να έχει π.χ. γραμμές 24% (έξοδα με ΦΠΑ) και 0% (χωρίς δικαίωμα έκπτωσης)· στο
--- επόμενο παραστατικό κάθε γραμμή παίρνει την πρόταση της κατηγορίας ΦΠΑ της.
+-- Προτάσεις χαρακτηρισμού ΑΝΑ ΕΤΑΙΡΕΙΑ, συναλλασσόμενο ΚΑΙ κατηγορία ΦΠΑ γραμμής: ένα
+-- παραστατικό μπορεί να έχει π.χ. γραμμές 24% (έξοδα με ΦΠΑ) και 0% (χωρίς δικαίωμα έκπτωσης)·
+-- στο επόμενο παραστατικό κάθε γραμμή παίρνει την πρόταση της κατηγορίας ΦΠΑ της.
+-- vat_category '*' = βασική πρόταση του συναλλασσόμενου (όταν δεν ταιριάζει κατηγορία ΦΠΑ).
 CREATE TABLE IF NOT EXISTS supplier_rules (
+    company_id     INTEGER NOT NULL,
     vat            TEXT NOT NULL,
     vat_category   TEXT NOT NULL,
     rule_category  TEXT,
     rule_type      TEXT,
     rule_vat_type  TEXT,
-    PRIMARY KEY (vat, vat_category)
+    updated_at     TEXT,
+    PRIMARY KEY (company_id, vat, vat_category),
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS documents (
@@ -142,6 +144,27 @@ _CLASSIFICATION_COLUMNS = {
 }
 
 
+def _copy_rules_per_company(conn: sqlite3.Connection, select_sql: str) -> None:
+    """Αντιγράφει κοινές προτάσεις (vat, vat_category, category, type, vat_type) σε κάθε
+    εταιρεία με παραστατικά του ΑΦΜ· όσες δεν αντιστοιχούν πάνε στην ενεργή (ή στην πρώτη)."""
+    companies = [r["id"] for r in conn.execute("SELECT id FROM companies ORDER BY id")]
+    if not companies:
+        return
+    active = conn.execute("SELECT value FROM settings WHERE key = 'active_company_id'").fetchone()
+    fallback = int(active["value"]) if active and str(active["value"]).isdigit() else 0
+    if fallback not in companies:
+        fallback = companies[0]
+    conn.execute(
+        "INSERT OR IGNORE INTO supplier_rules (company_id, vat, vat_category, rule_category, "
+        "rule_type, rule_vat_type, updated_at) "
+        "SELECT COALESCE(d.company_id, ?), r.vat, r.vat_category, r.rule_category, r.rule_type, "
+        f"r.rule_vat_type, ? FROM ({select_sql}) AS r "
+        "LEFT JOIN (SELECT DISTINCT company_id, counterparty_vat FROM documents) AS d "
+        "ON d.counterparty_vat = r.vat",
+        (fallback, datetime.now(UTC).isoformat(timespec="seconds")),
+    )
+
+
 def init_db() -> None:
     """Δημιουργεί το schema αν δεν υπάρχει (καλείται στην εκκίνηση) και μεταπτώνει
     παλιότερη βάση (global suppliers, νέες στήλες documents)."""
@@ -160,6 +183,28 @@ def init_db() -> None:
                 "DROP TABLE suppliers;"
                 "ALTER TABLE suppliers_new RENAME TO suppliers;"
             )
+            sup_cols = {r["name"] for r in conn.execute("PRAGMA table_info(suppliers)")}
+
+        # Μετάβαση προτάσεων: από ΚΟΙΝΕΣ (ανά ΑΦΜ) σε ανά εταιρεία. Κάθε πρόταση πάει σε όσες
+        # εταιρείες έχουν παραστατικά με το ΑΦΜ· αλλιώς στην ενεργή (ή στην πρώτη) εταιρεία.
+        rule_cols = {r["name"] for r in conn.execute("PRAGMA table_info(supplier_rules)")}
+        if "company_id" not in rule_cols:
+            conn.execute("ALTER TABLE supplier_rules RENAME TO supplier_rules_old")
+            conn.executescript(_SCHEMA)  # ξαναδημιουργεί τον supplier_rules με το νέο σχήμα
+            _copy_rules_per_company(
+                conn,
+                "SELECT vat, vat_category, rule_category, rule_type, rule_vat_type "
+                "FROM supplier_rules_old",
+            )
+            conn.execute("DROP TABLE supplier_rules_old")
+        if "rule_type" in sup_cols:  # παλιά βασική πρόταση στον suppliers → γραμμή '*'
+            _copy_rules_per_company(
+                conn,
+                "SELECT vat, '*' AS vat_category, rule_category, rule_type, rule_vat_type "
+                "FROM suppliers WHERE rule_type IS NOT NULL",
+            )
+            for col in ("rule_type", "rule_category", "rule_vat_type"):
+                conn.execute(f"ALTER TABLE suppliers DROP COLUMN {col}")
 
         # documents: νέες στήλες + κατάργηση counterparty_name (το όνομα βγαίνει από suppliers).
         doc_cols = {r["name"] for r in conn.execute("PRAGMA table_info(documents)")}
@@ -297,66 +342,92 @@ def save_accountant(data: dict) -> None:
 
 
 # --------------------------------------------------------------------- #
-# Προμηθευτές: ΚΟΙΝΟΙ για όλες τις εταιρείες (επωνυμία + κανόνας χαρακτηρισμού)
+# Προτάσεις χαρακτηρισμού: ΑΝΑ ΕΤΑΙΡΕΙΑ (πίνακας supplier_rules)
+# Συναλλασσόμενοι (ΑΦΜ → επωνυμία): ΚΟΙΝΟΙ για όλες τις εταιρείες (πίνακας suppliers)
 # --------------------------------------------------------------------- #
-def load_rules() -> dict:
-    """{vat: {"type", "category", "vat_type"}} για εγγραφές με αποθηκευμένο κανόνα."""
+DEFAULT_RULE = "*"  # vat_category της βασικής πρότασης του συναλλασσόμενου
+
+
+def _rule_dict(r: sqlite3.Row) -> dict:
+    return {"category": r["rule_category"], "type": r["rule_type"], "vat_type": r["rule_vat_type"] or ""}
+
+
+def _load_all_rules(company_id: int | None, vat: str | None = None) -> dict:
+    """{vat: {vat_category: rule}} της εταιρείας, μαζί με τη βασική ('*')."""
+    if not company_id:
+        return {}
+    q = "SELECT * FROM supplier_rules WHERE company_id = ?" + (" AND vat = ?" if vat else "")
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT vat, rule_type, rule_category, rule_vat_type FROM suppliers "
-            "WHERE rule_type IS NOT NULL"
-        ).fetchall()
-    return {
-        r["vat"]: {
-            "type": r["rule_type"],
-            "category": r["rule_category"],
-            "vat_type": r["rule_vat_type"] or "",
-        }
-        for r in rows
-    }
-
-
-def save_rule(vat: str | None, ctype: str, ccat: str, vat_type: str = "") -> None:
-    if not vat:
-        return
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO suppliers (vat, rule_type, rule_category, rule_vat_type) "
-            "VALUES (?, ?, ?, ?) ON CONFLICT(vat) DO UPDATE SET "
-            "rule_type = excluded.rule_type, rule_category = excluded.rule_category, "
-            "rule_vat_type = excluded.rule_vat_type",
-            (vat, ctype, ccat, vat_type),
-        )
-
-
-def load_rule_patterns(vat: str | None = None) -> dict:
-    """{vat: {vat_category: {"category", "type", "vat_type"}}} — προτάσεις ανά κατηγορία ΦΠΑ."""
-    q = "SELECT * FROM supplier_rules" + (" WHERE vat = ?" if vat else "")
-    with get_conn() as conn:
-        rows = conn.execute(q, (vat,) if vat else ()).fetchall()
+        rows = conn.execute(q, (company_id, vat) if vat else (company_id,)).fetchall()
     out: dict = {}
     for r in rows:
-        out.setdefault(r["vat"], {})[r["vat_category"]] = {
-            "category": r["rule_category"],
-            "type": r["rule_type"],
-            "vat_type": r["rule_vat_type"] or "",
-        }
+        out.setdefault(r["vat"], {})[r["vat_category"]] = _rule_dict(r)
     return out
 
 
-def save_rule_patterns(vat: str | None, patterns: dict) -> None:
-    """Αποθηκεύει/ανανεώνει προτάσεις {vat_category: {category, type, vat_type}}·
+def load_rules(company_id: int | None) -> dict:
+    """{vat: {"type", "category", "vat_type"}} — η βασική πρόταση ανά συναλλασσόμενο."""
+    return {
+        vat: pats[DEFAULT_RULE]
+        for vat, pats in _load_all_rules(company_id).items()
+        if DEFAULT_RULE in pats
+    }
+
+
+def save_rule(company_id: int | None, vat: str | None, ctype: str, ccat: str, vat_type: str = "") -> None:
+    save_rule_patterns(
+        company_id, vat, {DEFAULT_RULE: {"category": ccat, "type": ctype, "vat_type": vat_type}}
+    )
+
+
+def load_rule_patterns(company_id: int | None, vat: str | None = None) -> dict:
+    """{vat: {vat_category: {"category", "type", "vat_type"}}} — προτάσεις ανά κατηγορία ΦΠΑ."""
+    out = _load_all_rules(company_id, vat)
+    for pats in out.values():
+        pats.pop(DEFAULT_RULE, None)
+    return {v: p for v, p in out.items() if p}
+
+
+def save_rule_patterns(company_id: int | None, vat: str | None, patterns: dict) -> None:
+    """Αποθηκεύει/ανανεώνει προτάσεις {vat_category: {category, type, vat_type}} της εταιρείας·
     οι κατηγορίες ΦΠΑ που δεν εμφανίζονται στο νέο παραστατικό μένουν ως είχαν."""
-    if not vat or not patterns:
+    if not company_id or not vat or not patterns:
         return
+    now = datetime.now(UTC).isoformat(timespec="seconds")
     with get_conn() as conn:
         conn.executemany(
-            "INSERT INTO supplier_rules (vat, vat_category, rule_category, rule_type, rule_vat_type) "
-            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(vat, vat_category) DO UPDATE SET "
+            "INSERT INTO supplier_rules (company_id, vat, vat_category, rule_category, rule_type, "
+            "rule_vat_type, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(company_id, vat, vat_category) DO UPDATE SET "
             "rule_category = excluded.rule_category, rule_type = excluded.rule_type, "
-            "rule_vat_type = excluded.rule_vat_type",
-            [(vat, cat, p["category"], p["type"], p.get("vat_type") or "") for cat, p in patterns.items()],
+            "rule_vat_type = excluded.rule_vat_type, updated_at = excluded.updated_at",
+            [
+                (company_id, vat, cat, p["category"], p["type"], p.get("vat_type") or "", now)
+                for cat, p in patterns.items()
+            ],
         )
+
+
+def foreign_rule(company_id: int | None, vat: str | None) -> dict | None:
+    """Πρόταση ΑΛΛΗΣ εταιρείας για το ΑΦΜ (η πιο πρόσφατα ενημερωμένη), για προσυμπλήρωση όταν
+    η ενεργή εταιρεία δεν έχει δική της: {"company_name", "default", "patterns"} ή None."""
+    if not vat:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT r.company_id, c.company_name FROM supplier_rules AS r "
+            "JOIN companies AS c ON c.id = r.company_id "
+            "WHERE r.vat = ? AND r.company_id != ? ORDER BY r.updated_at DESC LIMIT 1",
+            (vat, company_id or 0),
+        ).fetchone()
+    if row is None:
+        return None
+    pats = _load_all_rules(row["company_id"], vat).get(vat, {})
+    return {
+        "company_name": row["company_name"],
+        "default": pats.pop(DEFAULT_RULE, {}),
+        "patterns": pats,
+    }
 
 
 def load_names() -> dict:
@@ -388,12 +459,19 @@ def get_supplier_name(vat: str | None) -> str | None:
     return row["name"] if row else None
 
 
-def list_suppliers() -> list[dict]:
+def list_suppliers(company_id: int | None = None) -> list[dict]:
+    """Ολόκληρος ο κοινός κατάλογος· με company_id μόνο οι συναλλασσόμενοι της εταιρείας
+    (με παραστατικά ή δική της πρόταση χαρακτηρισμού)."""
+    q = "SELECT vat, name FROM suppliers"
+    params: tuple = ()
+    if company_id is not None:
+        q += (
+            " WHERE vat IN (SELECT counterparty_vat FROM documents WHERE company_id = ?"
+            " UNION SELECT vat FROM supplier_rules WHERE company_id = ?)"
+        )
+        params = (company_id, company_id)
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT vat, name, rule_type, rule_category, rule_vat_type "
-            "FROM suppliers ORDER BY name IS NULL, name, vat"
-        ).fetchall()
+        rows = conn.execute(q + " ORDER BY name IS NULL, name, vat", params).fetchall()
     return [dict(r) for r in rows]
 
 

@@ -133,15 +133,15 @@ def get_own_vat() -> str:
 
 
 # ------------------------------------------------------------------ #
-# Προμηθευτές: κανόνας χαρακτηρισμού + επωνυμία ανά ΑΦΜ, ΚΟΙΝΟΙ για όλες τις
-# εταιρείες (πίνακας suppliers). Λεπτά wrappers γύρω από το db.
+# Συναλλασσόμενοι: επωνυμία ανά ΑΦΜ ΚΟΙΝΗ για όλες τις εταιρείες· προτάσεις
+# χαρακτηρισμού ΤΗΣ ΕΝΕΡΓΗΣ ΕΤΑΙΡΕΙΑΣ. Λεπτά wrappers γύρω από το db.
 # ------------------------------------------------------------------ #
 def load_rules() -> dict:
-    return db.load_rules()
+    return db.load_rules(_active_company_id())
 
 
 def save_rule(issuer_vat: str | None, ctype: str, ccat: str, vat_type: str = ""):
-    db.save_rule(issuer_vat, ctype, ccat, vat_type)
+    db.save_rule(_active_company_id(), issuer_vat, ctype, ccat, vat_type)
 
 
 def _learn_patterns(inv, entries: list[dict]) -> dict:
@@ -170,12 +170,12 @@ def _learn_patterns(inv, entries: list[dict]) -> dict:
 
 def _learn(inv, entries: list[dict]) -> None:
     """Ενημερώνει τις προτάσεις του συναλλασσόμενου από τον χαρακτηρισμό που αποθηκεύτηκε."""
-    db.save_rule_patterns(inv.issuer_vat, _learn_patterns(inv, entries))
+    db.save_rule_patterns(_active_company_id(), inv.issuer_vat, _learn_patterns(inv, entries))
 
 
 def _patterns_for(vat: str | None) -> dict:
     """Προτάσεις ανά κατηγορία ΦΠΑ για έναν συναλλασσόμενο ({} αν δεν υπάρχουν)."""
-    return db.load_rule_patterns(vat).get(vat, {}) if vat else {}
+    return db.load_rule_patterns(_active_company_id(), vat).get(vat, {}) if vat else {}
 
 
 def load_names() -> dict:
@@ -1028,6 +1028,12 @@ def classify(mark):
     inv = _row_to_invoice(row)
     rule = load_rules().get(inv.issuer_vat or "", {})
     patterns = _patterns_for(inv.issuer_vat)  # προτάσεις ανά κατηγορία ΦΠΑ
+    # Χωρίς δική της πρόταση η εταιρεία, προσυμπλήρωση από άλλη εταιρεία (με ένδειξη).
+    rule_source = None
+    if not rule and not patterns:
+        foreign = db.foreign_rule(cid, inv.issuer_vat)
+        if foreign:
+            rule, patterns, rule_source = foreign["default"], foreign["patterns"], foreign["company_name"]
     # Υπάρχων χαρακτηρισμός από όλες τις πηγές (τοπικός → myDATA → ενσωματωμένος).
     local = db.get_local_classification(row["id"])
     post_mode = int(row.get("cls_post_mode") or 0)
@@ -1077,6 +1083,7 @@ def classify(mark):
         pi_vat=pi_vat,
         line_groups=_line_classification_rows(inv, rule, line_cls, patterns),
         learned=len(patterns) > 1,
+        rule_source=rule_source,
         has_existing=bool(inv.cls_info),
         type_desc=INVOICE_TYPE_NAMES.get(inv.invoice_type or ""),
         vat_rates=VAT_CATEGORY_RATES,
@@ -2699,7 +2706,7 @@ def accountant():
 @app.route("/suppliers")
 def suppliers():
     """Κατάλογος συναλλασσόμενων (πελάτες & προμηθευτές), με σελιδοποίηση."""
-    all_suppliers = db.list_suppliers()
+    all_suppliers = db.list_suppliers(_active_company_id() or 0)  # μόνο της ενεργής εταιρείας
     page_items, page, total_pages = paginate(all_suppliers, request.args.get("page"))
     return render_template(
         "counterparties.html",
@@ -2707,7 +2714,8 @@ def suppliers():
         suppliers_total=len(all_suppliers),
         page=page,
         total_pages=total_pages,
-        patterns=db.load_rule_patterns(),
+        patterns=db.load_rule_patterns(_active_company_id()),
+        rules=load_rules(),
         vat_label=_vat_group_label,
     )
 

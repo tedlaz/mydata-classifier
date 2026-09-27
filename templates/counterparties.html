@@ -5,16 +5,18 @@
 <div class="page-head">
   <div>
     <h1>Συναλλασσόμενοι</h1>
-    <p class="page-sub">Πελάτες και προμηθευτές, κοινοί για όλες τις εταιρείες: επωνυμία ανά ΑΦΜ και προαιρετική πρόταση χαρακτηρισμού.</p>
+    <p class="page-sub">Πελάτες και προμηθευτές της ενεργής εταιρείας: επωνυμία ανά ΑΦΜ και πρόταση χαρακτηρισμού της εταιρείας.</p>
   </div>
 </div>
 
 <div class="card">
   <h2 id="form_title">Προσθήκη / διόρθωση συναλλασσόμενου</h2>
   <p class="muted prose">
-    Κοινός κατάλογος <strong>πελατών και προμηθευτών</strong> για <strong>όλες τις εταιρείες</strong> (ΑΦΜ → επωνυμία + προαιρετική
-    πρόταση χαρακτηρισμού). Οι επωνυμίες συμπληρώνονται αυτόματα από τις αναζητήσεις,
-    αλλά μπορείς να προσθέσεις/διορθώσεις και χειροκίνητα ή μαζικά από αρχείο.
+    Οι <strong>επωνυμίες</strong> (ΑΦΜ → επωνυμία) είναι κοινές για <strong>όλες τις εταιρείες</strong>· οι
+    <strong>προτάσεις χαρακτηρισμού</strong> είναι ανά εταιρεία. Εδώ εμφανίζονται μόνο οι συναλλασσόμενοι
+    με παραστατικά ή πρόταση της ενεργής εταιρείας. Οι επωνυμίες συμπληρώνονται αυτόματα από τις
+    αναζητήσεις, αλλά μπορείς να προσθέσεις/διορθώσεις και χειροκίνητα ή μαζικά από αρχείο
+    (η εξαγωγή περιλαμβάνει όλο τον κοινό κατάλογο).
   </p>
 
   <form method="post" action="{{ url_for('suppliers_save') }}" class="panel grid grid-supplier">
@@ -47,7 +49,7 @@
   <div class="table-wrap">
   <table class="ledger">
     <thead>
-      <tr><th>ΑΦΜ</th><th>Επωνυμία</th><th>Πρόταση χαρακτηρισμού</th><th></th></tr>
+      <tr><th>ΑΦΜ</th><th>Επωνυμία</th><th>Πρόταση χαρακτηρισμού (ενεργής εταιρείας)</th><th></th></tr>
     </thead>
     <tbody>
       {% for s in suppliers %}
@@ -63,7 +65,7 @@
               <li><span class="pill">{{ vat_label(cat) }}</span> {{ p.category }} / {{ p.type }}{% if p.vat_type %} / {{ p.vat_type }}{% endif %}</li>
               {% endfor %}
             </ul>
-          {% elif s.rule_type %}{{ s.rule_category or "" }} / {{ s.rule_type }}{% if s.rule_vat_type %} / {{ s.rule_vat_type }}{% endif %}
+          {% elif rules.get(s.vat) %}{% set r = rules[s.vat] %}{{ r.category or "" }} / {{ r.type }}{% if r.vat_type %} / {{ r.vat_type }}{% endif %}
           {% else %}—{% endif %}
         </td>
         <td data-label="">
