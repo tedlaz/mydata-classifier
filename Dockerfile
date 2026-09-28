@@ -23,7 +23,7 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 
 # Ο κώδικας της εφαρμογής (μόνο ό,τι χρειάζεται - δες .dockerignore)
-COPY app.py wsgi.py db.py ensure_env.py mydata_client.py classifications.py vies.py gsis.py ./
+COPY app.py wsgi.py db.py ensure_env.py mydata_client.py classifications.py vies.py gsis.py vat_return.py ./
 COPY templates ./templates
 COPY static ./static
 

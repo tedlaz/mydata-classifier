@@ -22,6 +22,7 @@ from flask import (
 )
 
 import db
+import vat_return
 from classifications import (
     CREDIT_INVOICE_TYPES,
     EU_COUNTRIES,
@@ -2209,8 +2210,6 @@ def _vat_auto_carry(cid: int | None, year: int, kind: str, n: int) -> tuple[floa
     """(401, 483) αυτόματα από την προηγούμενη περίοδο ίδιου τύπου: το «ποσό για έκπτωση» (502)
     και το χρεωστικό έως 30 € που δεν αποδόθηκε. Επειδή κάθε περίοδος εξαρτάται από τη
     μεταφορά της προηγούμενης, η αλυσίδα ξεκινά από την πρώτη περίοδο με δεδομένα."""
-    import vat_return
-
     years = [int(y) for y in db.document_years(cid) if y.isdigit()]
     if not years:
         return 0.0, 0.0
@@ -2234,8 +2233,6 @@ def _vat_auto_carry(cid: int | None, year: int, kind: str, n: int) -> tuple[floa
 def reports_vat():
     """Δήλωση ΦΠΑ (Φ2) για μήνα (period=m1…m12) ή τρίμηνο (q1…q4) ενός έτους. Το 401 υπολογίζεται
     αυτόματα από την προηγούμενη περίοδο· τιμή στο prev_credit υπερισχύει (κενό = αυτόματα)."""
-    import vat_return
-
     cid = _active_company_id()
     now = datetime.now(ATHENS)
     years = sorted(set(db.document_years(cid)) | {str(now.year)}, reverse=True)
