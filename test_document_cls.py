@@ -306,4 +306,20 @@ assert mrows[2]["vat_quarter"]["diff"] == 54 and not mrows[2]["vat_quarter"]["pa
 q2 = mrows[3]["vat_quarter"]
 assert q2["diff"] == -10 and q2["partial"] and q2["label"] == "Β΄ τρίμηνο 2026" and q2["span"] == "Απρ.–Απρ.", q2
 
+# 18) Ενσωματωμένοι χαρακτηρισμοί ΕΣΟΔΩΝ: κρατιούνται από τις γραμμές (όχι μόνο ως σημαία)·
+#     η σύνοψη χρησιμοποιείται μόνο όταν δεν υπάρχουν γραμμές (είναι το άθροισμά τους).
+import xml.etree.ElementTree as ET  # noqa: E402
+
+I, IC = "http://www.aade.gr/myDATA/invoice/v1.0", "https://www.aade.gr/myDATA/incomeClassificaton/v1.0"
+cls_xml = (f'<incomeClassification><ic:classificationType>E3_561_001</ic:classificationType>'
+           f'<ic:classificationCategory>category1_3</ic:classificationCategory><ic:amount>{{}}</ic:amount></incomeClassification>')
+xml = (f'<RequestedDoc xmlns="{I}" xmlns:ic="{IC}"><invoicesDoc><invoice><mark>1</mark>'
+       f'<invoiceHeader><invoiceType>2.1</invoiceType></invoiceHeader>'
+       f'<invoiceDetails><lineNumber>1</lineNumber><netValue>80.65</netValue>{cls_xml.format("80.65")}</invoiceDetails>'
+       f'<invoiceSummary><totalNetValue>80.65</totalNetValue>{cls_xml.format("80.65")}</invoiceSummary>'
+       f'</invoice></invoicesDoc></RequestedDoc>')
+inv = MyDataClient("u", "k")._parse_requested_doc(ET.fromstring(xml))[0]
+assert inv.has_income_line_classification and inv.income_classifications == [
+    {"type": "E3_561_001", "category": "category1_3", "amount": 80.65, "line": 1}], inv.income_classifications
+
 print("OK")

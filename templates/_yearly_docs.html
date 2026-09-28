@@ -1,0 +1,59 @@
+{# Περιεχόμενο του modal «Αναλυτικά» της ετήσιας σύνοψης (φορτώνεται με fetch). #}
+{% set is_in = kind == 'income' %}
+<div class="modal-head">
+  <h2><i class="yr-dot {{ 'yr-dot--in' if is_in else 'yr-dot--out' }}"></i>{{ 'Έσοδα' if is_in else 'Έξοδα' }} · {{ label }}</h2>
+  <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
+</div>
+<p class="muted small">{{ docs|length }} παραστατικά · ίδια με τη γραμμή του πίνακα (τα πιστωτικά αφαιρούνται).</p>
+{% if docs %}
+<div class="yr-scroll">
+<table class="yr-table yr-docs">
+  <thead>
+    <tr>
+      <th>Ημ/νία</th><th>MARK</th><th>{{ 'Πελάτης' if is_in else 'Εκδότης' }}</th><th>Τύπος · Σειρά/Α/Α</th>
+      <th class="num">Καθαρή</th><th class="num">ΦΠΑ</th><th class="num">Παρακρ.</th>
+      <th class="num">Λοιποί φόροι<br>/ τέλη</th><th class="num">Κρατήσεις</th><th class="num">Σύνολο</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in docs %}
+    <tr class="{{ 'is-credit' if d.credit }}">
+      <td>{{ d.issue_date }}</td>
+      <td class="yr-docs-mark">
+        {% if is_in %}{{ d.mark }}{% else %}<a href="{{ url_for('document', mark=d.mark, back=url_for('reports_yearly', year=d.issue_date[:4])) }}">{{ d.mark }}</a>{% endif %}
+      </td>
+      <td class="yr-docs-cp">
+        <b>{{ d.counterparty_name or '—' }}</b><span class="vat">{{ d.counterparty_vat or '' }}</span>
+      </td>
+      <td class="yr-docs-type">
+        <span title="{{ type_names.get(d.invoice_type, '') }}">{{ d.invoice_type }}</span>
+        <span class="muted">{{ d.series or '' }}/{{ d.aa or '' }}</span>
+        {% if d.credit %}<span class="pill yr-tag">πιστωτικό</span>{% endif %}
+        {% if d.t.assets %}<span class="pill yr-tag yr-tag--asset">πάγιο {{ d.t.assets|el_amount }}</span>{% endif %}
+        {% if d.t.third_party %}<span class="pill yr-tag">τρίτων</span>{% endif %}
+      </td>
+      <td class="num yr-net">{{ d.t.net|el_amount }}</td>
+      <td class="num">{{ d.t.vat|el_amount }}</td>
+      <td class="num">{{ d.t.withheld|el_amount }}</td>
+      <td class="num">{{ (d.t.other_taxes + d.t.stamp_duty + d.t.fees)|el_amount }}</td>
+      <td class="num">{{ d.t.deductions|el_amount }}</td>
+      <td class="num"><b>{{ d.gross|el_amount }}</b></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr class="yr-total {{ 'yr-total--in' if is_in else 'yr-total--out' }}">
+      <th colspan="4">Σύνολο {{ label }}</th>
+      <td class="num yr-net">{{ total.net|el_amount }}</td>
+      <td class="num">{{ total.vat|el_amount }}</td>
+      <td class="num">{{ total.withheld|el_amount }}</td>
+      <td class="num">{{ (total.other_taxes + total.stamp_duty + total.fees)|el_amount }}</td>
+      <td class="num">{{ total.deductions|el_amount }}</td>
+      <td class="num">{{ total.gross|el_amount }}</td>
+    </tr>
+  </tfoot>
+</table>
+</div>
+{% else %}
+<div class="empty"><b>Κανένα παραστατικό</b>{{ 'εσόδων' if is_in else 'εξόδων' }} για τον {{ label }}.</div>
+{% endif %}

@@ -69,6 +69,27 @@ def _local(tag: str) -> str:
     return tag.split("}")[-1]
 
 
+def _embedded_cls(parent: ET.Element, tag: str) -> list[dict]:
+    """Ενσωματωμένοι χαρακτηρισμοί (tag = incomeClassification/expensesClassification) ενός
+    στοιχείου (γραμμή ή σύνοψη): [{"type", "category", "amount"}]. Ανοχή σε namespaces."""
+    out = []
+    for ch in parent:
+        if _local(ch.tag) != tag:
+            continue
+        entry = {}
+        for node in ch:
+            t = _local(node.tag)
+            if t == "classificationType":
+                entry["type"] = node.text
+            elif t == "classificationCategory":
+                entry["category"] = node.text
+            elif t == "amount":
+                entry["amount"] = _f(node.text)
+        if entry:
+            out.append(entry)
+    return out
+
+
 class MyDataError(Exception):
     pass
 
@@ -111,6 +132,9 @@ class ExpenseInvoice:
     counterpart_name: str | None = None
     # Ενσωματωμένος χαρακτηρισμός ΕΣΟΔΩΝ (incomeClassification σε γραμμή/σύνοψη).
     has_income_line_classification: bool = False
+    # Οι ίδιοι οι ενσωματωμένοι χαρακτηρισμοί εσόδων: [{"type","category","amount","line"}]
+    # — από τις γραμμές, αλλιώς από τη σύνοψη (line None).
+    income_classifications: list[dict] = field(default_factory=list)
     # MARK ακυρωτικής εγγραφής (cancelledByMark) — αν υπάρχει, το παραστατικό ακυρώθηκε.
     cancelled_by_mark: str | None = None
     # Λοιπά σύνολα σύνοψης: {total_withheld, total_other_taxes, total_stamp_duty, total_fees,
@@ -398,10 +422,7 @@ class MyDataClient:
                 i.cls_info = cls_map[i.mark]
                 classified.append(i)
             elif i.has_income_line_classification:
-                info: list[dict] = []
-                for line in i.lines:
-                    info.extend(line.classifications)
-                i.cls_info = info
+                i.cls_info = i.income_classifications  # ενσωματωμένος (γραμμές ή σύνοψη)
                 classified.append(i)
             else:
                 unclassified.append(i)
@@ -679,6 +700,7 @@ class MyDataClient:
             summary = inv.find("inv:invoiceSummary", namespaces=NS)
             total_net = total_vat = total_gross = None
             extra_totals: dict = {}
+            summary_income: list[dict] = []
             has_summary_cls = False
             has_income_cls = False
             if summary is not None:
@@ -695,35 +717,24 @@ class MyDataClient:
                 has_income_cls = any(
                     _local(ch.tag) == "incomeClassification" for ch in summary
                 )
+                summary_income = _embedded_cls(summary, "incomeClassification")
 
             lines = []
+            income_entries: list[dict] = []
             for det in inv.findall("inv:invoiceDetails", namespaces=NS):
                 # ανοχή σε namespace: το expensesClassification μπορεί να έρθει
                 # σε inv ή ecls namespace ανάλογα με την έκδοση
-                line_cls = []
-                for ch in det:
-                    if _local(ch.tag) != "expensesClassification":
-                        continue
-                    entry = {}
-                    for node in ch:
-                        t = _local(node.tag)
-                        if t == "classificationType":
-                            entry["type"] = node.text
-                        elif t == "classificationCategory":
-                            entry["category"] = node.text
-                        elif t == "amount":
-                            entry["amount"] = _f(node.text)
-                    if entry:
-                        line_cls.append(entry)
+                line_cls = _embedded_cls(det, "expensesClassification")
                 has_ecls = bool(line_cls)
                 # Ενσωματωμένος χαρακτηρισμός εσόδων στη γραμμή (incomeClassification).
-                if any(_local(ch.tag) == "incomeClassification" for ch in det):
+                line_income = _embedded_cls(det, "incomeClassification")
+                if line_income:
                     has_income_cls = True
+                line_no = int(det.findtext("inv:lineNumber", default="1", namespaces=NS))
+                income_entries += [dict(e, line=line_no) for e in line_income]
                 lines.append(
                     InvoiceLine(
-                        line_number=int(
-                            det.findtext("inv:lineNumber", default="1", namespaces=NS)
-                        ),
+                        line_number=line_no,
                         net_value=_f(det.findtext("inv:netValue", namespaces=NS))
                         or 0.0,
                         vat_amount=_f(det.findtext("inv:vatAmount", namespaces=NS))
@@ -752,6 +763,8 @@ class MyDataClient:
                     counterpart_vat=counterpart_vat,
                     counterpart_name=counterpart_name,
                     has_income_line_classification=has_income_cls,
+                    # Σύνοψη = άθροισμα των γραμμών στο myDATA → μόνο όταν δεν υπάρχουν γραμμές.
+                    income_classifications=income_entries or [dict(e, line=None) for e in summary_income],
                     cancelled_by_mark=cancelled_by,
                     extra_totals=extra_totals,
                 )

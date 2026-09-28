@@ -907,3 +907,39 @@ table.report .num{font-size:1rem}
 .yr-table tbody.is-open td,.yr-table tbody.is-open th{background:var(--accent-soft) !important}
 .yr-table tbody[data-month]:focus-visible .yr-month-cell{box-shadow:inset 3px 0 0 var(--accent)}
 .yr-tip--vat .yr-tip-bal em{color:var(--ink)} .yr-tip--vat .yr-tip-bal.is-neg em{color:var(--accent)}
+/* Ετήσια σύνοψη: «Έσοδα»/«Έξοδα» ως κουμπί → modal με τα παραστατικά του μήνα */
+.yr-table button.yr-kind{background:none;border:0;box-shadow:none;padding:3px 8px;margin:-3px -8px;border-radius:7px;
+  cursor:pointer;text-decoration:underline dotted var(--muted);text-underline-offset:3px;transition:background .15s,color .15s}
+.yr-table button.yr-kind:hover,.yr-table button.yr-kind:focus-visible{background:var(--surface-3);color:var(--accent);transform:none;filter:none}
+.modal--wide{width:min(1180px,calc(100vw - 32px))}
+.yr-docs-modal .modal-head h2{display:flex;align-items:center;font-size:1.1rem}
+.yr-docs-modal .yr-scroll{max-height:calc(100vh - 220px);overflow:auto;margin:10px -22px 0;border-top:1px solid var(--line)}
+.yr-docs{min-width:980px}
+.yr-docs tbody td{border-bottom:1px solid var(--line-soft);vertical-align:top}
+.yr-docs tbody tr:hover td{background:var(--surface-2)}
+.yr-docs thead th{top:0}
+.yr-docs-cp b{display:block;font-family:var(--font-ui);font-weight:600;white-space:normal;max-width:260px}
+.yr-docs-cp .vat{font-size:.76rem;color:var(--muted)}
+.yr-docs-type{font-family:var(--font-ui) !important;white-space:normal !important}
+.yr-docs-type span{margin-right:6px}
+.yr-tag{font-size:.68rem;padding:2px 7px}
+.yr-tag--asset{background:var(--yr-out-soft);color:var(--ink)}
+.yr-docs tr.is-credit td{color:var(--err)}
+.yr-docs tfoot th{text-align:left}
+/* «Καθαρό κέρδος» → modal ανά Ε3 */
+.yr-table button.yr-pl-open{font:inherit;color:inherit}
+.yr-e3 td.yr-e3-code{font-family:var(--font-data)}
+.yr-e3 .yr-e3-desc{font-family:var(--font-ui);white-space:normal;color:var(--ink-2);max-width:420px}
+.yr-e3 .yr-e3-desc small{display:block;color:var(--muted);font-size:.74rem}
+.yr-e3 tr.yr-e3-section th{padding:14px 12px 8px;background:var(--surface-2);text-align:left;font-family:var(--font-ui);
+  font-size:.72rem;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);border-bottom:1px solid var(--line)}
+.yr-e3 tr.is-asset td{background:var(--yr-out-soft)}
+.yr-e3 tr.yr-e3-sum th,.yr-e3 tr.yr-e3-sum td{font-weight:700;border-top:2px solid var(--line);background:var(--surface)}
+.yr-e3 tr.yr-e3-sum th{text-align:left;font-family:var(--font-ui)}
+.yr-e3-result{display:grid;grid-template-columns:1fr auto;gap:6px 24px;margin:14px 0 0;padding:14px 16px;border-radius:12px;
+  background:var(--accent-soft);font-size:.9rem}
+.yr-e3-result dt{color:var(--ink-2)} .yr-e3-result dd{margin:0;text-align:right;font-family:var(--font-data);font-weight:600}
+.yr-e3-result .is-total{font-weight:800;color:var(--accent-deep);font-size:1.02rem;border-top:1px solid var(--accent-glow);padding-top:6px}
+.yr-e3 tr.yr-e3-sum th{padding:10px 12px}
+.yr-e3-result .is-sub{font-weight:700;color:var(--ink);border-top:1px solid var(--accent-glow);padding-top:6px}
+.yr-e3-result .is-total small{font-weight:500;font-size:.76rem;color:var(--ink-2)}

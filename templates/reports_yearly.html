@@ -86,7 +86,8 @@
              data-q-diff="{{ vq.diff|el_amount }}" data-q-neg="{{ 1 if vq.diff < 0 else 0 }}">
         <tr>
           <th class="yr-sticky yr-month-cell" rowspan="2" scope="rowgroup">{{ r.label }}</th>
-          <td><span class="yr-kind yr-kind--in"><i class="yr-dot yr-dot--in"></i>Έσοδα</span></td>
+          <td><button type="button" class="yr-kind yr-kind--in" data-docs="{{ url_for('reports_yearly_docs', year=year, month=loop.index, kind='income') }}"
+                      title="Αναλυτικά τα παραστατικά εσόδων του μήνα"><i class="yr-dot yr-dot--in"></i>Έσοδα</button></td>
           <td class="num yr-net">{{ money(r.income.net) }}</td>
           <td class="num" rowspan="2">
             <span class="yr-bal {{ 'is-neg' if r.balance < 0 else 'is-zero' if r.balance == 0 else 'is-pos' }}">{{ r.balance|el_amount }}</span>
@@ -94,7 +95,8 @@
           {{ amounts(r.income) }}
         </tr>
         <tr>
-          <td><span class="yr-kind yr-kind--out"><i class="yr-dot yr-dot--out"></i>Έξοδα</span></td>
+          <td><button type="button" class="yr-kind yr-kind--out" data-docs="{{ url_for('reports_yearly_docs', year=year, month=loop.index, kind='expense') }}"
+                      title="Αναλυτικά τα παραστατικά εξόδων του μήνα"><i class="yr-dot yr-dot--out"></i>Έξοδα</button></td>
           <td class="num yr-net">{{ money(r.expense.net) }}</td>
           {{ amounts(r.expense) }}
         </tr>
@@ -130,7 +132,10 @@
           <td colspan="{{ cols|length + 1 }}" class="yr-pl-note">εκ των οποίων αποσβέσεις {{ expense_total.depreciation|el_amount }} (E3_587)</td>
         </tr>
         <tr class="yr-pl yr-pl--result {{ 'is-neg' if real_profit < 0 }}">
-          <th class="yr-sticky" colspan="2">Καθαρό κέρδος</th>
+          <th class="yr-sticky" colspan="2">
+            <button type="button" class="yr-kind yr-pl-open" data-docs="{{ url_for('reports_yearly_e3', year=year) }}"
+                    title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">Καθαρό κέρδος</button>
+          </th>
           <td class="num">{{ real_profit|el_amount }}</td>
           <td colspan="{{ cols|length + 1 }}" class="yr-pl-note">Σύνολα εσόδων {{ income_total.net|el_amount }} − Έξοδα χωρίς αγορές παγίων {{ op_expense|el_amount }}</td>
         </tr>
@@ -138,6 +143,8 @@
     </table>
     </div>
     <div class="yr-tip yr-tip--vat" role="status" hidden></div>
+    {# Modal «Αναλυτικά»: γεμίζει με fetch από το reports_yearly_docs #}
+    <dialog class="modal modal--wide yr-docs-modal" id="yr-docs" aria-label="Αναλυτικά παραστατικά" closedby="any"></dialog>
     <p class="muted small yr-note">
       Ποσά σε €. Έσοδα = χαρακτηρισμένα του «Βιβλίου εσόδων»· Έξοδα = χαρακτηρισμένα/απεσταλμένα/ολοκληρωμένα
       του «Βιβλίου εξόδων». Τα πιστωτικά αφαιρούνται. «Τρίτων» = χαρακτηρισμοί κατηγορίας 1.9/2.9.
@@ -215,13 +222,31 @@
     hide(); open = tb; tb.classList.add('is-open'); show(tb);
   };
   card.querySelectorAll('tbody[data-month]').forEach(tb => {
-    tb.addEventListener('click', () => toggle(tb));
+    tb.addEventListener('click', e => { if (!e.target.closest('[data-docs]')) toggle(tb); });
     tb.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(tb); }
+      if ((e.key === 'Enter' || e.key === ' ') && e.target === tb) { e.preventDefault(); toggle(tb); }
     });
   });
   document.addEventListener('click', e => { if (open && !e.target.closest('tbody[data-month], .yr-tip--vat')) hide(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && open) { const tb = open; hide(); tb.focus(); } });
+
+  // Κλικ στο «Έσοδα»/«Έξοδα»: modal με τα παραστατικά του μήνα.
+  const dlg = document.getElementById('yr-docs');
+  card.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-docs]');
+    if (!btn) return;
+    hide();
+    dlg.innerHTML = '<p class="muted">Φόρτωση…</p>';
+    dlg.showModal();
+    try {
+      const r = await fetch(btn.dataset.docs);
+      dlg.innerHTML = r.ok ? await r.text() : '<p class="note note--err">Σφάλμα φόρτωσης (' + r.status + ').</p>';
+    } catch (_) {
+      dlg.innerHTML = '<p class="note note--err">Σφάλμα σύνδεσης.</p>';
+    }
+  });
+  dlg.addEventListener('click', e => { if (e.target.closest('[data-close]')) dlg.close(); });
+  dlg.addEventListener('close', () => { dlg.innerHTML = ''; });
 })();
 </script>
 {% endblock %}

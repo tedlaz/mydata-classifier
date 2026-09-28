@@ -2090,6 +2090,75 @@ def reports_yearly():
     )
 
 
+@app.route("/reports/yearly/docs")
+def reports_yearly_docs():
+    """Τμήμα HTML για το modal της ετήσιας σύνοψης: τα παραστατικά εσόδων ή εξόδων ενός μήνα,
+    με τα ίδια πρόσημα (πιστωτικά αρνητικά) και σύνολα με τη γραμμή του πίνακα."""
+    kind = request.args.get("kind", "")
+    year, month = request.args.get("year", ""), request.args.get("month", "")
+    if kind not in ("income", "expense") or not (year.isdigit() and month.isdigit() and 1 <= int(month) <= 12):
+        return "Μη έγκυρη επιλογή.", 400
+    statuses = _INCOME_CLASSIFIED_STATUSES if kind == "income" else _EXPENSE_CLASSIFIED_STATUSES
+    docs = db.month_documents(_active_company_id(), kind, statuses, f"{year}-{int(month):02d}")
+    for d in docs:
+        d["credit"] = d["invoice_type"] in CREDIT_INVOICE_TYPES
+        d["t"] = _yearly_totals([d])[int(month)]  # ίδιος υπολογισμός με τον πίνακα (πρόσημο, πάγια, τρίτων)
+        d["gross"] = (-1 if d["credit"] else 1) * (d["total_gross"] or 0)
+    total = {c: round(sum(d["t"][c] for d in docs), 2) for c in _YEARLY_COLUMNS}
+    total["gross"] = round(sum(d["gross"] for d in docs), 2)
+    return render_template(
+        "_yearly_docs.html", docs=docs, total=total, kind=kind,
+        label=f"{_GREEK_MONTHS[int(month) - 1]} {year}", type_names=INVOICE_TYPE_NAMES,
+    )
+
+
+def _e3_breakdown(docs: list[dict]) -> list[dict]:
+    """Άθροιση των χαρακτηρισμών Ε3 (όχι ΦΠΑ) ανά (τύπος, κατηγορία) από τον ισχύοντα
+    χαρακτηρισμό (cls_json). Τα πιστωτικά αφαιρούνται· count = πλήθος παραστατικών."""
+    groups: dict = {}
+    for d in docs:
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        seen = set()
+        for e in json.loads(d["cls_json"] or "[]"):
+            typ, cat = e.get("type") or "", e.get("category") or ""
+            if typ.startswith("VAT_") or not (typ or cat):
+                continue
+            g = groups.setdefault((typ, cat), {"type": typ, "category": cat, "amount": 0.0, "count": 0})
+            g["amount"] += sign * (e.get("amount") or 0)
+            if (typ, cat) not in seen:
+                g["count"] += 1
+                seen.add((typ, cat))
+    rows = sorted(groups.values(), key=lambda g: (g["type"], g["category"]))
+    for g in rows:
+        g["amount"] = round(g["amount"], 2)
+        g["type_label"] = _CLASSIFICATION_NAMES.get(g["type"], "")
+        g["category_label"] = _CLASSIFICATION_CATEGORY_NAMES.get(g["category"], "")
+        g["asset"] = g["category"] == ASSET_CATEGORY
+        g["depreciation"] = g["type"].startswith(DEPRECIATION_TYPE)
+    return rows
+
+
+@app.route("/reports/yearly/e3")
+def reports_yearly_e3():
+    """Τμήμα HTML για το modal «Καθαρό κέρδος»: έσοδα και έξοδα του έτους ανά χαρακτηρισμό Ε3."""
+    year = request.args.get("year", "")
+    if not year.isdigit():
+        return "Μη έγκυρο έτος.", 400
+    cid = _active_company_id()
+    inc_docs = db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year)
+    exp_docs = db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year)
+    income, expense = _e3_breakdown(inc_docs), _e3_breakdown(exp_docs)
+    inc_e3 = round(sum(g["amount"] for g in income), 2)
+    exp_e3 = round(sum(g["amount"] for g in expense), 2)
+    assets = round(sum(g["amount"] for g in expense if g["asset"]), 2)
+    net = lambda docs: round(sum(v["net"] for v in _yearly_totals(docs).values()), 2)  # noqa: E731
+    return render_template(
+        "_yearly_e3.html", year=year, income=income, expense=expense,
+        inc_e3=inc_e3, exp_e3=exp_e3, assets=assets, profit_e3=round(inc_e3 - (exp_e3 - assets), 2),
+        inc_net=net(inc_docs), exp_net=net(exp_docs),
+    )
+
+
 _QUARTER_NAMES = ("Α΄", "Β΄", "Γ΄", "Δ΄")
 
 

@@ -571,7 +571,7 @@ def upsert_document(
     cls_json = json.dumps(doc.get("cls_info") or [], ensure_ascii=False)
     with get_conn() as conn:
         existing = conn.execute(
-            "SELECT id, status FROM documents WHERE company_id = ? AND mark = ?",
+            "SELECT id, status, cls_json FROM documents WHERE company_id = ? AND mark = ?",
             (company_id, doc["mark"]),
         ).fetchone()
         if existing is None:
@@ -610,7 +610,10 @@ def upsert_document(
         new_status = existing["status"] if keep else incoming_status
         # Το cls_json από το myDATA το κρατάμε μόνο όταν όντως προχωράμε σε
         # confirmed (τοπικός χαρακτηρισμός έχει δικό του cls_json).
-        set_cls = ", cls_json = ?" if not keep else ""
+        # ...ή όταν ο αποθηκευμένος είναι κενός (π.χ. ενσωματωμένος χαρακτηρισμός εσόδων που
+        # παλιότερη ανάκτηση δεν κρατούσε) — τοπικός χαρακτηρισμός δεν αντικαθίσταται ποτέ.
+        fill_cls = keep and existing["cls_json"] in (None, "", "[]") and cls_json != "[]"
+        set_cls = ", cls_json = ?" if not keep or fill_cls else ""
         # Το MARK χαρακτηρισμού από το myDATA γράφεται όποτε έρχεται μη κενό — και σε
         # keep — ώστε να συμπληρώνεται και σε ήδη αποθηκευμένα «Επιβεβαιωμένα».
         # Κενή τιμή (ενσωματωμένος χαρακτηρισμός) δεν σβήνει ό,τι έχουμε τοπικά.
@@ -630,7 +633,7 @@ def upsert_document(
             lines_json,
             now,
         ]
-        if not keep:
+        if set_cls:
             params.append(cls_json)
         if cls_mark:
             params.append(cls_mark)
@@ -1303,3 +1306,22 @@ def document_years(company_id: int | None) -> list[str]:
             (company_id or 0,),
         ).fetchall()
     return [r["y"] for r in rows if r["y"]]
+
+
+def month_documents(company_id: int | None, kind: str, statuses: list[str], year_month: str) -> list[dict]:
+    """Παραστατικά ενός μήνα (yyyy-mm, κατά ημ/νία έκδοσης) με επωνυμία συναλλασσόμενου και όλα
+    τα σύνολα σύνοψης — τα ίδια που αθροίζει η ετήσια σύνοψη για τη γραμμή του μήνα."""
+    if not company_id:
+        return []
+    cols = ", ".join(f"d.{c}" for c in (
+        "mark", "issue_date", "invoice_type", "series", "aa", "counterparty_vat", "status",
+        "total_net", "total_vat", "total_gross", "cls_json") + EXTRA_TOTALS)
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT {cols}, s.name AS counterparty_name FROM documents AS d "
+            "LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
+            f"WHERE d.company_id = ? AND d.kind = ? AND d.status IN ({','.join('?' * len(statuses))}) "
+            "AND substr(d.issue_date, 1, 7) = ? ORDER BY d.issue_date, d.series, d.aa",
+            [company_id, kind, *statuses, year_month],
+        ).fetchall()
+    return [dict(r) for r in rows]
