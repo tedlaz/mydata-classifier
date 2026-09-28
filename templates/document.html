@@ -1,16 +1,116 @@
 {% extends "base.html" %}
 {% from "_macros.html" import cls_chips with context %}
+{% from "_ledger_hero.html" import money %}
 {% block title %}{{ inv.mark }}{% endblock %}
 {% block content %}
 {% set status_labels = {'unclassified':'Αχαρακτήριστο','classified':'Χαρακτηρισμένο' if is_income else 'Χαρακτηρισμένο (τοπικά)','sent':'Απεσταλμένο','confirmed':'Ολοκληρωμένο'} %}
-<a class="back" href="{{ back }}">← Πίσω στο βιβλίο</a>
+{% set steps = ['unclassified', 'classified'] if is_income else ['unclassified', 'classified', 'sent', 'confirmed'] %}
+{% set step = steps.index(status) if status in steps else 0 %}
+{% macro doc_url(m) %}{{ url_for('document', mark=m, back=back) }}{% endmacro %}
+<style>
+.dc-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(20px,3.5vw,32px);color:#fff;margin-bottom:20px;
+  background:radial-gradient(120% 140% at 0% 0%,var(--dc-a) 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
+.dc-hero--in{--dc-a:#0f5a4a;--dc-b1:#1fbf8a;--dc-b2:#5b66f5}
+.dc-hero--out{--dc-a:#2a2f7a;--dc-b1:#5b66f5;--dc-b2:#ff6b8b}
+.dc-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;animation:dc-float 13s ease-in-out infinite;pointer-events:none}
+.dc-blob.b1{width:300px;height:300px;background:var(--dc-b1);top:-140px;right:-40px}
+.dc-blob.b2{width:220px;height:220px;background:var(--dc-b2);bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
+@keyframes dc-float{50%{transform:translate(26px,-18px) scale(1.1)}}
+@keyframes dc-rise{from{opacity:0;transform:translateY(14px)}}
+.dc-nav{position:relative;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:18px}
+.dc-nav .grp{display:flex;gap:6px;align-items:center}
+.dc-hero .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
+.dc-hero .btn-ghost:hover{background:rgba(255,255,255,.16)}
+.dc-hero .pg-off{opacity:.35;pointer-events:none}
+.dc-pos{font:600 .8rem var(--font-data);color:#aab2d4;padding:0 6px}
+.dc-top{position:relative;display:flex;flex-wrap:wrap;gap:16px 24px;justify-content:space-between;align-items:flex-start}
+.dc-who{display:flex;gap:16px;align-items:center;min-width:0}
+.dc-av{flex:none;width:60px;height:60px;border-radius:18px;display:grid;place-items:center;font-weight:800;font-size:1.25rem;
+  background:linear-gradient(135deg,hsl(var(--h) 72% 60%),hsl(calc(var(--h) + 40) 68% 45%));box-shadow:0 10px 24px -10px hsl(var(--h) 70% 45%);
+  animation:dc-rise .5s var(--ease) both}
+.dc-kicker{font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#9aa2ff}
+.dc-hero h1{margin:2px 0 2px;font-size:clamp(1.3rem,3vw,1.9rem);font-weight:800;letter-spacing:-.01em;color:#fff;overflow-wrap:anywhere}
+.dc-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.dc-meta span{font-size:.78rem;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.08);color:#dfe3ff}
+.dc-meta .mono{font-family:var(--font-data)}
+.dc-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.dc-acts form{margin:0}
 
-<div class="doc-head">
-  <div>
-    <div class="kicker">Παραστατικό {{ 'εσόδου' if is_income else 'εξόδου' }}</div>
-    <h1 class="doc-mark">{{ inv.mark }}</h1>
+/* Χρονολόγιο κατάστασης */
+.dc-steps{position:relative;display:grid;grid-template-columns:repeat(var(--n),1fr);margin:24px 0 4px}
+.dc-steps::before,.dc-steps::after{content:"";position:absolute;top:15px;left:calc(50% / var(--n));height:3px;border-radius:3px}
+.dc-steps::before{right:calc(50% / var(--n));background:rgba(255,255,255,.12)}
+.dc-steps::after{width:calc((100% - 100% / var(--n)) * var(--s) / (var(--n) - 1));background:linear-gradient(90deg,#9aa2ff,#4fd1a0);
+  animation:dc-grow 1.2s var(--ease) .3s both;transform-origin:left}
+@keyframes dc-grow{from{transform:scaleX(0)}}
+.dc-step{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;font-size:.78rem;color:#8f98c8}
+.dc-step i{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;font-style:normal;font-weight:800;font-size:.85rem;
+  background:#1b2150;border:2px solid rgba(255,255,255,.18);color:#aab2d4;transition:all .3s}
+.dc-step.done i{background:#4fd1a0;border-color:#4fd1a0;color:#0b0f22}
+.dc-step.now i{background:linear-gradient(135deg,#9aa2ff,#4fd1a0);border-color:#fff;color:#0b0f22;animation:dc-ping 2s ease-out infinite}
+.dc-step.now,.dc-step.done{color:#fff;font-weight:700}
+@keyframes dc-ping{0%{box-shadow:0 0 0 0 rgba(154,162,255,.6)}70%,100%{box-shadow:0 0 0 12px rgba(154,162,255,0)}}
+
+/* Σύνολα */
+.dc-tots{position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:20px}
+.dc-tot{padding:12px 16px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+  animation:dc-rise .5s var(--ease) both;animation-delay:calc(var(--i) * 70ms + 150ms)}
+.dc-tot span{display:block;font-size:.74rem;color:#aab2d4;font-weight:600;text-transform:uppercase;letter-spacing:.07em}
+.dc-tot b{display:block;font:800 1.2rem/1.3 var(--font-data);margin-top:2px}
+.dc-tot--g{background:linear-gradient(135deg,rgba(91,102,245,.35),rgba(31,191,138,.25));border-color:rgba(255,255,255,.22)}
+.dc-tot--g b{font-size:1.45rem}
+.dc > .card{animation:dc-rise .5s var(--ease) both;animation-delay:calc(var(--i, 0) * 90ms + 250ms)}
+/* Ενότητες: δικό τους χρώμα η καθεμία (λωρίδα, εικονίδιο, επικεφαλίδες πίνακα). */
+.dc-sec{--c:var(--accent);--c-soft:var(--accent-soft);--c-line:var(--accent-glow);box-shadow:inset 5px 0 0 var(--c),var(--shadow)}
+.dc-sec--tax{--c:var(--warn);--c-soft:var(--warn-soft);--c-line:var(--warn-line)}
+.dc-sec--doc{--c:var(--info);--c-soft:var(--info-soft);--c-line:var(--info-line)}
+.dc-sec h2{display:flex;align-items:center;gap:10px;color:var(--c)}
+.dc-ico{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--c-soft);border:1px solid var(--c-line);font-size:1.05rem}
+.dc-sec .doc-lines thead th{background:var(--c-soft);color:var(--c)}
+.dc-sec .doc-lines .th-group th{color:var(--c)}
+.dc-sec .doc-lines tbody tr:hover{background:color-mix(in srgb,var(--c-soft) 55%,transparent)}
+.dc-sec--lines .line-taxes > td{background:var(--warn-soft)}
+.dc-sec--lines .line-taxes .kicker{color:var(--warn)}
+.dc-sec--lines .line-taxes .tax-table thead th{background:color-mix(in srgb,var(--warn-soft) 60%,var(--surface));color:var(--warn)}
+.dc-sec--lines .line-tax-btn{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)}
+.dc.is-loading{opacity:.55;pointer-events:none;transition:opacity .2s}
+[data-same-page] :is(.dc-av,.dc-tot,.dc > .card){animation:none}
+[data-same-page] .dc-steps::after{animation:none}
+@media (max-width:640px){ .dc-step small{display:none} }
+@media (prefers-reduced-motion:reduce){ .dc *,.dc *::after{animation:none!important} }
+</style>
+
+<div class="dc" data-doc>
+<header class="dc-hero dc-hero--{{ 'in' if is_income else 'out' }}">
+  <i class="dc-blob b1"></i><i class="dc-blob b2"></i>
+  <div class="dc-nav">
+    <a class="btn btn-ghost btn-sm" href="{{ back }}">← Πίσω στο βιβλίο</a>
+    <div class="grp">
+      <a class="btn btn-ghost btn-sm {{ 'pg-off' if not prev_mark }}" data-doc-nav="prev" {% if prev_mark %}href="{{ doc_url(prev_mark) }}"{% endif %}
+         title="Προηγούμενο (←)" aria-label="Προηγούμενο παραστατικό">‹</a>
+      <span class="dc-pos">{{ pos }} από {{ siblings_total }}</span>
+      <a class="btn btn-ghost btn-sm {{ 'pg-off' if not next_mark }}" data-doc-nav="next" {% if next_mark %}href="{{ doc_url(next_mark) }}"{% endif %}
+         title="Επόμενο (→)" aria-label="Επόμενο παραστατικό">›</a>
+    </div>
   </div>
-  <div class="btn-row">
+
+  <div class="dc-top">
+    <div class="dc-who">
+      <div class="dc-av" style="--h:{{ ((inv.issuer_vat or '0')[-3:]|int(0) * 7) % 360 }}" aria-hidden="true">
+        {%- for w in (inv.issuer_name or '?').split()[:2] %}{{ w[0]|upper }}{% endfor -%}
+      </div>
+      <div style="min-width:0">
+        <div class="dc-kicker">Παραστατικό {{ 'εσόδου' if is_income else 'εξόδου' }} · MARK <span class="mono">{{ inv.mark }}</span></div>
+        <h1>{{ inv.issuer_name or "—" }}</h1>
+        <div class="dc-meta">
+          <span class="mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</span>
+          <span>{{ inv.invoice_type or "—" }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
+          <span class="mono">{{ inv.series or "0" }}/{{ inv.aa or "" }}</span>
+          <span class="mono">📅 {{ '/'.join(inv.issue_date.split('-')[::-1]) if inv.issue_date else '—' }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="dc-acts">
     {% if not is_income and status == 'confirmed' and inv.invoice_type in self_types %}
     <a class="btn btn-ghost btn-sm" href="{{ url_for('new_expense', copy=inv.mark) }}" title="Νέα εγγραφή με τα ίδια στοιχεία και χαρακτηρισμούς">📄 Αντιγραφή σε νέα εγγραφή</a>
     {% endif %}
@@ -21,26 +121,27 @@
               data-confirm="Οι χαρακτηρισμοί αυτού του παραστατικού θα γίνουν οι προτάσεις του προμηθευτή (αντικαθιστούν τις υπάρχουσες για τις ίδιες κατηγορίες ΦΠΑ). Συνέχεια;">💡 Ορισμός ως πρόταση προμηθευτή</button>
     </form>
     {% endif %}
-    <span class="status-badge status-{{ status }}">{{ status_labels.get(status, status) }}</span>
+    </div>
   </div>
-</div>
 
-<div class="card doc-hero">
-  <div>
-    <div class="hero-name">{{ inv.issuer_name or "—" }}</div>
-    <div class="hero-vat mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</div>
-    <div class="hero-sub">{{ inv.invoice_type or "—" }}{% if type_desc %} · {{ type_desc }}{% endif %} · σειρά {{ inv.series or "0" }}/{{ inv.aa or "" }} · {{ inv.issue_date or "—" }}</div>
+  <div class="dc-steps" style="--n:{{ steps|length }};--s:{{ step }}" aria-label="Κατάσταση: {{ status_labels.get(status, status) }}">
+    {% for s in steps %}
+    <div class="dc-step {{ 'done' if loop.index0 < step else ('now' if loop.index0 == step) }}" {% if loop.index0 == step %}aria-current="step"{% endif %}>
+      <i>{{ '✓' if loop.index0 < step or (loop.index0 == step and loop.last) else loop.index }}</i><small>{{ status_labels[s] }}</small>
+    </div>
+    {% endfor %}
   </div>
-  <div class="hero-total">
-    <span class="kicker">Σύνολο</span>
-    <span class="hero-total-v">{{ "%.2f"|format(inv.total_gross or 0) }} €</span>
-    <span class="hero-total-sub">Καθαρή {{ "%.2f"|format(inv.total_net or 0) }} € · ΦΠΑ {{ "%.2f"|format(inv.total_vat or 0) }} €
-      {%- for col, label in (("total_withheld", "Παρακρατήσεις"), ("total_deductions", "Κρατήσεις"), ("total_fees", "Τέλη"),
-                             ("total_stamp_duty", "Χαρτόσημο"), ("total_other_taxes", "Λοιποί φόροι")) %}
-        {%- if inv.extra_totals.get(col) %} · {{ label }} {{ "%.2f"|format(inv.extra_totals[col]) }} €{% endif %}
-      {%- endfor %}</span>
+
+  <div class="dc-tots">
+    <div class="dc-tot" style="--i:0"><span>Καθαρή αξία</span><b>{{ money(inv.total_net) }} €</b></div>
+    <div class="dc-tot" style="--i:1"><span>ΦΠΑ</span><b>{{ money(inv.total_vat) }} €</b></div>
+    {% for col, label in (("total_withheld", "Παρακρατήσεις"), ("total_deductions", "Κρατήσεις"), ("total_fees", "Τέλη"),
+                          ("total_stamp_duty", "Χαρτόσημο"), ("total_other_taxes", "Λοιποί φόροι")) if inv.extra_totals.get(col) %}
+    <div class="dc-tot" style="--i:{{ loop.index + 1 }}"><span>{{ label }}</span><b>{{ money(inv.extra_totals[col]) }} €</b></div>
+    {% endfor %}
+    <div class="dc-tot dc-tot--g" style="--i:6"><span>Σύνολο</span><b>{{ money(inv.total_gross) }} €</b></div>
   </div>
-</div>
+</header>
 
 {# Ένα κελί χαρακτηρισμού: περιγραφή + κωδικός. #}
 {% macro cls_cell(code, labels) -%}
@@ -75,9 +176,9 @@
   <th class="num">Ποσό</th>
 {% endset %}
 
-<div class="card">
+<div class="card dc-sec dc-sec--lines">
   <div class="card-head">
-    <h2>Γραμμές &amp; χαρακτηρισμοί
+    <h2><span class="dc-ico">📋</span>Γραμμές &amp; χαρακτηρισμοί
       {% if status == 'confirmed' %}<span class="pill" title="Πηγή χαρακτηρισμού">{{ 'Manually (τοπικά)' if source == 'manual' else 'rest (myDATA)' }}</span>{% endif %}
     </h2>
     {% if local_action != 'create' and not is_income %}
@@ -162,16 +263,16 @@
   {% endfor %}
 {% endif %}
 {% if tax_rows %}
-<div class="card">
-  <h2>Φόροι &amp; κρατήσεις</h2>
+<div class="card dc-sec dc-sec--tax">
+  <h2><span class="dc-ico">🧾</span>Φόροι &amp; κρατήσεις</h2>
   {% if inv.taxes is none %}<p class="muted small">Μόνο σύνολα — κάνε νέα ανάκτηση για αναλυτικά στοιχεία (κατηγορία, ποσό υπολογισμού, γραμμές).</p>{% endif %}
   <div class="table-scroll">{{ tax_table(tax_rows) }}</div>
 </div>
 {% endif %}
 
 {% if doc_cls %}
-<div class="card">
-  <h2>Χαρακτηρισμός σε επίπεδο παραστατικού</h2>
+<div class="card dc-sec dc-sec--doc">
+  <h2><span class="dc-ico">📑</span>Χαρακτηρισμός σε επίπεδο παραστατικού</h2>
   <p class="muted small">Αφορά ολόκληρο το παραστατικό — δεν αντιστοιχίζεται σε συγκεκριμένη γραμμή.</p>
   <div class="table-scroll">
   <table class="doc-lines">
@@ -219,4 +320,43 @@
 {% else %}
 <div class="card"><p class="muted small">🔒 Οι ακυρώσεις/απορρίψεις είναι απενεργοποιημένες για την εταιρεία (Παράμετροι εταιρείας).</p></div>
 {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Προηγούμενο/επόμενο παραστατικό με AJAX (και ← → από το πληκτρολόγιο): αλλάζει μόνο το περιεχόμενο.
+(function(){
+  var root = document.documentElement, ctrl;
+  function load(url, push) {
+    var box = document.querySelector('[data-doc]');
+    if (ctrl) ctrl.abort();
+    ctrl = new AbortController();
+    box.classList.add('is-loading');
+    fetch(url, {signal: ctrl.signal}).then(function(r){
+      if (!r.ok || new URL(r.url).pathname.indexOf('/document/') !== 0) throw new Error('redirect');
+      return r.text();
+    }).then(function(html){
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      root.dataset.samePage = '';
+      box.replaceWith(doc.querySelector('[data-doc]'));
+      document.title = doc.title;
+      if (push) history.pushState(null, '', url);
+    }).catch(function(e){ if (e.name !== 'AbortError') location.href = url; });
+  }
+  document.addEventListener('click', function(e){
+    var a = e.target.closest('a[data-doc-nav][href]');
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    load(a.href, true);
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.altKey || e.ctrlKey || e.metaKey || (e.target.closest && e.target.closest('input, select, textarea, [contenteditable]'))) return;
+    var dir = {ArrowLeft: 'prev', ArrowRight: 'next'}[e.key];
+    var a = dir && document.querySelector('a[data-doc-nav="' + dir + '"][href]');
+    if (a) { e.preventDefault(); load(a.href, true); }
+  });
+  addEventListener('popstate', function(){ load(location.href, false); });
+})();
+</script>
 {% endblock %}

@@ -2,85 +2,135 @@
 {% block title %}Νέα εγγραφή{% endblock %}
 {% block content %}
 {% set title = 'Επεξεργασία εγγραφής εξόδου' if edit_mark else 'Νέα εγγραφή εξόδου' %}
-{# Πρότυπα της εταιρείας (π.χ. ΕΦΚΑ, ενοίκιο): ένα κλικ = νέα εγγραφή με τα στοιχεία του. #}
-{% if templates and not edit_mark %}
-<div class="card tpl-bar">
-  <span class="kicker">Πρότυπα</span>
-  {% for tp in templates %}
-  <span class="tpl-chip {{ 'is-current' if template and template.id == tp.id }}">
-    <a href="{{ url_for('new_expense', template=tp.id) }}" title="Νέα εγγραφή από το πρότυπο">📌 {{ tp.name }}</a>
-    <form method="post" action="{{ url_for('expense_template_delete', tid=tp.id) }}" class="inline-form">
-      <button type="submit" class="tpl-del" aria-label="Διαγραφή προτύπου {{ tp.name }}" title="Διαγραφή προτύπου"
-              data-confirm="Διαγραφή του προτύπου «{{ tp.name }}»;">✕</button>
-    </form>
-  </span>
-  {% endfor %}
+<style>
+/* ---------- Κεφαλίδα (ίδια οικογένεια με βιβλία/εταιρείες) ---------- */
+.ne-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(20px,3.5vw,32px);color:#fff;margin-bottom:18px;
+  background:radial-gradient(120% 140% at 0% 0%,#4a2a7a 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
+.ne-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;animation:ne-float 13s ease-in-out infinite;pointer-events:none}
+.ne-blob.b1{width:300px;height:300px;background:#b04bff;top:-140px;right:-40px}
+.ne-blob.b2{width:220px;height:220px;background:#5b66f5;bottom:-140px;left:30%;opacity:.3;animation-delay:-6s}
+@keyframes ne-float{50%{transform:translate(26px,-18px) scale(1.1)}}
+.ne-top{position:relative;display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between;align-items:flex-start}
+.ne-hero h1{margin:0 0 4px;font-size:clamp(1.6rem,3.4vw,2.3rem);font-weight:800;letter-spacing:-.02em;color:#fff}
+.ne-hero p{margin:0;color:#c6cbe8;font-size:.9rem}
+.ne-hero .info-btn{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
+.ne-hero .info-btn.has-attention{border-color:#f2c265;color:#f2c265}
+.ne-totals{position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:20px}
+.ne-tot{padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+  animation:ne-rise .55s var(--ease) both;animation-delay:calc(var(--i) * 80ms + 120ms)}
+.ne-tot span{display:block;font-size:.78rem;color:#aab2d4;font-weight:600;text-transform:uppercase;letter-spacing:.08em}
+.ne-tot b{display:inline-block;font:800 clamp(1.2rem,2.6vw,1.7rem)/1.2 var(--font-data);margin-top:4px}
+.ne-tot--g{background:linear-gradient(135deg,rgba(91,102,245,.35),rgba(31,191,138,.25));border-color:rgba(255,255,255,.2)}
+.ne-tot b.is-pop{animation:ne-pop .45s var(--ease)}
+@keyframes ne-pop{40%{transform:scale(1.12);color:#6ff0c4}}
+@keyframes ne-rise{from{opacity:0;transform:translateY(16px)}}
+.ne-tpls{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.1)}
+.ne-tpls > span{font-size:.78rem;color:#aab2d4;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-right:4px}
+.ne-hero .tpl-chip{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.18);animation:ne-rise .5s var(--ease) both;
+  animation-delay:calc(var(--i) * 60ms + 300ms);transition:background .2s,transform .2s var(--ease)}
+.ne-hero .tpl-chip:hover{background:rgba(255,255,255,.16);transform:translateY(-2px)}
+.ne-hero .tpl-chip a{color:#fff}
+.ne-hero .tpl-chip.is-current{background:var(--accent-grad);border-color:transparent}
+.ne-hero .tpl-del{color:#aab2d4}
+
+/* ---------- Βήματα φόρμας ---------- */
+.ne-info{margin:-4px 0 16px;animation:ne-rise .3s var(--ease) both}
+#ne-form .ne-card{padding:18px 20px;border-radius:18px;margin-bottom:14px;animation:ne-rise .5s var(--ease) both;
+  animation-delay:calc(var(--i, 0) * 90ms + 200ms);transition:box-shadow .3s,border-color .3s}
+#ne-form .ne-card:focus-within{border-color:var(--accent-glow);box-shadow:0 0 0 4px var(--accent-soft),var(--shadow)}
+#ne-form .ne-card-head{margin-bottom:12px}
+#ne-form .ne-card-head h2{display:flex;align-items:center;gap:10px;font-size:1rem;color:var(--ink)}
+.ne-no{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:var(--accent-grad);color:#fff;font-size:.85rem;
+  font-weight:800;box-shadow:0 6px 14px -6px var(--accent);transition:transform .3s var(--ease)}
+#ne-form .ne-card:focus-within .ne-no{transform:scale(1.12) rotate(-6deg)}
+#ne-form .line-item{animation:ne-rise .35s var(--ease) both;transition:border-color .2s,box-shadow .2s}
+#ne-form .line-item:hover{border-color:var(--accent-glow)}
+#ne-form .line-item:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+#ne-form .cls-footer{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  background:color-mix(in srgb,var(--surface) 85%,transparent)}
+#ne-form .cls-footer button[type=submit]:not(.btn-ghost){box-shadow:0 10px 24px -10px var(--accent)}
+@media (max-width:640px){ .ne-totals{grid-template-columns:1fr 1fr} .ne-tot--g{grid-column:1/-1} }
+@media (prefers-reduced-motion:reduce){ .ne-hero *,#ne-form *,#ne-form .ne-card{animation:none!important;transition:none!important} }
+</style>
+
+<header class="ne-hero">
+  <i class="ne-blob b1"></i><i class="ne-blob b2"></i>
+  <div class="ne-top">
+    <div>
+      <h1>{{ '✎' if edit_mark else '✍️' }} {{ title }}</h1>
+      <p>Αποθηκεύεται τοπικά στα «Χαρακτηρισμένα» και στέλνεται με «Αποστολή στο myDATA».</p>
+    </div>
+    <button type="button" class="btn-ghost btn-sm info-btn {{ 'has-attention' if copy_mark or template }}"
+            data-toggle="#ne-info" aria-expanded="false" aria-controls="ne-info">
+      ℹ Πληροφορίες{% if copy_mark or template %} <span class="count">1</span>{% endif %}
+    </button>
+  </div>
+  <div class="ne-totals" aria-live="polite">
+    <div class="ne-tot" style="--i:0"><span>Καθαρή</span><b id="t_net">0.00 €</b></div>
+    <div class="ne-tot" style="--i:1"><span>ΦΠΑ</span><b id="t_vat">0.00 €</b></div>
+    <div class="ne-tot ne-tot--g" style="--i:2"><span id="t_gross_label">Σύνολο</span><b id="t_gross">0.00 €</b></div>
+  </div>
+  {# Πρότυπα της εταιρείας (π.χ. ΕΦΚΑ, ενοίκιο): ένα κλικ = νέα εγγραφή με τα στοιχεία του. #}
+  {% if templates and not edit_mark %}
+  <div class="ne-tpls">
+    <span>📌 Πρότυπα</span>
+    {% for tp in templates %}
+    <span class="tpl-chip {{ 'is-current' if template and template.id == tp.id }}" style="--i:{{ loop.index0 }}">
+      <a href="{{ url_for('new_expense', template=tp.id) }}" title="Νέα εγγραφή από το πρότυπο">{{ tp.name }}</a>
+      <form method="post" action="{{ url_for('expense_template_delete', tid=tp.id) }}" class="inline-form">
+        <button type="submit" class="tpl-del" aria-label="Διαγραφή προτύπου {{ tp.name }}" title="Διαγραφή προτύπου"
+                data-confirm="Διαγραφή του προτύπου «{{ tp.name }}»;">✕</button>
+      </form>
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+</header>
+
+<div class="card cls-info ne-info" id="ne-info" hidden>
+  {% if template %}<p class="note note--warn">📌 Από το πρότυπο <strong>{{ template.name }}</strong> — σειρά <span class="mono">{{ draft.series }}</span>, Α/Α <span class="mono">{{ draft.aa }}</span> (επόμενος του τελευταίου παραστατικού με ίδιο συναλλασσόμενο και σειρά). Έλεγξε ημερομηνία και ποσά πριν την αποθήκευση.</p>{% endif %}
+  {% if copy_mark %}<p class="note note--warn">📄 Αντίγραφο της εγγραφής <a class="mono" href="{{ url_for('document', mark=copy_mark) }}">{{ copy_mark }}</a> — συμπλήρωσε τον Α/Α και έλεγξε ημερομηνία και ποσά πριν την αποθήκευση.</p>{% endif %}
+  <ul class="help-list">
+    <li>Για έξοδα που διαβιβάζεις εσύ: δικές σου εγγραφές (<strong>17.x</strong> — μισθοδοσία, αποσβέσεις, τακτοποίηση) ή παραστατικά <strong>μη υπόχρεου εκδότη</strong> (13.x λιανικές/κοινόχρηστα/συνδρομές, 14.x αλλοδαποί &amp; <strong>14.5 ΕΦΚΑ</strong>, 15.1 συμβόλαιο, 16.1 ενοίκιο).</li>
+    <li>Στα <strong>17.x</strong> εκδότης είσαι εσύ· στα <strong>13.3</strong> κοινόχρηστα και <strong>13.4</strong> συνδρομές δεν δηλώνεται εκδότης (ΑΑΔΕ)· στις λιανικές <strong>13.1/13.2/13.31</strong> ο ΑΦΜ πωλητή είναι προαιρετικός. ΕΦΚΑ: ΑΦΜ 997072577, χώρα Ελλάδα.</li>
+    <li><strong>ΦΠΑ</strong> μόνο στις λιανικές 13.1, 13.2, 13.31 — υπολογίζεται αυτόματα από ποσό × συντελεστή.</li>
+    <li>Παραδείγματα: <strong>ΕΦΚΑ (14.5)</strong> → εργοδοτικές εισφορές E3_581_002 / category2_6, ή εισφορές αυτοαπασχολούμενου E3_585_007 / category2_5. <strong>Μισθοδοσία (17.1)</strong> → μικτές αποδοχές E3_581_001, εργοδοτικές εισφορές E3_581_002, λοιπές παροχές E3_581_003, όλες σε category2_6.</li>
+    <li>Μάζεψε κι άλλες εγγραφές και στείλ' τες μαζικά από τα «Χαρακτηρισμένα».</li>
+  </ul>
 </div>
-{% endif %}
+
 <form method="post" action="{{ url_for('new_expense_submit') }}" id="ne-form">
   <input type="hidden" name="edit_mark" value="{{ edit_mark }}">
 
-  {# Συμπαγής κεφαλίδα: τίτλος + σύνολα + πληροφορίες, και τα στοιχεία της εγγραφής. #}
-  <div class="card cls-top">
-    <div class="cls-top-row">
-      <div class="cls-top-title">
-        <div>
-          <h1>{{ title }}</h1>
-          <div class="meta"><span>Αποθηκεύεται τοπικά στα «Χαρακτηρισμένα» — στέλνεται με «Αποστολή στο myDATA».</span></div>
-        </div>
+  <section class="card ne-card" style="--i:0">
+    <div class="ne-card-head"><h2><span class="ne-no">1</span>Στοιχεία εγγραφής</h2></div>
+    <div class="grid grid-entry">
+      <div>
+        <label for="invoice_type">Τύπος εγγραφής</label>
+        <select name="invoice_type" id="invoice_type" required onchange="toggleIssuer()">
+          {% set sel_type = draft.invoice_type if draft else '14.5' %}
+          {% for code, label in self_types.items() %}
+            <option value="{{ code }}" {% if code == sel_type %}selected{% endif %}>{{ code }} · {{ label }}</option>
+          {% endfor %}
+        </select>
       </div>
-      <div class="cls-stats">
-        <div><span class="kicker">Καθαρή</span><b class="mono" id="t_net">0.00 €</b></div>
-        <div><span class="kicker">ΦΠΑ</span><b class="mono" id="t_vat">0.00 €</b></div>
-        <div><span class="kicker" id="t_gross_label">Σύνολο</span><b class="mono" id="t_gross">0.00 €</b></div>
+      <div>
+        <label for="issue_date">Ημ/νία έκδοσης</label>
+        <input type="date" id="issue_date" name="issue_date" value="{{ draft.issue_date if draft else today }}" required>
       </div>
-      <button type="button" class="btn-ghost btn-sm info-btn {{ 'has-attention' if copy_mark or template }}"
-              data-toggle="#ne-info" aria-expanded="false" aria-controls="ne-info">
-        ℹ Πληροφορίες{% if copy_mark or template %} <span class="count">1</span>{% endif %}
-      </button>
-    </div>
-
-    <div class="cls-info" id="ne-info" hidden>
-      {% if template %}<p class="note note--warn">📌 Από το πρότυπο <strong>{{ template.name }}</strong> — σειρά <span class="mono">{{ draft.series }}</span>, Α/Α <span class="mono">{{ draft.aa }}</span> (επόμενος του τελευταίου παραστατικού με ίδιο συναλλασσόμενο και σειρά). Έλεγξε ημερομηνία και ποσά πριν την αποθήκευση.</p>{% endif %}
-      {% if copy_mark %}<p class="note note--warn">📄 Αντίγραφο της εγγραφής <a class="mono" href="{{ url_for('document', mark=copy_mark) }}">{{ copy_mark }}</a> — συμπλήρωσε τον Α/Α και έλεγξε ημερομηνία και ποσά πριν την αποθήκευση.</p>{% endif %}
-      <ul class="help-list">
-        <li>Για έξοδα που διαβιβάζεις εσύ: δικές σου εγγραφές (<strong>17.x</strong> — μισθοδοσία, αποσβέσεις, τακτοποίηση) ή παραστατικά <strong>μη υπόχρεου εκδότη</strong> (13.x λιανικές/κοινόχρηστα/συνδρομές, 14.x αλλοδαποί &amp; <strong>14.5 ΕΦΚΑ</strong>, 15.1 συμβόλαιο, 16.1 ενοίκιο).</li>
-        <li>Στα <strong>17.x</strong> εκδότης είσαι εσύ· στα <strong>13.3</strong> κοινόχρηστα και <strong>13.4</strong> συνδρομές δεν δηλώνεται εκδότης (ΑΑΔΕ)· στις λιανικές <strong>13.1/13.2/13.31</strong> ο ΑΦΜ πωλητή είναι προαιρετικός. ΕΦΚΑ: ΑΦΜ 997072577, χώρα Ελλάδα.</li>
-        <li><strong>ΦΠΑ</strong> μόνο στις λιανικές 13.1, 13.2, 13.31 — υπολογίζεται αυτόματα από ποσό × συντελεστή.</li>
-        <li>Παραδείγματα: <strong>ΕΦΚΑ (14.5)</strong> → εργοδοτικές εισφορές E3_581_002 / category2_6, ή εισφορές αυτοαπασχολούμενου E3_585_007 / category2_5. <strong>Μισθοδοσία (17.1)</strong> → μικτές αποδοχές E3_581_001, εργοδοτικές εισφορές E3_581_002, λοιπές παροχές E3_581_003, όλες σε category2_6.</li>
-        <li>Μάζεψε κι άλλες εγγραφές και στείλ' τες μαζικά από τα «Χαρακτηρισμένα».</li>
-      </ul>
-    </div>
-
-    <div class="cls-top-row--progress">
-      <div class="grid grid-entry">
-        <div>
-          <label for="invoice_type">Τύπος εγγραφής</label>
-          <select name="invoice_type" id="invoice_type" required onchange="toggleIssuer()">
-            {% set sel_type = draft.invoice_type if draft else '14.5' %}
-            {% for code, label in self_types.items() %}
-              <option value="{{ code }}" {% if code == sel_type %}selected{% endif %}>{{ code }} · {{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="issue_date">Ημ/νία έκδοσης</label>
-          <input type="date" id="issue_date" name="issue_date" value="{{ draft.issue_date if draft else today }}" required>
-        </div>
-        <div>
-          <label for="series">Σειρά</label>
-          <input type="text" id="series" name="series" value="{{ draft.series if draft else '' }}" required placeholder="π.χ. Α">
-        </div>
-        <div>
-          <label for="aa">Α/Α</label>
-          <input type="text" id="aa" name="aa" value="{{ draft.aa if draft else '' }}" required placeholder="π.χ. 1"{% if copy_mark %} autofocus{% endif %}>
-        </div>
+      <div>
+        <label for="series">Σειρά</label>
+        <input type="text" id="series" name="series" value="{{ draft.series if draft else '' }}" required placeholder="π.χ. Α">
+      </div>
+      <div>
+        <label for="aa">Α/Α</label>
+        <input type="text" id="aa" name="aa" value="{{ draft.aa if draft else '' }}" required placeholder="π.χ. 1"{% if copy_mark %} autofocus{% endif %}>
       </div>
     </div>
-  </div>
+  </section>
 
-  <section class="card ne-card" id="issuer_box">
-    <div class="ne-card-head"><h2>Εκδότης &amp; πληρωμή</h2></div>
+  <section class="card ne-card" id="issuer_box" style="--i:1">
+    <div class="ne-card-head"><h2><span class="ne-no">2</span>Εκδότης &amp; πληρωμή</h2></div>
     <div class="grid grid-issuer">
       <div>
         <label for="issuer_vat">ΑΦΜ εκδότη</label>
@@ -118,9 +168,9 @@
     </div>
   </section>
 
-  <section class="card ne-card">
+  <section class="card ne-card" style="--i:2">
     <div class="ne-card-head">
-      <h2>Γραμμές</h2>
+      <h2><span class="ne-no">3</span>Γραμμές</h2>
       <span class="muted small" id="vat_note" hidden></span>
       <button type="button" class="btn-ghost btn-sm" onclick="addLine()" title="Προσθήκη γραμμής">+ Γραμμή</button>
     </div>
@@ -182,8 +232,8 @@
     </div>
   </section>
 
-  <section class="card ne-card" id="payroll_box" hidden>
-    <div class="ne-card-head"><h2>Κρατήσεις μισθοδοσίας</h2>
+  <section class="card ne-card" id="payroll_box" style="--i:3" hidden>
+    <div class="ne-card-head"><h2><span class="ne-no">4</span>Κρατήσεις μισθοδοσίας</h2>
       <span class="muted small">Δηλώνονται σε επίπεδο παραστατικού</span></div>
     <div class="grid grid-issuer">
       <div>
@@ -226,6 +276,13 @@
 
 {% block scripts %}
 <script>
+// Τα σύνολα της κεφαλίδας «σκάνε» όταν αλλάζει η τιμή τους.
+['t_net', 't_vat', 't_gross'].forEach(id => {
+  const el = document.getElementById(id);
+  new MutationObserver(() => {
+    el.classList.remove('is-pop'); void el.offsetWidth; el.classList.add('is-pop');
+  }).observe(el, {childList: true});
+});
 function renumber() {
   document.querySelectorAll('#lines .line-item').forEach((el, i) => {
     el.querySelector('.line-item__no').textContent = i + 1;

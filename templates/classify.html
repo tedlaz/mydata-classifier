@@ -83,49 +83,132 @@
 {% set attention = notes|selectattr(0, 'equalto', 'warn')|list %}
 
 <form method="post" action="{{ url_for('submit', mark=inv.mark) }}" id="cls-form">
-  {# Συμπαγής κεφαλίδα: στοιχεία + ποσά + πληροφορίες, πρόοδος + τρόπος χαρακτηρισμού. #}
-  <div class="card cls-top">
-    <div class="cls-top-row">
-      <div class="cls-top-title">
-        <a class="back back--inline" href="{{ url_for('document', mark=inv.mark) }}" title="Πίσω στο παραστατικό">←</a>
-        <div>
-          <h1>{{ inv.issuer_name or "Χωρίς επωνυμία" }}</h1>
-          <div class="meta">
-            <span>ΑΦΜ <span class="mono">{{ inv.issuer_vat or "—" }}</span></span>
-            <span>{{ inv.invoice_type }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
-            <span>{{ inv.issue_date }}</span>
-            <span>MARK <span class="mono">{{ inv.mark }}</span></span>
-          </div>
-        </div>
-      </div>
-      <div class="cls-stats">
-        <div><span class="kicker">Καθαρή</span><b class="mono">{{ inv.total_net|el_amount }} €</b></div>
-        <div><span class="kicker">ΦΠΑ</span><b class="mono">{{ inv.total_vat|el_amount }} €</b></div>
-        <div><span class="kicker">Σύνολο</span><b class="mono">{{ inv.total_gross|el_amount }} €</b></div>
-      </div>
+<style>
+/* ---------- Κεφαλίδα χαρακτηρισμού (ίδια οικογένεια με βιβλία/παραστατικό) ---------- */
+.ch-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(20px,3.5vw,30px);color:#fff;margin-bottom:18px;
+  background:radial-gradient(120% 140% at 0% 0%,#3a2a7a 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
+.ch-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;animation:ch-float 13s ease-in-out infinite;pointer-events:none}
+.ch-blob.b1{width:300px;height:300px;background:#5b66f5;top:-140px;right:-40px}
+.ch-blob.b2{width:220px;height:220px;background:#1fbf8a;bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
+@keyframes ch-float{50%{transform:translate(26px,-18px) scale(1.1)}}
+@keyframes ch-rise{from{opacity:0;transform:translateY(14px)}}
+.ch-nav{position:relative;display:flex;justify-content:space-between;gap:8px;margin-bottom:16px}
+.ch-hero .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
+.ch-hero .btn-ghost:hover{background:rgba(255,255,255,.16)}
+.ch-hero .info-btn.has-attention{border-color:#f2c265;color:#f2c265}
+.ch-who{position:relative;display:flex;gap:16px;align-items:center;min-width:0}
+.ch-av{flex:none;width:58px;height:58px;border-radius:17px;display:grid;place-items:center;font-weight:800;font-size:1.2rem;
+  background:linear-gradient(135deg,hsl(var(--h) 72% 60%),hsl(calc(var(--h) + 40) 68% 45%));box-shadow:0 10px 24px -10px hsl(var(--h) 70% 45%);
+  animation:ch-rise .5s var(--ease) both}
+.ch-kicker{font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#9aa2ff}
+.ch-hero h1{margin:2px 0;font-size:clamp(1.3rem,3vw,1.9rem);font-weight:800;letter-spacing:-.01em;color:#fff;overflow-wrap:anywhere}
+.ch-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.ch-meta span{font-size:.78rem;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.08);color:#dfe3ff}
+.ch-meta .mono{font-family:var(--font-data)}
+
+.ch-mid{position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(260px,1.4fr);gap:12px;margin-top:20px}
+.ch-tot{padding:12px 16px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+  animation:ch-rise .5s var(--ease) both;animation-delay:calc(var(--i) * 70ms + 120ms)}
+.ch-tot span{display:block;font-size:.74rem;color:#aab2d4;font-weight:600;text-transform:uppercase;letter-spacing:.07em}
+.ch-tot b{display:block;font:800 1.2rem/1.3 var(--font-data);margin-top:4px}
+.ch-prog{display:flex;align-items:center;gap:14px;padding:10px 16px;border-radius:14px;background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.12);animation:ch-rise .5s var(--ease) .35s both;transition:border-color .4s,box-shadow .4s}
+.ch-ring{position:relative;width:72px;height:72px;flex:none;--p:0}
+.ch-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ch-ring circle{fill:none;stroke-width:8}
+.ch-ring .bg{stroke:rgba(255,255,255,.12)}
+.ch-ring .fg{stroke:url(#ch-grad);stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:calc(100 - var(--p));
+  transition:stroke-dashoffset .6s var(--ease)}
+.ch-ring b{position:absolute;inset:0;display:grid;place-items:center;font:800 .95rem var(--font-data)}
+.ch-prog.is-done{border-color:#4fd1a0;box-shadow:0 0 0 4px rgba(79,209,160,.18),0 12px 30px -14px #4fd1a0}
+.ch-prog.is-done .ch-ring{animation:ch-pop .6s var(--ease)}
+.ch-prog-txt{font-size:.84rem;color:#c6cbe8;line-height:1.45}
+.ch-prog-txt #overall-text{display:block;color:#fff;font-weight:700}
+.ch-hero .cls-overall-text{margin:0}
+
+.ch-bottom{position:relative;display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;margin-top:16px}
+.ch-hero .meter{flex:1;min-width:200px;height:10px;background:rgba(255,255,255,.1)}
+.ch-hero .meter span{background:linear-gradient(90deg,#9aa2ff,#4fd1a0);position:relative;overflow:hidden}
+.ch-hero .meter span::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);
+  transform:translateX(-100%);animation:ch-shine 2.2s ease-in-out infinite}
+@keyframes ch-shine{to{transform:translateX(100%)}}
+/* Διακόπτης τρόπου με συρόμενο «δείκτη» */
+.ch-hero .seg{position:relative;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);padding:4px;border-radius:12px}
+.ch-hero .seg::before{content:"";position:absolute;top:4px;bottom:4px;left:4px;width:calc(50% - 4px);border-radius:9px;background:var(--accent-grad);
+  box-shadow:0 6px 16px -6px var(--accent);transition:transform .35s var(--ease)}
+.ch-hero .seg:has(input[value="1"]:checked)::before{transform:translateX(100%)}
+.ch-hero .seg label{position:relative;z-index:1;flex:1;justify-content:center;color:#c6cbe8;background:none!important;box-shadow:none!important;
+  padding:7px 16px;font-weight:600;transition:color .3s}
+.ch-hero .seg label:has(input:checked){color:#fff}
+.ch-hero .seg input{position:absolute;opacity:0;pointer-events:none}
+.ch-hero .seg label:has(input:focus-visible){outline:2px solid #fff;outline-offset:1px;border-radius:9px}
+.ch-info{margin:-4px 0 16px;animation:ch-rise .3s var(--ease) both}
+
+/* ---------- Γραμμές ---------- */
+#cls-form .cls-line{border-radius:18px;animation:ch-rise .5s var(--ease) both;animation-delay:calc(var(--i, 0) * 80ms + 150ms);
+  transition:border-color .3s,box-shadow .3s,transform .3s var(--ease)}
+#cls-form .cls-line:focus-within{box-shadow:0 0 0 4px color-mix(in srgb,var(--state) 18%,transparent),var(--shadow-hi)}
+#cls-form .cls-line-badge{transition:background .3s,transform .3s var(--ease)}
+#cls-form .cls-line:focus-within .cls-line-badge{transform:scale(1.1) rotate(-6deg)}
+#cls-form .cls-line[data-state=ok] .cls-line-badge{background:var(--ok);animation:ch-pop .5s var(--ease)}
+#cls-form .cls-line[data-state=ok] .cls-line-badge:not(.cls-line-badge--rate){color:transparent;position:relative}
+#cls-form .cls-line[data-state=ok] .cls-line-badge:not(.cls-line-badge--rate)::after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;color:#fff}
+#cls-form .cls-line[data-state=over] .cls-status{animation:ch-shake .4s}
+@keyframes ch-pop{40%{transform:scale(1.25)}}
+@keyframes ch-shake{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+#cls-form .meter--line{height:8px}
+#cls-form .cls-row{transition:border-color .2s,background .2s}
+#cls-form .cls-row:hover{border-color:var(--accent-glow)}
+#cls-form .cls-row:focus-within{border-color:var(--accent);background:var(--surface)}
+#cls-form .cls-footer{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);background:color-mix(in srgb,var(--surface) 85%,transparent)}
+#cls-form .cls-footer-status[data-state=ok]{padding:6px 14px;border-radius:999px;background:var(--ok-soft)}
+#cls-form:has(#footer-status[data-state=ok]) .cls-footer button[value=local]{animation:ch-glow 2s ease-in-out infinite}
+@keyframes ch-glow{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 25%,transparent),0 12px 28px -10px var(--accent)}}
+@media (max-width:900px){ .ch-mid{grid-template-columns:repeat(3,minmax(0,1fr))} .ch-prog{grid-column:1/-1} }
+@media (max-width:520px){ .ch-mid{grid-template-columns:1fr 1fr} }
+@media (prefers-reduced-motion:reduce){ .ch-hero *,.ch-hero *::before,.ch-hero *::after,#cls-form .cls-line,#cls-form .cls-line *{animation:none!important;transition:none!important} }
+</style>
+
+  <header class="ch-hero">
+    <i class="ch-blob b1"></i><i class="ch-blob b2"></i>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <defs><linearGradient id="ch-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9aa2ff"/><stop offset="1" stop-color="#4fd1a0"/></linearGradient></defs>
+    </svg>
+    <div class="ch-nav">
+      <a class="btn btn-ghost btn-sm" href="{{ url_for('document', mark=inv.mark) }}">← Παραστατικό</a>
       <button type="button" class="btn-ghost btn-sm info-btn {{ 'has-attention' if attention }}"
               data-toggle="#cls-info" aria-expanded="false" aria-controls="cls-info">
         ℹ Πληροφορίες{% if notes %} <span class="count">{{ notes|length }}</span>{% endif %}
       </button>
     </div>
-
-    <div class="cls-info" id="cls-info" hidden>
-      {% for kind, text in notes %}<p class="note note--{{ kind }}">{{ text|safe }}</p>{% endfor %}
-      <ul class="help-list">
-        <li><strong>Κάθε γραμμή</strong> του παραστατικού χαρακτηρίζεται χωριστά — το myDATA το απαιτεί.</li>
-        <li>Διάλεξε <strong>κατηγορία εξόδου</strong> και μετά <strong>τύπο Ε3</strong> (οι τύποι φιλτράρονται βάσει της κατηγορίας).</li>
-        <li><strong>Με δικαίωμα έκπτωσης ΦΠΑ</strong>: ποσό = <strong>καθαρή αξία</strong> και χαρακτηρισμός ΦΠΑ.</li>
-        <li><strong>Χωρίς δικαίωμα έκπτωσης</strong> (π.χ. category2_5): ποσό = <strong>μικτή αξία</strong>, «Χωρίς χαρακτηρισμό ΦΠΑ» — γίνεται αυτόματα.</li>
-        <li>«<strong>Ανά γραμμή</strong>»: κάθε γραμμή χωριστά. «<strong>Συγκεντρωτικά</strong>»: οι γραμμές αθροίζονται ανά κατηγορία ΦΠΑ (24%, 13%, χωρίς ΦΠΑ) και χαρακτηρίζονται μαζί.</li>
-        <li>Μοίρασμα σε περισσότερα Ε3: «<strong>+ Ε3</strong>» — το ποσό συμπληρώνεται με ό,τι απομένει.</li>
-      </ul>
+    <div class="ch-who">
+      <div class="ch-av" style="--h:{{ ((inv.issuer_vat or '0')[-3:]|int(0) * 7) % 360 }}" aria-hidden="true">
+        {%- for w in (inv.issuer_name or '?').split()[:2] %}{{ w[0]|upper }}{% endfor -%}
+      </div>
+      <div style="min-width:0">
+        <div class="ch-kicker">🏷️ Χαρακτηρισμός · MARK <span class="mono">{{ inv.mark }}</span></div>
+        <h1>{{ inv.issuer_name or "Χωρίς επωνυμία" }}</h1>
+        <div class="ch-meta">
+          <span class="mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</span>
+          <span>{{ inv.invoice_type }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
+          <span class="mono">📅 {{ '/'.join(inv.issue_date.split('-')[::-1]) if inv.issue_date else '—' }}</span>
+        </div>
+      </div>
     </div>
 
-    <div class="cls-top-row cls-top-row--progress">
-      <div class="cls-overall">
-        <div class="cls-overall-text"><span id="overall-text">…</span><span id="overall-count" class="muted"></span></div>
-        <div class="meter"><span id="overall-bar"></span></div>
+    <div class="ch-mid">
+      <div class="ch-tot" style="--i:0"><span>Καθαρή</span><b>{{ inv.total_net|el_amount }} €</b></div>
+      <div class="ch-tot" style="--i:1"><span>ΦΠΑ</span><b>{{ inv.total_vat|el_amount }} €</b></div>
+      <div class="ch-tot" style="--i:2"><span>Σύνολο</span><b>{{ inv.total_gross|el_amount }} €</b></div>
+      <div class="ch-prog" id="ch-prog">
+        <div class="ch-ring" id="ch-ring"><svg viewBox="0 0 40 40"><circle class="bg" cx="20" cy="20" r="15.9" pathLength="100"/>
+          <circle class="fg" cx="20" cy="20" r="15.9" pathLength="100"/></svg><b>0%</b></div>
+        <div class="ch-prog-txt cls-overall-text"><span id="overall-text">…</span><span id="overall-count"></span></div>
       </div>
+    </div>
+
+    <div class="ch-bottom">
+      <div class="meter"><span id="overall-bar"></span></div>
       {% if pi_allowed %}
       <fieldset class="seg" title="Τρόπος χαρακτηρισμού">
         <legend class="sr-only">Τρόπος χαρακτηρισμού</legend>
@@ -136,6 +219,18 @@
       </fieldset>
       {% endif %}
     </div>
+  </header>
+
+  <div class="card cls-info ch-info" id="cls-info" hidden>
+    {% for kind, text in notes %}<p class="note note--{{ kind }}">{{ text|safe }}</p>{% endfor %}
+    <ul class="help-list">
+      <li><strong>Κάθε γραμμή</strong> του παραστατικού χαρακτηρίζεται χωριστά — ή <strong>συγκεντρωτικά</strong>, ανά κατηγορία ΦΠΑ.</li>
+      <li>Διάλεξε <strong>κατηγορία εξόδου</strong> και μετά <strong>τύπο Ε3</strong> (οι τύποι φιλτράρονται βάσει της κατηγορίας).</li>
+      <li><strong>Με δικαίωμα έκπτωσης ΦΠΑ</strong>: ποσό = <strong>καθαρή αξία</strong> και χαρακτηρισμός ΦΠΑ.</li>
+      <li><strong>Χωρίς δικαίωμα έκπτωσης</strong> (π.χ. category2_5): ποσό = <strong>μικτή αξία</strong>, «Χωρίς χαρακτηρισμό ΦΠΑ» — γίνεται αυτόματα.</li>
+      <li>«<strong>Ανά γραμμή</strong>»: κάθε γραμμή χωριστά. «<strong>Συγκεντρωτικά</strong>»: οι γραμμές αθροίζονται ανά κατηγορία ΦΠΑ (24%, 13%, χωρίς ΦΠΑ) και χαρακτηρίζονται μαζί.</li>
+      <li>Μοίρασμα σε περισσότερα Ε3: «<strong>+ Ε3</strong>» — το ποσό συμπληρώνεται με ό,τι απομένει.</li>
+    </ul>
   </div>
 
   <div data-mode-panel="0">
@@ -147,7 +242,7 @@
 
   <div id="cls-lines">
     {% for g in line_groups %}
-    <section class="cls-line" data-net="{{ '%.2f'|format(g.net) }}" data-vat="{{ '%.2f'|format(g.vat) }}"
+    <section class="cls-line" style="--i:{{ loop.index0 }}" data-net="{{ '%.2f'|format(g.net) }}" data-vat="{{ '%.2f'|format(g.vat) }}"
              data-gross="{{ '%.2f'|format(g.net + g.vat) }}">
       <header class="cls-line-head">
         <span class="cls-line-badge">{{ g.line_number }}</span>
@@ -187,7 +282,7 @@
     {# Μία συγκεντρωτική γραμμή ανά κατηγορία ΦΠΑ (π.χ. 24%, 13%, χωρίς ΦΠΑ). #}
     {% for g in vat_groups %}
     {% set rate = vat_rates.get(g.vat_category, '') %}
-    <section class="cls-line pi-group" data-group="{{ g.vat_category }}" data-net="{{ '%.2f'|format(g.net) }}"
+    <section class="cls-line pi-group" style="--i:{{ loop.index0 }}" data-group="{{ g.vat_category }}" data-net="{{ '%.2f'|format(g.net) }}"
              data-vat="{{ '%.2f'|format(g.vat) }}" data-classify-vat="{{ 1 if g.classify_vat else 0 }}">
       <header class="cls-line-head">
         <span class="cls-line-badge cls-line-badge--rate">{{ rate if rate[:1].isdigit() else '—' }}</span>
@@ -354,8 +449,14 @@ function recalc() {
   const allOk = ready === total;
   const noun = pi ? ['συγκεντρωτική γραμμή', 'συγκεντρωτικές γραμμές'] : ['γραμμή', 'γραμμές'];
   document.getElementById('overall-text').textContent = 'Χαρακτηρισμένα ' + money(done) + ' από ' + money(target);
-  document.getElementById('overall-count').textContent = ' · ' + ready + ' από ' + total + ' ' + noun[1] + ' έτοιμες';
+  document.getElementById('overall-count').textContent = ready + ' από ' + total + ' ' + noun[1] + ' έτοιμες';
   document.getElementById('overall-bar').style.width = (target ? done / target * 100 : 100) + '%';
+  // Δαχτυλίδι της κεφαλίδας: ίδιο ποσοστό, «γεμίζει» πράσινο όταν όλα είναι έτοιμα.
+  const pct = target ? Math.round(done / target * 100) : 100;
+  const ring = document.getElementById('ch-ring');
+  ring.style.setProperty('--p', pct);
+  ring.querySelector('b').textContent = pct + '%';
+  document.getElementById('ch-prog').classList.toggle('is-done', allOk);
   const fs = document.getElementById('footer-status');
   const bad = total - ready;
   fs.textContent = allOk ? '✓ Έτοιμο για αποθήκευση.'

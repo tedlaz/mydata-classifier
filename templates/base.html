@@ -9,6 +9,10 @@
 // Πριν το πρώτο paint: θέμα + εικονίδιο εναλλαγής, για να μην «αναβοσβήνει».
 (function(){var r=document.documentElement,t;try{t=localStorage.getItem('theme')}catch(e){}
 if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')})();
+// Ίδια σελίδα (φίλτρο, σελιδοποίηση, αποθήκευση που επιστρέφει εδώ): χωρίς εισαγωγικά animations και crossfade.
+(function(){var s=false;try{s=new URL(document.referrer).pathname===location.pathname}catch(e){}
+if(!s)return;document.documentElement.dataset.samePage='';
+addEventListener('pagereveal',function(e){if(e.viewTransition)e.viewTransition.skipTransition()})})();
 </script>
 {# Inline opt-in: ο Chrome το ελέγχει πριν φορτωθεί το app.css → αλλιώς «ViewTransition opt-in disabled». #}
 <style>@view-transition{navigation:auto}</style>
@@ -42,6 +46,7 @@ if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme:
   ]),
   ('Ρυθμίσεις', [
     ('parameters', 'Παράμετροι', 'sliders', ['parameters'], False),
+    ('help_page', 'Βοήθεια', 'help', ['help_page'], False),
   ]),
 ] %}
 <div class="shell">
@@ -52,7 +57,7 @@ if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme:
     </a>
     {# Ενεργή εταιρεία: πάνω πάνω στο μενού, για να φαίνεται πάντα σε ποια δουλεύεις. #}
       {% if active_company %}
-      <a class="who who--top {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('parameters', tab='companies') }}"
+      <a class="who who--top {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('companies') }}"
          title="Αλλαγή ενεργής εταιρείας">
         {{ active_company.company_name }}
         {# Περιβάλλον + badges (μόνο σύμβολα, εξήγηση στο title) σε μία γραμμή. #}
@@ -72,6 +77,8 @@ if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme:
       {% endfor %}
     </nav>
     <div class="sidebar-foot">
+      <a class="nav-link {{ 'is-active' if ep == 'companies' }}" href="{{ url_for('companies') }}"
+         {% if ep == 'companies' %}aria-current="page"{% endif %}>{{ icon('building') }}Εταιρείες</a>
       <button type="button" class="theme-toggle" data-theme-toggle>
         {{ icon('sun') }}{{ icon('moon') }}Εναλλαγή θέματος
       </button>
@@ -84,7 +91,7 @@ if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme:
       <button type="button" class="menu-btn" data-nav-toggle aria-label="Μενού" aria-controls="sidebar">{{ icon('menu') }}</button>
       <a class="brand" href="{{ url_for('invoices') }}"><span class="brand-mark">my</span><b>myDATA</b></a>
       {% if active_company %}
-      <a class="who who--bar {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('parameters', tab='companies') }}"
+      <a class="who who--bar {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('companies') }}"
          title="Αλλαγή ενεργής εταιρείας">{{ active_company.company_name }}<small>{{ active_company.MYDATA_ENV or 'prod' }}</small></a>
       {% endif %}
     </header>

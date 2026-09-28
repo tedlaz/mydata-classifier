@@ -1,0 +1,607 @@
+{% extends "base.html" %}
+{% block title %}Βοήθεια{% endblock %}
+{% block content %}
+<style>
+/* ---------- Βοήθεια: όλα τα στυλ με πρόθεμα hp- για να μην αγγίζουν την υπόλοιπη εφαρμογή ---------- */
+.hp{--hp-gap:clamp(40px,7vw,84px);overflow-wrap:anywhere}
+.hp-steps>*,.hp-two>*,.hp-combo>*,.hp-olap>*,.hp-map>*,.hp-errs>*,.hp-vault>*,.hp-legend>*,.hp-hero-in>*{min-width:0}
+.hp section{scroll-margin-top:80px;margin-top:var(--hp-gap)}
+.hp h2{font-size:clamp(1.4rem,2.6vw,1.9rem);font-weight:800;letter-spacing:-.01em;margin:0 0 8px}
+.hp h3{margin:0 0 6px;font-size:1.05rem}
+.hp p{margin:0 0 10px;color:var(--ink-2)}
+.hp code,.hp .mono{font-family:var(--font-data);font-size:.86em;background:var(--surface-3);padding:1px 6px;border-radius:6px;color:var(--ink)}
+.hp-kicker{display:inline-block;font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:6px}
+.hp-lead{max-width:760px;font-size:1.02rem}
+.hp-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px}
+
+/* ---------- Hero ---------- */
+.hp-hero{position:relative;overflow:hidden;border-radius:22px;padding:clamp(26px,5vw,56px);color:#fff;
+  background:radial-gradient(120% 140% at 0% 0%,#2a2f7a 0%,#141a3c 45%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
+.hp-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.55;animation:hp-float 14s ease-in-out infinite}
+.hp-blob.b1{width:340px;height:340px;background:#5b66f5;top:-120px;right:-60px}
+.hp-blob.b2{width:260px;height:260px;background:#0fb880;bottom:-120px;left:20%;animation-delay:-5s;opacity:.35}
+.hp-blob.b3{width:200px;height:200px;background:#b04bff;top:30%;left:-80px;animation-delay:-9s;opacity:.35}
+@keyframes hp-float{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(30px,-20px) scale(1.12)}}
+.hp-hero-in{position:relative;display:grid;gap:30px}
+.hp-hero h1{font-size:clamp(2rem,5vw,3.3rem);line-height:1.05;margin:0 0 12px;font-weight:800;letter-spacing:-.02em}
+.hp-hero h1 span{background:linear-gradient(90deg,#9aa2ff,#6ff0c4,#ffd27a);-webkit-background-clip:text;background-clip:text;color:transparent;
+  background-size:200% 100%;animation:hp-shine 6s linear infinite}
+@keyframes hp-shine{to{background-position:200% 0}}
+.hp-hero p{color:#c6cbe8;max-width:640px;font-size:1.05rem}
+.hp-hero .hp-kicker{color:#9aa2ff}
+.hp-pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.hp-pill{font-size:.8rem;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:#dfe3ff}
+.hp-flow{width:100%;height:auto;display:block}
+.hp-flow .n rect{fill:rgba(255,255,255,.07);stroke:rgba(255,255,255,.22)}
+.hp-flow .n text{fill:#fff;font-family:var(--font-ui);font-weight:700;font-size:15px}
+.hp-flow .n .s{fill:#aab2d4;font-weight:500;font-size:11.5px}
+.hp-flow .n .e{font-size:26px}
+.hp-flow .ln{fill:none;stroke:rgba(255,255,255,.18);stroke-width:2;stroke-dasharray:5 7;animation:hp-dash 1.2s linear infinite}
+.hp-flow .lbl{fill:#8f98c8;font:600 11px var(--font-data)}
+@keyframes hp-dash{to{stroke-dashoffset:-24}}
+.hp-flow .n{animation:hp-pulse 4s ease-in-out infinite}
+.hp-flow .n:nth-of-type(2){animation-delay:1s}.hp-flow .n:nth-of-type(3){animation-delay:2s}.hp-flow .n:nth-of-type(4){animation-delay:3s}
+@keyframes hp-pulse{0%,70%,100%{opacity:.85}35%{opacity:1}}
+
+/* ---------- Πίνακας περιεχομένων ---------- */
+.hp-toc{position:sticky;top:10px;z-index:20;margin-top:22px;display:flex;gap:6px;overflow-x:auto;padding:8px;
+  background:color-mix(in srgb,var(--surface) 82%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);scrollbar-width:none}
+.hp-toc::-webkit-scrollbar{display:none}
+.hp-toc a{flex:none;text-decoration:none;color:var(--ink-2);font-size:.84rem;font-weight:600;padding:7px 12px;border-radius:9px;transition:background .2s,color .2s}
+.hp-toc a:hover{background:var(--surface-3);color:var(--ink)}
+.hp-toc a.is-on{background:var(--accent-grad);color:#fff}
+
+/* ---------- Γρήγορη εκκίνηση ---------- */
+.hp-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:22px;counter-reset:st}
+.hp-step{position:relative;padding:22px 20px 20px;border-radius:var(--radius);background:var(--surface);border:1px solid var(--line);
+  box-shadow:var(--shadow);transition:transform .3s var(--ease),box-shadow .3s}
+.hp-step:hover{transform:translateY(-4px);box-shadow:var(--shadow-hi)}
+.hp-step::before{counter-increment:st;content:counter(st);position:absolute;top:-14px;left:18px;width:32px;height:32px;border-radius:10px;
+  display:grid;place-items:center;font-weight:800;color:#fff;background:var(--accent-grad);box-shadow:0 6px 16px -6px var(--accent)}
+.hp-step .ico{font-size:1.8rem;display:block;margin:6px 0 8px}
+.hp-step p{font-size:.9rem;margin-bottom:12px}
+.hp-step a{font-size:.85rem;font-weight:700;text-decoration:none}
+.hp-step a::after{content:" →";transition:margin .2s}
+.hp-step a:hover::after{margin-left:4px}
+
+/* ---------- Κύκλος ζωής ---------- */
+.hp-life{width:100%;height:auto;display:block;margin-top:10px}
+.hp-life .st rect{stroke-width:2}
+.hp-life text{font-family:var(--font-ui);fill:var(--ink)}
+.hp-life .t1{font-weight:800;font-size:15px}
+.hp-life .t2{font-family:var(--font-data);font-size:11px;fill:var(--muted)}
+.hp-life .ar{fill:none;stroke:var(--line);stroke-width:3}
+.hp-life .ar2{fill:none;stroke:var(--muted);stroke-width:2;stroke-dasharray:6 6;animation:hp-dash 1.2s linear infinite}
+.hp-life .al{font:700 11.5px var(--font-ui);fill:var(--ink-2)}
+.hp-life .tok{fill:var(--accent);filter:drop-shadow(0 0 6px var(--accent))}
+.hp-legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px}
+.hp-legend div{padding:12px 14px;border-radius:12px;background:var(--surface-2);border-left:4px solid var(--c);font-size:.88rem;color:var(--ink-2)}
+.hp-legend b{display:block;color:var(--ink)}
+
+/* ---------- Χαρακτηρισμός (split bar) ---------- */
+.hp-two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-top:22px;align-items:start}
+.hp-line{font-family:var(--font-data);font-size:.85rem}
+.hp-line-head{display:flex;justify-content:space-between;padding:10px 14px;border-radius:10px 10px 0 0;background:var(--surface-3);font-weight:600}
+.hp-bar{position:relative;display:flex;height:54px;border-radius:0 0 10px 10px;overflow:hidden;background:var(--surface-2)}
+.hp-seg{display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;white-space:nowrap;overflow:hidden;width:0;
+  transition:width 1.1s var(--ease)}
+.hp-seg.a{background:linear-gradient(135deg,#5b66f5,#4148d6)}
+.hp-seg.b{background:linear-gradient(135deg,#1fbf8a,#0e8a5f);transition-delay:.35s}
+.is-in .hp-seg.a{width:60%}.is-in .hp-seg.b{width:40%}
+.hp-cls{display:grid;gap:8px;margin-top:12px}
+.hp-cls div{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);
+  opacity:0;transform:translateX(-14px);transition:opacity .5s,transform .5s var(--ease)}
+.hp-cls div:nth-child(2){transition-delay:.25s}.hp-cls div:nth-child(3){transition-delay:.5s}
+.is-in .hp-cls div{opacity:1;transform:none}
+.hp-cls i{width:12px;height:12px;border-radius:4px;flex:none;background:var(--c)}
+.hp-cls span{margin-left:auto;font-weight:700}
+.hp-eq{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--ok-soft);border:1px solid var(--ok-line);color:var(--ok);font-weight:700;
+  display:flex;gap:10px;align-items:center;opacity:0;transform:scale(.96);transition:opacity .5s 1.2s,transform .5s 1.2s var(--ease)}
+.is-in .hp-eq{opacity:1;transform:none}
+.hp-rules{list-style:none;padding:0;margin:0;display:grid;gap:10px}
+.hp-rules li{display:flex;gap:12px;padding:12px 14px;border-radius:12px;background:var(--surface);border:1px solid var(--line);font-size:.9rem;color:var(--ink-2)}
+.hp-rules li b{color:var(--ink)}
+.hp-rules .em{font-size:1.3rem;line-height:1}
+
+/* ---------- Τρόποι χαρακτηρισμού ---------- */
+.hp-sub{margin:34px 0 6px;font-size:1.2rem}
+.hp-modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin-top:16px}
+.hp-mode{display:flex;flex-direction:column;gap:12px;transition:transform .3s var(--ease),box-shadow .3s}
+.hp-mode:hover{transform:translateY(-3px);box-shadow:var(--shadow-hi)}
+.hp-mode p{font-size:.88rem;margin:0}
+.hp-mode-head{display:flex;flex-direction:column;gap:6px}
+.hp-tag{align-self:flex-start;font-size:.72rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:4px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.hp-tag--g{background:var(--ok-soft);color:var(--ok)}
+.hp-mm{width:100%;height:auto;display:block}
+.hp-mm text{font:600 12px var(--font-ui);fill:var(--ink)}
+.hp-mm .am{font:600 11px var(--font-data);fill:var(--muted)}
+.hp-mm .code{font:700 11px var(--font-data);fill:var(--ink)}
+.hp-mm .ln-box{fill:var(--surface-2);stroke:var(--line);stroke-width:1.5}
+.hp-mm .cl-box{fill:color-mix(in srgb,var(--c) 14%,var(--surface));stroke:var(--c);stroke-width:1.5}
+.hp-mm .mm-ln{fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:5 6;animation:hp-dash 1.2s linear infinite}
+.hp-mm .mm-dot{fill:var(--accent)}
+.hp-mm .ln-box.is-split{stroke:#1fbf8a;stroke-width:2}
+.hp-mm .mm-split rect{fill:var(--ok);animation:hp-pulse-s 2s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+.hp-mm .mm-split text{font:800 11px var(--font-data);fill:#fff}
+@keyframes hp-pulse-s{50%{transform:scale(1.12)}}
+.hp-mode-notes{margin-top:16px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+
+/* ---------- Συνδυασμοί (funnel) ---------- */
+.hp-combo{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:10px;align-items:center;margin-top:20px}
+.hp-col{display:grid;gap:6px}
+.hp-col h4{margin:0 0 4px;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.hp-opt{font-family:var(--font-data);font-size:.8rem;padding:8px 10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);
+  color:var(--muted);transition:all .4s var(--ease)}
+.hp-combo .hp-opt.ok{animation:hp-pick 6s var(--ease) infinite}
+.hp-combo .c2 .hp-opt.ok{animation-delay:.6s}.hp-combo .c3 .hp-opt.ok{animation-delay:1.2s}
+.hp-combo .hp-opt.no{animation:hp-fade 6s ease infinite}
+.hp-combo .c2 .hp-opt.no{animation-delay:.6s}.hp-combo .c3 .hp-opt.no{animation-delay:1.2s}
+@keyframes hp-pick{0%,12%{}20%,80%{border-color:var(--accent);background:var(--accent-soft);color:var(--ink);box-shadow:0 0 0 4px var(--accent-glow);font-weight:700}100%{}}
+@keyframes hp-fade{0%,12%{}20%,80%{opacity:.28;text-decoration:line-through}100%{}}
+.hp-arrow{font-size:1.4rem;color:var(--accent);animation:hp-nudge 1.6s ease-in-out infinite}
+@keyframes hp-nudge{50%{transform:translateX(5px)}}
+
+/* ---------- Λογιστής ---------- */
+.hp-acc{width:100%;height:auto;display:block;margin-top:14px}
+.hp-acc text{font-family:var(--font-ui);fill:var(--ink)}
+.hp-acc .b{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.hp-acc .hl{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
+.hp-acc .t1{font-weight:800;font-size:14px}
+.hp-acc .t2{font-size:11.5px;fill:var(--muted)}
+.hp-acc .xml{font-family:var(--font-data);font-size:11.5px;fill:var(--ink-2)}
+.hp-acc .xml .k{fill:var(--accent);font-weight:700}
+.hp-acc .ln{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:5 6;animation:hp-dash 1s linear infinite}
+.hp-acc .dot{fill:var(--accent)}
+
+/* ---------- OLAP κύβος ---------- */
+.hp-olap{display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:34px;align-items:center;margin-top:20px}
+.hp-cube{width:100%;max-width:320px;height:auto;display:block;margin:auto;animation:hp-bob 5s ease-in-out infinite;
+  filter:drop-shadow(0 18px 24px rgba(74,85,232,.25))}
+@keyframes hp-bob{50%{transform:translateY(-10px)}}
+.hp-cube rect{stroke:rgba(255,255,255,.55);stroke-width:2;animation:hp-cell 4.5s ease-in-out infinite}
+.hp-cube .ft rect{fill:#5b66f5}.hp-cube .fl rect{fill:#1fbf8a}.hp-cube .fr rect{fill:#b04bff}
+@keyframes hp-cell{0%,100%{fill-opacity:.35}20%{fill-opacity:1}}
+.hp-cube text{font:800 13px var(--font-ui);fill:var(--ink-2)}
+.hp-chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 16px}
+.hp-chip{font-size:.8rem;font-weight:600;padding:6px 11px;border-radius:999px;background:var(--surface-3);color:var(--ink-2)}
+.hp-chip.m{background:var(--accent-soft);color:var(--accent)}
+
+/* ---------- Χάρτης σελίδων ---------- */
+.hp-map{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:20px}
+.hp-page{position:relative;display:block;text-decoration:none;color:inherit;padding:18px;border-radius:var(--radius);background:var(--surface);
+  border:1px solid var(--line);overflow:hidden;transition:transform .3s var(--ease),border-color .3s,box-shadow .3s}
+.hp-page::after{content:"";position:absolute;inset:auto -40% -60% auto;width:160px;height:160px;border-radius:50%;
+  background:radial-gradient(var(--accent-glow),transparent 70%);opacity:0;transition:opacity .35s}
+.hp-page:hover{transform:translateY(-3px);border-color:var(--accent);box-shadow:var(--shadow-hi)}
+.hp-page:hover::after{opacity:.8}
+.hp-page .g{font-size:.68rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.hp-page h3{display:flex;align-items:center;gap:8px;margin:4px 0 6px}
+.hp-page h3 svg{width:20px;height:20px;color:var(--accent)}
+.hp-page p{font-size:.86rem;margin:0}
+
+/* ---------- Σφάλματα / FAQ ---------- */
+.hp-errs{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:20px}
+.hp-err{padding:18px;border-radius:var(--radius);background:var(--err-soft);border:1px solid var(--err-line)}
+.hp-err b{display:inline-block;font-family:var(--font-data);font-size:1.6rem;color:var(--err);margin-bottom:4px}
+.hp-err p{font-size:.88rem;margin:0}
+.hp-err p + p{margin-top:8px;color:var(--ink)}
+.hp-faq{display:grid;gap:10px;margin-top:20px}
+.hp-faq details{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden;transition:box-shadow .3s}
+.hp-faq details[open]{box-shadow:var(--shadow)}
+.hp-faq summary{cursor:pointer;list-style:none;padding:14px 18px;font-weight:700;display:flex;justify-content:space-between;gap:10px}
+.hp-faq summary::-webkit-details-marker{display:none}
+.hp-faq summary::after{content:"+";font-size:1.3rem;line-height:1;color:var(--accent);transition:transform .3s var(--ease)}
+.hp-faq details[open] summary::after{transform:rotate(45deg)}
+.hp-faq details > div{padding:0 18px 16px;color:var(--ink-2);font-size:.92rem;animation:hp-open .35s var(--ease)}
+@keyframes hp-open{from{opacity:0;transform:translateY(-6px)}}
+
+/* ---------- Δεδομένα ---------- */
+.hp-vault{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:20px}
+.hp-vault .hp-card{display:flex;gap:14px}
+.hp-vault .em{font-size:1.8rem;line-height:1}
+.hp-foot{margin-top:var(--hp-gap);text-align:center;color:var(--muted);font-size:.86rem}
+
+/* ---------- Εμφάνιση κατά το scroll ---------- */
+.hp-rv{opacity:0;transform:translateY(24px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.hp-rv.is-in{opacity:1;transform:none}
+
+@media (max-width:720px){
+  .hp-cube{max-width:240px}
+  .hp-combo{grid-template-columns:1fr}
+  .hp-arrow{transform:rotate(90deg);justify-self:center;animation:none}
+  .hp-olap{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  .hp *,.hp *::before,.hp *::after{animation:none!important;transition:none!important}
+  .hp-rv,.hp-cls div,.hp-eq{opacity:1;transform:none}
+  .hp-seg.a{width:60%}.hp-seg.b{width:40%}
+}
+</style>
+
+<div class="hp">
+
+<!-- ================= HERO ================= -->
+<header class="hp-hero">
+  <i class="hp-blob b1"></i><i class="hp-blob b2"></i><i class="hp-blob b3"></i>
+  <div class="hp-hero-in">
+    <div>
+      <span class="hp-kicker">Οδηγός χρήσης</span>
+      <h1>Το βιβλίο σου,<br><span>πάνω από το myDATA.</span></h1>
+      <p>Φέρνεις τα παραστατικά από την ΑΑΔΕ, τα κρατάς σε τοπική βάση, τα χαρακτηρίζεις ανά γραμμή ή συνολικά
+        και στέλνεις τους χαρακτηρισμούς πίσω. Με OLAP, ετήσια σύνοψη και δήλωση ΦΠΑ στο ίδιο μέρος.</p>
+      <div class="hp-pills">
+        <span class="hp-pill">📥 Λήψη εσόδων &amp; εξόδων</span>
+        <span class="hp-pill">🏷️ Χαρακτηρισμός ανά γραμμή ή συνολικά</span>
+        <span class="hp-pill">🏢 Πολλές εταιρείες</span>
+        <span class="hp-pill">👤 Μέσω λογιστή</span>
+        <span class="hp-pill">🧊 OLAP</span>
+      </div>
+    </div>
+
+    <svg class="hp-flow" viewBox="0 0 960 190" role="img" aria-label="Ροή: myDATA → τοπικό βιβλίο → χαρακτηρισμός → αποστολή πίσω στο myDATA">
+      <path id="hp-p1" class="ln" d="M190 80 H 260"/>
+      <path id="hp-p2" class="ln" d="M440 80 H 510"/>
+      <path id="hp-p3" class="ln" d="M690 80 H 760"/>
+      <path id="hp-back" class="ln" d="M860 125 C 860 185, 100 185, 100 125"/>
+      <text class="lbl" x="196" y="68">RequestDocs</text>
+      <text class="lbl" x="400" y="178">SendExpensesClassification · /refresh</text>
+
+      <g class="n"><rect x="10" y="35" width="180" height="90" rx="16"/><text class="e" x="26" y="90">☁️</text>
+        <text x="66" y="76">myDATA</text><text class="s" x="66" y="96">ΑΑΔΕ · REST API</text></g>
+      <g class="n"><rect x="260" y="35" width="180" height="90" rx="16"/><text class="e" x="276" y="90">🗄️</text>
+        <text x="316" y="76">Τοπικό βιβλίο</text><text class="s" x="316" y="96">SQLite · μόνιμο</text></g>
+      <g class="n"><rect x="510" y="35" width="180" height="90" rx="16"/><text class="e" x="526" y="90">🏷️</text>
+        <text x="566" y="76">Χαρακτηρισμός</text><text class="s" x="566" y="96">category + E3 + ΦΠΑ</text></g>
+      <g class="n"><rect x="760" y="35" width="190" height="90" rx="16"/><text class="e" x="776" y="90">🚀</text>
+        <text x="816" y="76">Αποστολή</text><text class="s" x="816" y="96">γραμμή ή συνολικά</text></g>
+
+      <circle r="5" fill="#6ff0c4"><animateMotion dur="1.6s" repeatCount="indefinite"><mpath href="#hp-p1"/></animateMotion></circle>
+      <circle r="5" fill="#9aa2ff"><animateMotion dur="1.6s" begin=".5s" repeatCount="indefinite"><mpath href="#hp-p2"/></animateMotion></circle>
+      <circle r="5" fill="#ffd27a"><animateMotion dur="1.6s" begin="1s" repeatCount="indefinite"><mpath href="#hp-p3"/></animateMotion></circle>
+      <circle r="5" fill="#ff8ab0"><animateMotion dur="3.2s" repeatCount="indefinite"><mpath href="#hp-back"/></animateMotion></circle>
+      <circle r="5" fill="#ff8ab0"><animateMotion dur="3.2s" begin="1.6s" repeatCount="indefinite"><mpath href="#hp-back"/></animateMotion></circle>
+    </svg>
+  </div>
+</header>
+
+<nav class="hp-toc" aria-label="Περιεχόμενα">
+  <a href="#start">🚀 Ξεκίνημα</a>
+  <a href="#lifecycle">🔄 Κύκλος ζωής</a>
+  <a href="#classify">🏷️ Χαρακτηρισμός</a>
+  <a href="#combos">🧩 Συνδυασμοί</a>
+  <a href="#accountant">👤 Λογιστής</a>
+  <a href="#olap">🧊 OLAP</a>
+  <a href="#pages">🗺️ Σελίδες</a>
+  <a href="#errors">⚠️ Σφάλματα</a>
+  <a href="#faq">💬 Ερωτήσεις</a>
+  <a href="#data">🔒 Δεδομένα</a>
+</nav>
+
+<!-- ================= ΞΕΚΙΝΗΜΑ ================= -->
+<section id="start" class="hp-rv">
+  <span class="hp-kicker">Σε 4 βήματα</span>
+  <h2>Από το μηδέν στον πρώτο χαρακτηρισμό</h2>
+  <p class="hp-lead">Κάνε τα βήματα με αυτή τη σειρά την πρώτη φορά. Μετά, η καθημερινή δουλειά είναι μόνο τα βήματα 3 και 4.</p>
+  <div class="hp-steps">
+    <div class="hp-step"><span class="ico">🏢</span><h3>Πρόσθεσε εταιρεία</h3>
+      <p>Βάλε <code>aade-user-id</code>, <code>Subscription-Key</code>, ΑΦΜ και περιβάλλον (<code>prod</code>/<code>dev</code>). Αν δουλεύεις ως λογιστής, όρισε και τα κοινά credentials.</p>
+      <a href="{{ url_for('companies') }}">Εταιρείες</a></div>
+    <div class="hp-step"><span class="ico">🧩</span><h3>Φόρτωσε συνδυασμούς</h3>
+      <p>Εισήγαγε το xlsx «Συνδυασμοί χαρακτηρισμών» της ΑΑΔΕ, ώστε τα dropdowns να δείχνουν μόνο έγκυρες επιλογές.</p>
+      <a href="{{ url_for('parameters', tab='combinations') }}">Συνδυασμοί</a></div>
+    <div class="hp-step"><span class="ico">📥</span><h3>Κάνε ανάκτηση</h3>
+      <p>Διάλεξε διάστημα και φέρε τα παραστατικά. Όσα υπάρχουν ήδη ενημερώνονται· διπλότυπα δεν δημιουργούνται.</p>
+      <a href="{{ url_for('invoices_sync') }}">Ανάκτηση εξόδων</a></div>
+    <div class="hp-step"><span class="ico">🚀</span><h3>Χαρακτήρισε &amp; στείλε</h3>
+      <p>Χαρακτήρισε κάθε γραμμή (ή μαζικά), πάτα «Αποστολή» και μετά «Ανανέωση» για επιβεβαίωση.</p>
+      <a href="{{ url_for('invoices') }}">Βιβλίο εξόδων</a></div>
+  </div>
+</section>
+
+<!-- ================= ΚΥΚΛΟΣ ΖΩΗΣ ================= -->
+<section id="lifecycle" class="hp-rv">
+  <span class="hp-kicker">Καταστάσεις</span>
+  <h2>Ο κύκλος ζωής ενός παραστατικού</h2>
+  <p class="hp-lead">Κάθε παραστατικό στο τοπικό βιβλίο έχει μία κατάσταση. Προχωρά μόνο προς τα εμπρός και δεν χάνεται στο restart.</p>
+  <div class="hp-card">
+    <svg class="hp-life" viewBox="0 0 960 230" role="img" aria-label="Αχαρακτήριστο → Χαρακτηρισμένο → Απεσταλμένο → Ολοκληρωμένο">
+      <path class="ar" d="M195 80 H 255"/><path class="ar" d="M435 80 H 495"/><path class="ar" d="M675 80 H 735"/>
+      <path id="hp-life-p" d="M105 80 H 845" fill="none"/>
+      <g text-anchor="middle"><text class="al" x="225" y="30">χαρακτηρίζω</text><text class="al" x="465" y="30">Αποστολή</text><text class="al" x="705" y="30">Ανανέωση</text></g>
+
+      <g class="st"><rect x="15" y="45" width="180" height="70" rx="14" fill="var(--surface-2)" stroke="var(--muted)"/>
+        <text class="t1" x="36" y="78">Αχαρακτήριστο</text><text class="t2" x="36" y="98">unclassified</text></g>
+      <g class="st"><rect x="255" y="45" width="180" height="70" rx="14" fill="var(--warn-soft)" stroke="var(--warn)"/>
+        <text class="t1" x="274" y="78">Χαρακτηρισμένο</text><text class="t2" x="274" y="98">classified · τοπικά</text></g>
+      <g class="st"><rect x="495" y="45" width="180" height="70" rx="14" fill="var(--info-soft)" stroke="var(--info)"/>
+        <text class="t1" x="516" y="78">Απεσταλμένο</text><text class="t2" x="516" y="98">sent</text></g>
+      <g class="st"><rect x="735" y="45" width="210" height="70" rx="14" fill="var(--ok-soft)" stroke="var(--ok)"/>
+        <text class="t1" x="756" y="78">Ολοκληρωμένο ✓</text><text class="t2" x="756" y="98">confirmed</text></g>
+
+      <path class="ar2" d="M105 118 C 105 200, 840 200, 840 120"/>
+      <text class="al" x="300" y="190">Χαρακτηρίστηκε στην πύλη → καταγραφή μόνο τοπικά (source = manual)</text>
+
+      <circle class="tok" r="8"><animateMotion dur="7s" repeatCount="indefinite" keyPoints="0;0;.33;.33;.66;.66;1;1" keyTimes="0;.1;.25;.4;.55;.7;.85;1" calcMode="linear"><mpath href="#hp-life-p"/></animateMotion></circle>
+    </svg>
+    <div class="hp-legend">
+      <div style="--c:var(--muted)"><b>Αχαρακτήριστο</b>Καμία γραμμή δεν έχει <code>expensesClassification</code>.</div>
+      <div style="--c:var(--warn)"><b>Χαρακτηρισμένο</b>Αποθηκευμένο τοπικά, περιμένει «Αποστολή».</div>
+      <div style="--c:var(--info)"><b>Απεσταλμένο</b>Το myDATA το δέχτηκε και έδωσε mark χαρακτηρισμού.</div>
+      <div style="--c:var(--ok)"><b>Ολοκληρωμένο</b>Επιβεβαιωμένο με «Ανανέωση», ή καταγραμμένο χειροκίνητα.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ΧΑΡΑΚΤΗΡΙΣΜΟΣ ================= -->
+<section id="classify" class="hp-rv">
+  <span class="hp-kicker">Ο βασικός κανόνας</span>
+  <h2>Χαρακτηρισμός: ανά γραμμή ή συνολικά</h2>
+  <p class="hp-lead">Μια γραμμή μπορεί να «σπάσει» σε περισσότερους χαρακτηρισμούς. Το άθροισμά τους πρέπει να ισούται <b>ακριβώς</b> με την καθαρή αξία της γραμμής.</p>
+  <div class="hp-two">
+    <div class="hp-card hp-line">
+      <div class="hp-line-head"><span>Γραμμή 1 · καθαρή αξία</span><span>1.000,00 €</span></div>
+      <div class="hp-bar"><div class="hp-seg a">600,00</div><div class="hp-seg b">400,00</div></div>
+      <div class="hp-cls">
+        <div style="--c:#5b66f5"><i></i>category2_1 · E3_102_001<span>600,00</span></div>
+        <div style="--c:#1fbf8a"><i></i>category2_4 · E3_585_016<span>400,00</span></div>
+        <div style="--c:var(--muted)"><i></i>VAT_361 · γραμμή ΦΠΑ<span>1.000,00</span></div>
+      </div>
+      <div class="hp-eq">✓ 600,00 + 400,00 = 1.000,00 € καθαρή αξία</div>
+    </div>
+    <ul class="hp-rules">
+      <li><span class="em">🎯</span><div><b>Φιλτραρισμένες επιλογές.</b> Τα dropdowns δείχνουν μόνο τους συνδυασμούς που επιτρέπει η ΑΑΔΕ για τον τύπο του παραστατικού.</div></li>
+      <li><span class="em">🧾</span><div><b>Γραμμή ΦΠΑ (<code>VAT_xxx</code>).</b> Ποσό = καθαρή αξία, <b>χωρίς</b> <code>vatAmount</code>. Αλλιώς θα πάρεις σφάλμα 306 ή 337.</div></li>
+      <li><span class="em">⚡</span><div><b>Μαζικός χαρακτηρισμός.</b> Στο βιβλίο εξόδων επίλεξε πολλά παραστατικά και χαρακτήρισέ τα μαζί.</div></li>
+      <li><span class="em">🤖</span><div><b>Προτάσεις ανά προμηθευτή.</b> Όρισε κανόνα ανά κατηγορία ΦΠΑ και οι γραμμές προσυμπληρώνονται αυτόματα.</div></li>
+      <li><span class="em">✍️</span><div><b>Χαρακτηρισμένο στην πύλη;</b> Το ERP API δεν το επιστρέφει. Κατέγραψέ το <b>μόνο τοπικά</b>, χωρίς αποστολή.</div></li>
+    </ul>
+  </div>
+
+  <h3 class="hp-sub">Δύο τρόποι: ανά γραμμή ή συγκεντρωτικά</h3>
+  <p class="hp-lead">Στην οθόνη χαρακτηρισμού, ο διακόπτης <b>«Ανά γραμμή / Συγκεντρωτικά»</b> ορίζει πώς χαρακτηρίζεται το παραστατικό.
+    Διάλεξε ό,τι βολεύει: με πολλές όμοιες γραμμές, το συγκεντρωτικό τελειώνει σε δευτερόλεπτα.</p>
+  <div class="hp-modes">
+    <div class="hp-card hp-mode">
+      <div class="hp-mode-head"><span class="hp-tag">Ανά γραμμή</span><b>Κάθε γραμμή, δικός της χαρακτηρισμός</b></div>
+      <svg class="hp-mm" viewBox="0 0 400 200" role="img" aria-label="Τρεις γραμμές με δικό τους χαρακτηρισμό· η γραμμή 2 σπάει σε δύο χαρακτηρισμούς">
+        {% for y, r, a in [(20, '24%', '300,00'), (80, '24%', '200,00'), (140, '13%', '100,00')] %}
+        <rect class="ln-box {{ 'is-split' if loop.index == 2 }}" x="4" y="{{ y }}" width="130" height="40" rx="10"/>
+        <text x="18" y="{{ y + 25 }}">Γρ. {{ loop.index }} · {{ r }}</text><text class="am" x="126" y="{{ y + 25 }}" text-anchor="end">{{ a }}</text>
+        {% endfor %}
+        {# Γραμμή 2: διχάλα προς δύο χαρακτηρισμούς (120 + 80 = 200). #}
+        {% for d in ['M136 40 C 190 40, 200 32, 250 32', 'M136 100 C 190 100, 200 77, 250 77', 'M136 100 C 190 100, 200 121, 250 121', 'M136 160 C 190 160, 200 168, 250 168'] %}
+        <path id="hp-m1-{{ loop.index }}" class="mm-ln" d="{{ d }}"/>
+        {% endfor %}
+        {% for y, h, c, code, amt in [(14, 36, '#5b66f5', 'E3_102_001', '300,00'), (60, 34, '#1fbf8a', 'E3_585_016', '120,00'),
+                                      (104, 34, '#1fbf8a', 'E3_585_009', '80,00'), (150, 36, '#b04bff', 'E3_585_005', '100,00')] %}
+        <rect class="cl-box" style="--c:{{ c }}" x="252" y="{{ y }}" width="144" height="{{ h }}" rx="10"/>
+        <text class="code" x="324" y="{{ y + h / 2 + 4 }}" text-anchor="middle">{{ code }} · {{ amt }}</text>
+        {% endfor %}
+        <g class="mm-split"><rect x="160" y="88" width="46" height="22" rx="11"/><text x="183" y="103" text-anchor="middle">×2</text></g>
+        {% for i, b in [(1, 0), (2, 0.3), (3, 0.3), (4, 0.6)] %}
+        <circle r="4" class="mm-dot"><animateMotion dur="1.6s" begin="{{ b }}s" repeatCount="indefinite"><mpath href="#hp-m1-{{ i }}"/></animateMotion></circle>
+        {% endfor %}
+      </svg>
+      <p>Πλήρης έλεγχος: κάθε γραμμή μπορεί να έχει διαφορετική κατηγορία και Ε3, ή να <b>σπάσει σε περισσότερους χαρακτηρισμούς</b>
+        (όπως η Γρ. 2: 120,00 + 80,00 = 200,00), αρκεί το άθροισμα να ισούται με την καθαρή αξία της.</p>
+    </div>
+    <div class="hp-card hp-mode">
+      <div class="hp-mode-head"><span class="hp-tag hp-tag--g">Συγκεντρωτικά</span><b>Οι γραμμές αθροίζονται ανά κατηγορία ΦΠΑ</b></div>
+      <svg class="hp-mm" viewBox="0 0 400 190" role="img" aria-label="Οι γραμμές 24% ενώνονται σε μία ομάδα, η γραμμή 13% σε άλλη">
+        {% for y, r, a in [(20, '24%', '300,00'), (80, '24%', '200,00'), (140, '13%', '100,00')] %}
+        <rect class="ln-box" x="4" y="{{ y }}" width="130" height="40" rx="10"/>
+        <text x="18" y="{{ y + 25 }}">Γρ. {{ loop.index }} · {{ r }}</text><text class="am" x="126" y="{{ y + 25 }}" text-anchor="end">{{ a }}</text>
+        {% endfor %}
+        <path id="hp-m2-1" class="mm-ln" d="M136 40 C 190 40, 200 70, 250 70"/>
+        <path id="hp-m2-2" class="mm-ln" d="M136 100 C 190 100, 200 70, 250 70"/>
+        <path id="hp-m2-3" class="mm-ln" d="M136 160 H 250"/>
+        <rect class="cl-box" style="--c:#5b66f5" x="252" y="40" width="144" height="60" rx="10"/>
+        <text class="code" x="324" y="64" text-anchor="middle">ΦΠΑ 24% · 500,00</text><text class="code" x="324" y="84" text-anchor="middle">E3_102_001</text>
+        <rect class="cl-box" style="--c:#1fbf8a" x="252" y="140" width="144" height="40" rx="10"/>
+        <text class="code" x="324" y="165" text-anchor="middle">ΦΠΑ 13% · 100,00</text>
+        {% for i in [1, 2, 3] %}<circle r="4" class="mm-dot"><animateMotion dur="1.6s" begin="{{ (i - 1) * 0.3 }}s" repeatCount="indefinite"><mpath href="#hp-m2-{{ i }}"/></animateMotion></circle>{% endfor %}
+      </svg>
+      <p>Ένας χαρακτηρισμός για κάθε κατηγορία ΦΠΑ (24%, 13%, χωρίς ΦΠΑ). Στέλνεται στο myDATA ως χαρακτηρισμός
+        <b>ανά παραστατικό</b> (<code>postPerInvoice=true</code>).</p>
+    </div>
+  </div>
+  <ul class="hp-rules hp-mode-notes">
+    <li><span class="em">🔀</span><div><b>Πού αλλάζει;</b> Στο πάνω μέρος της οθόνης χαρακτηρισμού (✏️), δίπλα στην πρόοδο. Η επιλογή αποθηκεύεται μαζί με τον χαρακτηρισμό του παραστατικού.</div></li>
+    <li><span class="em">🚫</span><div><b>Πότε δεν υπάρχει;</b> Σε παραστατικά τύπου <code>1.5</code> και σε όσα δεν έχουν αναλυτικές γραμμές. Εκεί ο χαρακτηρισμός γίνεται μόνο ανά γραμμή.</div></li>
+    <li><span class="em">➕</span><div><b>Κι εδώ μοίρασμα.</b> Και στο συγκεντρωτικό, μια ομάδα ΦΠΑ μπορεί να μοιραστεί σε περισσότερα Ε3 με «+ Ε3».</div></li>
+  </ul>
+</section>
+
+<!-- ================= ΣΥΝΔΥΑΣΜΟΙ ================= -->
+<section id="combos" class="hp-rv">
+  <span class="hp-kicker">Κανένα λάθος combo</span>
+  <h2>Πώς φιλτράρουν οι συνδυασμοί</h2>
+  <p class="hp-lead">Το xlsx της ΑΑΔΕ ορίζει ποια <code>κατηγορία</code> επιτρέπεται για κάθε <code>τύπο παραστατικού</code>, και ποιος <code>κωδικός Ε3</code> για κάθε κατηγορία. Η εφαρμογή «κόβει» ό,τι δεν ταιριάζει.</p>
+  <div class="hp-card">
+    <div class="hp-combo">
+      <div class="hp-col c1"><h4>Τύπος παραστατικού</h4>
+        <div class="hp-opt ok">1.1 Τιμολόγιο πώλησης</div><div class="hp-opt no">11.1 ΑΛΠ</div><div class="hp-opt no">5.1 Πιστωτικό</div></div>
+      <div class="hp-arrow" aria-hidden="true">➜</div>
+      <div class="hp-col c2"><h4>Κατηγορία</h4>
+        <div class="hp-opt no">category2_3</div><div class="hp-opt ok">category2_1 Αγορές εμπορευμάτων</div><div class="hp-opt no">category2_11</div></div>
+      <div class="hp-arrow" aria-hidden="true">➜</div>
+      <div class="hp-col c3"><h4>Κωδικός Ε3</h4>
+        <div class="hp-opt no">E3_585_009</div><div class="hp-opt no">E3_881_001</div><div class="hp-opt ok">E3_102_001</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ΛΟΓΙΣΤΗΣ ================= -->
+<section id="accountant" class="hp-rv">
+  <span class="hp-kicker">Πολυ-εταιρική λειτουργία</span>
+  <h2>Κλήσεις μέσω λογιστή</h2>
+  <p class="hp-lead">Ένα σετ credentials για όλους τους πελάτες. Όταν μια εταιρεία έχει ενεργό το «χρήση credentials λογιστή», η κλήση φέρει το ΑΦΜ της ως <code>entityVatNumber</code> <b>μέσα στο XML</b>, ώστε η κίνηση να καταχωρείται στην εταιρεία και όχι στον λογιστή.</p>
+  <div class="hp-card">
+    <svg class="hp-acc" viewBox="0 0 960 200" role="img" aria-label="Λογιστής → XML με entityVatNumber → myDATA → εταιρεία">
+      <path id="hp-a1" class="ln" d="M200 100 H 300"/><path id="hp-a2" class="ln" d="M620 100 H 700"/>
+      <rect class="b" x="10" y="45" width="190" height="110" rx="16"/>
+      <text x="30" y="90" style="font-size:28px">👤</text><text class="t1" x="72" y="90">Λογιστής</text>
+      <text class="t2" x="30" y="122">aade-user-id + key</text><text class="t2" x="30" y="140">(κοινά για όλους)</text>
+      <rect class="hl" x="300" y="30" width="320" height="140" rx="14"/>
+      <text class="xml" x="322" y="62">&lt;InvoicesDoc&gt;</text>
+      <text class="xml" x="340" y="86">&lt;invoice&gt; …</text>
+      <text class="xml" x="340" y="112"><tspan class="k">&lt;entityVatNumber&gt;</tspan>123456789<tspan class="k">&lt;/…&gt;</tspan></text>
+      <text class="xml" x="340" y="138">…&lt;/invoice&gt;</text>
+      <text class="xml" x="322" y="160">&lt;/InvoicesDoc&gt;</text>
+      <rect class="b" x="700" y="45" width="250" height="110" rx="16"/>
+      <text x="720" y="90" style="font-size:28px">🏢</text><text class="t1" x="762" y="90">Εταιρεία Α</text>
+      <text class="t2" x="720" y="122">ΑΦΜ 123456789</text><text class="t2" x="720" y="140">η κίνηση γράφεται εδώ ✓</text>
+      <circle class="dot" r="5"><animateMotion dur="1.4s" repeatCount="indefinite"><mpath href="#hp-a1"/></animateMotion></circle>
+      <circle class="dot" r="5"><animateMotion dur="1.4s" begin=".7s" repeatCount="indefinite"><mpath href="#hp-a2"/></animateMotion></circle>
+    </svg>
+  </div>
+</section>
+
+<!-- ================= OLAP ================= -->
+<section id="olap" class="hp-rv">
+  <span class="hp-kicker">Αναλύσεις</span>
+  <h2>Ο κύβος OLAP</h2>
+  <div class="hp-olap">
+    <div aria-hidden="true">
+      {# Ισομετρικός κύβος 3×3×3: κάθε όψη είναι ένα τετράγωνο 150×150 «λυγισμένο» με matrix. #}
+      <svg class="hp-cube" viewBox="-70 20 440 350">
+        {% for cls, m in [('ft', '0.866,0.5,-0.866,0.5,150,40'), ('fl', '0.866,0.5,0,1,20,115'), ('fr', '0.866,-0.5,0,1,150,190')] %}
+        <g class="{{ cls }}" transform="matrix({{ m }})">
+          {% for i in range(3) %}{% for j in range(3) %}
+          <rect x="{{ i * 50 }}" y="{{ j * 50 }}" width="50" height="50" style="animation-delay:{{ (i + j) * 0.3 }}s"/>
+          {% endfor %}{% endfor %}
+        </g>
+        {% endfor %}
+        <text x="150" y="32" text-anchor="middle">Χρόνος</text>
+        <text x="0" y="360" text-anchor="middle">Συναλλασσόμενος</text>
+        <text x="300" y="360" text-anchor="middle">Χαρακτηρισμός Ε3</text>
+      </svg>
+    </div>
+    <div>
+      <p>Διάλεξε <b>γραμμές × στήλες</b> από τις διαστάσεις και ένα <b>μέτρο</b>. Κλικ σε γραμμή για <b>drill-down</b>
+        (έτος → τρίμηνο → μήνας → ημέρα), κλικ σε κελί για τα παραστατικά του. Όλα γίνονται στον browser, άρα είναι ακαριαία.</p>
+      <div class="hp-chips">
+        <span class="hp-chip m">Καθαρή αξία</span><span class="hp-chip m">ΦΠΑ εκπιπτόμενος</span><span class="hp-chip m">Αποτέλεσμα (Εσ. − Εξ.)</span>
+        <span class="hp-chip m">Παρακρατούμενοι</span><span class="hp-chip m">Πλήθος</span>
+      </div>
+      <p><b>Έτοιμοι κύβοι:</b></p>
+      <div class="hp-chips">
+        <span class="hp-chip">📈 Χρονική εξέλιξη</span><span class="hp-chip">📊 Αποτέλεσμα ανά τρίμηνο</span><span class="hp-chip">🧑‍💼 Πελάτες</span>
+        <span class="hp-chip">🚚 Προμηθευτές</span><span class="hp-chip">🏷️ Χαρακτηρισμοί Ε3</span><span class="hp-chip">🧾 ΦΠΑ ανά συντελεστή</span>
+      </div>
+      <p>Εξαγωγή σε <b>CSV</b> με ένα κλικ. Για γρήγορη εικόνα υπάρχει και η <a href="{{ url_for('reports_yearly') }}">ετήσια/μηνιαία σύνοψη</a>,
+        ενώ η <a href="{{ url_for('reports_vat') }}">δήλωση ΦΠΑ (Φ2)</a> βγαίνει έτοιμη ανά περίοδο.</p>
+      <a class="btn" href="{{ url_for('reports') }}">Άνοιξε το OLAP →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ΧΑΡΤΗΣ ΣΕΛΙΔΩΝ ================= -->
+{% from "_macros.html" import icon %}
+<section id="pages" class="hp-rv">
+  <span class="hp-kicker">Πού βρίσκεται τι</span>
+  <h2>Χάρτης σελίδων</h2>
+  <div class="hp-map">
+    {% for ep, args, grp, ic, title, desc in [
+      ('income', {}, 'Έσοδα', 'in', 'Βιβλίο εσόδων', 'Τα δικά σου παραστατικά (RequestTransmittedDocs), με φίλτρα ανά κατάσταση.'),
+      ('income_sync', {}, 'Έσοδα', 'sync', 'Ανάκτηση / Διαγραφή', 'Φέρε ή καθάρισε τοπικά ένα διάστημα εσόδων.'),
+      ('invoices', {}, 'Έξοδα', 'out', 'Βιβλίο εξόδων', 'Παραστατικά τρίτων προς εσένα. Χαρακτηρισμός, μαζική αποστολή, ανανέωση.'),
+      ('invoices_sync', {}, 'Έξοδα', 'sync', 'Ανάκτηση / Διαγραφή', 'Φέρε ή καθάρισε τοπικά ένα διάστημα εξόδων.'),
+      ('new_expense', {}, 'Έξοδα', 'plus', 'Νέα εγγραφή', 'Αυτοτιμολογούμενο έξοδο (π.χ. μισθοδοσία) που στέλνεται με SendInvoices. Με πρότυπα.'),
+      ('reports', {}, 'Αναλύσεις', 'chart', 'OLAP', 'Κύβος ανάλυσης με drill-down και εξαγωγή CSV.'),
+      ('reports_yearly', {}, 'Αναλύσεις', 'calendar', 'Ετήσια / Μηνιαία', 'Καθαρή αξία ανά μήνα και καθαρό κέρδος ανά Ε3.'),
+      ('reports_vat', {}, 'Αναλύσεις', 'receipt', 'Δήλωση ΦΠΑ (Φ2)', 'Τα ποσά της περιοδικής δήλωσης, έτοιμα.'),
+      ('suppliers', {}, 'Κατάλογοι', 'users', 'Συναλλασσόμενοι', 'Κοινοί για όλες τις εταιρείες. Import/export .txt και κανόνες χαρακτηρισμού.'),
+      ('parameters', {'tab': 'companies'}, 'Ρυθμίσεις', 'sliders', 'Παράμετροι', 'Εταιρείες, λογιστής, συνδυασμοί. Import/export companies.json.'),
+    ] %}
+    <a class="hp-page" href="{{ url_for(ep, **args) }}">
+      <span class="g">{{ grp }}</span>
+      <h3>{{ icon(ic) }}{{ title }}</h3>
+      <p>{{ desc }}</p>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+
+<!-- ================= ΣΦΑΛΜΑΤΑ ================= -->
+<section id="errors" class="hp-rv">
+  <span class="hp-kicker">Όταν κάτι στραβώσει</span>
+  <h2>Συνηθισμένα σφάλματα myDATA</h2>
+  <div class="hp-errs">
+    <div class="hp-err"><b>306</b><p>Σε γραμμή ΦΠΑ το ποσό δεν ισούται με την καθαρή αξία.</p><p>👉 Βάλε ως ποσό την καθαρή αξία της γραμμής.</p></div>
+    <div class="hp-err"><b>337</b><p>Στάλθηκε <code>vatAmount</code> σε χαρακτηρισμό ΦΠΑ.</p><p>👉 Στις γραμμές <code>VAT_xxx</code> δεν μπαίνει ποσό ΦΠΑ.</p></div>
+    <div class="hp-err"><b>340</b><p>Χρήση του παλιού <code>classificationPostMode=1</code> (ανά παραστατικό), που έχει αποσυρθεί.</p><p>👉 Η εφαρμογή δεν το χρησιμοποιεί: στέλνει ανά γραμμή, ή συγκεντρωτικά με τον νέο μηχανισμό <code>postPerInvoice</code>.</p></div>
+    <div class="hp-err"><b>ΑΦΜ;</b><p>Η κίνηση πήγε στον λογιστή αντί για την εταιρεία.</p><p>👉 Έλεγξε ότι η εταιρεία έχει ενεργό το «χρήση credentials λογιστή».</p></div>
+  </div>
+</section>
+
+<!-- ================= FAQ ================= -->
+<section id="faq" class="hp-rv">
+  <span class="hp-kicker">Ερωτήσεις</span>
+  <h2>Συχνές ερωτήσεις</h2>
+  <div class="hp-faq">
+    <details><summary>Γιατί ένα παραστατικό φαίνεται αχαρακτήριστο, ενώ το χαρακτήρισα στην πύλη;</summary>
+      <div>Οι χαρακτηρισμοί που γίνονται χειροκίνητα στην πύλη myDATA δεν επιστρέφουν από το ERP API. Κατέγραψέ τους <b>μόνο τοπικά</b>:
+        το παραστατικό γίνεται «Ολοκληρωμένο» με <code>source = manual</code> και δεν στέλνεται ξανά.</div></details>
+    <details><summary>Αν πατήσω «Διαγραφή» στην ανάκτηση, σβήνεται κάτι από το myDATA;</summary>
+      <div>Όχι. Η διαγραφή αφορά <b>μόνο το τοπικό βιβλίο</b>. Μια νέα ανάκτηση τα ξαναφέρνει. Χάνονται όμως οριστικά ό,τι υπήρχε μόνο τοπικά:
+        χαρακτηρισμοί που δεν στάλθηκαν και νέες εγγραφές που δεν διαβιβάστηκαν.</div></details>
+    <details><summary>Πώς αλλάζω εταιρεία;</summary>
+      <div>Κλικ στο κουτί με το όνομα της ενεργής εταιρείας, πάνω αριστερά στο μενού. Πράσινη κουκκίδα σημαίνει <code>prod</code>, κίτρινη σημαίνει <code>dev</code>.
+        Το 👤 σημαίνει ότι οι κλήσεις γίνονται με τα credentials του λογιστή, και το ⚠ ότι επιτρέπονται ακυρώσεις/απορρίψεις.</div></details>
+    <details><summary>Πώς ακυρώνω ή απορρίπτω παραστατικό;</summary>
+      <div>Πρώτα ενεργοποίησε το «επιτρέπονται ακυρώσεις» στην εταιρεία (εμφανίζεται το ⚠). Μετά, από τη σελίδα του παραστατικού, εμφανίζονται οι ενέργειες
+        ακύρωσης (για δικά σου) ή απόρριψης (για παραστατικά τρίτων).</div></details>
+    <details><summary>Πώς μεταφέρω τις ρυθμίσεις σε άλλον υπολογιστή;</summary>
+      <div>Από τις <a href="{{ url_for('companies') }}">Παραμέτρους</a> κάνε export σε <code>companies.json</code> και import στον άλλο υπολογιστή.
+        Οι συναλλασσόμενοι μεταφέρονται με export/import <code>.txt</code> (μία γραμμή = «ΑΦΜ Επωνυμία»).</div></details>
+    <details><summary>Πού βρίσκω δοκιμαστικά credentials;</summary>
+      <div>Στο <a href="https://mydata-dev-register.azurewebsites.net" target="_blank" rel="noopener">mydata-dev-register</a> για <code>dev</code>.
+        Για παραγωγή, από το myAADE με κωδικούς TAXISnet (<code>prod</code>).</div></details>
+    <details><summary>Πώς βρίσκει την επωνυμία από το ΑΦΜ;</summary>
+      <div>Μέσω της υπηρεσίας της ΓΓΠΣ (χρειάζεται <code>GSIS_USERNAME</code>/<code>GSIS_PASSWORD</code>), ενώ τα ενδοκοινοτικά ΑΦΜ ελέγχονται μέσω VIES.</div></details>
+  </div>
+</section>
+
+<!-- ================= ΔΕΔΟΜΕΝΑ ================= -->
+<section id="data" class="hp-rv">
+  <span class="hp-kicker">Ασφάλεια</span>
+  <h2>Τα δεδομένα σου μένουν σε σένα</h2>
+  <div class="hp-vault">
+    <div class="hp-card"><span class="em">💾</span><div><h3>Τοπική βάση</h3><p>Όλα ζουν στο <code>mydata.db</code> (SQLite). Στα Windows βρίσκεται στο <code>%LOCALAPPDATA%\myDATA Classifier</code>.</p></div></div>
+    <div class="hp-card"><span class="em">🔄</span><div><h3>Ασφαλείς αναβαθμίσεις</h3><p>Αναβάθμιση ή απεγκατάσταση δεν αγγίζει τη βάση, γιατί βρίσκεται έξω από τον φάκελο εγκατάστασης.</p></div></div>
+    <div class="hp-card"><span class="em">🔑</span><div><h3>Credentials στην εφαρμογή</h3><p>Τα κλειδιά της ΑΑΔΕ αποθηκεύονται στη βάση, όχι σε αρχεία <code>.env</code>.</p></div></div>
+  </div>
+</section>
+
+<p class="hp-foot">Καλή λογιστική χρονιά ✨ · Επιστροφή στο <a href="{{ url_for('invoices') }}">βιβλίο εξόδων</a></p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  // Εμφάνιση ενοτήτων κατά το scroll + ενεργός σύνδεσμος στα περιεχόμενα.
+  var rv = document.querySelectorAll('.hp-rv');
+  if (!('IntersectionObserver' in window)) { rv.forEach(function(e){ e.classList.add('is-in'); }); return; }
+  var io = new IntersectionObserver(function(es){
+    es.forEach(function(e){ if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); } });
+  }, {threshold: .12});
+  rv.forEach(function(e){ io.observe(e); });
+
+  var links = {};
+  document.querySelectorAll('.hp-toc a').forEach(function(a){ links[a.hash.slice(1)] = a; });
+  var spy = new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      if (!e.isIntersecting) return;
+      Object.values(links).forEach(function(a){ a.classList.remove('is-on'); });
+      var a = links[e.target.id];
+      if (a) { a.classList.add('is-on'); a.scrollIntoView({block: 'nearest', inline: 'center'}); }
+    });
+  }, {rootMargin: '-40% 0px -55% 0px'});
+  document.querySelectorAll('.hp section[id]').forEach(function(s){ spy.observe(s); });
+})();
+</script>
+{% endblock %}

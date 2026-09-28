@@ -1,0 +1,184 @@
+{# Κεφαλίδα βιβλίων (έσοδα/έξοδα): καταστάσεις ως κάρτες-σύνδεσμοι, δαχτυλίδι ολοκλήρωσης, σύνολα προβολής.
+   Εισαγωγή με: {% from "_ledger_hero.html" import ledger_hero with context %} (χρειάζεται counts). #}
+{% macro money(v) -%}
+{{ "{:,.2f}".format(v or 0).replace(",", "X").replace(".", ",").replace("X", ".") }}
+{%- endmacro %}
+
+{% macro ledger_hero(ep, q, title, sub, tabs, done, sums, date_range, last_mark, tone) -%}
+{% set all = counts.values()|sum %}
+{% set pct = (counts[done] * 100 / all)|round|int if all else 0 %}
+<style>
+.lh{position:relative;overflow:hidden;border-radius:20px;padding:clamp(20px,3.5vw,34px);color:#fff;margin-bottom:22px;
+  background:radial-gradient(120% 140% at 0% 0%,var(--lh-a) 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
+.lh--in{--lh-a:#0f5a4a;--lh-b1:#1fbf8a;--lh-b2:#5b66f5}
+.lh--out{--lh-a:#2a2f7a;--lh-b1:#5b66f5;--lh-b2:#ff6b8b}
+.lh-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;animation:lh-float 13s ease-in-out infinite;pointer-events:none}
+.lh-blob.b1{width:300px;height:300px;background:var(--lh-b1);top:-140px;right:-40px}
+.lh-blob.b2{width:220px;height:220px;background:var(--lh-b2);bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
+@keyframes lh-float{50%{transform:translate(26px,-18px) scale(1.1)}}
+.lh-top{position:relative;display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end}
+.lh h1{margin:0 0 4px;font-size:clamp(1.7rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.02em;color:#fff}
+.lh-sub{margin:0;color:#c6cbe8;font-size:.92rem}
+.lh-meta{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:8px;font-size:.8rem;color:#aab2d4}
+.lh-meta .mono{color:#fff}
+.lh .btn-row{margin:0;display:flex;flex-wrap:wrap;gap:8px}
+.lh .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
+.lh .btn-ghost:hover{background:rgba(255,255,255,.16)}
+
+.lh-mid{position:relative;display:grid;grid-template-columns:1fr auto;gap:14px;margin-top:22px;align-items:stretch}
+.lh-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+@property --lh-ang{syntax:"<angle>";inherits:false;initial-value:0deg}
+.lh-tile{position:relative;display:flex;flex-direction:column;gap:2px;padding:14px 16px;border-radius:14px;text-decoration:none;color:#fff;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);overflow:hidden;
+  animation:lh-rise .55s var(--ease) both;animation-delay:calc(var(--i) * 80ms + 120ms);
+  transition:transform .3s var(--ease),background .3s,border-color .3s}
+.lh-tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c)}
+.lh-tile:hover{transform:translateY(-3px);background:rgba(255,255,255,.11)}
+.lh-tile b{font:800 1.9rem/1.1 var(--font-data)}
+.lh-tile span{font-size:.8rem;color:#c6cbe8}
+.lh-tile .e{position:absolute;right:12px;top:10px;font-size:1.3rem;opacity:.85;transition:transform .4s var(--ease)}
+.lh-tile:hover .e{transform:scale(1.2) rotate(-8deg)}
+.lh-tile.is-on{background:linear-gradient(#1b2150,#1b2150) padding-box,
+  conic-gradient(from var(--lh-ang),var(--c),transparent 40%,var(--c) 80%) border-box;border:2px solid transparent;
+  animation:lh-rise .55s var(--ease) both,lh-spin 4s linear infinite;box-shadow:0 12px 30px -14px var(--c)}
+.lh-tile.is-on span{color:#fff;font-weight:700}
+@keyframes lh-spin{to{--lh-ang:360deg}}
+@keyframes lh-rise{from{opacity:0;transform:translateY(16px)}}
+.lh-tile--unclassified{--c:#f2c265}.lh-tile--classified{--c:#8a93ff}.lh-tile--sent{--c:#bba2ff}.lh-tile--confirmed{--c:#4fd1a0}
+
+.lh-ring{display:flex;align-items:center;gap:14px;padding:12px 18px;border-radius:14px;background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.12);animation:lh-rise .55s var(--ease) .45s both}
+.lh-ring div{position:relative;width:78px;height:78px;flex:none}
+.lh-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.lh-ring circle{fill:none;stroke-width:8}
+.lh-ring .bg{stroke:rgba(255,255,255,.12)}
+.lh-ring .fg{stroke:url(#lh-grad);stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:calc(100 - var(--p));animation:lh-fill 1.6s var(--ease) .5s both}
+@keyframes lh-fill{from{stroke-dashoffset:100}}
+.lh-ring div b{position:absolute;inset:0;display:grid;place-items:center;font:800 1rem var(--font-data)}
+.lh-ring small{font-size:.8rem;color:#c6cbe8;max-width:110px;line-height:1.3}
+
+.lh-sums{position:relative;display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.1);
+  font-size:.82rem;color:#aab2d4;animation:lh-rise .55s var(--ease) .6s both}
+.lh-sums[hidden]{display:none}
+.lh-sums b{font:700 .98rem var(--font-data);color:#fff;margin-left:6px}
+.lh-sums .g b{background:linear-gradient(90deg,#9aa2ff,#6ff0c4);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+@media (max-width:760px){ .lh-mid{grid-template-columns:1fr} .lh-tiles{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (prefers-reduced-motion:reduce){ .lh *,.lh *::before{animation:none!important;transition:none!important} }
+</style>
+
+<header class="lh lh--{{ tone }}">
+  <i class="lh-blob b1"></i><i class="lh-blob b2"></i>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs><linearGradient id="lh-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9aa2ff"/><stop offset="1" stop-color="#4fd1a0"/></linearGradient></defs>
+  </svg>
+  <div class="lh-top">
+    <div>
+      <h1>{{ title }}</h1>
+      <p class="lh-sub">{{ sub }}</p>
+      <div class="lh-meta">
+        {% if date_range %}<span>Τελευταία ανάκτηση: <span class="mono">{{ date_range }}</span></span>{% endif %}
+        {% if last_mark %}<span title="Τα MARK του myDATA είναι χρονολογικά — έχουμε δεδομένα ως εδώ">Τελευταίο MARK: <span class="mono">{{ last_mark }}</span></span>{% endif %}
+      </div>
+    </div>
+    <div class="btn-row">{{ caller() }}</div>
+  </div>
+
+  <div class="lh-mid">
+    <nav class="lh-tiles" aria-label="Κατάσταση παραστατικών">
+      {% for v, label, emoji in tabs %}
+      <a class="lh-tile lh-tile--{{ v }} {{ 'is-on' if q.view == v }}" style="--i:{{ loop.index0 }}"
+         href="{{ url_for(ep, **dict(q, view=v)) }}" {% if q.view == v %}aria-current="page"{% endif %}>
+        <span class="e" aria-hidden="true">{{ emoji }}</span>
+        <b data-count="{{ counts[v] }}">{{ counts[v] }}</b><span>{{ label }}</span>
+      </a>
+      {% endfor %}
+    </nav>
+    <div class="lh-ring" title="{{ counts[done] }} από {{ all }}">
+      <div><svg viewBox="0 0 40 40"><circle class="bg" cx="20" cy="20" r="15.9" pathLength="100"/>
+        <circle class="fg" cx="20" cy="20" r="15.9" pathLength="100" style="--p:{{ pct }}"/></svg><b>{{ pct }}%</b></div>
+      <small><b>{{ counts[done] }}</b> από {{ all }}<br>{{ 'ολοκληρωμένα' if done == 'confirmed' else 'χαρακτηρισμένα' }}</small>
+    </div>
+  </div>
+
+  <div class="lh-sums" aria-label="Σύνολα προβολής" {{ 'hidden' if not total }}>
+    <span>Στην προβολή<b>{{ total }}</b></span>
+    <span>Καθαρή αξία<b>{{ money(sums.net) }} €</b></span>
+    <span>ΦΠΑ<b>{{ money(sums.vat) }} €</b></span>
+    <span class="g">Σύνολο<b>{{ money(sums.gross) }} €</b></span>
+  </div>
+</header>
+
+<script>
+// Μετρητές που «ανεβαίνουν».
+(function(){
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || 'samePage' in document.documentElement.dataset) return;
+  document.querySelectorAll('.lh [data-count]').forEach(function(el){
+    var to = +el.dataset.count, t0 = null;
+    if (!to) return;
+    el.textContent = '0';
+    requestAnimationFrame(function step(t){
+      t0 = t0 || t;
+      var k = Math.min((t - t0) / 900, 1);
+      el.textContent = Math.round(to * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) requestAnimationFrame(step);
+    });
+  });
+})();
+
+// Βιβλία: καρτέλες, φίλτρα, ταξινόμηση και σελίδες με AJAX. Αλλάζουν μόνο οι κάρτες καταστάσεων,
+// τα σύνολα και η κάρτα του βιβλίου· η υπόλοιπη κεφαλίδα μένει ως έχει.
+(function(){
+  var root = document.documentElement, ctrl, ro;
+  var SWAP = ['.lh-tiles', '.lh-sums', '.ledger-card'];
+
+  function samePath(url) { return new URL(url, location.href).pathname === location.pathname; }
+  function watchToolbar() {  // το sticky thead ακολουθεί το ύψος του (νέου) toolbar
+    var tb = document.querySelector('.ledger-toolbar');
+    if (ro) ro.disconnect();
+    if (tb && window.ResizeObserver) {
+      ro = new ResizeObserver(function(){ root.style.setProperty('--toolbar-h', tb.offsetHeight + 'px'); });
+      ro.observe(tb);
+    }
+  }
+  function load(url, push, scroll) {
+    var card = document.querySelector('.ledger-card');
+    if (ctrl) ctrl.abort();
+    ctrl = new AbortController();
+    card.classList.add('is-loading');
+    fetch(url, {signal: ctrl.signal}).then(function(r){
+      if (!r.ok || !samePath(r.url)) throw new Error('redirect');
+      return r.text();
+    }).then(function(html){
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      root.dataset.samePage = '';  // χωρίς εισαγωγικά animations στα νέα κομμάτια
+      SWAP.forEach(function(sel){
+        var now = document.querySelector(sel), next = doc.querySelector(sel);
+        if (now && next) now.replaceWith(next);
+      });
+      watchToolbar();
+      if (push) history.pushState(null, '', url);
+      if (scroll) document.querySelector('.ledger-card').scrollIntoView({behavior: 'smooth', block: 'start'});
+    }).catch(function(e){
+      if (e.name !== 'AbortError') location.href = url;  // αποτυχία: κανονική πλοήγηση
+    });
+  }
+
+  document.addEventListener('click', function(e){
+    var a = e.target.closest('.lh-tiles a, .ledger-card a');
+    if (!a || !document.querySelector('.ledger-card') || !samePath(a.href) || a.target
+        || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    load(a.href, true, !!a.closest('.pager'));
+  });
+  document.addEventListener('submit', function(e){
+    var f = e.target;
+    if (!f.closest('.ledger-card') || f.method.toLowerCase() !== 'get' || !samePath(f.action)) return;
+    e.preventDefault();
+    load(f.action.split('?')[0] + '?' + new URLSearchParams(new FormData(f)), true, false);
+  }, true);
+  addEventListener('popstate', function(){ if (document.querySelector('.ledger-card')) load(location.href, false, false); });
+})();
+</script>
+<style>.ledger-card{transition:opacity .2s}.ledger-card.is-loading{opacity:.55;pointer-events:none}</style>
+{%- endmacro %}

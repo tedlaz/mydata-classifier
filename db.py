@@ -702,6 +702,18 @@ def count_by_status(company_id: int, kind: str) -> dict:
     return {r["status"]: r["n"] for r in rows}
 
 
+def company_stats() -> dict:
+    """Σύνοψη βιβλίου ανά εταιρεία: {company_id: {income, expense, pending, done, last}}."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT company_id, SUM(kind = 'income') AS income, SUM(kind = 'expense') AS expense, "
+            "SUM(kind = 'expense' AND status = 'unclassified') AS pending, "
+            "SUM(kind = 'expense' AND status = 'confirmed') AS done, MAX(issue_date) AS last "
+            "FROM documents GROUP BY company_id"
+        ).fetchall()
+    return {r["company_id"]: dict(r) for r in rows}
+
+
 def olap_documents(company_id: int | None, kind: str, statuses: list[str]) -> list[dict]:
     """Όλα τα παραστατικά ενός kind (στις δοσμένες καταστάσεις) με γραμμές, ισχύοντα χαρακτηρισμό
     και όλα τα σύνολα — η πρώτη ύλη του κύβου OLAP."""

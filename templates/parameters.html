@@ -4,140 +4,17 @@
 <div class="page-head">
   <div>
     <h1>Παράμετροι</h1>
-    <p class="page-sub">Κοινές ρυθμίσεις της εφαρμογής: εταιρείες, credentials λογιστή και συνδυασμοί χαρακτηρισμών.</p>
+    <p class="page-sub">Κοινές ρυθμίσεις της εφαρμογής: credentials λογιστή και συνδυασμοί χαρακτηρισμών.</p>
   </div>
 </div>
 
 <div class="tabs">
-  {% for key, label in [('companies', 'Εταιρείες'), ('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί')] %}
+  {% for key, label in [('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί')] %}
   <a class="tab {{ 'is-active' if active_tab == key }}" href="{{ url_for('parameters', tab=key) }}">{{ label }}</a>
   {% endfor %}
 </div>
 
-{% if active_tab == 'companies' %}
-<div class="card">
-  <div class="card-head">
-    <h2>Εταιρείες <span class="count">{{ companies|length }}</span></h2>
-    <div class="btn-row">
-      <a href="{{ url_for('companies_export') }}" class="btn btn-ghost btn-sm" download>📤 Εξαγωγή companies.json</a>
-      <form method="post" action="{{ url_for('companies_import') }}" enctype="multipart/form-data" class="inline-form"
-            data-confirm="Εισαγωγή εταιρειών &amp; λογιστή από το επιλεγμένο companies.json; Οι υπάρχουσες (ίδια επωνυμία) θα ενημερωθούν.">
-        <input type="file" name="file" accept=".json,application/json" required hidden data-autosubmit id="companies-import-file">
-        <label for="companies-import-file" class="btn btn-ghost btn-sm">📥 Εισαγωγή companies.json</label>
-      </form>
-    </div>
-  </div>
-  <p class="muted prose">
-    Η <strong>ενεργή</strong> εταιρεία καθορίζει με ποια credentials, ΑΦΜ και περιβάλλον (dev/prod) γίνονται
-    όλες οι κλήσεις προς το myDATA. Οι συναλλασσόμενοι είναι <strong>κοινοί</strong> για όλες τις εταιρείες.
-  </p>
-
-  {% for c in companies %}
-  {% set is_active = loop.index0 == active %}
-  <form method="post" action="{{ url_for('companies_update', idx=loop.index0) }}" class="company {{ 'is-active' if is_active }}">
-    <div class="company-head">
-      <h2>
-        {{ c.company_name }}
-        {% if is_active %}<span class="pill pill--ok">✔ ΕΝΕΡΓΗ</span>{% endif %}
-        <span class="pill">{{ c.MYDATA_ENV or 'prod' }}</span>
-      </h2>
-      <div class="btn-row">
-        {% if not is_active %}
-        <button formaction="{{ url_for('companies_select', idx=loop.index0) }}" formmethod="post" formnovalidate class="btn-ghost btn-sm">
-          Ορισμός ως ενεργή
-        </button>
-        {% endif %}
-        <button formaction="{{ url_for('companies_delete', idx=loop.index0) }}" formmethod="post" formnovalidate class="btn-danger btn-sm"
-                data-confirm="Διαγραφή της εταιρείας «{{ c.company_name }}»;">
-          Διαγραφή
-        </button>
-      </div>
-    </div>
-    <div class="grid grid-company">
-      <div>
-        <label>Επωνυμία</label>
-        <input type="text" name="company_name" value="{{ c.company_name }}" required>
-      </div>
-      <div>
-        <label>AADE User ID</label>
-        <input type="text" name="aade_user_id" value="{{ c.AADE_USER_ID }}" required>
-      </div>
-      <div>
-        <label>Subscription Key</label>
-        <input type="password" name="aade_subscription_key" value="{{ c.AADE_SUBSCRIPTION_KEY }}" required data-reveal>
-      </div>
-      <div>
-        <label>ΑΦΜ</label>
-        <input type="text" name="aade_vat_number" value="{{ c.AADE_VAT_NUMBER or '' }}">
-      </div>
-      <div>
-        <label>Περιβάλλον</label>
-        <select name="mydata_env">
-          <option value="prod" {% if (c.MYDATA_ENV or 'prod') == 'prod' %}selected{% endif %}>prod</option>
-          <option value="dev" {% if c.MYDATA_ENV == 'dev' %}selected{% endif %}>dev</option>
-        </select>
-      </div>
-      <div>
-        <button type="submit">Αποθήκευση</button>
-      </div>
-    </div>
-    <label class="check">
-      <input type="checkbox" name="use_accountant" value="1" {% if c.use_accountant %}checked{% endif %}>
-      Χρήση credentials λογιστή
-    </label>
-    <label class="check check--danger">
-      <input type="checkbox" name="allow_cancel" value="1" {% if c.allow_cancel %}checked{% endif %}>
-      ⚠ Επιτρέπονται ακυρώσεις (εσόδων &amp; εξόδων) και απορρίψεις παραστατικών — οριστικές στο myDATA
-    </label>
-  </form>
-  {% else %}
-  <div class="empty"><b>Δεν έχει οριστεί καμία εταιρεία ακόμα</b>Πρόσθεσε την πρώτη παρακάτω.</div>
-  {% endfor %}
-</div>
-
-<div class="card">
-  <h2>Προσθήκη νέας εταιρείας</h2>
-  <form method="post" action="{{ url_for('companies_add') }}">
-    <div class="grid grid-company">
-      <div>
-        <label for="new_company_name">Επωνυμία</label>
-        <input type="text" id="new_company_name" name="company_name" placeholder="π.χ. ΔΟΚΙΜΗ ΑΕ" required>
-      </div>
-      <div>
-        <label for="new_user_id">AADE User ID</label>
-        <input type="text" id="new_user_id" name="aade_user_id" required>
-      </div>
-      <div>
-        <label for="new_sub_key">Subscription Key</label>
-        <input type="text" id="new_sub_key" name="aade_subscription_key" required>
-      </div>
-      <div>
-        <label for="new_vat">ΑΦΜ</label>
-        <input type="text" id="new_vat" name="aade_vat_number">
-      </div>
-      <div>
-        <label for="new_env">Περιβάλλον</label>
-        <select id="new_env" name="mydata_env">
-          <option value="prod">prod</option>
-          <option value="dev">dev</option>
-        </select>
-      </div>
-      <div>
-        <button type="submit">Προσθήκη</button>
-      </div>
-    </div>
-    <label class="check">
-      <input type="checkbox" name="use_accountant" value="1">
-      Χρήση credentials λογιστή (στέλνεται το ΑΦΜ της εταιρείας ως entityVatNumber)
-    </label>
-    <label class="check check--danger">
-      <input type="checkbox" name="allow_cancel" value="1">
-      ⚠ Επιτρέπονται ακυρώσεις (εσόδων &amp; εξόδων) και απορρίψεις παραστατικών — οριστικές στο myDATA
-    </label>
-  </form>
-</div>
-
-{% elif active_tab == 'accountant' %}
+{% if active_tab == 'accountant' %}
 <div class="card">
   <h2>Credentials λογιστή</h2>
   <p class="muted prose">

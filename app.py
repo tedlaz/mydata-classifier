@@ -621,9 +621,13 @@ def page_numbers(page: int, total: int, edge: int = 2, around: int = 1) -> list:
 def _sync_page(kind: str):
     """Χωριστή σελίδα ανάκτησης από το myDATA / διαγραφής διαστήματος, ανά βιβλίο."""
     today = datetime.now(ATHENS).strftime("%Y-%m-%d")
+    cid = _active_company_id()
+    views = _INCOME_VIEWS if kind == "income" else _EXPENSE_VIEWS
+    by_status = db.count_by_status(cid, kind) if cid else {}
     return render_template(
         "sync.html",
         kind=kind,
+        counts={v: by_status.get(v, 0) for v in views},
         range_date_from=request.args.get("date_from", "").strip() or today,
         range_date_to=request.args.get("date_to", "").strip() or today,
         date_range=db.get_setting(
@@ -720,6 +724,7 @@ def invoices():
 
     items = sorted(items, key=sort_key, reverse=reverse)
     total = len(items)
+    sums = {k: sum(getattr(i, "total_" + k) or 0 for i in items) for k in ("net", "vat", "gross")}
     page_items, page, total_pages = paginate(items, request.args.get("page"))
     if view == "sent":
         for inv in page_items:
@@ -744,6 +749,7 @@ def invoices():
         page=page,
         total_pages=total_pages,
         total=total,
+        sums=sums,
         per_page=PER_PAGE,
         filters=filters,
     )
@@ -766,6 +772,12 @@ def document(mark):
     # Έσοδα: ίδια προβολή, μόνο για ανάγνωση (χωρίς ενέργειες χαρακτηρισμού/απόρριψης).
     is_income = row.get("kind") == "income"
     back = request.args.get("back") or url_for("income" if is_income else "invoices", view=row["status"])
+    # Προηγούμενο/επόμενο: ίδιο βιβλίο και κατάσταση, με την προεπιλεγμένη σειρά του βιβλίου (ημ/νία).
+    siblings = sorted(
+        (r for r in db.get_documents(cid, row["kind"], [row["status"]])),
+        key=lambda r: (r["issue_date"] or "", r["mark"]),
+    )
+    pos = next(i for i, r in enumerate(siblings) if r["mark"] == mark)
     return render_template(
         "document.html",
         inv=inv,
@@ -780,6 +792,10 @@ def document(mark):
         tax_types=TAX_TYPES,
         tax_categories=TAX_CATEGORIES,
         back=back,
+        prev_mark=siblings[pos - 1]["mark"] if pos > 0 else None,
+        next_mark=siblings[pos + 1]["mark"] if pos + 1 < len(siblings) else None,
+        pos=pos + 1,
+        siblings_total=len(siblings),
         line_cls=line_cls,
         doc_cls=doc_cls,
         flags=flags,
@@ -1814,6 +1830,7 @@ def income():
 
     items = sorted(items, key=sort_key, reverse=reverse)
     total = len(items)
+    sums = {k: sum(getattr(i, "total_" + k) or 0 for i in items) for k in ("net", "vat", "gross")}
     page_items, page, total_pages = paginate(items, request.args.get("page"))
 
     return render_template(
@@ -1833,6 +1850,7 @@ def income():
         page=page,
         total_pages=total_pages,
         total=total,
+        sums=sums,
         per_page=PER_PAGE,
         filters=filters,
     )
@@ -2819,18 +2837,24 @@ def reject(mark):
     return redirect(url_for("invoices", view="classified"))
 
 
+@app.route("/help")
+def help_page():
+    return render_template("help.html")
+
+
 @app.route("/parameters")
 def parameters():
-    tab = request.args.get("tab", "companies")
-    if tab == "suppliers":  # παλιοί σύνδεσμοι: οι συναλλασσόμενοι έχουν δική τους σελίδα
+    tab = request.args.get("tab", "accountant")
+    # Παλιοί σύνδεσμοι: συναλλασσόμενοι και εταιρείες έχουν δική τους σελίδα.
+    if tab == "suppliers":
         return redirect(url_for("suppliers"))
-    if tab not in {"companies", "accountant", "combinations"}:
-        tab = "companies"
+    if tab == "companies":
+        return redirect(url_for("companies"))
+    if tab not in {"accountant", "combinations"}:
+        tab = "accountant"
     return render_template(
         "parameters.html",
         active_tab=tab,
-        companies=load_companies(),
-        active=get_active_index(),
         acc=get_accountant(),
         combinations_count=db.combos_count(),
         combinations_invoice_types=sorted(db.combos_invoice_types()),
@@ -2839,7 +2863,13 @@ def parameters():
 
 @app.route("/companies")
 def companies():
-    return redirect(url_for("parameters", tab="companies"))
+    return render_template(
+        "companies.html",
+        companies=load_companies(),
+        active=get_active_index(),
+        stats=db.company_stats(),
+        acc=get_accountant(),
+    )
 
 
 @app.route("/companies/add", methods=["POST"])
@@ -2856,7 +2886,7 @@ def companies_add():
             "χρησιμοποιούνται credentials λογιστή.",
             "error",
         )
-        return redirect(url_for("parameters", tab="companies"))
+        return redirect(url_for("companies"))
     new_id = db.add_company(
         {
             "company_name": name,
@@ -2871,7 +2901,7 @@ def companies_add():
     if db.get_active_company_id() is None and new_id is not None:
         db.set_active_company_id(new_id)
     flash(f"✔ Προστέθηκε η εταιρεία «{name}».", "ok")
-    return redirect(url_for("parameters", tab="companies"))
+    return redirect(url_for("companies"))
 
 
 @app.route("/companies/update/<int:idx>", methods=["POST"])
@@ -2879,7 +2909,7 @@ def companies_update(idx):
     comps = load_companies()
     if not (0 <= idx < len(comps)):
         flash("Η εταιρεία δεν βρέθηκε.", "error")
-        return redirect(url_for("parameters", tab="companies"))
+        return redirect(url_for("companies"))
     name = request.form.get("company_name", "").strip()
     user_id = request.form.get("aade_user_id", "").strip()
     sub_key = request.form.get("aade_subscription_key", "").strip()
@@ -2891,7 +2921,7 @@ def companies_update(idx):
             "χρησιμοποιούνται credentials λογιστή.",
             "error",
         )
-        return redirect(url_for("parameters", tab="companies"))
+        return redirect(url_for("companies"))
     db.update_company(
         comps[idx]["id"],
         {
@@ -2905,7 +2935,7 @@ def companies_update(idx):
         },
     )
     flash(f"✔ Ενημερώθηκε η εταιρεία «{name}».", "ok")
-    return redirect(url_for("parameters", tab="companies"))
+    return redirect(url_for("companies"))
 
 
 @app.route("/companies/delete/<int:idx>", methods=["POST"])
@@ -2913,7 +2943,7 @@ def companies_delete(idx):
     comps = load_companies()
     if not (0 <= idx < len(comps)):
         flash("Η εταιρεία δεν βρέθηκε.", "error")
-        return redirect(url_for("parameters", tab="companies"))
+        return redirect(url_for("companies"))
     removed = comps[idx]
     was_active = db.get_active_company_id() == removed["id"]
     db.delete_company(
@@ -2925,7 +2955,7 @@ def companies_delete(idx):
         if remaining:
             db.set_active_company_id(remaining[0]["id"])
     flash(f"✔ Διαγράφηκε η εταιρεία «{removed.get('company_name', '')}».", "ok")
-    return redirect(url_for("parameters", tab="companies"))
+    return redirect(url_for("companies"))
 
 
 @app.route("/companies/select/<int:idx>", methods=["POST"])
@@ -2933,10 +2963,10 @@ def companies_select(idx):
     comps = load_companies()
     if not (0 <= idx < len(comps)):
         flash("Η εταιρεία δεν βρέθηκε.", "error")
-        return redirect(url_for("parameters", tab="companies"))
+        return redirect(url_for("companies"))
     db.set_active_company_id(comps[idx]["id"])
     flash(f"✔ Ενεργή εταιρεία: «{comps[idx].get('company_name', '')}».", "ok")
-    return redirect(url_for("parameters", tab="companies"))
+    return redirect(url_for("companies"))
 
 
 @app.route("/supplier_lookup/<vat>")
@@ -3010,6 +3040,7 @@ def suppliers():
         latest={vat: d for vat, (d, _) in latest.items()},
         suppliers=page_items,
         suppliers_total=len(all_suppliers),
+        with_rule=sum(1 for s in all_suppliers if s["vat"] in patterns or s["vat"] in rules),
         filtered_total=len(items),
         q=q,
         page=page,
@@ -3179,7 +3210,7 @@ def companies_import():
     f = request.files.get("file")
     if not f or not f.filename:
         flash("Επίλεξε αρχείο companies.json.", "error")
-        return redirect(url_for("parameters", tab="companies"))
+        return redirect(url_for("companies"))
     raw = f.read()
     try:
         text = raw.decode("utf-8-sig")
@@ -3189,7 +3220,7 @@ def companies_import():
         data = json.loads(text)
     except (json.JSONDecodeError, ValueError) as e:
         flash(f"Μη έγκυρο companies.json: {e}", "error")
-        return redirect(url_for("parameters", tab="companies"))
+        return redirect(url_for("companies"))
 
     file_companies = data.get("companies", []) if isinstance(data, dict) else data
     accountant = data.get("accountant", {}) if isinstance(data, dict) else {}
@@ -3220,7 +3251,7 @@ def companies_import():
         + ".",
         "ok",
     )
-    return redirect(url_for("parameters", tab="companies"))
+    return redirect(url_for("companies"))
 
 
 # ------------------------------------------------------------------ #

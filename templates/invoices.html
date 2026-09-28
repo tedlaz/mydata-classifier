@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon, cls_chips, issuer_name, type_badge, sort_link, status_tabs, filter_bar, empty_state, pager with context %}
+{% from "_ledger_hero.html" import ledger_hero with context %}
 {# Μία στήλη χαρακτηρισμού στη λίστα: μία τιμή ανά χαρακτηρισμό, ευθυγραμμισμένες μεταξύ στηλών. #}
 {% macro cls_stack(rows, key, labels, label, flags=[]) -%}
 <td data-label="{{ label }}" class="cell-cls">
@@ -15,23 +16,15 @@
 {% block title %}Βιβλίο εξόδων{% endblock %}
 {% block content %}
 {% set q = dict(view=view, sort=sort, dir=dir, f_mark=filters.mark, f_date=filters.date, f_issuer=filters.issuer, f_type=filters.type) %}
-<div class="page-head">
-  <div>
-    <h1>Βιβλίο εξόδων</h1>
-    <div class="meta">
-      {% if date_range %}<span>Τελευταία αναζήτηση: <span class="mono">{{ date_range }}</span></span>{% endif %}
-      {% if last_mark %}<span title="Τα MARK του myDATA είναι χρονολογικά — έχουμε δεδομένα ως εδώ">Τελευταίο MARK: <span class="mono">{{ last_mark }}</span></span>{% endif %}
-    </div>
-  </div>
-  <div class="btn-row">
-    <a class="btn btn-ghost" href="{{ url_for('invoices_sync') }}">⟳ Ανάκτηση / Διαγραφή</a>
-    <a class="btn btn-ghost" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>
-  </div>
-</div>
+{% call ledger_hero('invoices', q, '📥 Βιβλίο εξόδων', 'Παραστατικά που σου διαβίβασαν άλλοι: χαρακτήρισε, στείλε, επιβεβαίωσε.',
+    [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️'), ('sent', 'Απεσταλμένα', '🚀'), ('confirmed', 'Ολοκληρωμένα', '✅')],
+    'confirmed', sums, date_range, last_mark, 'out') %}
+  <a class="btn btn-ghost" href="{{ url_for('invoices_sync') }}">⟳ Ανάκτηση / Διαγραφή</a>
+  <a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>
+{% endcall %}
 
 <div class="card ledger-card" data-view="{{ view }}">
   <div class="ledger-toolbar">
-  {{ status_tabs('invoices', q, [('unclassified', 'Αχαρακτήριστα'), ('classified', 'Χαρακτηρισμένα'), ('sent', 'Απεσταλμένα'), ('confirmed', 'Ολοκληρωμένα')]) }}
 
   {% if view == 'classified' %}
     <p class="muted">Χαρακτηρισμένα <strong>τοπικά</strong> (δεν έχουν σταλεί ακόμη στο myDATA). Επίλεξε και πάτα «Αποστολή στο myDATA» — χωρίς επιλογή στέλνονται όλα.</p>
@@ -204,14 +197,14 @@
 {% endblock %}
 
 {% block scripts %}
-{% if view == 'unclassified' %}
 <script>
 // Κατηγορία 2.5 (χωρίς δικαίωμα έκπτωσης ΦΠΑ) → «Χωρίς χαρακτηρισμό ΦΠΑ».
-document.getElementById('bulk_category')?.addEventListener('change', e => {
+// Delegated: η κάρτα του βιβλίου αντικαθίσταται με AJAX όταν αλλάζει καρτέλα.
+document.addEventListener('change', e => {
+  if (e.target.id !== 'bulk_category') return;
   const vat = document.getElementById('bulk_vat_type');
   if (e.target.value === 'category2_5') vat.value = 'none';
   else if (vat.value === 'none') vat.value = 'auto';
 });
 </script>
-{% endif %}
 {% endblock %}
