@@ -842,6 +842,11 @@ table.report .num{font-size:1rem}
 .yr-month.is-now{fill:var(--accent);font-weight:800}
 .yr-bar{transition:opacity .15s}
 .yr-bar--in{fill:var(--yr-in)} .yr-bar--out{fill:var(--yr-out)}
+/* Αγορές παγίων: ίδια απόχρωση με τα έξοδα, με διαγράμμιση (δεύτερη κωδικοποίηση, όχι μόνο χρώμα) */
+.yr-bar--asset{fill:url(#yr-hatch)}
+.yr-hatch-bg{fill:var(--yr-out-soft)} .yr-hatch-fg{fill:var(--yr-out)}
+.yr-dot--asset{background:repeating-linear-gradient(45deg,var(--yr-out) 0 2px,var(--yr-out-soft) 2px 4.5px);box-shadow:inset 0 0 0 1px var(--yr-out)}
+.yr-tip-sum{color:var(--muted) !important;font-size:.76rem}
 .yr-hit{fill:transparent}
 .yr-col{cursor:default;outline:none}
 .yr-col.is-active .yr-hit{fill:var(--surface-3);opacity:.7}

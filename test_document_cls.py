@@ -286,5 +286,14 @@ y = _yearly_totals([doc("2025-11-15", "1.1", 1047.58, [{"type": "E3_882_001", "c
                                                        {"type": "VAT_362", "amount": 1047.58}]),
                     doc("2025-12-31", "17.5", 200.0, [{"type": "E3_587_001", "category": "category2_6", "amount": 200.0}])])
 assert y[11]["assets"] == 1047.58 and y[12]["depreciation"] == 200.0 and y[12]["assets"] == 0.0, (y[11], y[12])
+# Διάγραμμα: η μπάρα εξόδων χωρίζεται σε έξοδα χωρίς πάγια + αγορές παγίων (μόνο όπου υπάρχουν).
+from app import _yearly_chart  # noqa: E402
+
+row = lambda inc, exp, assets: {"label": "Νοέ. 2025", "balance": inc - exp,  # noqa: E731
+                                "income": {"net": inc}, "expense": {"net": exp, "assets": assets}}
+ch = _yearly_chart([row(1693.54, 1591.46, 1362.55), row(120.97, 1563.67, 0.0)])
+nov, dec = ch["months"]
+assert nov["op"] == 228.91 and nov["profit"] == 1464.63 and nov["op_path"] and nov["asset_path"], nov
+assert dec["op"] == 1563.67 and dec["asset_path"] == "" and ch["has_assets"], dec
 
 print("OK")

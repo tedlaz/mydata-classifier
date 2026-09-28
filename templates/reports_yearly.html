@@ -55,22 +55,31 @@
       <h2>Καθαρή αξία ανά μήνα</h2>
       <ul class="yr-legend">
         <li><i class="yr-dot yr-dot--in"></i>Έσοδα</li>
-        <li><i class="yr-dot yr-dot--out"></i>Έξοδα</li>
+        <li><i class="yr-dot yr-dot--out"></i>Έξοδα{% if chart.has_assets %} χωρίς αγορές παγίων{% endif %}</li>
+        {% if chart.has_assets %}<li><i class="yr-dot yr-dot--asset"></i>Αγορές παγίων</li>{% endif %}
       </ul>
     </div>
     <div class="yr-plot">
       <svg viewBox="0 0 {{ chart.w }} {{ chart.h }}" role="img"
-           aria-label="Ομαδοποιημένες μπάρες καθαρής αξίας εσόδων και εξόδων ανά μήνα {{ year }} — αναλυτικά στον πίνακα παρακάτω">
+           aria-label="Μπάρες καθαρής αξίας εσόδων και εξόδων ανά μήνα {{ year }}, με τις αγορές παγίων ξεχωριστά πάνω στα έξοδα — αναλυτικά στον πίνακα παρακάτω">
+        <defs>
+          {# Διαγράμμιση 45° για τις αγορές παγίων: ξεχωρίζουν και χωρίς χρώμα (CVD / εκτύπωση). #}
+          <pattern id="yr-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect class="yr-hatch-bg" width="6" height="6"/><rect class="yr-hatch-fg" width="2.5" height="6"/>
+          </pattern>
+        </defs>
         {% for t in chart.ticks %}
         <line class="yr-grid {{ 'yr-grid--base' if loop.first }}" x1="{{ chart.left }}" x2="{{ chart.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
         <text class="yr-tick" x="{{ chart.left - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ '{:,.0f}'.format(t.v).replace(',', '.') }}</text>
         {% endfor %}
         {% for m in chart.months %}
         <g class="yr-col" data-month="{{ m.full }}" data-in="{{ m.income|el_amount }}" data-out="{{ m.expense|el_amount }}"
-           data-bal="{{ m.balance|el_amount }}" data-neg="{{ 1 if m.balance < 0 else 0 }}">
+           data-op="{{ m.op|el_amount }}" data-assets="{{ m.assets|el_amount if m.assets else '' }}"
+           data-profit="{{ m.profit|el_amount }}" data-neg="{{ 1 if m.profit < 0 else 0 }}">
           <rect class="yr-hit" x="{{ m.x }}" y="{{ chart.top }}" width="{{ m.w }}" height="{{ chart.base - chart.top }}"/>
           {% if m.income_path %}<path class="yr-bar yr-bar--in" d="{{ m.income_path }}"/>{% endif %}
-          {% if m.expense_path %}<path class="yr-bar yr-bar--out" d="{{ m.expense_path }}"/>{% endif %}
+          {% if m.op_path %}<path class="yr-bar yr-bar--out" d="{{ m.op_path }}"/>{% endif %}
+          {% if m.asset_path %}<path class="yr-bar yr-bar--asset" d="{{ m.asset_path }}"/>{% endif %}
           <text class="yr-month {{ 'is-now' if loop.index == current_month }}" x="{{ m.cx }}" y="{{ chart.h - 9 }}" text-anchor="middle">{{ m.label }}</text>
         </g>
         {% endfor %}
@@ -170,8 +179,12 @@
     const d = g.dataset, box = plot.getBoundingClientRect(), r = g.querySelector('.yr-hit').getBoundingClientRect();
     tip.innerHTML = '<b>' + d.month + '</b>' +
       '<span><i class="yr-dot yr-dot--in"></i>Έσοδα<em>' + d.in + ' €</em></span>' +
-      '<span><i class="yr-dot yr-dot--out"></i>Έξοδα<em>' + d.out + ' €</em></span>' +
-      '<span class="yr-tip-bal' + (d.neg === '1' ? ' is-neg' : '') + '">Υπόλοιπο<em>' + d.bal + ' €</em></span>';
+      (d.assets
+        ? '<span><i class="yr-dot yr-dot--out"></i>Έξοδα χωρίς πάγια<em>' + d.op + ' €</em></span>' +
+          '<span><i class="yr-dot yr-dot--asset"></i>Αγορές παγίων<em>' + d.assets + ' €</em></span>' +
+          '<span class="yr-tip-sum">Σύνολο εξόδων<em>' + d.out + ' €</em></span>'
+        : '<span><i class="yr-dot yr-dot--out"></i>Έξοδα<em>' + d.out + ' €</em></span>') +
+      '<span class="yr-tip-bal' + (d.neg === '1' ? ' is-neg' : '') + '">Καθαρό κέρδος<em>' + d.profit + ' €</em></span>';
     tip.hidden = false;
     const x = r.left - box.left + r.width / 2;
     tip.style.left = Math.min(Math.max(x, tip.offsetWidth / 2 + 4), box.width - tip.offsetWidth / 2 - 4) + 'px';

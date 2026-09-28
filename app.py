@@ -2099,8 +2099,9 @@ def _nice_step(top: float, ticks: int = 4) -> float:
 
 
 def _yearly_chart(rows: list[dict]) -> dict:
-    """Γεωμετρία SVG (viewBox 760×260) για ομαδοποιημένες μπάρες καθαρής αξίας εσόδων/εξόδων
-    ανά μήνα. Αρνητικά (μήνας με μόνο πιστωτικά) σχεδιάζονται μηδενικά — φαίνονται στον πίνακα."""
+    """Γεωμετρία SVG (viewBox 760×260): ανά μήνα μπάρα εσόδων και στοιβαγμένη μπάρα εξόδων —
+    κάτω τα έξοδα χωρίς αγορές παγίων, πάνω οι αγορές παγίων (κατηγορία 2.7). Αρνητικά (μήνας
+    με μόνο πιστωτικά) σχεδιάζονται μηδενικά — φαίνονται στον πίνακα."""
     W, H, left, right, top, bottom = 760, 260, 58, 8, 14, 30
     base = H - bottom
     top_value = max([r["income"]["net"] for r in rows] + [r["expense"]["net"] for r in rows] + [0])
@@ -2111,26 +2112,34 @@ def _yearly_chart(rows: list[dict]) -> dict:
     bar_w = min(22.0, slot * 0.3)
     y = lambda v: base - max(v, 0) / ymax * plot_h  # noqa: E731
 
-    def bar(x: float, v: float) -> str:
-        ty, r = y(v), 4.0
-        if base - ty < 0.5:
+    def seg(x: float, lo: float, hi: float, rounded: bool) -> str:
+        """Τμήμα μπάρας από το lo έως το hi (σε ευρώ)· rounded = στρογγυλεμένη κορυφή (4px)."""
+        by, ty, r = y(lo), y(hi), 4.0
+        if by - ty < 0.5:
             return ""
-        if base - ty < r:  # πολύ κοντή: απλό ορθογώνιο
-            return f"M{x:.1f},{ty:.1f}h{bar_w:.1f}V{base}H{x:.1f}Z"
-        return (f"M{x:.1f},{base}V{ty + r:.1f}Q{x:.1f},{ty:.1f} {x + r:.1f},{ty:.1f}"
-                f"H{x + bar_w - r:.1f}Q{x + bar_w:.1f},{ty:.1f} {x + bar_w:.1f},{ty + r:.1f}V{base}Z")
+        if not rounded or by - ty < r:
+            return f"M{x:.1f},{ty:.1f}h{bar_w:.1f}V{by:.1f}H{x:.1f}Z"
+        return (f"M{x:.1f},{by:.1f}V{ty + r:.1f}Q{x:.1f},{ty:.1f} {x + r:.1f},{ty:.1f}"
+                f"H{x + bar_w - r:.1f}Q{x + bar_w:.1f},{ty:.1f} {x + bar_w:.1f},{ty + r:.1f}V{by:.1f}Z")
 
+    gap = 2 * ymax / plot_h  # 2px κενό (σε ευρώ) ανάμεσα στα στοιβαγμένα τμήματα
     months = []
     for i, r in enumerate(rows):
         cx = left + slot * (i + 0.5)
+        exp_net, assets = r["expense"]["net"], max(r["expense"]["assets"], 0)
+        op = max(exp_net - assets, 0)  # έξοδα χωρίς αγορές παγίων
+        has_assets = y(op) - y(exp_net) >= 0.5
         months.append({
             "label": r["label"].split()[0], "full": r["label"], "cx": round(cx, 1),
             "x": round(left + slot * i, 1), "w": round(slot, 1),
-            "income_path": bar(cx - bar_w - 1, r["income"]["net"]),  # 2px κενό ανάμεσα
-            "expense_path": bar(cx + 1, r["expense"]["net"]),
-            "income": r["income"]["net"], "expense": r["expense"]["net"], "balance": r["balance"],
+            "income_path": seg(cx - bar_w - 1, 0, r["income"]["net"], True),  # 2px κενό ανάμεσα
+            "op_path": seg(cx + 1, 0, op, not has_assets),
+            "asset_path": seg(cx + 1, op + (gap if op else 0), exp_net, True) if has_assets else "",
+            "income": r["income"]["net"], "expense": exp_net, "op": round(op, 2), "assets": assets,
+            "balance": r["balance"], "profit": round(r["income"]["net"] - op, 2),
         })
     return {"w": W, "h": H, "left": left, "right": W - right, "base": base, "top": top, "months": months,
+            "has_assets": any(m["asset_path"] for m in months),
             "ticks": [{"v": step * k, "y": round(y(step * k), 1)} for k in range(int(n_ticks) + 1)]}
 
 
