@@ -5,6 +5,7 @@ myDATA API client (AADE) - ERP interface v2.0.1
 Τεκμηρίωση: https://www.aade.gr/mydata/tehnikes-prodiagrafes-ekdoseis-mydata
 """
 
+import json
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
@@ -64,6 +65,41 @@ _EXTRA_SUMMARY_TAGS = {
 }
 
 
+# Φόροι σε επίπεδο γραμμής: (taxType, πεδίο ποσού, πεδίο κατηγορίας).
+_LINE_TAX_FIELDS = (
+    ("1", "withheldAmount", "withheldPercentCategory"),
+    ("2", "feesAmount", "feesPercentCategory"),
+    ("3", "otherTaxesAmount", "otherTaxesPercentCategory"),
+    ("4", "stampDutyAmount", "stampDutyPercentCategory"),
+    ("5", "deductionsAmount", None),
+)
+
+
+def _parse_taxes(inv: ET.Element) -> list[dict]:
+    """Φόροι/κρατήσεις ΣΕ ΕΠΙΠΕΔΟ ΠΑΡΑΣΤΑΤΙΚΟΥ (taxesTotals):
+    [{"type","category","base","amount"}]. Οι φόροι των γραμμών → _line_taxes."""
+    out = []
+    for tt in inv:
+        if _local(tt.tag) != "taxesTotals":
+            continue
+        for tax in tt:
+            f = {_local(n.tag): n.text for n in tax}
+            if _f(f.get("taxAmount")):
+                out.append({"type": f.get("taxType") or "", "category": f.get("taxCategory") or "",
+                            "base": _f(f.get("underlyingValue")), "amount": _f(f.get("taxAmount"))})
+    return out
+
+
+def _line_taxes(det: ET.Element) -> list[dict]:
+    """Φόροι/κρατήσεις μιας γραμμής: [{"type","category","amount"}] (βάση = η καθαρή αξία της)."""
+    f = {_local(n.tag): n.text for n in det}
+    return [
+        {"type": ttype, "category": (f.get(cat_tag) or "") if cat_tag else "", "amount": _f(f.get(amt_tag))}
+        for ttype, amt_tag, cat_tag in _LINE_TAX_FIELDS
+        if _f(f.get(amt_tag))
+    ]
+
+
 def _local(tag: str) -> str:
     """Επιστρέφει το local name ενός tag (χωρίς namespace)."""
     return tag.split("}")[-1]
@@ -104,6 +140,8 @@ class InvoiceLine:
     classifications: list[dict] = field(
         default_factory=list
     )  # [{"type","category","amount"}]
+    # Φόροι/κρατήσεις της γραμμής (παρακράτηση, τέλη, λοιποί φόροι, χαρτόσημο, κρατήσεις).
+    taxes: list[dict] = field(default_factory=list)  # [{"type","category","amount"}]
 
 
 @dataclass
@@ -718,6 +756,7 @@ class MyDataClient:
                     _local(ch.tag) == "incomeClassification" for ch in summary
                 )
                 summary_income = _embedded_cls(summary, "incomeClassification")
+            extra_totals["taxes_json"] = json.dumps(_parse_taxes(inv), ensure_ascii=False)
 
             lines = []
             income_entries: list[dict] = []
@@ -742,6 +781,7 @@ class MyDataClient:
                         vat_category=det.findtext("inv:vatCategory", namespaces=NS),
                         has_expenses_classification=has_ecls,
                         classifications=line_cls,
+                        taxes=_line_taxes(det),
                     )
                 )
 
@@ -811,6 +851,9 @@ class MyDataClient:
         issuer_country: str = "GR",
         own_vat: str = "",
         payment_method: str = "5",
+        withheld: float = 0.0,
+        deductions: float = 0.0,
+        withheld_base: float | None = None,
     ) -> dict:
         """
         Δημιουργία + διαβίβαση + χαρακτηρισμός σε ένα βήμα: αυτοτιμολογούμενη
@@ -829,6 +872,9 @@ class MyDataClient:
             counterpart_vat=own_vat if rules["counterpart"] else "",
             include_payment=rules["payment"],
             payment_method=payment_method,
+            withheld=withheld,
+            deductions=deductions,
+            withheld_base=withheld_base,
         )
         resp = self.session.post(
             self.base_url + "SendInvoices",
@@ -963,6 +1009,11 @@ PAYMENT_METHODS = {
 # εσωτερικού) — όταν η γραμμή δεν ορίζει δικό της «vat_type».
 VAT_EXPENSE_TYPE = "VAT_361"
 
+# Μισθοδοσία (17.1): φόροι ΣΕ ΕΠΙΠΕΔΟ ΠΑΡΑΣΤΑΤΙΚΟΥ (taxesTotals, όχι στις γραμμές).
+# taxType 1 = παρακράτηση φόρου, κατηγορία 11 = μισθωτών υπηρεσιών (αρ. 15 παρ. 1
+# ν. 4172/2013)· taxType 5 = κρατήσεις (ΕΦΚΑ εργαζομένου), χωρίς κατηγορία.
+PAYROLL_WITHHELD_CATEGORY = "11"
+
 
 def build_self_expense_invoice_xml(
     invoice_type: str,
@@ -975,6 +1026,9 @@ def build_self_expense_invoice_xml(
     counterpart_vat: str = "",
     include_payment: bool = True,
     payment_method: str = "5",
+    withheld: float = 0.0,
+    deductions: float = 0.0,
+    withheld_base: float | None = None,
 ) -> str:
     """
     Δημιουργεί InvoicesDoc για αυτοτιμολογούμενη εγγραφή εξόδου (π.χ. 17.1 Μισθοδοσία)
@@ -1017,6 +1071,8 @@ def build_self_expense_invoice_xml(
 
     total_net = 0.0
     total_vat = 0.0
+    total_withheld = round(float(withheld or 0), 2)
+    total_deductions = round(float(deductions or 0), 2)
     # συγκεντρωτικά ανά (type, category) για το invoiceSummary
     aggregates: dict[tuple[str, str], float] = {}
     for line in lines:
@@ -1030,7 +1086,8 @@ def build_self_expense_invoice_xml(
         if vat_amount > 0:
             vkey = (line.get("vat_type") or VAT_EXPENSE_TYPE, "")
             aggregates[vkey] = aggregates.get(vkey, 0.0) + amount
-    total_gross = round(total_net + total_vat, 2)
+    # ΑΑΔΕ: μικτή = καθαρή + ΦΠΑ − παρακρατήσεις − κρατήσεις (το πληρωτέο).
+    total_gross = round(total_net + total_vat - total_withheld - total_deductions, 2)
 
     # paymentMethods: μετά το header, πριν τα invoiceDetails (σειρά σχήματος).
     # Σε ορισμένους τύπους (π.χ. 14.x) απαγορεύεται - error 205.
@@ -1065,14 +1122,33 @@ def build_self_expense_invoice_xml(
             ET.SubElement(vcls, f"{{{ECLS_NS}}}amount").text = f"{amount:.2f}"
             ET.SubElement(vcls, f"{{{ECLS_NS}}}id").text = "2"
 
+    # taxesTotals: μετά τα invoiceDetails, πριν το invoiceSummary (σειρά σχήματος).
+    # underlyingValue: το ποσό πάνω στο οποίο υπολογίστηκε η παρακράτηση (φορολογητέο, αν
+    # δοθεί· αλλιώς η καθαρή αξία). Οι κρατήσεις (taxType 5) ΔΕΝ έχουν ποσό υπολογισμού
+    # ούτε κατηγορία — μόνο taxType + taxAmount (προδιαγραφές ΑΑΔΕ, TaxTotalsType).
+    base = round(float(withheld_base), 2) if withheld_base else total_net
+    taxes = [(t, cat, b, amt) for t, cat, b, amt in (("1", PAYROLL_WITHHELD_CATEGORY, base, total_withheld),
+                                                     ("5", "", None, total_deductions)) if amt]
+    if taxes:
+        tt = ET.SubElement(inv, f"{{{INV_NS}}}taxesTotals")
+        for i, (ttype, tcat, tbase, amt) in enumerate(taxes, start=1):
+            tax = ET.SubElement(tt, f"{{{INV_NS}}}taxes")
+            ET.SubElement(tax, f"{{{INV_NS}}}taxType").text = ttype
+            if tcat:
+                ET.SubElement(tax, f"{{{INV_NS}}}taxCategory").text = tcat
+            if tbase is not None:
+                ET.SubElement(tax, f"{{{INV_NS}}}underlyingValue").text = f"{tbase:.2f}"
+            ET.SubElement(tax, f"{{{INV_NS}}}taxAmount").text = f"{amt:.2f}"
+            ET.SubElement(tax, f"{{{INV_NS}}}id").text = str(i)
+
     summary = ET.SubElement(inv, f"{{{INV_NS}}}invoiceSummary")
     ET.SubElement(summary, f"{{{INV_NS}}}totalNetValue").text = f"{total_net:.2f}"
     ET.SubElement(summary, f"{{{INV_NS}}}totalVatAmount").text = f"{total_vat:.2f}"
-    ET.SubElement(summary, f"{{{INV_NS}}}totalWithheldAmount").text = "0.00"
+    ET.SubElement(summary, f"{{{INV_NS}}}totalWithheldAmount").text = f"{total_withheld:.2f}"
     ET.SubElement(summary, f"{{{INV_NS}}}totalFeesAmount").text = "0.00"
     ET.SubElement(summary, f"{{{INV_NS}}}totalStampDutyAmount").text = "0.00"
     ET.SubElement(summary, f"{{{INV_NS}}}totalOtherTaxesAmount").text = "0.00"
-    ET.SubElement(summary, f"{{{INV_NS}}}totalDeductionsAmount").text = "0.00"
+    ET.SubElement(summary, f"{{{INV_NS}}}totalDeductionsAmount").text = f"{total_deductions:.2f}"
     ET.SubElement(summary, f"{{{INV_NS}}}totalGrossValue").text = f"{total_gross:.2f}"
     for (ctype, ccat), amt in aggregates.items():
         agg = ET.SubElement(summary, f"{{{INV_NS}}}expensesClassification")

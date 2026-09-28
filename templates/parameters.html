@@ -38,7 +38,7 @@
     <div class="company-head">
       <h2>
         {{ c.company_name }}
-        {% if is_active %}<span class="pill pill--accent">ΕΝΕΡΓΗ</span>{% endif %}
+        {% if is_active %}<span class="pill pill--ok">✔ ΕΝΕΡΓΗ</span>{% endif %}
         <span class="pill">{{ c.MYDATA_ENV or 'prod' }}</span>
       </h2>
       <div class="btn-row">
@@ -85,6 +85,10 @@
       <input type="checkbox" name="use_accountant" value="1" {% if c.use_accountant %}checked{% endif %}>
       Χρήση credentials λογιστή
     </label>
+    <label class="check check--danger">
+      <input type="checkbox" name="allow_cancel" value="1" {% if c.allow_cancel %}checked{% endif %}>
+      ⚠ Επιτρέπονται ακυρώσεις (εσόδων &amp; εξόδων) και απορρίψεις παραστατικών — οριστικές στο myDATA
+    </label>
   </form>
   {% else %}
   <div class="empty"><b>Δεν έχει οριστεί καμία εταιρεία ακόμα</b>Πρόσθεσε την πρώτη παρακάτω.</div>
@@ -125,6 +129,10 @@
     <label class="check">
       <input type="checkbox" name="use_accountant" value="1">
       Χρήση credentials λογιστή (στέλνεται το ΑΦΜ της εταιρείας ως entityVatNumber)
+    </label>
+    <label class="check check--danger">
+      <input type="checkbox" name="allow_cancel" value="1">
+      ⚠ Επιτρέπονται ακυρώσεις (εσόδων &amp; εξόδων) και απορρίψεις παραστατικών — οριστικές στο myDATA
     </label>
   </form>
 </div>

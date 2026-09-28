@@ -32,7 +32,7 @@
       <div class="cls-stats">
         <div><span class="kicker">Καθαρή</span><b class="mono" id="t_net">0.00 €</b></div>
         <div><span class="kicker">ΦΠΑ</span><b class="mono" id="t_vat">0.00 €</b></div>
-        <div><span class="kicker">Σύνολο</span><b class="mono" id="t_gross">0.00 €</b></div>
+        <div><span class="kicker" id="t_gross_label">Σύνολο</span><b class="mono" id="t_gross">0.00 €</b></div>
       </div>
       <button type="button" class="btn-ghost btn-sm info-btn {{ 'has-attention' if copy_mark or template }}"
               data-toggle="#ne-info" aria-expanded="false" aria-controls="ne-info">
@@ -182,6 +182,29 @@
     </div>
   </section>
 
+  <section class="card ne-card" id="payroll_box" hidden>
+    <div class="ne-card-head"><h2>Κρατήσεις μισθοδοσίας</h2>
+      <span class="muted small">Δηλώνονται σε επίπεδο παραστατικού</span></div>
+    <div class="grid grid-issuer">
+      <div>
+        <label for="withheld_base">Ποσό υπολογισμού παρακράτησης (€)</label>
+        <input type="number" step="0.01" min="0" id="withheld_base" name="withheld_base" placeholder="0.00"
+               title="Το φορολογητέο ποσό πάνω στο οποίο υπολογίστηκε η παρακράτηση φόρου"
+               value="{{ '%.2f'|format(draft.withheld_base) if draft and draft.withheld_base else '' }}">
+      </div>
+      <div>
+        <label for="withheld_amount">Παρακράτηση φόρου μισθωτών (€)</label>
+        <input type="number" step="0.01" min="0" id="withheld_amount" name="withheld_amount" placeholder="0.00"
+               value="{{ '%.2f'|format(draft.withheld_amount) if draft and draft.withheld_amount else '' }}">
+      </div>
+      <div>
+        <label for="deductions_amount">Κρατήσεις ΕΦΚΑ εργαζομένου (€)</label>
+        <input type="number" step="0.01" min="0" id="deductions_amount" name="deductions_amount" placeholder="0.00"
+               value="{{ '%.2f'|format(draft.deductions_amount) if draft and draft.deductions_amount else '' }}">
+      </div>
+    </div>
+  </section>
+
   <div class="cls-footer">
     <div class="cls-footer-status muted">{{ title }}</div>
     <div class="btn-row">
@@ -231,7 +254,12 @@ function recalc() {
   });
   document.getElementById('t_net').textContent = net.toFixed(2) + ' €';
   document.getElementById('t_vat').textContent = vat.toFixed(2) + ' €';
-  document.getElementById('t_gross').textContent = (net + vat).toFixed(2) + ' €';
+  // Μισθοδοσία: πληρωτέο = αποδοχές − παρακράτηση φόρου − κρατήσεις ΕΦΚΑ (όπως στο myDATA).
+  const payroll = !document.getElementById('payroll_box').hidden;
+  const minus = payroll ? ['withheld_amount', 'deductions_amount']
+    .reduce((s, id) => s + (parseFloat(document.getElementById(id).value) || 0), 0) : 0;
+  document.getElementById('t_gross_label').textContent = payroll ? 'Πληρωτέο' : 'Σύνολο';
+  document.getElementById('t_gross').textContent = (net + vat - minus).toFixed(2) + ' €';
 }
 async function checkVat() {
   const afm = document.getElementById('issuer_vat').value.trim();
@@ -280,6 +308,9 @@ function toggleIssuer() {
   // Κρύψε τον τρόπο πληρωμής όπου απαγορεύεται.
   document.getElementById('payment_box').style.display =
     NO_PAYMENT.includes(t.split('.')[0]) ? 'none' : '';
+  const payroll = document.getElementById('payroll_box');
+  payroll.hidden = t !== '17.1';
+  payroll.querySelectorAll('input').forEach(i => i.disabled = payroll.hidden);
   filterCountries(t);
   filterAllLines();
   syncVatFields();
@@ -311,6 +342,7 @@ function autoVat(el) {
   const net = parseFloat(el.querySelector('[name=line_amount]').value) || 0;
   amt.value = (Math.round(net * rate * 100) / 100).toFixed(2);
 }
+document.getElementById('payroll_box').addEventListener('input', recalc);
 document.getElementById('lines').addEventListener('input', e => {
   if (e.target.name === 'line_amount') { autoVat(e.target.closest('.line-item')); recalc(); }
 });

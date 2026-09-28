@@ -2,19 +2,19 @@
 {% from "_macros.html" import cls_chips with context %}
 {% block title %}{{ inv.mark }}{% endblock %}
 {% block content %}
-{% set status_labels = {'unclassified':'Αχαρακτήριστο','classified':'Χαρακτηρισμένο (τοπικά)','sent':'Απεσταλμένο','confirmed':'Ολοκληρωμένο'} %}
+{% set status_labels = {'unclassified':'Αχαρακτήριστο','classified':'Χαρακτηρισμένο' if is_income else 'Χαρακτηρισμένο (τοπικά)','sent':'Απεσταλμένο','confirmed':'Ολοκληρωμένο'} %}
 <a class="back" href="{{ back }}">← Πίσω στο βιβλίο</a>
 
 <div class="doc-head">
   <div>
-    <div class="kicker">Παραστατικό εξόδου</div>
+    <div class="kicker">Παραστατικό {{ 'εσόδου' if is_income else 'εξόδου' }}</div>
     <h1 class="doc-mark">{{ inv.mark }}</h1>
   </div>
   <div class="btn-row">
-    {% if status == 'confirmed' and inv.invoice_type in self_types %}
+    {% if not is_income and status == 'confirmed' and inv.invoice_type in self_types %}
     <a class="btn btn-ghost btn-sm" href="{{ url_for('new_expense', copy=inv.mark) }}" title="Νέα εγγραφή με τα ίδια στοιχεία και χαρακτηρισμούς">📄 Αντιγραφή σε νέα εγγραφή</a>
     {% endif %}
-    {% if status == 'confirmed' and inv.issuer_vat %}
+    {% if not is_income and status == 'confirmed' and inv.issuer_vat %}
     <form method="post" action="{{ url_for('document_as_rule', mark=inv.mark) }}">
       <input type="hidden" name="back" value="{{ back }}">
       <button type="submit" class="btn-ghost btn-sm" title="Κατηγορία, τύπος Ε3 και ΦΠΑ ανά κατηγορία ΦΠΑ — προσυμπληρώνονται στα επόμενα παραστατικά του προμηθευτή"
@@ -34,7 +34,11 @@
   <div class="hero-total">
     <span class="kicker">Σύνολο</span>
     <span class="hero-total-v">{{ "%.2f"|format(inv.total_gross or 0) }} €</span>
-    <span class="hero-total-sub">Καθαρή {{ "%.2f"|format(inv.total_net or 0) }} € · ΦΠΑ {{ "%.2f"|format(inv.total_vat or 0) }} €</span>
+    <span class="hero-total-sub">Καθαρή {{ "%.2f"|format(inv.total_net or 0) }} € · ΦΠΑ {{ "%.2f"|format(inv.total_vat or 0) }} €
+      {%- for col, label in (("total_withheld", "Παρακρατήσεις"), ("total_deductions", "Κρατήσεις"), ("total_fees", "Τέλη"),
+                             ("total_stamp_duty", "Χαρτόσημο"), ("total_other_taxes", "Λοιποί φόροι")) %}
+        {%- if inv.extra_totals.get(col) %} · {{ label }} {{ "%.2f"|format(inv.extra_totals[col]) }} €{% endif %}
+      {%- endfor %}</span>
   </div>
 </div>
 
@@ -48,9 +52,25 @@
   {{ cls_cell(r.vat_type, vat_types) }}
   <td class="num">{{ "%.2f"|format(r.amount) ~ ' €' if r.amount is not none else '—' }}</td>
 {%- endmacro %}
+{# Πίνακας φόρων/κρατήσεων: [{type, category, base?, amount}]. #}
+{% macro tax_table(rows, with_base=true) -%}
+  <table class="doc-lines tax-table">
+    <thead><tr><th>Είδος</th><th>Κατηγορία</th>{% if with_base %}<th class="num">Ποσό υπολογισμού</th>{% endif %}<th class="num">Ποσό</th></tr></thead>
+    <tbody>
+      {% for t in rows %}
+      <tr class="line-first">
+        <td>{{ tax_types.get(t.type, t.type) }}</td>
+        <td>{% if t.category %}{{ tax_categories.get(t.type, {}).get(t.category, 'Κατηγορία ' ~ t.category) }}<span class="code">{{ t.category }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        {% if with_base %}<td class="num">{{ "%.2f"|format(t.base) ~ " €" if t.base is not none else "—" }}</td>{% endif %}
+        <td class="num">{{ "%.2f"|format(t.amount or 0) }} €</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{%- endmacro %}
 {% set cls_head %}
   <th class="c-cls">Κατηγορία</th>
-  <th class="c-cls">Τύπος Ε3</th>
+  <th class="c-cls">Τύπος{{ '' if is_income else ' Ε3' }}</th>
   <th class="c-cls">Χαρακτηρισμός ΦΠΑ</th>
   <th class="num">Ποσό</th>
 {% endset %}
@@ -60,7 +80,7 @@
     <h2>Γραμμές &amp; χαρακτηρισμοί
       {% if status == 'confirmed' %}<span class="pill" title="Πηγή χαρακτηρισμού">{{ 'Manually (τοπικά)' if source == 'manual' else 'rest (myDATA)' }}</span>{% endif %}
     </h2>
-    {% if local_action != 'create' %}
+    {% if local_action != 'create' and not is_income %}
     <a class="btn" href="{{ url_for('classify', mark=inv.mark) }}">✏️ Αλλαγή χαρακτηρισμού</a>
     {% endif %}
   </div>
@@ -87,7 +107,11 @@
       {% for r in rows %}
       <tr class="{{ 'line-first' if loop.first }}">
         {% if loop.first %}
-        <td class="c-no mono" rowspan="{{ rows|length }}">{{ line.line_number }}</td>
+        <td class="c-no mono" rowspan="{{ rows|length }}">{{ line.line_number }}
+          {%- if line.taxes %}
+          <button type="button" class="btn-ghost btn-sm line-tax-btn" data-toggle="#ltx-{{ line.line_number }}" aria-expanded="false"
+                  aria-controls="ltx-{{ line.line_number }}" title="Φόροι & κρατήσεις της γραμμής">🧾 {{ line.taxes|length }}</button>
+          {%- endif %}</td>
         <td class="num" rowspan="{{ rows|length }}">{{ "%.2f"|format(line.net_value or 0) }} €</td>
         <td class="num" rowspan="{{ rows|length }}">{{ "%.2f"|format(line.vat_amount or 0) }} €</td>
         <td class="c-vat" rowspan="{{ rows|length }}">
@@ -100,6 +124,15 @@
         {% else %}<td colspan="4" class="muted">{{ '— βλ. χαρακτηρισμό σε επίπεδο παραστατικού —' if doc_cls else '—' }}</td>{% endif %}
       </tr>
       {% endfor %}
+      {% if line.taxes %}
+      <tr id="ltx-{{ line.line_number }}" class="line-taxes" hidden>
+        <td></td>
+        <td colspan="7">
+          <div class="kicker">Φόροι &amp; κρατήσεις γραμμής {{ line.line_number }} · επί καθαρής αξίας {{ "%.2f"|format(line.net_value or 0) }} €</div>
+          {{ tax_table(line.taxes, false) }}
+        </td>
+      </tr>
+      {% endif %}
       {% else %}
       <tr><td colspan="8" class="empty">— χωρίς αναλυτικές γραμμές —</td></tr>
       {% endfor %}
@@ -119,6 +152,23 @@
   {% if classification_mark %}<p class="muted small">MARK χαρακτηρισμού <span class="mono">{{ classification_mark }}</span></p>{% endif %}
 </div>
 
+{# Φόροι & κρατήσεις σε επίπεδο παραστατικού (taxesTotals). Παλιά ανάκτηση χωρίς ανάλυση
+   (inv.taxes None) → μόνο τα σύνολα της σύνοψης. #}
+{% set tax_rows = inv.taxes if inv.taxes is not none else [] %}
+{% if inv.taxes is none %}
+  {% for col, t in (("total_withheld", "1"), ("total_fees", "2"), ("total_other_taxes", "3"),
+                    ("total_stamp_duty", "4"), ("total_deductions", "5")) if inv.extra_totals.get(col) %}
+    {% set tax_rows = tax_rows.append({"type": t, "category": "", "base": none, "amount": inv.extra_totals[col]}) or tax_rows %}
+  {% endfor %}
+{% endif %}
+{% if tax_rows %}
+<div class="card">
+  <h2>Φόροι &amp; κρατήσεις</h2>
+  {% if inv.taxes is none %}<p class="muted small">Μόνο σύνολα — κάνε νέα ανάκτηση για αναλυτικά στοιχεία (κατηγορία, ποσό υπολογισμού, γραμμές).</p>{% endif %}
+  <div class="table-scroll">{{ tax_table(tax_rows) }}</div>
+</div>
+{% endif %}
+
 {% if doc_cls %}
 <div class="card">
   <h2>Χαρακτηρισμός σε επίπεδο παραστατικού</h2>
@@ -134,6 +184,14 @@
 </div>
 {% endif %}
 
+{% if is_income and can_cancel %}
+<div class="card card-danger">
+  <form method="post" action="{{ url_for('income_cancel', mark=inv.mark) }}" class="inline-form">
+    <button type="submit" class="btn-danger"
+            data-confirm="Το παραστατικό εσόδου {{ inv.mark }} θα ακυρωθεί ΑΜΕΣΑ και οριστικά στο myDATA. Συνέχεια;">🗑️ Ακύρωση παραστατικού</button>
+  </form>
+</div>
+{% elif not is_income %}
 <div class="card card-danger">
   {% if local_action == 'create' and status == 'classified' %}
   {# Τοπική «Νέα εγγραφή» που ΔΕΝ έχει διαβιβαστεί: επεξεργασία ή διαγραφή. #}
@@ -144,16 +202,21 @@
               data-confirm="Η τοπική εγγραφή {{ inv.mark }} θα διαγραφεί οριστικά. Συνέχεια;">🗑️ Διαγραφή</button>
     </form>
   </div>
-  {% elif inv.is_self_issued %}
+  {% elif inv.is_self_issued and can_cancel %}
   <form method="post" action="{{ url_for('cancel', mark=inv.mark) }}" class="inline-form">
     <button type="submit" class="btn-danger"
             data-confirm="Το παραστατικό {{ inv.mark }} θα μπει στα «Χαρακτηρισμένα» ως ΑΚΥΡΩΣΗ και θα ακυρωθεί οριστικά με την αποστολή. Συνέχεια;">🗑️ Ακύρωση παραστατικού</button>
   </form>
-  {% else %}
+  {% elif not inv.is_self_issued and can_cancel %}
   <form method="post" action="{{ url_for('reject', mark=inv.mark) }}" class="inline-form">
     <button type="submit" class="btn-danger"
             data-confirm="Το παραστατικό {{ inv.mark }} θα μπει στα «Χαρακτηρισμένα» ως ΑΠΟΡΡΙΨΗ (transactionMode=1). Συνέχεια;">🚫 Απόρριψη παραστατικού</button>
   </form>
+  {% else %}
+  <p class="muted small">🔒 Οι ακυρώσεις/απορρίψεις είναι απενεργοποιημένες για την εταιρεία (Παράμετροι εταιρείας).</p>
   {% endif %}
 </div>
+{% else %}
+<div class="card"><p class="muted small">🔒 Οι ακυρώσεις/απορρίψεις είναι απενεργοποιημένες για την εταιρεία (Παράμετροι εταιρείας).</p></div>
+{% endif %}
 {% endblock %}

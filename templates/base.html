@@ -48,6 +48,18 @@ if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme:
       <span class="brand-mark">my</span>
       <span><b>myDATA</b><small>Έσοδα-Έξοδα</small></span>
     </a>
+    {# Ενεργή εταιρεία: πάνω πάνω στο μενού, για να φαίνεται πάντα σε ποια δουλεύεις. #}
+      {% if active_company %}
+      <a class="who who--top {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('parameters', tab='companies') }}"
+         title="Αλλαγή ενεργής εταιρείας">
+        {{ active_company.company_name }}
+        {# Περιβάλλον + badges (μόνο σύμβολα, εξήγηση στο title) σε μία γραμμή. #}
+        <small>{{ active_company.MYDATA_ENV or 'prod' }}
+          {%- if active_company.use_accountant %}<span class="who-badge" title="Κλήσεις με τα credentials του λογιστή" aria-label="Λογιστής">👤</span>{% endif %}
+          {%- if active_company.allow_cancel %}<span class="who-badge who-badge--danger" title="Επιτρέπονται ακυρώσεις (εσόδων & εξόδων) και απορρίψεις παραστατικών" aria-label="Επιτρέπονται ακυρώσεις/απορρίψεις">⚠</span>{% endif %}
+        </small>
+      </a>
+      {% endif %}
     <nav class="nav">
       {% for group, items in nav %}
         <div class="nav-group">{{ group }}</div>
@@ -58,13 +70,6 @@ if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme:
       {% endfor %}
     </nav>
     <div class="sidebar-foot">
-      {% if active_company %}
-      <a class="who {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('parameters', tab='companies') }}"
-         title="Αλλαγή ενεργής εταιρείας">
-        {{ active_company.company_name }}
-        <small>{{ active_company.MYDATA_ENV or 'prod' }}</small>
-      </a>
-      {% endif %}
       <button type="button" class="theme-toggle" data-theme-toggle>
         {{ icon('sun') }}{{ icon('moon') }}Εναλλαγή θέματος
       </button>
@@ -76,6 +81,10 @@ if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme:
     <header class="topbar">
       <button type="button" class="menu-btn" data-nav-toggle aria-label="Μενού" aria-controls="sidebar">{{ icon('menu') }}</button>
       <a class="brand" href="{{ url_for('invoices') }}"><span class="brand-mark">my</span><b>myDATA</b></a>
+      {% if active_company %}
+      <a class="who who--bar {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('parameters', tab='companies') }}"
+         title="Αλλαγή ενεργής εταιρείας">{{ active_company.company_name }}<small>{{ active_company.MYDATA_ENV or 'prod' }}</small></a>
+      {% endif %}
     </header>
     <main>
       {% with messages = get_flashed_messages(with_categories=true) %}

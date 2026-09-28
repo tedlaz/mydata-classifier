@@ -39,7 +39,7 @@
     <tbody>
       {% for inv in invoices %}
       <tr>
-        <td data-label="MARK" class="mark">{{ inv.mark }}</td>
+        <td data-label="MARK" class="mark"><a href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}" title="Λεπτομέρειες">{{ inv.mark }}</a></td>
         <td data-label="Ημ/νία" class="doc-date">{{ inv.issue_date or "—" }}</td>
         <td data-label="Πελάτης">
           <span class="issuer" data-vat="{{ inv.issuer_vat or '' }}">

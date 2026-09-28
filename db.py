@@ -152,6 +152,8 @@ _DOCUMENT_COLUMNS = {
     "total_stamp_duty": "REAL",    # χαρτόσημο / ψηφιακό τέλος συναλλαγής
     "total_fees": "REAL",          # τέλη
     "total_deductions": "REAL",    # κρατήσεις
+    # Ανάλυση φόρων/κρατήσεων: [{"type","category","base","amount"}] (για εμφάνιση).
+    "taxes_json": "TEXT",
 }
 EXTRA_TOTALS = ("total_withheld", "total_other_taxes", "total_stamp_duty", "total_fees", "total_deductions")
 # Ανά παραστατικό, ο χαρακτηρισμός ΦΠΑ κρατά κατηγορία ΦΠΑ + ποσό ΦΠΑ της ομάδας.
@@ -228,6 +230,10 @@ def init_db() -> None:
         for col, decl in _DOCUMENT_COLUMNS.items():
             if col not in doc_cols:
                 conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {decl}")
+        # companies: άδεια ακυρώσεων (επικίνδυνη ενέργεια — κλειστή εξ ορισμού).
+        comp_cols = {r["name"] for r in conn.execute("PRAGMA table_info(companies)")}
+        if "allow_cancel" not in comp_cols:
+            conn.execute("ALTER TABLE companies ADD COLUMN allow_cancel INTEGER DEFAULT 0")
         cls_cols = {r["name"] for r in conn.execute("PRAGMA table_info(classifications)")}
         for col, decl in _CLASSIFICATION_COLUMNS.items():
             if col not in cls_cols:
@@ -270,6 +276,7 @@ def _company_row_to_dict(row: sqlite3.Row) -> dict:
         "AADE_VAT_NUMBER": row["aade_vat_number"] or "",
         "MYDATA_ENV": row["mydata_env"] or "prod",
         "use_accountant": bool(row["use_accountant"]),
+        "allow_cancel": bool(row["allow_cancel"]),
     }
 
 
@@ -283,7 +290,7 @@ def add_company(data: dict) -> int | None:
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO companies (company_name, aade_user_id, aade_subscription_key, "
-            "aade_vat_number, mydata_env, use_accountant) VALUES (?, ?, ?, ?, ?, ?)",
+            "aade_vat_number, mydata_env, use_accountant, allow_cancel) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 data.get("company_name", ""),
                 data.get("AADE_USER_ID", ""),
@@ -291,6 +298,7 @@ def add_company(data: dict) -> int | None:
                 data.get("AADE_VAT_NUMBER", ""),
                 data.get("MYDATA_ENV", "prod"),
                 1 if data.get("use_accountant") else 0,
+                1 if data.get("allow_cancel") else 0,
             ),
         )
         return cur.lastrowid
@@ -301,7 +309,7 @@ def update_company(company_id: int, data: dict) -> None:
         conn.execute(
             "UPDATE companies SET company_name = ?, aade_user_id = ?, "
             "aade_subscription_key = ?, aade_vat_number = ?, mydata_env = ?, "
-            "use_accountant = ? WHERE id = ?",
+            "use_accountant = ?, allow_cancel = ? WHERE id = ?",
             (
                 data.get("company_name", ""),
                 data.get("AADE_USER_ID", ""),
@@ -309,6 +317,7 @@ def update_company(company_id: int, data: dict) -> None:
                 data.get("AADE_VAT_NUMBER", ""),
                 data.get("MYDATA_ENV", "prod"),
                 1 if data.get("use_accountant") else 0,
+                1 if data.get("allow_cancel") else 0,
                 company_id,
             ),
         )
@@ -654,9 +663,9 @@ def _set_extra_totals(conn: sqlite3.Connection, company_id: int, doc: dict) -> N
     extra = doc.get("extra_totals")
     if extra:
         conn.execute(
-            f"UPDATE documents SET {', '.join(c + ' = ?' for c in EXTRA_TOTALS)} "
+            f"UPDATE documents SET {', '.join(c + ' = ?' for c in EXTRA_TOTALS)}, taxes_json = ? "
             "WHERE company_id = ? AND mark = ?",
-            [extra.get(c) for c in EXTRA_TOTALS] + [company_id, doc["mark"]],
+            [extra.get(c) for c in EXTRA_TOTALS] + [extra.get("taxes_json"), company_id, doc["mark"]],
         )
 
 
@@ -987,6 +996,7 @@ def create_local_expense(
                 now,
             ),
         )
+        _set_extra_totals(conn, company_id, dict(doc, mark=tmp_mark))
         return cur.lastrowid
 
 

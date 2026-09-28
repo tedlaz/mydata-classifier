@@ -30,6 +30,8 @@ from classifications import (
     INCOME_CATEGORIES,
     INCOME_TYPES,
     INVOICE_TYPE_NAMES,
+    TAX_CATEGORIES,
+    TAX_TYPES,
     VAT_CATEGORY_RATES,
     VAT_TYPES,
     country_allowed,
@@ -124,6 +126,17 @@ def get_active_company() -> dict | None:
     if not companies:
         return None
     return companies[get_active_index()]
+
+
+def cancel_allowed() -> bool:
+    """Ακυρώσεις ΚΑΙ απορρίψεις παραστατικών επιτρέπονται μόνο αν το έχει ενεργοποιήσει η
+    εταιρεία (Παράμετροι)."""
+    c = get_active_company()
+    return bool(c and c.get("allow_cancel"))
+
+
+CANCEL_DISABLED_MSG = ("Οι ακυρώσεις/απορρίψεις παραστατικών είναι απενεργοποιημένες για την εταιρεία — "
+                       "ενεργοποίησέ τες στις Παραμέτρους εταιρείας.")
 
 
 def get_own_vat() -> str:
@@ -403,6 +416,7 @@ def _invoice_to_doc(inv) -> dict:
                 "vat_category": ln.vat_category,
                 "has_expenses_classification": ln.has_expenses_classification,
                 "classifications": ln.classifications,
+                "taxes": ln.taxes,
             }
             for ln in inv.lines
         ],
@@ -435,6 +449,7 @@ def _row_to_invoice(row: dict, names: dict | None = None) -> ExpenseInvoice:
             vat_category=ln.get("vat_category"),
             has_expenses_classification=ln.get("has_expenses_classification", False),
             classifications=ln.get("classifications") or [],
+            taxes=ln.get("taxes") or [],
         )
         for ln in json.loads(row.get("lines_json") or "[]")
     ]
@@ -457,6 +472,9 @@ def _row_to_invoice(row: dict, names: dict | None = None) -> ExpenseInvoice:
     inv.classification_mark = row.get("classification_mark") or ""
     inv.local_action = row.get("local_action") or "classify"
     inv.source = row.get("source") or "rest"
+    inv.extra_totals = {c: row.get(c) or 0.0 for c in db.EXTRA_TOTALS}
+    # None = δεν έχει αναλυθεί ακόμη (παλιά ανάκτηση) → η σελίδα δείχνει μόνο τα σύνολα.
+    inv.taxes = json.loads(row["taxes_json"]) if row.get("taxes_json") is not None else None
     return inv
 
 
@@ -743,22 +761,28 @@ def document(mark):
     flags = [c for c in (inv.cls_info or []) if c.get("transaction_mode")]
     line_cls, doc_cls = _document_cls_rows(db.get_local_classification(row["id"]), inv)
     # URL επιστροφής στη λίστα, διατηρώντας ταξινόμηση/σελίδα/φίλτρα (fallback: view).
-    back = request.args.get("back") or url_for("invoices", view=row["status"])
+    # Έσοδα: ίδια προβολή, μόνο για ανάγνωση (χωρίς ενέργειες χαρακτηρισμού/απόρριψης).
+    is_income = row.get("kind") == "income"
+    back = request.args.get("back") or url_for("income" if is_income else "invoices", view=row["status"])
     return render_template(
         "document.html",
         inv=inv,
+        is_income=is_income,
+        can_cancel=cancel_allowed(),
         status=row["status"],
         local_action=row.get("local_action") or "classify",
         source=row.get("source") or "rest",
         classification_mark=row.get("classification_mark"),
         type_desc=INVOICE_TYPE_NAMES.get(inv.invoice_type or ""),
         vat_rates=VAT_CATEGORY_RATES,
+        tax_types=TAX_TYPES,
+        tax_categories=TAX_CATEGORIES,
         back=back,
         line_cls=line_cls,
         doc_cls=doc_cls,
         flags=flags,
-        categories=EXPENSE_CATEGORIES,
-        types=EXPENSE_TYPES,
+        categories=INCOME_CATEGORIES if is_income else EXPENSE_CATEGORIES,
+        types=INCOME_TYPES if is_income else EXPENSE_TYPES,
         vat_types=VAT_TYPES,
     )
 
@@ -1529,6 +1553,10 @@ def send():
         mark = row["mark"]
         action = row.get("local_action") or "classify"
         try:
+            if action in ("reject", "cancel") and not cancel_allowed():
+                # η άδεια μπορεί να αφαιρέθηκε αφού μπήκε στην ουρά
+                failed.append(f"{mark}: {CANCEL_DISABLED_MSG}")
+                continue
             if action == "reject":
                 result = client.reject_invoice(mark)
             elif action == "cancel":
@@ -1545,6 +1573,9 @@ def send():
                     issuer_country=draft.get("issuer_country", "GR"),
                     own_vat=get_own_vat(),
                     payment_method=draft.get("payment_method", "5"),
+                    withheld=draft.get("withheld_amount") or 0.0,
+                    deductions=draft.get("deductions_amount") or 0.0,
+                    withheld_base=draft.get("withheld_base"),
                 )
             else:  # classify / correct
                 classifications = [
@@ -2613,6 +2644,9 @@ def _draft_from_form() -> dict:
         for i in range(len(cols[0]))
     ]
     return {
+        "withheld_amount": num(f.get("withheld_amount", "")),
+        "deductions_amount": num(f.get("deductions_amount", "")),
+        "withheld_base": num(f.get("withheld_base", "")),
         **{k: f.get(k, "").strip() for k in
            ("invoice_type", "issue_date", "series", "aa", "issuer_vat", "issuer_country", "payment_method")},
         "lines": lines or [None],
@@ -2702,6 +2736,27 @@ def new_expense_submit():
     if not lines:
         flash("Συμπλήρωσε τουλάχιστον μία γραμμή.", "error")
         return again()
+
+    # Μισθοδοσία: παρακράτηση φόρου + κρατήσεις ΕΦΚΑ εργαζομένου, σε επίπεδο παραστατικού.
+    withheld = deductions = 0.0
+    withheld_base = None
+    if invoice_type == "17.1":
+        try:
+            withheld = round(float(request.form.get("withheld_amount") or 0), 2)
+            deductions = round(float(request.form.get("deductions_amount") or 0), 2)
+            withheld_base = round(float(request.form.get("withheld_base") or 0), 2) or None
+        except ValueError:
+            flash("Μη έγκυρο ποσό παρακράτησης φόρου ή κρατήσεων ΕΦΚΑ.", "error")
+            return again()
+        if withheld < 0 or deductions < 0 or withheld + deductions > sum(ln["amount"] for ln in lines):
+            flash("Παρακράτηση φόρου και κρατήσεις ΕΦΚΑ: μη αρνητικά και όχι πάνω από το σύνολο αποδοχών.", "error")
+            return again()
+        if withheld and not (withheld_base and withheld <= withheld_base):
+            flash("Συμπλήρωσε το ποσό πάνω στο οποίο γίνεται η παρακράτηση φόρου "
+                  "(όχι μικρότερο από τον φόρο).", "error")
+            return again()
+        if not withheld:
+            withheld_base = None
 
     # ΦΠΑ μόνο στις λιανικές 13.1/13.2/13.31 (ΑΑΔΕ: αλλιώς σφάλματα 215/218).
     if invoice_type not in SELF_TYPES_WITH_VAT:
@@ -2799,6 +2854,9 @@ def new_expense_submit():
         "issuer_vat": issuer_vat,
         "issuer_country": issuer_country,
         "payment_method": payment_method,
+        "withheld_amount": withheld,
+        "deductions_amount": deductions,
+        "withheld_base": withheld_base,
     }
     doc = {
         "issue_date": issue_date,
@@ -2809,8 +2867,16 @@ def new_expense_submit():
         "aa": aa,
         "total_net": total_net,
         "total_vat": total_vat,
-        "total_gross": round(total_net + total_vat, 2),
+        "total_gross": round(total_net + total_vat - withheld - deductions, 2),
         "lines": disp_lines,
+        "extra_totals": {
+            "total_withheld": withheld,
+            "total_deductions": deductions,
+            "taxes_json": json.dumps(
+                [t for t in ({"type": "1", "category": "11", "base": withheld_base, "amount": withheld},
+                             {"type": "5", "category": "", "base": None, "amount": deductions})
+                 if t["amount"]]),
+        },
     }
     # Επεξεργασία: αντικατάσταση του υπάρχοντος τοπικού draft.
     edit_mark = request.form.get("edit_mark", "").strip()
@@ -2845,6 +2911,9 @@ def cancel(mark):
             "error",
         )
         return redirect(url_for("invoices"))
+    if not cancel_allowed():
+        flash(CANCEL_DISABLED_MSG, "error")
+        return redirect(url_for("document", mark=mark))
     db.stage_action(cid, mark, "cancel")
     flash(
         f"✔ Το παραστατικό {mark} μπήκε στα «Χαρακτηρισμένα» ως ΑΚΥΡΩΣΗ. "
@@ -2854,11 +2923,39 @@ def cancel(mark):
     return redirect(url_for("invoices", view="classified"))
 
 
+@app.route("/income/cancel/<mark>", methods=["POST"])
+def income_cancel(mark):
+    """Ακύρωση παραστατικού ΕΣΟΔΟΥ (εκδότης είμαστε εμείς): CancelInvoice ΑΜΕΣΩΣ — τα
+    έσοδα δεν έχουν μαζική «Αποστολή». Με επιτυχία αφαιρείται και από το τοπικό βιβλίο."""
+    cid = _active_company_id()
+    row = db.get_document(cid, mark) if cid else None
+    if row is None or row.get("kind") != "income":
+        flash("Το παραστατικό εσόδου δεν βρέθηκε. Κάνε νέα ανάκτηση.", "error")
+        return redirect(url_for("income"))
+    if not cancel_allowed():
+        flash(CANCEL_DISABLED_MSG, "error")
+        return redirect(url_for("document", mark=mark))
+    try:
+        result = get_client().cancel_invoice(mark)
+    except MyDataError as e:
+        flash(f"Η ακύρωση απέτυχε: {e}", "error")
+        return redirect(url_for("document", mark=mark))
+    if (result.get("status") or "").lower() != "success":
+        flash(f"Η ακύρωση απέτυχε: {'; '.join(result['errors']) or result.get('status')}", "error")
+        return redirect(url_for("document", mark=mark))
+    db.delete_document(cid, mark)
+    flash(f"✔ Το παραστατικό εσόδου {mark} ακυρώθηκε (MARK ακύρωσης {result.get('cancellation_mark') or '—'}).", "ok")
+    return redirect(url_for("income", view=row["status"]))
+
+
 @app.route("/reject/<mark>", methods=["POST"])
 def reject(mark):
     """Απόρριψη παραστατικού τρίτου (transactionMode=1): στήνεται ΤΟΠΙΚΑ στα
     «Χαρακτηρισμένα» και διαβιβάζεται με τη μαζική «Αποστολή στο myDATA»."""
     cid = _active_company_id()
+    if not cancel_allowed():
+        flash(CANCEL_DISABLED_MSG, "error")
+        return redirect(url_for("document", mark=mark))
     if not db.stage_action(cid, mark, "reject"):
         flash("Το παραστατικό δεν βρέθηκε. Κάνε νέα αναζήτηση.", "error")
         return redirect(url_for("invoices"))
@@ -2916,6 +3013,7 @@ def companies_add():
             "AADE_VAT_NUMBER": vat,
             "MYDATA_ENV": env,
             "use_accountant": use_acc,
+            "allow_cancel": bool(request.form.get("allow_cancel")),
         }
     )
     if db.get_active_company_id() is None and new_id is not None:
@@ -2951,6 +3049,7 @@ def companies_update(idx):
             "AADE_VAT_NUMBER": request.form.get("aade_vat_number", "").strip(),
             "MYDATA_ENV": request.form.get("mydata_env", "prod"),
             "use_accountant": bool(request.form.get("use_accountant")),
+            "allow_cancel": bool(request.form.get("allow_cancel")),
         },
     )
     flash(f"✔ Ενημερώθηκε η εταιρεία «{name}».", "ok")
