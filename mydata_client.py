@@ -467,6 +467,20 @@ class MyDataClient:
         cls_map.update(t_cls_map)  # οι δικές μας υποβολές υπερισχύουν
         cancelled_marks |= t_cancelled
 
+        # Χαρακτηρισμοί που έγιναν στην ΠΥΛΗ myDATA (π.χ. Ειδική Φόρμα Καταχώρισης) δεν
+        # επιστρέφονται από τις RequestDocs/RequestTransmittedDocs· τους δίνουν οι
+        # RequestE3Info/RequestVatInfo. Μόνο για όσα φαίνονται ακόμη αχαρακτήριστα.
+        pending = {
+            i.mark for i in invoices + self_invoices
+            if i.mark not in cls_map and not i.has_embedded_classification
+        }
+        if pending:
+            try:
+                portal = self.request_portal_classifications(date_from, date_to)
+            except MyDataError:
+                portal = {}  # ponytail: χωρίς E3Info μένουν αχαρακτήριστα, όπως πριν
+            cls_map.update({m: v for m, v in portal.items() if m in pending})
+
         # Τα αυτοτιμολογούμενα φιλτράρονται στο ζητούμενο διάστημα με βάση την
         # ημερομηνία έκδοσης (η κλήση έγινε έως σήμερα) και συγχωνεύονται χωρίς διπλά.
         d_to = _gr_date(date_to)
@@ -485,6 +499,50 @@ class MyDataClient:
             seen.add(inv.mark)
 
         return invoices, cls_map, cancelled_marks
+
+    def _request_info(self, endpoint: str, date_from: str, date_to: str) -> list[dict]:
+        """Εγγραφές RequestE3Info / RequestVatInfo ανά παραστατικό (GroupedPerDay=false),
+        ως {tag: text}, με pagination (continuationToken)."""
+        records: list[dict] = []
+        params = self._params({"dateFrom": date_from, "dateTo": date_to, "GroupedPerDay": "false"})
+        while True:
+            resp = self.session.get(self.base_url + endpoint, params=params, timeout=60)
+            if resp.status_code != 200:
+                raise MyDataError(f"{endpoint}: HTTP {resp.status_code}: {resp.text[:300]}")
+            root = ET.fromstring(resp.content)
+            for rec in root:
+                if "continuation" not in _local(rec.tag).lower():
+                    records.append({_local(ch.tag): (ch.text or "").strip() for ch in rec})
+            npk = nrk = None
+            for el in root.iter():
+                if _local(el.tag) == "nextPartitionKey":
+                    npk = el.text
+                elif _local(el.tag) == "nextRowKey":
+                    nrk = el.text
+            if not (npk and nrk):
+                return records
+            params["nextPartitionKey"] = npk
+            params["nextRowKey"] = nrk
+
+    def request_portal_classifications(self, date_from: str, date_to: str) -> dict[str, dict]:
+        """MARK -> {"entries", "cls_mark": ""} από RequestE3Info (κατηγορία/τύπος Ε3/ποσό) και
+        RequestVatInfo (VatNNN = ποσό χαρακτηρισμού VAT_NNN). Καλύπτει και χαρακτηρισμούς της
+        πύλης. Επίπεδο παραστατικού (line None): οι υπηρεσίες δεν δίνουν αριθμό γραμμής.
+        Τα Vat38x/Vat30x κ.λπ. είναι ποσά ΦΠΑ/εσόδων, όχι χαρακτηρισμοί εξόδων → παραλείπονται."""
+        entries: dict[str, list[dict]] = {}
+        for r in self._request_info("RequestE3Info", date_from, date_to):
+            if r.get("V_Mark") and (r.get("V_Class_Type") or r.get("V_Class_Category")):
+                entries.setdefault(r["V_Mark"], []).append(
+                    {"line": None, "type": r.get("V_Class_Type") or None,
+                     "category": r.get("V_Class_Category") or None, "amount": _f(r.get("V_Class_Value"))}
+                )
+        for r in self._request_info("RequestVatInfo", date_from, date_to):
+            if r.get("Mark") in entries:  # ΦΠΑ μόνο δίπλα σε Ε3 του ίδιου παραστατικού
+                entries[r["Mark"]] += [
+                    {"line": None, "type": "VAT_" + k[3:], "amount": _f(v)}
+                    for k, v in r.items() if k.startswith("Vat36") and v
+                ]
+        return {m: {"entries": e, "cls_mark": ""} for m, e in entries.items()}
 
     @staticmethod
     def _parse_expenses_classifications(root: ET.Element) -> dict[str, dict]:

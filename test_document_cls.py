@@ -247,4 +247,26 @@ assert _doc_patterns(doc_row(deh)) == {
     "7": {"category": "category2_5", "type": "E3_585_009", "vat_type": ""}}
 assert _doc_patterns(doc_row(NS(lines=deh.lines, cls_info=[]))) == {}
 
+# 16) Χαρακτηρισμοί της πύλης myDATA (RequestE3Info + RequestVatInfo): Ε3 ανά παραστατικό,
+#     ΦΠΑ μόνο VAT_36x (τα Vat38x είναι ποσά ΦΠΑ), χωρίς αριθμό γραμμής.
+from mydata_client import MyDataClient  # noqa: E402
+
+NSX = 'xmlns="http://www.aade.gr/myDATA/invoice/v1.0"'
+REPLIES = {
+    "RequestE3Info": f"<RequestedE3Info {NSX}><E3Info><V_Mark>4001</V_Mark><V_Class_Category>category2_4</V_Class_Category>"
+                     f"<V_Class_Type>E3_585_016</V_Class_Type><V_Class_Value>72.12</V_Class_Value></E3Info>"
+                     f"<E3Info><V_Mark>4001</V_Mark><V_Class_Category>category2_7</V_Class_Category>"
+                     f"<V_Class_Type>E3_882_001</V_Class_Type><V_Class_Value>314.97</V_Class_Value></E3Info></RequestedE3Info>",
+    "RequestVatInfo": f"<RequestedVatInfo {NSX}><VatInfo><Mark>4001</Mark><Vat361>72.12</Vat361><Vat362>314.97</Vat362>"
+                      f"<Vat381>17.31</Vat381></VatInfo><VatInfo><Mark>4999</Mark><Vat361>1</Vat361></VatInfo></RequestedVatInfo>",
+}
+fake = MyDataClient("u", "k")
+fake.session = NS(get=lambda url, params, timeout: NS(status_code=200, content=REPLIES[url.rsplit("/", 1)[-1]].encode(), text=""))
+assert fake.request_portal_classifications("01/01/2025", "31/12/2025") == {"4001": {"cls_mark": "", "entries": [
+    {"line": None, "type": "E3_585_016", "category": "category2_4", "amount": 72.12},
+    {"line": None, "type": "E3_882_001", "category": "category2_7", "amount": 314.97},
+    {"line": None, "type": "VAT_361", "amount": 72.12},
+    {"line": None, "type": "VAT_362", "amount": 314.97},
+]}}
+
 print("OK")
