@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Ετήσια σύνοψη {{ year }}{% endblock %}
+{% set cols = [('vat', 'ΦΠΑ'), ('withheld', 'Φόροι<br>παρακρ.'), ('other_taxes', 'Λοιποί<br>φόροι'),
+               ('stamp_duty', 'Ψηφιακό<br>τέλος συν.'), ('fees', 'Τέλη'), ('deductions', 'Κρατήσεις'), ('third_party', 'Έσοδα/Έξοδα<br>τρίτων')] %}
+{% set balance = (income_total.net - expense_total.net)|round(2) %}
+{% set vat_due = (income_total.vat - expense_total.vat)|round(2) %}
+{% macro money(v) -%}<span class="{{ 'yz' if v == 0 else 'yneg' if v < 0 }}">{{ v|el_amount }}</span>{%- endmacro %}
+{% macro amounts(r) -%}
+  {% for key, label in cols %}<td class="num" data-label="{{ label|replace('<br>', ' ') }}">{{ money(r[key]) }}</td>{% endfor %}
+{%- endmacro %}
+
+{% block content %}
+<div class="yr">
+  <div class="yr-head">
+    <div>
+      <a class="back back--inline" href="{{ url_for('reports') }}">← Αναφορές</a>
+      <h1>Ετήσια σύνοψη <span class="yr-year">{{ year }}</span></h1>
+      <p class="page-sub">Ανά μήνα, όπως η «Σύνοψη» της πύλης myDATA.</p>
+    </div>
+    <nav class="yr-years" aria-label="Έτος">
+      {% for y in years %}<a href="{{ url_for('reports_yearly', year=y) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
+    </nav>
+  </div>
+
+  {# Κάρτες συνόλων έτους #}
+  <div class="yr-kpis">
+    <div class="yr-kpi">
+      <span class="kicker"><i class="yr-dot yr-dot--in"></i>Έσοδα · καθαρή</span>
+      <b>{{ income_total.net|el_amount }} €</b>
+      <small>ΦΠΑ {{ income_total.vat|el_amount }} € · παρακρ. {{ income_total.withheld|el_amount }} €</small>
+    </div>
+    <div class="yr-kpi">
+      <span class="kicker"><i class="yr-dot yr-dot--out"></i>Έξοδα · καθαρή</span>
+      <b>{{ expense_total.net|el_amount }} €</b>
+      <small>ΦΠΑ {{ expense_total.vat|el_amount }} €</small>
+    </div>
+    <div class="yr-kpi yr-kpi--hero {{ 'is-neg' if balance < 0 }}">
+      <span class="kicker">Υπόλοιπο εσόδων − εξόδων</span>
+      <b>{{ balance|el_amount }} €</b>
+      <small>{% if income_total.net %}περιθώριο {{ ((balance / income_total.net) * 100)|round(1) }}% επί των εσόδων{% else %}χωρίς έσοδα{% endif %}</small>
+    </div>
+    <div class="yr-kpi">
+      <span class="kicker">ΦΠΑ εκροών − εισροών</span>
+      <b class="{{ 'yneg' if vat_due < 0 }}">{{ vat_due|el_amount }} €</b>
+      <small>ενδεικτικά · {{ 'πιστωτικό' if vat_due < 0 else 'προς απόδοση' }}</small>
+    </div>
+  </div>
+
+  {# Διάγραμμα: καθαρή αξία εσόδων/εξόδων ανά μήνα #}
+  <section class="card yr-chart">
+    <div class="yr-chart-head">
+      <h2>Καθαρή αξία ανά μήνα</h2>
+      <ul class="yr-legend">
+        <li><i class="yr-dot yr-dot--in"></i>Έσοδα</li>
+        <li><i class="yr-dot yr-dot--out"></i>Έξοδα</li>
+      </ul>
+    </div>
+    <div class="yr-plot">
+      <svg viewBox="0 0 {{ chart.w }} {{ chart.h }}" role="img"
+           aria-label="Ομαδοποιημένες μπάρες καθαρής αξίας εσόδων και εξόδων ανά μήνα {{ year }} — αναλυτικά στον πίνακα παρακάτω">
+        {% for t in chart.ticks %}
+        <line class="yr-grid {{ 'yr-grid--base' if loop.first }}" x1="{{ chart.left }}" x2="{{ chart.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
+        <text class="yr-tick" x="{{ chart.left - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ '{:,.0f}'.format(t.v).replace(',', '.') }}</text>
+        {% endfor %}
+        {% for m in chart.months %}
+        <g class="yr-col" data-month="{{ m.full }}" data-in="{{ m.income|el_amount }}" data-out="{{ m.expense|el_amount }}"
+           data-bal="{{ m.balance|el_amount }}" data-neg="{{ 1 if m.balance < 0 else 0 }}">
+          <rect class="yr-hit" x="{{ m.x }}" y="{{ chart.top }}" width="{{ m.w }}" height="{{ chart.base - chart.top }}"/>
+          {% if m.income_path %}<path class="yr-bar yr-bar--in" d="{{ m.income_path }}"/>{% endif %}
+          {% if m.expense_path %}<path class="yr-bar yr-bar--out" d="{{ m.expense_path }}"/>{% endif %}
+          <text class="yr-month {{ 'is-now' if loop.index == current_month }}" x="{{ m.cx }}" y="{{ chart.h - 9 }}" text-anchor="middle">{{ m.label }}</text>
+        </g>
+        {% endfor %}
+      </svg>
+      <div class="yr-tip" role="status" hidden></div>
+    </div>
+  </section>
+
+  {# Αναλυτικός πίνακας: ένα tbody ανά μήνα (hover φωτίζει και τις δύο γραμμές) #}
+  <section class="card yr-table-card">
+    <div class="yr-scroll">
+    <table class="yr-table">
+      <thead>
+        <tr>
+          <th class="yr-sticky">Μήνας</th><th>Είδος</th>
+          <th class="num">Καθαρή<br>αξία</th><th class="num">Υπόλοιπο<br>Εσ. − Εξ.</th>
+          {% for key, label in cols %}<th class="num">{{ label|safe }}</th>{% endfor %}
+        </tr>
+      </thead>
+      {% for r in rows %}
+      <tbody class="{{ 'is-now' if loop.index == current_month }}">
+        <tr>
+          <th class="yr-sticky yr-month-cell" rowspan="2" scope="rowgroup">{{ r.label }}</th>
+          <td><span class="yr-kind yr-kind--in"><i class="yr-dot yr-dot--in"></i>Έσοδα</span></td>
+          <td class="num yr-net">{{ money(r.income.net) }}</td>
+          <td class="num" rowspan="2">
+            <span class="yr-bal {{ 'is-neg' if r.balance < 0 else 'is-zero' if r.balance == 0 else 'is-pos' }}">{{ r.balance|el_amount }}</span>
+          </td>
+          {{ amounts(r.income) }}
+        </tr>
+        <tr>
+          <td><span class="yr-kind yr-kind--out"><i class="yr-dot yr-dot--out"></i>Έξοδα</span></td>
+          <td class="num yr-net">{{ money(r.expense.net) }}</td>
+          {{ amounts(r.expense) }}
+        </tr>
+      </tbody>
+      {% endfor %}
+      <tfoot>
+        <tr class="yr-total yr-total--in">
+          <th class="yr-sticky" colspan="2">Σύνολα εσόδων</th>
+          <td class="num yr-net">{{ income_total.net|el_amount }}</td>
+          <td class="num" rowspan="2"><span class="yr-bal {{ 'is-neg' if balance < 0 else 'is-pos' }}">{{ balance|el_amount }}</span></td>
+          {% for key, label in cols %}<td class="num">{{ income_total[key]|el_amount }}</td>{% endfor %}
+        </tr>
+        <tr class="yr-total yr-total--out">
+          <th class="yr-sticky" colspan="2">Σύνολα εξόδων</th>
+          <td class="num yr-net">{{ expense_total.net|el_amount }}</td>
+          {% for key, label in cols %}<td class="num">{{ expense_total[key]|el_amount }}</td>{% endfor %}
+        </tr>
+      </tfoot>
+    </table>
+    </div>
+    <p class="muted small yr-note">
+      Ποσά σε €. Έσοδα = χαρακτηρισμένα του «Βιβλίου εσόδων»· Έξοδα = χαρακτηρισμένα/απεσταλμένα/ολοκληρωμένα
+      του «Βιβλίου εξόδων». Τα πιστωτικά αφαιρούνται. «Τρίτων» = χαρακτηρισμοί κατηγορίας 1.9/2.9.
+      Παρακρατήσεις, τέλη κ.λπ. συμπληρώνονται με την ανάκτηση — για παλιότερες ανακτήσεις κάνε ξανά «Ανάκτηση».
+    </p>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Tooltip ανά μήνα: έσοδα, έξοδα, υπόλοιπο (όλη η στήλη του μήνα είναι στόχος hover/focus).
+(function () {
+  const plot = document.querySelector('.yr-plot'), tip = plot.querySelector('.yr-tip');
+  function show(g) {
+    const d = g.dataset, box = plot.getBoundingClientRect(), r = g.querySelector('.yr-hit').getBoundingClientRect();
+    tip.innerHTML = '<b>' + d.month + '</b>' +
+      '<span><i class="yr-dot yr-dot--in"></i>Έσοδα<em>' + d.in + ' €</em></span>' +
+      '<span><i class="yr-dot yr-dot--out"></i>Έξοδα<em>' + d.out + ' €</em></span>' +
+      '<span class="yr-tip-bal' + (d.neg === '1' ? ' is-neg' : '') + '">Υπόλοιπο<em>' + d.bal + ' €</em></span>';
+    tip.hidden = false;
+    const x = r.left - box.left + r.width / 2;
+    tip.style.left = Math.min(Math.max(x, tip.offsetWidth / 2 + 4), box.width - tip.offsetWidth / 2 - 4) + 'px';
+    plot.querySelectorAll('.yr-col').forEach(c => c.classList.toggle('is-active', c === g));
+  }
+  function hide() { tip.hidden = true; plot.querySelectorAll('.yr-col').forEach(c => c.classList.remove('is-active')); }
+  plot.querySelectorAll('.yr-col').forEach(g => {
+    g.setAttribute('tabindex', '0');
+    g.setAttribute('aria-label', g.dataset.month + ': έσοδα ' + g.dataset.in + ' €, έξοδα ' + g.dataset.out + ' €');
+    g.addEventListener('mouseenter', () => show(g));
+    g.addEventListener('focus', () => show(g));
+  });
+  plot.addEventListener('mouseleave', hide);
+  plot.addEventListener('focusout', e => { if (!plot.contains(e.relatedTarget)) hide(); });
+})();
+</script>
+{% endblock %}

@@ -53,6 +53,17 @@ SELF_EXPENSE_DOC_TYPES = {
 }
 
 
+# Λοιπά σύνολα της σύνοψης παραστατικού → στήλες του db. Το totalStampDutyAmount
+# εμφανίζεται στην πύλη ως «Ψηφιακό Τέλος Συναλλαγής» (πρώην χαρτόσημο).
+_EXTRA_SUMMARY_TAGS = {
+    "total_withheld": "totalWithheldAmount",
+    "total_other_taxes": "totalOtherTaxesAmount",
+    "total_stamp_duty": "totalStampDutyAmount",
+    "total_fees": "totalFeesAmount",
+    "total_deductions": "totalDeductionsAmount",
+}
+
+
 def _local(tag: str) -> str:
     """Επιστρέφει το local name ενός tag (χωρίς namespace)."""
     return tag.split("}")[-1]
@@ -102,6 +113,9 @@ class ExpenseInvoice:
     has_income_line_classification: bool = False
     # MARK ακυρωτικής εγγραφής (cancelledByMark) — αν υπάρχει, το παραστατικό ακυρώθηκε.
     cancelled_by_mark: str | None = None
+    # Λοιπά σύνολα σύνοψης: {total_withheld, total_other_taxes, total_stamp_duty, total_fees,
+    # total_deductions} (ονόματα στηλών του db).
+    extra_totals: dict = field(default_factory=dict)
 
     @property
     def is_cancelled(self) -> bool:
@@ -664,12 +678,17 @@ class MyDataClient:
 
             summary = inv.find("inv:invoiceSummary", namespaces=NS)
             total_net = total_vat = total_gross = None
+            extra_totals: dict = {}
             has_summary_cls = False
             has_income_cls = False
             if summary is not None:
                 total_net = _f(summary.findtext("inv:totalNetValue", namespaces=NS))
                 total_vat = _f(summary.findtext("inv:totalVatAmount", namespaces=NS))
                 total_gross = _f(summary.findtext("inv:totalGrossValue", namespaces=NS))
+                extra_totals = {
+                    col: _f(summary.findtext(f"inv:{tag}", namespaces=NS)) or 0.0
+                    for col, tag in _EXTRA_SUMMARY_TAGS.items()
+                }
                 has_summary_cls = any(
                     _local(ch.tag) == "expensesClassification" for ch in summary
                 )
@@ -734,6 +753,7 @@ class MyDataClient:
                     counterpart_name=counterpart_name,
                     has_income_line_classification=has_income_cls,
                     cancelled_by_mark=cancelled_by,
+                    extra_totals=extra_totals,
                 )
             )
         return result

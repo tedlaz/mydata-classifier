@@ -146,7 +146,14 @@ _DOCUMENT_COLUMNS = {
     "source": "TEXT DEFAULT 'rest'",
     # Τρόπος χαρακτηρισμού: 0 = ανά γραμμή, 1 = ανά παραστατικό (postPerInvoice).
     "cls_post_mode": "INTEGER DEFAULT 0",
+    # Λοιπά σύνολα της σύνοψης (invoiceSummary) — για την ετήσια σύνοψη των αναφορών.
+    "total_withheld": "REAL",      # φόροι παρακράτησης
+    "total_other_taxes": "REAL",   # λοιποί φόροι
+    "total_stamp_duty": "REAL",    # χαρτόσημο / ψηφιακό τέλος συναλλαγής
+    "total_fees": "REAL",          # τέλη
+    "total_deductions": "REAL",    # κρατήσεις
 }
+EXTRA_TOTALS = ("total_withheld", "total_other_taxes", "total_stamp_duty", "total_fees", "total_deductions")
 # Ανά παραστατικό, ο χαρακτηρισμός ΦΠΑ κρατά κατηγορία ΦΠΑ + ποσό ΦΠΑ της ομάδας.
 _CLASSIFICATION_COLUMNS = {
     "vat_category": "INTEGER",
@@ -594,6 +601,7 @@ def upsert_document(
                     now,
                 ),
             )
+            _set_extra_totals(conn, company_id, doc)
             return
         # υπάρχει ήδη: μην χαμηλώσεις το status
         keep = _STATUS_RANK.get(existing["status"], 0) >= _STATUS_RANK.get(
@@ -634,6 +642,18 @@ def upsert_document(
             f"status = ?, lines_json = ?, updated_at = ?{set_cls}{set_mark} "
             "WHERE id = ?",
             params,
+        )
+        _set_extra_totals(conn, company_id, doc)
+
+
+def _set_extra_totals(conn: sqlite3.Connection, company_id: int, doc: dict) -> None:
+    """Λοιπά σύνολα σύνοψης (παρακρατήσεις, τέλη κ.λπ.), όταν τα έφερε το myDATA."""
+    extra = doc.get("extra_totals")
+    if extra:
+        conn.execute(
+            f"UPDATE documents SET {', '.join(c + ' = ?' for c in EXTRA_TOTALS)} "
+            "WHERE company_id = ? AND mark = ?",
+            [extra.get(c) for c in EXTRA_TOTALS] + [company_id, doc["mark"]],
         )
 
 
@@ -1259,3 +1279,27 @@ def template_with_series(company_id: int | None, series: str, exclude_name: str)
         if tp["name"] != exclude_name and (tp["draft"].get("series") or "").strip() == series:
             return tp["name"]
     return None
+
+
+def yearly_documents(company_id: int | None, kind: str, statuses: list[str], year: str) -> list[dict]:
+    """Παραστατικά ενός έτους (κατά ημ/νία έκδοσης) με όλα τα σύνολα σύνοψης, για την ετήσια σύνοψη."""
+    if not company_id:
+        return []
+    cols = ", ".join(("issue_date", "invoice_type", "total_net", "total_vat", "cls_json") + EXTRA_TOTALS)
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT {cols} FROM documents WHERE company_id = ? AND kind = ? "
+            f"AND status IN ({','.join('?' * len(statuses))}) AND substr(issue_date, 1, 4) = ?",
+            [company_id, kind, *statuses, year],
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def document_years(company_id: int | None) -> list[str]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT substr(issue_date, 1, 4) AS y FROM documents "
+            "WHERE company_id = ? AND issue_date IS NOT NULL ORDER BY y DESC",
+            (company_id or 0,),
+        ).fetchall()
+    return [r["y"] for r in rows if r["y"]]

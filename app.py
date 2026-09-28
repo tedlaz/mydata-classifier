@@ -394,6 +394,7 @@ def _invoice_to_doc(inv) -> dict:
         "total_vat": inv.total_vat,
         "total_gross": inv.total_gross,
         "is_self_issued": inv.is_self_issued,
+        "extra_totals": getattr(inv, "extra_totals", None) or {},
         "lines": [
             {
                 "line_number": ln.line_number,
@@ -2031,6 +2032,101 @@ def _report_group_label(dimension: str, value) -> str:
 
 def _empty_report_totals() -> dict:
     return {"net": 0.0, "vat": 0.0, "gross": 0.0, "count": 0}
+
+
+# Ετήσια σύνοψη (όπως η «Σύνοψη» της πύλης myDATA): ανά μήνα, έσοδα και έξοδα.
+_YEARLY_COLUMNS = ("net", "vat", "withheld", "other_taxes", "stamp_duty", "fees", "deductions", "third_party")
+_GREEK_MONTHS = ("Ιαν.", "Φεβ.", "Μαρ.", "Απρ.", "Μαΐ.", "Ιουν.", "Ιουλ.", "Αυγ.", "Σεπ.", "Οκτ.", "Νοέ.", "Δεκ.")
+
+
+def _yearly_totals(docs: list[dict]) -> dict:
+    """{μήνας 1–12: {στήλη: ποσό}}. Τα πιστωτικά αφαιρούνται. «Τρίτων» = ποσά χαρακτηρισμών
+    κατηγορίας x_9 (για λογαριασμό τρίτων)."""
+    months = {m: dict.fromkeys(_YEARLY_COLUMNS, 0.0) for m in range(1, 13)}
+    for d in docs:
+        try:
+            month = int((d["issue_date"] or "")[5:7])
+        except ValueError:
+            continue
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        third = sum(
+            e.get("amount") or 0 for e in json.loads(d["cls_json"] or "[]")
+            if (e.get("category") or "").endswith("_9")
+        )
+        row = months[month]
+        for col, value in (("net", d["total_net"]), ("vat", d["total_vat"]), ("withheld", d["total_withheld"]),
+                           ("other_taxes", d["total_other_taxes"]), ("stamp_duty", d["total_stamp_duty"]),
+                           ("fees", d["total_fees"]), ("deductions", d["total_deductions"]), ("third_party", third)):
+            row[col] += sign * (value or 0)
+    return {m: {c: round(v, 2) for c, v in r.items()} for m, r in months.items()}
+
+
+@app.route("/reports/yearly")
+def reports_yearly():
+    cid = _active_company_id()
+    now = datetime.now(ATHENS)
+    years = sorted(set(db.document_years(cid)) | {str(now.year)}, reverse=True)
+    year = request.args.get("year", "")
+    year = year if year in years else str(now.year)
+    income = _yearly_totals(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year))
+    expense = _yearly_totals(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year))
+    last = now.month if year == str(now.year) else 12  # τρέχον έτος: έως τον τρέχοντα μήνα
+    rows = [
+        {"label": f"{_GREEK_MONTHS[m - 1]} {year}", "income": income[m], "expense": expense[m],
+         "balance": round(income[m]["net"] - expense[m]["net"], 2)}
+        for m in range(1, last + 1)
+    ]
+    total = lambda part: {c: round(sum(r[part][c] for r in rows), 2) for c in _YEARLY_COLUMNS}  # noqa: E731
+    return render_template(
+        "reports_yearly.html", year=year, years=years, rows=rows,
+        income_total=total("income"), expense_total=total("expense"),
+        chart=_yearly_chart(rows), current_month=now.month if year == str(now.year) else None,
+    )
+
+
+def _nice_step(top: float, ticks: int = 4) -> float:
+    """Στρογγυλό βήμα άξονα (1/2/2.5/5 × 10ⁿ) ώστε ~ticks γραμμές να καλύπτουν το top."""
+    import math
+
+    raw = max(top, 1.0) / ticks
+    mag = 10 ** math.floor(math.log10(raw))
+    return next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw)
+
+
+def _yearly_chart(rows: list[dict]) -> dict:
+    """Γεωμετρία SVG (viewBox 760×260) για ομαδοποιημένες μπάρες καθαρής αξίας εσόδων/εξόδων
+    ανά μήνα. Αρνητικά (μήνας με μόνο πιστωτικά) σχεδιάζονται μηδενικά — φαίνονται στον πίνακα."""
+    W, H, left, right, top, bottom = 760, 260, 58, 8, 14, 30
+    base = H - bottom
+    top_value = max([r["income"]["net"] for r in rows] + [r["expense"]["net"] for r in rows] + [0])
+    step = _nice_step(top_value)
+    n_ticks = max(1, -(-top_value // step))  # όσες γραμμές χρειάζονται (χωρίς περιττό κενό από πάνω)
+    ymax = step * n_ticks
+    plot_h, slot = base - top, (W - left - right) / max(len(rows), 1)
+    bar_w = min(22.0, slot * 0.3)
+    y = lambda v: base - max(v, 0) / ymax * plot_h  # noqa: E731
+
+    def bar(x: float, v: float) -> str:
+        ty, r = y(v), 4.0
+        if base - ty < 0.5:
+            return ""
+        if base - ty < r:  # πολύ κοντή: απλό ορθογώνιο
+            return f"M{x:.1f},{ty:.1f}h{bar_w:.1f}V{base}H{x:.1f}Z"
+        return (f"M{x:.1f},{base}V{ty + r:.1f}Q{x:.1f},{ty:.1f} {x + r:.1f},{ty:.1f}"
+                f"H{x + bar_w - r:.1f}Q{x + bar_w:.1f},{ty:.1f} {x + bar_w:.1f},{ty + r:.1f}V{base}Z")
+
+    months = []
+    for i, r in enumerate(rows):
+        cx = left + slot * (i + 0.5)
+        months.append({
+            "label": r["label"].split()[0], "full": r["label"], "cx": round(cx, 1),
+            "x": round(left + slot * i, 1), "w": round(slot, 1),
+            "income_path": bar(cx - bar_w - 1, r["income"]["net"]),  # 2px κενό ανάμεσα
+            "expense_path": bar(cx + 1, r["expense"]["net"]),
+            "income": r["income"]["net"], "expense": r["expense"]["net"], "balance": r["balance"],
+        })
+    return {"w": W, "h": H, "left": left, "right": W - right, "base": base, "top": top, "months": months,
+            "ticks": [{"v": step * k, "y": round(y(step * k), 1)} for k in range(int(n_ticks) + 1)]}
 
 
 @app.route("/reports")

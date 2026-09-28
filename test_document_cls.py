@@ -269,4 +269,17 @@ assert fake.request_portal_classifications("01/01/2025", "31/12/2025") == {"4001
     {"line": None, "type": "VAT_362", "amount": 314.97},
 ]}}
 
+# 17) Ετήσια σύνοψη: άθροιση ανά μήνα, πιστωτικό (5.1) αφαιρείται, «τρίτων» = κατηγορία x_9.
+from app import _yearly_totals  # noqa: E402
+
+doc = lambda date_, typ, net, cls=(), **kw: dict(  # noqa: E731
+    {"issue_date": date_, "invoice_type": typ, "total_net": net, "total_vat": net * 0.24, "cls_json": json.dumps(list(cls)),
+     "total_withheld": 0, "total_other_taxes": 0, "total_stamp_duty": None, "total_fees": 0, "total_deductions": 0}, **kw)
+y = _yearly_totals([doc("2026-03-05", "1.1", 100.0, total_withheld=20.0),
+                    doc("2026-03-20", "5.1", 30.0),
+                    doc("2026-03-21", "1.1", 50.0, [{"category": "category1_9", "amount": 50.0}]),
+                    doc("bad", "1.1", 999.0)])
+assert y[3]["net"] == 120.0 and y[3]["vat"] == 28.8 and y[3]["withheld"] == 20.0 and y[3]["third_party"] == 50.0, y[3]
+assert y[4]["net"] == 0.0 and y[3]["stamp_duty"] == 0.0
+
 print("OK")
