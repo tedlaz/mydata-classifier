@@ -1,7 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Ετήσια σύνοψη {{ year }}{% endblock %}
-{% set cols = [('vat', 'ΦΠΑ'), ('withheld', 'Φόροι<br>παρακρ.'), ('other_taxes', 'Λοιποί<br>φόροι'),
-               ('stamp_duty', 'Ψηφιακό<br>τέλος συν.'), ('fees', 'Τέλη'), ('deductions', 'Κρατήσεις'), ('third_party', 'Έσοδα/Έξοδα<br>τρίτων')] %}
 {% set balance = (income_total.net - expense_total.net)|round(2) %}
 {# Πραγματικό κέρδος: οι αγορές παγίων (2.7) κεφαλαιοποιούνται — στο αποτέλεσμα μπαίνουν μόνο οι αποσβέσεις. #}
 {% set op_expense = (expense_total.net - expense_total.assets)|round(2) %}

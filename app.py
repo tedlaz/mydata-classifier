@@ -2068,6 +2068,10 @@ def _empty_report_totals() -> dict:
 # Ετήσια σύνοψη (όπως η «Σύνοψη» της πύλης myDATA): ανά μήνα, έσοδα και έξοδα.
 _YEARLY_COLUMNS = ("net", "vat", "withheld", "other_taxes", "stamp_duty", "fees", "deductions", "third_party",
                    "assets", "depreciation")
+# Στήλες ποσών (μετά την καθαρή αξία) του πίνακα ετήσιας σύνοψης ΚΑΙ του modal «Αναλυτικά».
+YEARLY_TABLE_COLS = [("vat", "ΦΠΑ"), ("withheld", "Φόροι<br>παρακρ."), ("other_taxes", "Λοιποί<br>φόροι"),
+                     ("stamp_duty", "Ψηφιακό<br>τέλος συν."), ("fees", "Τέλη"), ("deductions", "Κρατήσεις"),
+                     ("third_party", "Έσοδα/Έξοδα<br>τρίτων")]
 ASSET_CATEGORY = "category2_7"  # αγορές παγίων: κεφαλαιοποιούνται, δεν είναι έξοδο χρήσης
 DEPRECIATION_TYPE = "E3_587"    # αποσβέσεις (π.χ. εγγραφή 17.x)
 _GREEK_MONTHS = ("Ιαν.", "Φεβ.", "Μαρ.", "Απρ.", "Μαΐ.", "Ιουν.", "Ιουλ.", "Αυγ.", "Σεπ.", "Οκτ.", "Νοέ.", "Δεκ.")
@@ -2115,7 +2119,7 @@ def reports_yearly():
     _add_vat_periods(rows, year)
     total = lambda part: {c: round(sum(r[part][c] for r in rows), 2) for c in _YEARLY_COLUMNS}  # noqa: E731
     return render_template(
-        "reports_yearly.html", year=year, years=years, rows=rows,
+        "reports_yearly.html", year=year, years=years, rows=rows, cols=YEARLY_TABLE_COLS,
         income_total=total("income"), expense_total=total("expense"),
         chart=_yearly_chart(rows), current_month=now.month if year == str(now.year) else None,
     )
@@ -2138,7 +2142,7 @@ def reports_yearly_docs():
     total = {c: round(sum(d["t"][c] for d in docs), 2) for c in _YEARLY_COLUMNS}
     total["gross"] = round(sum(d["gross"] for d in docs), 2)
     return render_template(
-        "_yearly_docs.html", docs=docs, total=total, kind=kind,
+        "_yearly_docs.html", docs=docs, total=total, kind=kind, cols=YEARLY_TABLE_COLS,
         label=f"{_GREEK_MONTHS[int(month) - 1]} {year}", type_names=INVOICE_TYPE_NAMES,
     )
 
@@ -2191,6 +2195,82 @@ def reports_yearly_e3():
 
 
 _QUARTER_NAMES = ("Α΄", "Β΄", "Γ΄", "Δ΄")
+
+
+def _vat_bounds(year: int, kind: str, n: int) -> tuple[str, str]:
+    """Ημερομηνίες (yyyy-mm-dd) της περιόδου ΦΠΑ: kind «m» = μήνας n, «q» = τρίμηνο n."""
+    import calendar
+
+    first, last = (n, n) if kind == "m" else (3 * n - 2, 3 * n)
+    return f"{year}-{first:02d}-01", f"{year}-{last:02d}-{calendar.monthrange(year, last)[1]:02d}"
+
+
+def _vat_auto_carry(cid: int | None, year: int, kind: str, n: int) -> tuple[float, float]:
+    """(401, 483) αυτόματα από την προηγούμενη περίοδο ίδιου τύπου: το «ποσό για έκπτωση» (502)
+    και το χρεωστικό έως 30 € που δεν αποδόθηκε. Επειδή κάθε περίοδος εξαρτάται από τη
+    μεταφορά της προηγούμενης, η αλυσίδα ξεκινά από την πρώτη περίοδο με δεδομένα."""
+    import vat_return
+
+    years = [int(y) for y in db.document_years(cid) if y.isdigit()]
+    if not years:
+        return 0.0, 0.0
+    per_year = 12 if kind == "m" else 4
+    credit = debit = 0.0
+    for y in range(min(years), year + 1):
+        for i in range(1, per_year + 1):
+            if (y, i) >= (year, n):
+                return credit, debit
+            date_from, date_to = _vat_bounds(y, kind, i)
+            codes = vat_return.compute(
+                db.period_documents(cid, "income", date_from, date_to),
+                db.period_documents(cid, "expense", date_from, date_to),
+                credit, debit,
+            )["codes"]
+            credit, debit = codes["502"], codes["carry"]
+    return credit, debit
+
+
+@app.route("/reports/vat")
+def reports_vat():
+    """Δήλωση ΦΠΑ (Φ2) για μήνα (period=m1…m12) ή τρίμηνο (q1…q4) ενός έτους. Το 401 υπολογίζεται
+    αυτόματα από την προηγούμενη περίοδο· τιμή στο prev_credit υπερισχύει (κενό = αυτόματα)."""
+    import vat_return
+
+    cid = _active_company_id()
+    now = datetime.now(ATHENS)
+    years = sorted(set(db.document_years(cid)) | {str(now.year)}, reverse=True)
+    year = request.args.get("year", "")
+    year = year if year in years else str(now.year)
+    period = request.args.get("period", "")
+    if not (len(period) >= 2 and period[0] in "mq" and period[1:].isdigit()
+            and 1 <= int(period[1:]) <= (12 if period[0] == "m" else 4)):
+        # Προεπιλογή: ο προηγούμενος μήνας (αυτός που δηλώνεται τώρα).
+        prev = now.month - 1 or 12
+        period, year = f"m{prev}", str(now.year if now.month > 1 else now.year - 1)
+    kind, n, y = period[0], int(period[1:]), int(year)
+    date_from, date_to = _vat_bounds(y, kind, n)
+    auto_credit, auto_debit = _vat_auto_carry(cid, y, kind, n)
+
+    def manual(arg):  # κενό = αυτόματα
+        value = (request.args.get(arg) or "").strip().replace(",", ".")
+        try:
+            return max(0.0, float(value)) if value else None
+        except ValueError:
+            return None
+
+    manual_credit, manual_debit = manual("prev_credit"), manual("prev_debit")
+    result = vat_return.compute(
+        db.period_documents(cid, "income", date_from, date_to),
+        db.period_documents(cid, "expense", date_from, date_to),
+        auto_credit if manual_credit is None else manual_credit,
+        auto_debit if manual_debit is None else manual_debit,
+    )
+    return render_template(
+        "reports_vat.html", years=years, year=year, period=period,
+        manual_credit=manual_credit, auto_credit=auto_credit, manual_debit=manual_debit, auto_debit=auto_debit,
+        date_from=date_from, date_to=date_to, months=_GREEK_MONTHS, quarters=_QUARTER_NAMES,
+        c=result["codes"], invoiced_vat=result["invoiced_vat"],
+    )
 
 
 def _add_vat_periods(rows: list[dict], year: str) -> None:

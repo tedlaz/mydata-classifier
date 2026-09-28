@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}Δήλωση ΦΠΑ{% endblock %}
+{% set is_q = period[0] == 'q' %}
+{% set pn = period[1:]|int %}
+{% set period_label = (quarters[pn - 1] ~ ' τρίμηνο') if is_q else months[pn - 1] %}
+{% set d_from = date_from[8:10] ~ '/' ~ date_from[5:7] ~ '/' ~ date_from[2:4] %}
+{% set d_to = date_to[8:10] ~ '/' ~ date_to[5:7] ~ '/' ~ date_to[2:4] %}
+{# Ποσό κωδικού: κενό όταν είναι 0 (όπως στο έντυπο). #}
+{% macro v(code) -%}{% set x = c.get(code, 0) %}{% if x %}{{ x|el_amount }}{% endif %}{%- endmacro %}
+{# Κωδικός + ποσό (δύο κελιά). #}
+{% macro ka(code) -%}<td class="k">{{ code }}</td><td class="a">{{ v(code) }}</td>{%- endmacro %}
+
+{% block content %}
+<div class="page-head f2-noprint">
+  <div>
+    <a class="back back--inline" href="{{ url_for('reports') }}">← Αναφορές</a>
+    <h1>Δήλωση ΦΠΑ <span class="yr-year">{{ period_label }} {{ year }}</span></h1>
+  </div>
+  <form method="get" action="{{ url_for('reports_vat') }}" class="f2-filter">
+    <select name="year" aria-label="Έτος">{% for y in years %}<option {{ 'selected' if y == year }}>{{ y }}</option>{% endfor %}</select>
+    <select name="period" aria-label="Περίοδος">
+      <optgroup label="Μήνας">{% for m in months %}<option value="m{{ loop.index }}" {{ 'selected' if period == 'm' ~ loop.index }}>{{ m }}</option>{% endfor %}</optgroup>
+      <optgroup label="Τρίμηνο">{% for q in quarters %}<option value="q{{ loop.index }}" {{ 'selected' if period == 'q' ~ loop.index }}>{{ q }} τρίμηνο</option>{% endfor %}</optgroup>
+    </select>
+    {# 401 / 483: κενό = αυτόματα από την προηγούμενη περίοδο· τιμή = χειροκίνητη αλλαγή. #}
+    {% for code, arg, man, auto, what in [
+        ('401', 'prev_credit', manual_credit, auto_credit, 'Πιστωτικό υπόλοιπο προηγούμενης περιόδου (502 της προηγούμενης)'),
+        ('483', 'prev_debit', manual_debit, auto_debit, 'Χρεωστικό έως 30 € προηγούμενης περιόδου, που δεν αποδόθηκε')] %}
+    <label class="f2-credit">{{ code }}
+      <input name="{{ arg }}" type="number" step="0.01" min="0" value="{{ '%.2f'|format(man) if man is not none else '' }}"
+             placeholder="αυτόματα {{ auto|el_amount }}" aria-label="{{ what }} ({{ code }})"
+             title="{{ what }} — κενό: αυτόματα ({{ auto|el_amount }})">
+    </label>
+    {% endfor %}
+    {% if manual_credit is not none or manual_debit is not none %}
+    <a class="f2-reset" href="{{ url_for('reports_vat', year=year, period=period) }}" title="401 και 483 αυτόματα">↺ αυτόματα</a>{% endif %}
+    <button type="submit">Υπολογισμός</button>
+    <button type="button" class="btn-ghost" onclick="print()">🖨 Εκτύπωση</button>
+  </form>
+</div>
+
+<div class="f2-wrap">
+<div class="f2">
+  {# ---------------- Κεφαλίδα ---------------- #}
+  <div class="f2-top">
+    <div class="f2-corner"><span class="f2-phi">Φ<sub>2</sub></span><span class="f2-taxis">TAXIS</span></div>
+    <div class="f2-title"><b>ΔΗΛΩΣΗ Φ.Π.Α.</b><span>Υποβάλλεται σε δύο (2) αντίτυπα (έντυπη υποβολή).</span></div>
+    <table class="f2-t f2-decl">
+      <tr><td class="lbl">ΑΡΙΘΜΟΣ<br>ΔΗΛΩΣΗΣ</td><td class="k">001</td><td class="a f2-w">&nbsp;</td><td class="lbl sm">ΕΤΟΣ</td><td class="a">{{ year }}</td></tr>
+      <tr><td class="lbl">ΗΜΕΡΟΜΗΝΙΑ<br>ΥΠΟΒΟΛΗΣ ΔΗΛΩΣΗΣ</td><td class="k">002</td><td class="a" colspan="3">&nbsp;</td></tr>
+    </table>
+  </div>
+
+  <div class="f2-head2">
+    <div class="f2-left">
+      <table class="f2-t">
+        <tr><td class="lbl">ΑΡΜΟΔΙΑ Δ.Ο.Υ.</td><td class="a f2-w">&nbsp;</td><td class="k">003</td><td class="a">&nbsp;</td></tr>
+      </table>
+      <table class="f2-t">
+        <tr><td class="k">005</td><td class="hd" colspan="4">ΗΜΕΡΟΛΟΓΙΑΚΗ ΠΕΡΙΟΔΟΣ</td></tr>
+        <tr><td class="lbl">από</td><td class="a c">{{ d_from }}</td><td class="lbl">έως</td><td class="a c" colspan="2">{{ d_to }}</td></tr>
+      </table>
+      <table class="f2-t f2-kind">
+        <tr><td class="hd" colspan="6">ΕΙΔΟΣ ΔΗΛΩΣΗΣ</td></tr>
+        <tr><td class="k">007</td><td class="lbl sm">ΤΡΟΠΟ-<br>ΠΟΙΗΤΙΚΗ</td><td class="k">008</td><td class="lbl sm">ΜΕ ΕΠΙ-<br>ΦΥΛΑΞΗ</td><td class="k">009</td><td class="lbl sm">ΕΚΠΡΟΘΕΣΜΗ<br>ΔΗΛΩΣΗ</td></tr>
+      </table>
+    </div>
+    <div class="f2-right">
+      <table class="f2-t f2-year"><tr><td class="lbl">ΕΤΟΣ</td><td class="k">004</td><td class="a c">{{ year }}</td></tr></table>
+      <table class="f2-t f2-per">
+        <tr><td class="hd" colspan="14">ΦΟΡΟΛΟΓΙΚΗ ΠΕΡΙΟΔΟΣ (Διαγραμμίστε με x)</td></tr>
+        <tr><td class="lbl">ΜΗΝΑΣ</td><td class="k" rowspan="4">006</td>
+          {% for i in range(1, 13) %}<td class="n {{ 'x' if not is_q and pn == i }}">{{ i }}</td>{% endfor %}</tr>
+        <tr><td class="lbl">ΤΡΙΜΗΝΟ</td>{% for i in range(1, 5) %}<td class="n {{ 'x' if is_q and pn == i }}">{{ i }}</td>{% endfor %}<td colspan="8" class="f2-none"></td></tr>
+        <tr><td class="lbl">ΕΞΑΜΗΝΟ</td><td class="n">1</td><td class="n">2</td><td colspan="10" class="f2-none"></td></tr>
+        <tr><td class="lbl">ΕΤΗΣΙΑ</td><td class="n">1</td><td colspan="11" class="f2-none"></td></tr>
+      </table>
+    </div>
+  </div>
+
+  {# ---------------- Α ---------------- #}
+  <div class="f2-sec">Α. ΠΙΝΑΚΑΣ ΜΕ ΤΑ ΣΤΟΙΧΕΙΑ ΤΟΥ ΥΠΟΚΕΙΜΕΝΟΥ ΣΤΟ ΦΟΡΟ Ή ΛΗΠΤΗ</div>
+  <table class="f2-t f2-a">
+    <tr><td class="k">101</td><td class="lbl sm">ΕΠΩΝΥΜΟ Ή ΕΠΩΝΥΜΙΑ</td><td class="a l" colspan="5">{{ active_company.company_name if active_company }}</td></tr>
+    <tr><td class="k">102</td><td class="lbl sm">ΟΝΟΜΑ</td><td class="a l">&nbsp;</td><td class="k">103</td><td class="lbl sm">ΟΝΟΜΑ ΠΑΤΕΡΑ</td><td class="a l">&nbsp;</td>
+      <td class="f2-afm"><span class="k">104</span><span class="lbl sm">Α.Φ.Μ.</span><b>{{ active_company.AADE_VAT_NUMBER if active_company }}</b></td></tr>
+  </table>
+
+  {# ---------------- Β ---------------- #}
+  <div class="f2-sec">Β. ΠΙΝΑΚΑΣ ΕΚΡΟΩΝ - ΕΙΣΡΟΩΝ <span>μετά την αφαίρεση (κατά συντελεστή) των επιστροφών - εκπτώσεων.</span></div>
+  <div class="f2-b">
+    <table class="f2-t f2-out">
+      <colgroup><col class="c-lab"><col class="c-k"><col class="c-a"><col class="c-r"><col class="c-k"><col class="c-a"></colgroup>
+      <tr class="f2-colhead"><td colspan="3"><b class="f2-greek">α</b> ΕΚΡΟΕΣ φορολογητέες (πωλήσεις αγαθών, παροχή υπηρεσιών κλπ), ΕΝΔΟΚ. ΑΠΟΚΤ. &amp; ΠΡΑΞ. ΛΗΠΤΗ</td>
+        <td class="sm c">Συντ.<br>ΦΠΑ<br>%</td><td colspan="2" class="c">ΦΟΡΟΣ ΕΚΡΟΩΝ<br>που αναλογεί</td></tr>
+      {% for code, rate, tax in [('301', 13, '331'), ('302', 6, '332'), ('303', 24, '333'), ('308', 4, '338')] %}
+      <tr>{% if loop.first %}<td class="grp" rowspan="4">I. ΕΚΡΟΕΣ, ΕΝΔΟΚ. ΑΠΟΚΤΗΣΕΙΣ &amp; ΠΡΑΞΕΙΣ ΛΗΠΤΗ σε λοιπή Ελλάδα εκτός από τα νησιά Αιγαίου</td>{% endif %}
+        {{ ka(code) }}<td class="r">{{ rate }}</td>{{ ka(tax) }}</tr>
+      {% endfor %}
+      {% for code, rate, tax in [('304', 9, '334'), ('305', 4, '335'), ('306', 17, '336'), ('309', 3, '339')] %}
+      <tr>{% if loop.first %}<td class="grp" rowspan="4">II. ΕΚΡΟΕΣ, ΕΝΔΟΚ. ΑΠΟΚΤΗΣΕΙΣ &amp; ΠΡΑΞΕΙΣ ΛΗΠΤΗ στα νησιά Αιγαίου και από λοιπή Ελλάδα προς τα νησιά αυτά</td>{% endif %}
+        {{ ka(code) }}<td class="r">{{ rate }}</td>{{ ka(tax) }}</tr>
+      {% endfor %}
+      <tr class="tot"><td class="grp c">ΣΥΝΟΛΟ<br>ΦΟΡΟΛ/ΤΕΩΝ ΕΚΡΟΩΝ</td>{{ ka('307') }}<td class="r sm">ΣΥΝ.<br>ΦΟΡ.</td>{{ ka('337') }}</tr>
+      {% for code, label in [
+          ('342', 'Ενδοκοινοτικές παραδόσεις'),
+          ('345', 'Ενδοκ/κές παροχές υπηρεσιών άρθρ.18.2.α'),
+          ('348', 'Εξαγωγές & απαλλαγές πλοίων & αεροσκαφών'),
+          ('349', 'Λοιπές εκροές χωρίς ΦΠΑ με δικαίωμα έκπτωσης'),
+          ('310', 'Εκροές απαλλ. & εξαιρ/νες χωρίς δικαίωμα έκπτωσης'),
+          ('311', 'ΣΥΝΟΛΟ ΕΚΡΟΩΝ'),
+          ('314', 'Ενδοκοινοτικές Αποκτήσεις χωρίς δικαίωμα έκπτωσης που δεν συμμετέχουν στον ΚΥΚΛΟ ΕΡΓΑΣΙΩΝ ΦΠΑ'),
+          ('315', 'Ενδοκοινοτικές λήψεις υπηρεσιών χωρίς δικαίωμα έκπτ. που δεν συμμετ. στον ΚΥΚΛΟ ΕΡΓΑΣΙΩΝ ΦΠΑ'),
+          ('313', 'Λοιπές πράξεις που δεν συμμετέχουν στον ΚΥΚΛΟ ΕΡΓΑΣΙΩΝ ΦΠΑ'),
+          ('312', 'Κύκλος εργασιών ΦΠΑ')] %}
+      <tr class="{{ 'tot' if code in ('311', '312') }}"><td class="grp c">{{ label }}</td>{{ ka(code) }}<td colspan="3" class="f2-none"></td></tr>
+      {% endfor %}
+    </table>
+
+    <table class="f2-t f2-in">
+      <colgroup><col class="c-lab"><col class="c-k"><col class="c-a"><col class="c-sum"><col class="c-k"><col class="c-a"></colgroup>
+      <tr class="f2-colhead"><td colspan="3"><b class="f2-greek">β</b> ΕΙΣΡΟΕΣ με δικαίωμα έκπτωσης</td><td colspan="3" class="c">ΦΟΡΟΣ ΕΙΣΡΟΩΝ</td></tr>
+      {% for code, tax, label in [
+          ('361', '381', 'Αγορές & δαπάνες στο εσωτερικό της χώρας'),
+          ('362', '382', 'Αγορές & εισαγωγές επενδ. αγαθών (πάγια)'),
+          ('363', '383', 'Λοιπές εισαγωγές εκτός επενδ. αγαθών (πάγια)'),
+          ('364', '384', 'Ενδοκοινοτικές αποκτήσεις αγαθών'),
+          ('365', '385', 'Ενδοκοινοτικές λήψεις υπηρεσιών άρθρ.14.2.α'),
+          ('366', '386', 'Λοιπές πράξεις λήπτη'),
+          ('367', '387', 'ΣΥΝΟΛΟ ΦΟΡΟΛ/ΤΕΩΝ ΕΙΣΡΟΩΝ')] %}
+      <tr class="{{ 'tot' if code == '367' }}"><td class="grp c">{{ label }}</td>{{ ka(code) }}<td class="f2-none"></td>{{ ka(tax) }}</tr>
+      {% endfor %}
+      <tr class="f2-colhead"><td colspan="3"><b class="f2-greek">δ</b> <span class="c">ΠΡΟΣΤΙΘΕΜΕΝΑ ΠΟΣΑ ΣΤΟ ΣΥΝΟΛΟ ΤΟΥ ΦΟΡΟΥ ΕΙΣΡΟΩΝ</span></td>
+        <td class="f2-sign" rowspan="3"><span>ΣΥΝΟΛΟ</span></td><td colspan="2" class="f2-op c">+</td></tr>
+      <tr><td class="grp c">Λοιπά προστιθέμ. ποσά</td>{{ ka('402') }}{{ ka('410') }}</tr>
+      <tr><td class="grp c sm">Ποσό διακανονισμού προς έκπτωση προηγούμενης διαχειριστικής περιόδου</td>{{ ka('407') }}<td colspan="2" class="f2-none"></td></tr>
+      <tr class="f2-colhead"><td colspan="3"><b class="f2-greek">ε</b> <span class="c">ΑΦΑΙΡΟΥΜΕΝΑ ΠΟΣΑ ΑΠΟ ΤΟ ΣΥΝΟΛΟ ΤΟΥ ΦΟΡΟΥ ΕΙΣΡΟΩΝ</span></td>
+        <td class="f2-sign" rowspan="4"><span>ΣΥΝΟΛΟ</span></td><td colspan="2" class="f2-op c">−</td></tr>
+      <tr><td class="grp c sm">ΦΠΑ εισροών που πρέπει να μειωθεί βάσει ProRata</td>{{ ka('411') }}<td colspan="2" class="f2-none"></td></tr>
+      <tr><td class="grp c">Λοιπά αφαιρούμενα ποσά</td>{{ ka('422') }}{{ ka('428') }}</tr>
+      <tr><td class="grp c sm">Ποσό διακανονισμού προς καταβολή προηγούμενης διαχειριστικής περιόδου</td>{{ ka('423') }}<td colspan="2" class="f2-op c">=</td></tr>
+      <tr class="f2-gap"><td colspan="6"></td></tr>
+      <tr class="tot"><td colspan="4" class="f2-none r"><b>ΥΠΟΛΟΙΠΟ ΦΟΡΟΥ ΕΙΣΡΟΩΝ</b></td><td class="k">430</td>
+        <td class="a">{{ c['430']|el_amount if c['430'] }}</td></tr>
+    </table>
+  </div>
+
+  {# ---------------- Γ ---------------- #}
+  <div class="f2-sec">Γ. ΠΙΝΑΚΑΣ ΕΚΚΑΘΑΡΙΣΗΣ ΤΟΥ ΦΟΡΟΥ <span>για καταβολή, έκπτωση ή επιστροφή (κωδ. 337 μείον κωδ. 430)</span></div>
+  <div class="f2-g">
+    <table class="f2-t f2-settle">
+      <colgroup><col class="c-glab"><col class="c-k"><col class="c-a"><col class="c-glab"><col class="c-k"><col class="c-a"></colgroup>
+      <tr class="tot"><td class="grp c">ΠΙΣΤΩΤΙΚΟ<br>ΥΠΟΛΟΙΠΟ</td>{{ ka('470') }}<td class="grp c">ΧΡΕΩΣΤΙΚΟ<br>ΥΠΟΛΟΙΠΟ</td>{{ ka('480') }}</tr>
+      <tr><td colspan="6" class="f2-sub">Προσδιορισμός οριστικού ποσού προς καταβολή, έκπτωση ή επιστροφή</td></tr>
+      <tr><td class="grp c sm">Πιστωτικό υπόλοιπο προηγ. φορολ. περιόδου</td>{{ ka('401') }}
+        <td class="grp c sm">Χρεωστικό μέχρι 30€ προηγ. φορολ. περιόδου</td>{{ ka('483') }}</tr>
+      <tr><td class="grp c sm">Βεβαιωμένο ποσό κωδ.511 προηγ. δήλωσης της ίδιας φορ. περιόδου</td>{{ ka('403') }}
+        <td class="grp c sm">ΠΟΣΟ που σας επιστράφηκε ή ζητήσατε την επιστροφή του</td>{{ ka('505') }}</tr>
+      <tr><td class="grp c sm">Φόρος που έχει δεσμευτεί μέσω τραπεζών</td>{{ ka('404') }}<td colspan="3" class="f2-none"></td></tr>
+      <tr class="tot"><td class="grp c"><b>ΠΟΣΟ</b><br>για έκπτωση</td>{{ ka('502') }}<td class="grp c"><b>ΠΟΣΟ**</b><br>προς καταβολή</td>
+        <td class="k">511</td><td class="a {{ 'f2-pay' if c['511'] }}">{{ v('511') }}</td></tr>
+      <tr><td class="grp c"><b>ΑΙΤΟΥΜΕΝΟ ΠΟΣΟ</b><br>για επιστροφή</td>{{ ka('503') }}
+        <td class="grp c sm">Καταβολή ποσού κωδ. 511 σε 2 δόσεις</td><td class="k">523</td>
+        <td class="a c"><span class="f2-yn"><span>ΝΑΙ</span><i></i><span>ΟΧΙ</span><i>x</i></span></td></tr>
+    </table>
+    <div class="f2-notes"><span>Σημειώσεις:</span>
+      {% if c['carry'] %}<p>Χρεωστικό υπόλοιπο {{ c['carry']|el_amount }} € (έως 30 €) — δεν αποδίδεται· μεταφέρεται στον κωδ. 483 της επόμενης φορολογικής περιόδου.</p>{% endif %}
+      {% if c['483'] %}<p>Κωδ. 483: {{ 'χειροκίνητη τιμή (αυτόματα θα ήταν ' ~ auto_debit|el_amount ~ ')' if manual_debit is not none else 'αυτόματα — χρεωστικό έως 30 € της προηγούμενης περιόδου' }}.</p>{% endif %}
+      {% if c['401'] %}<p>Κωδ. 401: {{ 'χειροκίνητη τιμή (αυτόματα θα ήταν ' ~ auto_credit|el_amount ~ ')' if manual_credit is not none else 'αυτόματα, από το 502 της προηγούμενης περιόδου' }}.</p>{% endif %}
+      {% if c['428'] or c['410'] %}<p>Κωδ. {{ '422' if c['428'] else '402' }}: διαφορά στρογγυλοποίησης ανάμεσα στον φόρο κατά συντελεστή και στον ΦΠΑ των τιμολογίων ({{ invoiced_vat|el_amount }}).</p>{% endif %}
+    </div>
+  </div>
+  <table class="f2-t f2-reason">
+    <tr><td class="lbl"><b>ΑΙΤΙΑ ΕΠΙΣΤΡΟΦΗΣ</b></td><td class="k">507</td>
+      {% for n, t in [(1, 'ΑΠΑΛΛ.<br>ΠΡΑΞΕΙΣ'), (2, 'ΠΑΓΙΑ'), (3, 'ΑΝΑΣΤ.<br>ΚΑΤΑΒ.'), (4, 'ΔΙΑΦΟΡΑ<br>ΣΥΝΤΕΛ.'), (5, 'ΑΛΛΗ<br>ΑΙΤΙΑ'), (6, 'ΜΕΙΩΣΗ<br>ΧΡΕΩΣΤ. ΥΠΟΛ.')] %}
+      <td class="lbl sm c">{{ t|safe }}</td><td class="n">{{ n }}</td>{% endfor %}</tr>
+    <tr><td class="lbl sm" colspan="1">ΑΙΤΗΣΗ ΣΥΜΨΗΦΙΣΜΟΥ του αιτούμενου προς επιστροφή ποσού με μελλοντικές οφειλές</td><td class="k">508</td><td class="a" colspan="12">&nbsp;</td></tr>
+  </table>
+
+  <table class="f2-t f2-info">
+    <tr><td class="hd" rowspan="2">ΠΛΗΡΟΦΟΡΙΑΚΑ<br>ΣΤΟΙΧΕΙΑ</td>
+      <td class="lbl sm">Πωλήσεις α' κατοικίας</td>{{ ka('906') }}<td class="lbl sm">Αξία εισροών κωδ.906</td>{{ ka('907') }}</tr>
+    <tr><td class="lbl sm">Μικτό κέρδος επιχ. άρθρου 50</td>{{ ka('908') }}<td class="lbl sm">Αξία απαλλασσόμενων πράξεων από και προς την περιοχή του Αγίου Όρους</td>{{ ka('912') }}</tr>
+  </table>
+
+  <table class="f2-t f2-sign-row">
+    <tr><td>Ο ΔΗΛΩΝ</td><td>Ο ΛΟΓΙΣΤΗΣ<small>(Ονοματεπώνυμο ή Επωνυμία, ΑΦΜ, Α.Μ. αδείας, Κατηγορία αδείας, Δ/νση)</small></td>
+      <td>Ο ΠΑΡΑΛΑΒΩΝ<small>(σφραγίδα &amp; υπογραφή)</small></td><td>Ο ΤΑΜΙΑΣ<small>(σφραγίδα, ημερομηνία &amp; υπογραφή)</small></td></tr>
+  </table>
+  <div class="f2-foot">
+    <div>★ Συμπληρώνεται από την Υπηρεσία.<br>- Αν οποιοδήποτε ποσό που καταχωρείται είναι αρνητικός αριθμός, σημειώστε το πρόσημο πλην (-) πριν απ' αυτό.<br>
+      ** Χρεωστικό υπόλοιπο μέχρι τριάντα (30) ευρώ μεταφέρεται για καταβολή στην επόμενη φορολογική περίοδο.</div>
+    <div class="r"><b>ΕΚΔΟΣΗ 2025</b> &nbsp; <b>050 - Φ.Π.Α.</b><br>ΑΑΔΕ</div>
+  </div>
+</div>
+</div>
+{% endblock %}

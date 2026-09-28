@@ -1308,6 +1308,23 @@ def yearly_documents(company_id: int | None, kind: str, statuses: list[str], yea
     return [dict(r) for r in rows]
 
 
+def period_documents(company_id: int | None, kind: str, date_from: str, date_to: str) -> list[dict]:
+    """Όλα τα παραστατικά ενός διαστήματος (yyyy-mm-dd, κατά ημ/νία έκδοσης), κάθε κατάστασης,
+    με γραμμές και χαρακτηρισμούς — για τη δήλωση ΦΠΑ."""
+    if not company_id:
+        return []
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT d.mark, d.issue_date, d.invoice_type, d.series, d.aa, d.counterparty_vat, d.status, "
+            "d.local_action, d.total_net, d.total_vat, d.lines_json, d.cls_json, s.name AS counterparty_name "
+            "FROM documents AS d LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
+            "WHERE d.company_id = ? AND d.kind = ? AND d.issue_date BETWEEN ? AND ? "
+            "ORDER BY d.issue_date, d.series, d.aa",
+            (company_id, kind, date_from, date_to),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def document_years(company_id: int | None) -> list[str]:
     with get_conn() as conn:
         rows = conn.execute(

@@ -925,6 +925,7 @@ table.report .num{font-size:1rem}
   cursor:pointer;text-decoration:underline dotted var(--muted);text-underline-offset:3px;transition:background .15s,color .15s}
 .yr-table button.yr-kind:hover,.yr-table button.yr-kind:focus-visible{background:var(--surface-3);color:var(--accent);transform:none;filter:none}
 .modal--wide{width:min(1180px,calc(100vw - 32px))}
+.yr-docs-modal{width:min(1560px,calc(100vw - 32px))}
 .yr-docs-modal .modal-head h2{display:flex;align-items:center;font-size:1.1rem}
 .yr-docs-modal .yr-scroll{max-height:calc(100vh - 220px);overflow:auto;margin:10px -22px 0;border-top:1px solid var(--line)}
 .yr-docs{min-width:980px}
@@ -966,3 +967,89 @@ table.report .num{font-size:1rem}
 .check--danger{color:var(--err);font-weight:600;padding:8px 12px;border:1px solid var(--err-line);
   border-radius:var(--radius-sm);background:var(--err-soft);width:fit-content;max-width:100%}
 .check--danger input{accent-color:var(--err)}
+
+/* Δήλωση ΦΠΑ (Φ2): αντίγραφο του εντύπου — «χαρτί» πάντα ανοιχτό, και στο σκούρο θέμα */
+.f2-filter{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.f2-filter select,.f2-filter input{width:auto}
+.f2-filter input{width:150px;font-family:var(--font-ui)}
+.f2-credit{display:inline-flex;align-items:center;gap:6px;margin:0;font-weight:700;font-family:var(--font-data);text-transform:none}
+.f2-reset{font-size:.8rem;white-space:nowrap}
+.f2-wrap{overflow-x:auto;margin-top:10px}
+.f2{--f2-ink:#111;--f2-line:#222;--f2-key:#cfe0f1;--f2-hd:#e9eef4;--f2-blue:#2d6fb7;
+  min-width:960px;max-width:1080px;margin:0 auto;padding:18px 20px 14px;background:#fff;color:var(--f2-ink);
+  border:2px solid var(--f2-line);font-family:Arial,"Helvetica Neue",sans-serif;font-size:11px;line-height:1.2;color-scheme:light}
+.f2 b{font-weight:700}
+.f2-t{border-collapse:collapse;width:100%}
+.f2-t td{border:1px solid var(--f2-line);padding:3px 5px;height:22px;vertical-align:middle}
+.f2-t .k{background:var(--f2-key);font-weight:700;text-align:center;width:38px;font-size:11.5px}
+.f2-t .a{text-align:right;font-family:"Courier New",monospace;font-size:12.5px;min-width:90px;white-space:nowrap}
+.f2-t .a.l{text-align:left;font-family:Arial,sans-serif}
+.f2-t .c,.f2 .c{text-align:center}
+.f2-t .r,.f2 .r{text-align:right}
+.f2-t .lbl{font-size:10px;text-transform:none}
+.f2 .sm{font-size:9px}
+.f2-t .hd{background:var(--f2-hd);font-weight:700;text-align:center}
+.f2-t .grp{font-size:9.5px;background:#fff}
+.f2-t .n{width:22px;text-align:center;font-weight:700}
+.f2-t .n.x{background:#fff;position:relative;color:#b00}
+.f2-t .n.x::after{content:"X";position:absolute;inset:0;display:grid;place-items:center;font-size:15px;color:#111}
+.f2-t .f2-none{border:0;background:transparent}
+.f2-t tr.tot td{font-weight:700}
+.f2-top{display:grid;grid-template-columns:150px 1fr auto;align-items:start;gap:12px;margin:-18px -20px 10px}
+.f2-corner{position:relative;width:150px;height:92px;background:linear-gradient(135deg,var(--f2-blue) 0 55%,transparent 55%)}
+.f2-phi{position:absolute;left:14px;top:8px;color:#fff;font:700 30px/1 Arial,sans-serif}
+.f2-phi sub{font-size:16px}
+.f2-taxis{position:absolute;left:46px;top:40px;transform:rotate(-45deg);color:#fff;font:700 10px Arial;letter-spacing:5px}
+.f2-title{text-align:center;padding-top:28px}
+.f2-title b{display:block;font-size:20px;letter-spacing:.5px}
+.f2-title span{font-size:11px;font-weight:700}
+.f2-decl{width:auto;margin:14px 20px 0 0}
+.f2-decl .f2-w{min-width:130px}
+.f2-head2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:10px}
+.f2-left{display:flex;flex-direction:column;gap:6px;padding-left:40px}
+.f2-left .f2-w{min-width:180px}
+.f2-kind{width:auto}
+.f2-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.f2-year{width:auto}
+.f2-year .a{min-width:110px}
+.f2-per{width:auto}
+.f2-sec{margin:10px 0 4px;padding:4px 6px;border-top:2px solid var(--f2-line);border-bottom:1px solid var(--f2-line);
+  font-weight:700;font-size:12px;background:var(--f2-hd)}
+.f2-sec span{font-weight:400;font-style:italic;margin-left:6px}
+.f2-a .f2-afm{border:1px solid var(--f2-line);white-space:nowrap}
+.f2-a .f2-afm .k{display:inline-block;padding:2px 6px;margin-right:6px}
+.f2-a .f2-afm b{font-family:"Courier New",monospace;font-size:14px;letter-spacing:2px;margin-left:8px}
+.f2-b{display:grid;grid-template-columns:52fr 48fr;gap:8px;align-items:start}
+.f2-b col.c-lab{width:auto}.f2-b col.c-k{width:38px}.f2-b col.c-a{width:96px}.f2-b col.c-r{width:34px}.f2-b col.c-sum{width:22px}
+.f2-colhead td{background:var(--f2-hd);font-size:9.5px;font-weight:700}
+.f2-greek{display:inline-block;font-size:14px;margin-right:6px;font-style:italic}
+.f2-out .r{text-align:center;font-weight:700}
+.f2-sign{background:var(--f2-hd);width:22px;padding:0!important}
+.f2-sign span{display:block;writing-mode:vertical-rl;transform:rotate(180deg);font-size:8px;font-weight:700;letter-spacing:1px;margin:auto}
+.f2-op{font-size:16px;font-weight:700;border:0!important}
+.f2-gap td{border:0!important;height:8px}
+.f2-g{display:grid;grid-template-columns:62fr 38fr;gap:10px;align-items:start}
+.f2-settle col.c-glab{width:auto}.f2-settle col.c-k{width:38px}.f2-settle col.c-a{width:100px}
+.f2-sub{font-size:13px;border:0!important;padding:6px 4px!important}
+.f2-pay{background:#fdecea;color:#b3261e;font-weight:700}
+.f2-yn{display:inline-flex;align-items:center;gap:6px;font-family:Arial,sans-serif;font-size:10px}
+.f2-yn i{display:inline-grid;place-items:center;width:16px;height:16px;border:1px solid var(--f2-line);font-style:normal;font-weight:700}
+.f2-notes{border:1px solid var(--f2-line);min-height:150px;padding:6px 8px;
+  background:repeating-linear-gradient(transparent 0 21px,#888 21px 22px);background-position:0 26px}
+.f2-notes p{margin:4px 0 0;background:#fff;font-size:10px}
+.f2-reason{margin-top:8px}
+.f2-info{margin-top:10px}
+.f2-info .hd{width:120px}
+.f2-sign-row{margin-top:10px}
+.f2-sign-row td{height:70px;vertical-align:top;text-align:center;font-weight:700;width:25%}
+.f2-sign-row small{display:block;font-weight:400;font-size:8px;margin-top:40px}
+.f2-foot{display:flex;justify-content:space-between;gap:20px;margin-top:6px;font-size:8.5px}
+@media print{
+  /* Ίδια ακριβώς εμφάνιση με την οθόνη: σταθερό πλάτος, αναλογική σμίκρυνση για μία A4. */
+  .sidebar,.topbar,.f2-noprint,.flash-stack{display:none!important}
+  html,body,.shell,.content,main{background:#fff!important;margin:0!important;padding:0!important;max-width:none!important}
+  .f2-wrap{overflow:visible;margin:0}
+  .f2{width:1080px;min-width:1080px;max-width:1080px;margin:0;zoom:.675;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;break-inside:avoid}
+  @page{size:A4 portrait;margin:8mm}
+}

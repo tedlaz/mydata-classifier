@@ -11,8 +11,9 @@
   <thead>
     <tr>
       <th>Ημ/νία</th><th>MARK</th><th>{{ 'Πελάτης' if is_in else 'Εκδότης' }}</th><th>Τύπος · Σειρά/Α/Α</th>
-      <th class="num">Καθαρή</th><th class="num">ΦΠΑ</th><th class="num">Παρακρ.</th>
-      <th class="num">Λοιποί φόροι<br>/ τέλη</th><th class="num">Κρατήσεις</th><th class="num">Σύνολο</th>
+      <th class="num">Καθαρή</th>
+      {% for key, label in cols %}<th class="num">{{ label|safe }}</th>{% endfor %}
+      <th class="num">Σύνολο</th>
     </tr>
   </thead>
   <tbody>
@@ -33,10 +34,7 @@
         {% if d.t.third_party %}<span class="pill yr-tag">τρίτων</span>{% endif %}
       </td>
       <td class="num yr-net">{{ d.t.net|el_amount }}</td>
-      <td class="num">{{ d.t.vat|el_amount }}</td>
-      <td class="num">{{ d.t.withheld|el_amount }}</td>
-      <td class="num">{{ (d.t.other_taxes + d.t.stamp_duty + d.t.fees)|el_amount }}</td>
-      <td class="num">{{ d.t.deductions|el_amount }}</td>
+      {% for key, label in cols %}<td class="num">{{ d.t[key]|el_amount }}</td>{% endfor %}
       <td class="num"><b>{{ d.gross|el_amount }}</b></td>
     </tr>
     {% endfor %}
@@ -45,10 +43,7 @@
     <tr class="yr-total {{ 'yr-total--in' if is_in else 'yr-total--out' }}">
       <th colspan="4">Σύνολο {{ label }}</th>
       <td class="num yr-net">{{ total.net|el_amount }}</td>
-      <td class="num">{{ total.vat|el_amount }}</td>
-      <td class="num">{{ total.withheld|el_amount }}</td>
-      <td class="num">{{ (total.other_taxes + total.stamp_duty + total.fees)|el_amount }}</td>
-      <td class="num">{{ total.deductions|el_amount }}</td>
+      {% for key, label in cols %}<td class="num">{{ total[key]|el_amount }}</td>{% endfor %}
       <td class="num">{{ total.gross|el_amount }}</td>
     </tr>
   </tfoot>
