@@ -1268,7 +1268,7 @@ def submit(mark):
         _learn(inv, entries)
         first = next(r for rs in e3.values() for r in rs)
         save_rule(inv.issuer_vat, first["type"], first["category"], next(iter(vat_choice.values()), ""))
-        return _classified_redirect(manual)
+        return _classified_redirect(manual, inv)
 
     # Γραμμές χαρακτηρισμού ΑΝΑ ΓΡΑΜΜΗ παραστατικού (parallel λίστες από τη φόρμα):
     # κάθε γραμμή = αριθμός γραμμής παραστατικού + κατηγορία + τύπος E3 + ποσό
@@ -1378,11 +1378,21 @@ def submit(mark):
     # αποθήκευση κανόνα ανά συναλλασσόμενο από την πρώτη γραμμή χαρακτηρισμού
     if rule_from:
         save_rule(inv.issuer_vat, rule_from[0], rule_from[1], rule_from[2])
-    return _classified_redirect(manual)
+    return _classified_redirect(manual, inv)
 
 
-def _classified_redirect(manual: bool):
-    """Μήνυμα + μετάβαση μετά την αποθήκευση χαρακτηρισμού (και για τους δύο τρόπους)."""
+def _classified_redirect(manual: bool, inv):
+    """Μήνυμα + μετάβαση μετά την αποθήκευση χαρακτηρισμού (και για τους δύο τρόπους):
+    στο επόμενο αχαρακτήριστο (σειρά βιβλίου), αλλιώς στη λίστα."""
+    rest = sorted(
+        db.get_documents(_active_company_id(), "expense", ["unclassified"]),
+        key=lambda r: (r["issue_date"] or "", r["mark"]),
+    )
+    here = (inv.issue_date or "", inv.mark)
+    nxt = next((r for r in rest if (r["issue_date"] or "", r["mark"]) > here), rest[0] if rest else None)
+    if nxt:
+        flash(f"✔ Ο χαρακτηρισμός του {inv.mark} αποθηκεύτηκε. Επόμενο προς χαρακτηρισμό ({len(rest)} απομένουν).", "ok")
+        return redirect(url_for("classify", mark=nxt["mark"]))
     if manual:
         flash(
             "✔ Καταγράφηκε τοπικά ως ήδη χαρακτηρισμένο στο myDATA (χειροκίνητο). "

@@ -212,8 +212,8 @@ button[disabled]{opacity:.45;cursor:not-allowed;transform:none;filter:none}
 .btn-icon{width:34px;height:34px;padding:0;flex:none}
 
 /* Loading κατά την υποβολή (π.χ. ανάκτηση από myDATA) */
-.is-loading{pointer-events:none;color:transparent !important}
-.is-loading::after{content:"";position:absolute;width:16px;height:16px;border-radius:50%;
+:is(button,input).is-loading{pointer-events:none;color:transparent !important}
+:is(button,input).is-loading::after{content:"";position:absolute;width:16px;height:16px;border-radius:50%;
   border:2px solid currentColor;border-color:#fff #fff transparent transparent;animation:spin .7s linear infinite}
 .btn-ghost.is-loading::after,.btn-danger.is-loading::after{border-color:var(--accent) var(--accent) transparent transparent}
 @keyframes spin{to{transform:rotate(360deg)}}
