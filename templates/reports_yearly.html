@@ -3,7 +3,6 @@
 {% set cols = [('vat', 'ΦΠΑ'), ('withheld', 'Φόροι<br>παρακρ.'), ('other_taxes', 'Λοιποί<br>φόροι'),
                ('stamp_duty', 'Ψηφιακό<br>τέλος συν.'), ('fees', 'Τέλη'), ('deductions', 'Κρατήσεις'), ('third_party', 'Έσοδα/Έξοδα<br>τρίτων')] %}
 {% set balance = (income_total.net - expense_total.net)|round(2) %}
-{% set vat_due = (income_total.vat - expense_total.vat)|round(2) %}
 {# Πραγματικό κέρδος: οι αγορές παγίων (2.7) κεφαλαιοποιούνται — στο αποτέλεσμα μπαίνουν μόνο οι αποσβέσεις. #}
 {% set op_expense = (expense_total.net - expense_total.assets)|round(2) %}
 {% set real_profit = (income_total.net - op_expense)|round(2) %}
@@ -23,30 +22,6 @@
     <nav class="yr-years" aria-label="Έτος">
       {% for y in years %}<a href="{{ url_for('reports_yearly', year=y) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
     </nav>
-  </div>
-
-  {# Κάρτες συνόλων έτους #}
-  <div class="yr-kpis">
-    <div class="yr-kpi">
-      <span class="kicker"><i class="yr-dot yr-dot--in"></i>Έσοδα · καθαρή</span>
-      <b>{{ income_total.net|el_amount }} €</b>
-      <small>ΦΠΑ {{ income_total.vat|el_amount }} € · παρακρ. {{ income_total.withheld|el_amount }} €</small>
-    </div>
-    <div class="yr-kpi">
-      <span class="kicker"><i class="yr-dot yr-dot--out"></i>Έξοδα · καθαρή</span>
-      <b>{{ expense_total.net|el_amount }} €</b>
-      <small>ΦΠΑ {{ expense_total.vat|el_amount }} €</small>
-    </div>
-    <div class="yr-kpi yr-kpi--hero {{ 'is-neg' if balance < 0 }}">
-      <span class="kicker">Υπόλοιπο εσόδων − εξόδων</span>
-      <b>{{ balance|el_amount }} €</b>
-      <small>{% if income_total.net %}περιθώριο {{ ((balance / income_total.net) * 100)|round(1) }}% επί των εσόδων{% else %}χωρίς έσοδα{% endif %}</small>
-    </div>
-    <div class="yr-kpi">
-      <span class="kicker">ΦΠΑ εκροών − εισροών</span>
-      <b class="{{ 'yneg' if vat_due < 0 }}">{{ vat_due|el_amount }} €</b>
-      <small>ενδεικτικά · {{ 'πιστωτικό' if vat_due < 0 else 'προς απόδοση' }}</small>
-    </div>
   </div>
 
   {# Διάγραμμα: καθαρή αξία εσόδων/εξόδων ανά μήνα #}
@@ -100,7 +75,15 @@
         </tr>
       </thead>
       {% for r in rows %}
-      <tbody class="{{ 'is-now' if loop.index == current_month }}">
+      {% set vm, vq = r.vat_month, r.vat_quarter %}
+      <tbody class="{{ 'is-now' if loop.index == current_month }}" tabindex="0"
+             title="Κλικ για τον ΦΠΑ του μήνα και του τριμήνου"
+             aria-label="{{ r.label }}: διαφορά ΦΠΑ μήνα {{ vm.diff|el_amount }} €, τριμήνου {{ vq.diff|el_amount }} €"
+             data-month="{{ r.label }}" data-m-out="{{ vm.out|el_amount }}" data-m-in="{{ vm.in|el_amount }}"
+             data-m-diff="{{ vm.diff|el_amount }}" data-m-neg="{{ 1 if vm.diff < 0 else 0 }}"
+             data-q-label="{{ vq.label }}" data-q-span="{{ vq.span }}{{ ' · έως τώρα' if vq.partial }}"
+             data-q-out="{{ vq.out|el_amount }}" data-q-in="{{ vq.in|el_amount }}"
+             data-q-diff="{{ vq.diff|el_amount }}" data-q-neg="{{ 1 if vq.diff < 0 else 0 }}">
         <tr>
           <th class="yr-sticky yr-month-cell" rowspan="2" scope="rowgroup">{{ r.label }}</th>
           <td><span class="yr-kind yr-kind--in"><i class="yr-dot yr-dot--in"></i>Έσοδα</span></td>
@@ -154,6 +137,7 @@
       </tfoot>
     </table>
     </div>
+    <div class="yr-tip yr-tip--vat" role="status" hidden></div>
     <p class="muted small yr-note">
       Ποσά σε €. Έσοδα = χαρακτηρισμένα του «Βιβλίου εσόδων»· Έξοδα = χαρακτηρισμένα/απεσταλμένα/ολοκληρωμένα
       του «Βιβλίου εξόδων». Τα πιστωτικά αφαιρούνται. «Τρίτων» = χαρακτηρισμοί κατηγορίας 1.9/2.9.
@@ -199,6 +183,45 @@
   });
   plot.addEventListener('mouseleave', hide);
   plot.addEventListener('focusout', e => { if (!plot.contains(e.relatedTarget)) hide(); });
+})();
+
+// Tooltip ΦΠΑ ανά μήνα του πίνακα: διαφορά εκροών − εισροών του μήνα και του τριμήνου του.
+(function () {
+  const card = document.querySelector('.yr-table-card'), tip = card.querySelector('.yr-tip--vat');
+  const vatCol = card.querySelector('thead th:nth-child(5)');  // στήλη «ΦΠΑ»
+  const diff = (label, v, neg) => '<span class="yr-tip-bal' + (neg === '1' ? ' is-neg' : '') + '">' + label +
+    '<em>' + v + ' €</em></span><span class="yr-tip-sum">' + (neg === '1' ? 'πιστωτικό υπόλοιπο' : 'προς απόδοση') + '</span>';
+  function show(tb) {
+    const d = tb.dataset;
+    tip.innerHTML = '<b>ΦΠΑ · ' + d.month + '</b>' +
+      '<span>ΦΠΑ εκροών (έσοδα)<em>' + d.mOut + ' €</em></span>' +
+      '<span>ΦΠΑ εισροών (έξοδα)<em>− ' + d.mIn + ' €</em></span>' + diff('Διαφορά μήνα', d.mDiff, d.mNeg) +
+      '<b class="yr-tip-q">' + d.qLabel + ' <small>' + d.qSpan + '</small></b>' +
+      '<span>ΦΠΑ εκροών<em>' + d.qOut + ' €</em></span>' +
+      '<span>ΦΠΑ εισροών<em>− ' + d.qIn + ' €</em></span>' + diff('Διαφορά τριμήνου', d.qDiff, d.qNeg);
+    tip.hidden = false;
+    const c = card.getBoundingClientRect(), r = tb.getBoundingClientRect(), col = vatCol.getBoundingClientRect();
+    const x = col.left + col.width / 2 - c.left;
+    tip.style.left = Math.min(Math.max(x, tip.offsetWidth / 2 + 8), c.width - tip.offsetWidth / 2 - 8) + 'px';
+    // Κάτω από τον μήνα· αν δεν χωράει στην κάρτα, από πάνω του.
+    const below = r.bottom - c.top + 6, above = r.top - c.top - tip.offsetHeight - 6;
+    tip.style.top = (below + tip.offsetHeight <= c.height || above < 0 ? below : above) + 'px';
+  }
+  // Ανοίγει με κλικ (ή Enter/Space) στον μήνα· ξανά κλικ στον ίδιο, κλικ έξω ή Esc το κλείνει.
+  let open = null;
+  const hide = () => { tip.hidden = true; if (open) open.classList.remove('is-open'); open = null; };
+  const toggle = tb => {
+    if (open === tb) return hide();
+    hide(); open = tb; tb.classList.add('is-open'); show(tb);
+  };
+  card.querySelectorAll('tbody[data-month]').forEach(tb => {
+    tb.addEventListener('click', () => toggle(tb));
+    tb.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(tb); }
+    });
+  });
+  document.addEventListener('click', e => { if (open && !e.target.closest('tbody[data-month], .yr-tip--vat')) hide(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && open) { const tb = open; hide(); tb.focus(); } });
 })();
 </script>
 {% endblock %}

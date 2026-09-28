@@ -2081,12 +2081,35 @@ def reports_yearly():
          "balance": round(income[m]["net"] - expense[m]["net"], 2)}
         for m in range(1, last + 1)
     ]
+    _add_vat_periods(rows, year)
     total = lambda part: {c: round(sum(r[part][c] for r in rows), 2) for c in _YEARLY_COLUMNS}  # noqa: E731
     return render_template(
         "reports_yearly.html", year=year, years=years, rows=rows,
         income_total=total("income"), expense_total=total("expense"),
         chart=_yearly_chart(rows), current_month=now.month if year == str(now.year) else None,
     )
+
+
+_QUARTER_NAMES = ("Α΄", "Β΄", "Γ΄", "Δ΄")
+
+
+def _add_vat_periods(rows: list[dict], year: str) -> None:
+    """Σε κάθε μήνα (rows[i] = μήνας i+1): ΦΠΑ εκροών/εισροών/διαφορά του μήνα και του
+    τριμήνου του. Τρίμηνο που δεν έχει κλείσει (τρέχον έτος) αθροίζει μόνο όσους μήνες υπάρχουν."""
+    def vat(rs):
+        out, inp = round(sum(r["income"]["vat"] for r in rs), 2), round(sum(r["expense"]["vat"] for r in rs), 2)
+        return {"out": out, "in": inp, "diff": round(out - inp, 2)}
+
+    for i, r in enumerate(rows):
+        q = i // 3
+        months = rows[q * 3:q * 3 + 3]
+        r["vat_month"] = vat([r])
+        r["vat_quarter"] = dict(
+            vat(months),
+            label=f"{_QUARTER_NAMES[q]} τρίμηνο {year}",
+            span=f"{_GREEK_MONTHS[q * 3]}–{_GREEK_MONTHS[q * 3 + len(months) - 1]}",
+            partial=len(months) < 3,
+        )
 
 
 def _nice_step(top: float, ticks: int = 4) -> float:

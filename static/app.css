@@ -814,17 +814,7 @@ table.report .num{font-size:1rem}
 .yr-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:-1px;flex:none}
 .yr-dot--in{background:var(--yr-in)} .yr-dot--out{background:var(--yr-out)}
 
-.yr-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:16px}
-.yr-kpi{display:flex;flex-direction:column;gap:4px;padding:16px 18px;border:1px solid var(--line);border-radius:var(--radius);
   background:var(--surface);box-shadow:var(--shadow);animation:rise .4s var(--ease) both}
-.yr-kpi:nth-child(2){animation-delay:.05s} .yr-kpi:nth-child(3){animation-delay:.1s} .yr-kpi:nth-child(4){animation-delay:.15s}
-.yr-kpi .kicker{display:flex;align-items:center}
-.yr-kpi b{font-family:var(--font-data);font-size:clamp(1.15rem,2.2vw,1.5rem);line-height:1.2;color:var(--ink)}
-.yr-kpi small{color:var(--muted);font-size:.78rem}
-.yr-kpi--hero{background:var(--accent-grad);border-color:transparent;color:var(--on-accent)}
-.yr-kpi--hero .kicker,.yr-kpi--hero small{color:rgba(255,255,255,.8)}
-.yr-kpi--hero b{color:#fff;font-size:clamp(1.3rem,2.6vw,1.75rem)}
-.yr-kpi--hero.is-neg{background:linear-gradient(135deg,#d9483f 0%,#b0271f 100%)}
 .yneg{color:var(--err)}
 .yz{color:var(--muted);opacity:.55}
 
@@ -846,21 +836,21 @@ table.report .num{font-size:1rem}
 .yr-bar--asset{fill:url(#yr-hatch)}
 .yr-hatch-bg{fill:var(--yr-out-soft)} .yr-hatch-fg{fill:var(--yr-out)}
 .yr-dot--asset{background:repeating-linear-gradient(45deg,var(--yr-out) 0 2px,var(--yr-out-soft) 2px 4.5px);box-shadow:inset 0 0 0 1px var(--yr-out)}
-.yr-tip-sum{color:var(--muted) !important;font-size:.76rem}
+.yr-tip-sum{color:var(--muted) !important;font-size:.76rem;padding-left:17px !important}
 .yr-hit{fill:transparent}
 .yr-col{cursor:default;outline:none}
 .yr-col.is-active .yr-hit{fill:var(--surface-3);opacity:.7}
 .yr-plot:has(.yr-col.is-active) .yr-col:not(.is-active) .yr-bar{opacity:.45}
 .yr-col:focus-visible .yr-hit{stroke:var(--accent);stroke-width:2}
-.yr-tip{position:absolute;top:4px;transform:translateX(-50%);min-width:190px;padding:10px 12px;border-radius:10px;pointer-events:none;
+.yr-tip{position:absolute;top:4px;transform:translateX(-50%);width:max-content;min-width:260px;padding:12px 14px;border-radius:10px;pointer-events:none;
   background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow-hi);font-size:.8rem;z-index:3}
-.yr-tip b{display:block;margin-bottom:6px;font-size:.84rem}
-.yr-tip span{display:flex;align-items:center;gap:0;padding:2px 0;color:var(--ink-2)}
-.yr-tip em{margin-left:auto;padding-left:14px;font-style:normal;font-family:var(--font-data);font-weight:600;color:var(--ink)}
-.yr-tip-bal{margin-top:4px;padding-top:6px !important;border-top:1px solid var(--line-soft)}
+.yr-tip b{display:block;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--line-soft);font-size:.86rem}
+.yr-tip span{display:flex;align-items:center;gap:0;padding:3px 0;color:var(--ink-2);white-space:nowrap}
+.yr-tip em{margin-left:auto;padding-left:24px;white-space:nowrap;font-style:normal;font-family:var(--font-data);font-weight:600;color:var(--ink)}
+.yr-tip-bal{margin-top:6px;padding-top:8px !important;border-top:1px solid var(--line-soft);font-weight:700;color:var(--ink) !important}
 .yr-tip-bal em{color:var(--ok)} .yr-tip-bal.is-neg em{color:var(--err)}
 
-.yr-table-card{padding:6px 0 0;overflow:hidden}
+.yr-table-card{position:relative;padding:6px 0 0}
 .yr-scroll{overflow-x:auto;container-type:inline-size}
 .yr-table{width:100%;min-width:1080px;border-collapse:separate;border-spacing:0;font-size:.86rem}
 .yr-table thead th{position:sticky;top:0;z-index:2;background:var(--surface);padding:12px 12px 10px;text-align:left;
@@ -892,9 +882,7 @@ table.report .num{font-size:1rem}
 .yr-total--in .yr-sticky{box-shadow:inset 4px 0 0 var(--yr-in)} .yr-total--out .yr-sticky{box-shadow:inset 4px 0 0 var(--yr-out)}
 .yr-note{padding:10px 18px 14px;margin:0}
 
-@media (max-width:980px){ .yr-kpis{grid-template-columns:repeat(2,minmax(0,1fr))} }
-@media (max-width:520px){ .yr-kpis{grid-template-columns:1fr} .yr-head{align-items:flex-start} }
-@media (prefers-reduced-motion:reduce){ .yr-kpi{animation:none} }
+@media (max-width:520px){ .yr-head{align-items:flex-start} }
 /* Καθαρό κέρδος: γραμμές κάτω από τα «Σύνολα εξόδων» */
 .yr-pl-head th,.yr-pl-head td{padding:18px 12px 8px;background:var(--surface);font-family:var(--font-ui);font-size:.7rem;
   font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;border-top:1px solid var(--line)}
@@ -911,3 +899,11 @@ table.report .num{font-size:1rem}
 .yr-pl--result.is-neg th,.yr-pl--result.is-neg td{background:var(--err-soft);border-top-color:var(--err)}
 .yr-pl--result.is-neg th,.yr-pl--result.is-neg td.num{color:var(--err)}
 .yr-pl-warn{margin:0 18px 16px}
+/* Tooltip ΦΠΑ μήνα/τριμήνου στον πίνακα */
+.yr-tip--vat{top:0;z-index:6}
+.yr-tip .yr-tip-q{margin:12px 0 8px;padding:8px 0 6px;border-top:1px solid var(--line);border-bottom:1px solid var(--line-soft)}
+.yr-tip b small{font-weight:500;color:var(--muted);font-size:.74rem;margin-left:4px}
+.yr-table tbody[data-month]{outline:none;cursor:pointer}
+.yr-table tbody.is-open td,.yr-table tbody.is-open th{background:var(--accent-soft) !important}
+.yr-table tbody[data-month]:focus-visible .yr-month-cell{box-shadow:inset 3px 0 0 var(--accent)}
+.yr-tip--vat .yr-tip-bal em{color:var(--ink)} .yr-tip--vat .yr-tip-bal.is-neg em{color:var(--accent)}

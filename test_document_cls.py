@@ -295,5 +295,15 @@ ch = _yearly_chart([row(1693.54, 1591.46, 1362.55), row(120.97, 1563.67, 0.0)])
 nov, dec = ch["months"]
 assert nov["op"] == 228.91 and nov["profit"] == 1464.63 and nov["op_path"] and nov["asset_path"], nov
 assert dec["op"] == 1563.67 and dec["asset_path"] == "" and ch["has_assets"], dec
+# ΦΠΑ ανά μήνα και τρίμηνο: διαφορά εκροών − εισροών· ανοιχτό τρίμηνο αθροίζει όσους μήνες υπάρχουν.
+from app import _add_vat_periods  # noqa: E402
+
+mrows = [{"income": {"vat": v_out}, "expense": {"vat": v_in}} for v_out, v_in in
+         [(10, 1), (20, 2), (30, 3), (40, 50)]]  # Ιαν.–Απρ.
+_add_vat_periods(mrows, "2026")
+assert mrows[1]["vat_month"] == {"out": 20, "in": 2, "diff": 18}
+assert mrows[2]["vat_quarter"]["diff"] == 54 and not mrows[2]["vat_quarter"]["partial"]
+q2 = mrows[3]["vat_quarter"]
+assert q2["diff"] == -10 and q2["partial"] and q2["label"] == "Β΄ τρίμηνο 2026" and q2["span"] == "Απρ.–Απρ.", q2
 
 print("OK")
