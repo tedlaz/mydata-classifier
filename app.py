@@ -1958,19 +1958,24 @@ def _olap_cube(cid: int | None) -> dict:
             sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
             taxes = [sign * _report_number(d["total_" + t]) for t in
                      ("withheld", "other_taxes", "stamp_duty", "fees", "deductions")]
-            # ponytail: ένα ποσοστό ανά παραστατικό — σε μικτό (γραμμές με και χωρίς έκπτωση) μοιράζεται
-            # ομοιόμορφα στις γραμμές· ανά γραμμή αν χρειαστεί.
-            nondeductible = 0.0
-            if kind == "expense" and d["total_vat"]:
-                deductible = sum(tax for typ, _, tax in vat_return.input_vat(d) if typ not in vat_return.REVERSE_CHARGE)
-                nondeductible = min(max(1 - deductible / (sign * d["total_vat"]), 0.0), 1.0)
+            # Εκπιπτόμενος ΦΠΑ ανά γραμμή (έξοδα)· ο υπόλοιπος ΦΠΑ της γραμμής είναι μη εκπιπτόμενος.
+            deductible = vat_return.deductible_by_line(d) if kind == "expense" else None
             parts = _report_financial_parts(d, True)
             net_total = sum(abs(p["net"]) for p in parts)
-            e3 = _report_classifications(d) or [{"key": ("", ""), "line": None, "weight": 1.0}]
+            # Γραμμές κάθε χαρακτηρισμού Ε3: το «line» του myDATA μπορεί να είναι ομάδα ανά κατηγορία ΦΠΑ.
+            e3 = _report_classifications(d)
+            targets = vat_return.cls_lines([{"line": a["line"], "amount": a["weight"]} for a in e3],
+                                           {ln.get("line_number"): ln for ln in d["lines"]})
+            e3 = e3 or [{"key": ("", ""), "line": None, "weight": 1.0}]
             for p in parts:
                 frac = abs(p["net"]) / net_total if net_total else 1 / len(parts)
-                allocs = [a for a in e3 if p["line"] is not None and a["line"] == p["line"]] or e3
+                allocs = ([a for a, ns in zip(e3, targets) if ns and p["line"] in ns]
+                          or [a for a, ns in zip(e3, targets) if ns is None] or e3)
                 weights = sum(a["weight"] for a in allocs)
+                line_vat = sign * p["vat"]
+                nondeductible = 0.0
+                if deductible is not None and line_vat:
+                    nondeductible = min(max(1 - deductible.get(p["line"], 0.0) / line_vat, 0.0), 1.0)
                 for a in allocs:
                     share = a["weight"] / weights if weights else 1 / len(allocs)
                     amounts = [sign * p[x] * share for x in ("net", "vat", "gross")] + [t * frac * share for t in taxes]

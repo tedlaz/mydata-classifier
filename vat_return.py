@@ -41,28 +41,73 @@ def _sent(d: dict) -> bool:
     return (d.get("mark") or "").isdigit()
 
 
-def input_vat(d: dict) -> list[tuple[str, float, float]]:
-    """(χαρακτηρισμός VAT_36x, βάση, φόρος) ενός εξόδου, με πρόσημο (πιστωτικά αρνητικά). Φόρος =
-    ο ΦΠΑ της γραμμής (χαρακτηρισμός ανά γραμμή) ή αναλογικά του παραστατικού· στις πράξεις λήπτη
-    βάση × 24%. Χωρίς χαρακτηρισμό ΦΠΑ → [] (ο ΦΠΑ του δεν εκπίπτει)."""
+def cls_lines(entries: list[dict], lines: dict) -> list[list | None]:
+    """Οι πραγματικές γραμμές που καλύπτει κάθε χαρακτηρισμός (entries: ίδιας οικογένειας, Ε3 ή ΦΠΑ·
+    lines: αριθμός γραμμής → γραμμή). Το «line» του myDATA δεν είναι πάντα η γραμμή: στον χαρακτηρισμό
+    ανά παραστατικό είναι αύξων ομάδας ανά κατηγορία ΦΠΑ (π.χ. line 1 = όλες οι γραμμές 6%, line 2 =
+    όλες οι 0%). Κανόνας: οι χαρακτηρισμοί της γραμμής αθροίζουν στην καθαρή της → η γραμμή· αλλιώς ποσό
+    = καθαρή μιας κατηγορίας ΦΠΑ → οι γραμμές της· αλλιώς None (όλο το παραστατικό, αναλογικά)."""
+    near = lambda a, b: abs(a - b) <= 0.02  # noqa: E731 — στρογγυλοποιήσεις του myDATA
+    net = lambda ns: sum(lines[n].get("net_value") or 0.0 for n in ns)  # noqa: E731
+    on_line: dict = {}
+    for e in entries:
+        on_line[e.get("line")] = on_line.get(e.get("line"), 0.0) + (e.get("amount") or 0.0)
+    groups: dict = {}
+    for n, ln in lines.items():
+        groups.setdefault(str(ln.get("vat_category") or ""), []).append(n)
+    out = []
+    for e in entries:
+        n, amount = e.get("line"), e.get("amount") or 0.0
+        if n in lines and near(on_line[n], lines[n].get("net_value") or 0.0):
+            out.append([n])
+        else:
+            out.append(next((ns for ns in groups.values() if amount and near(net(ns), amount)), None))
+    return out
+
+
+def _input_vat(d: dict) -> list[tuple[str, float, float, list | None]]:
+    """(χαρακτηρισμός VAT_36x, βάση, φόρος, γραμμές ή None = όλο το παραστατικό) — βλ. input_vat."""
     sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
     vat_cls = [e for e in json.loads(d["cls_json"] or "[]") if (e.get("type") or "") in INPUT_CODES]
     lines = {ln.get("line_number"): ln for ln in json.loads(d["lines_json"] or "[]")}
     total = sum(e.get("amount") or 0.0 for e in vat_cls) or 1.0
     out = []
-    for e in vat_cls:
-        base = sign * (e.get("amount") or 0.0)
+    for e, ns in zip(vat_cls, cls_lines(vat_cls, lines)):
+        amount = e.get("amount") or 0.0
+        net = sum(lines[n].get("net_value") or 0.0 for n in ns or ())
         if e["type"] in REVERSE_CHARGE:
-            tax = round(base * REVERSE_RATE, 2)
-        elif (e.get("line") in lines and lines[e["line"]].get("net_value")
-              and 0 < (e.get("amount") or 0.0) <= lines[e["line"]]["net_value"] + 0.01):
-            # Χαρακτηρισμός γραμμής → ΦΠΑ γραμμής × ποσό / καθαρή γραμμής. Ποσό μεγαλύτερο από τη
-            # γραμμή = χαρακτηρισμός όλου του παραστατικού που το myDATA δένει στη γραμμή 1 → παρακάτω.
-            ln = lines[e["line"]]
-            tax = sign * (ln.get("vat_amount") or 0.0) * (e.get("amount") or 0.0) / ln["net_value"]
-        else:  # ανά παραστατικό → αναλογικά στον ΦΠΑ του παραστατικού
-            tax = sign * (d["total_vat"] or 0.0) * (e.get("amount") or 0.0) / total
-        out.append((e["type"], base, tax))
+            tax = round(sign * amount * REVERSE_RATE, 2)
+        elif net:  # μερίδιο του χαρακτηρισμού στον ΦΠΑ των γραμμών του
+            tax = sign * sum(lines[n].get("vat_amount") or 0.0 for n in ns) * amount / net
+        else:  # όλο το παραστατικό → αναλογικά στον ΦΠΑ του
+            tax = sign * (d["total_vat"] or 0.0) * amount / total
+        out.append((e["type"], sign * amount, tax, ns))
+    return out
+
+
+def input_vat(d: dict) -> list[tuple[str, float, float]]:
+    """(χαρακτηρισμός VAT_36x, βάση, φόρος) ενός εξόδου, με πρόσημο (πιστωτικά αρνητικά). Φόρος = ο ΦΠΑ
+    των γραμμών που καλύπτει ο χαρακτηρισμός (cls_lines) κατά το μερίδιό του, ή αναλογικά του
+    παραστατικού· στις πράξεις λήπτη βάση × 24%. Χωρίς χαρακτηρισμό ΦΠΑ → [] (ο ΦΠΑ του δεν εκπίπτει)."""
+    return [(t, b, x) for t, b, x, _ in _input_vat(d)]
+
+
+def deductible_by_line(d: dict) -> dict:
+    """Εκπιπτόμενος ΦΠΑ ανά γραμμή (με πρόσημο, χωρίς πράξεις λήπτη) — για τον κύβο OLAP. Ο φόρος
+    ενός χαρακτηρισμού μοιράζεται στις γραμμές του κατά τον ΦΠΑ τους (None = σε όλες).
+    Παραστατικό χωρίς γραμμές → {None: φόρος}."""
+    lines = {ln.get("line_number"): ln for ln in json.loads(d["lines_json"] or "[]")}
+    out: dict = {}
+    for typ, _, tax, ns in _input_vat(d):
+        if typ in REVERSE_CHARGE:
+            continue
+        if not lines:
+            out[None] = out.get(None, 0.0) + tax
+            continue
+        ns = ns or list(lines)
+        vats = [abs(lines[n].get("vat_amount") or 0.0) for n in ns]
+        for n, v in zip(ns, vats):
+            out[n] = out.get(n, 0.0) + (tax * v / sum(vats) if sum(vats) else tax / len(ns))
     return out
 
 
@@ -176,5 +221,22 @@ if __name__ == "__main__":
     d = {"mark": "13", "invoice_type": "1.1", "total_vat": 51.9, "lines_json": json.dumps(
         [{"line_number": 1, "net_value": 111.6, "vat_amount": 26.78}, {"line_number": 2, "net_value": 104.65, "vat_amount": 25.12}]),
         "cls_json": json.dumps([{"line": 1, "type": "VAT_361", "amount": 216.25}])}
-    assert input_vat(d)[0][2] == 51.9, input_vat(d)
+    assert round(input_vat(d)[0][2], 2) == 51.9, input_vat(d)
+    # Ανά παραστατικό με δύο συντελεστές (400013280656874): το «line» είναι ομάδα ανά κατηγορία ΦΠΑ.
+    d = {"mark": "14", "invoice_type": "1.1", "total_vat": 15.36, "lines_json": json.dumps(
+        [{"line_number": 1, "net_value": 249.54, "vat_amount": 14.97, "vat_category": "3"},
+         {"line_number": 2, "net_value": 6.53, "vat_amount": 0.39, "vat_category": "3"},
+         {"line_number": 3, "net_value": 893.0, "vat_amount": 0.0, "vat_category": "7"}]),
+        "cls_json": json.dumps([{"line": 1, "type": "E3_585_011", "category": "category2_4", "amount": 256.07},
+                                {"line": 1, "type": "VAT_361", "amount": 256.07},
+                                {"line": 2, "type": "E3_585_011", "category": "category2_5", "amount": 893.0}])}
+    e3 = [e for e in json.loads(d["cls_json"]) if e["type"].startswith("E3")]
+    assert cls_lines(e3, {ln["line_number"]: ln for ln in json.loads(d["lines_json"])}) == [[1, 2], [3]]
+    assert [round(x, 2) for x in deductible_by_line(d).values()] == [14.97, 0.39]
+    # Δύο συντελεστές, χαρακτηρισμοί ΦΠΑ ανά ομάδα: ο φόρος κάθε ομάδας, όχι αναλογικά στη βάση.
+    d = {"mark": "15", "invoice_type": "1.1", "total_vat": 30.5, "lines_json": json.dumps(
+        [{"line_number": 1, "net_value": 100.0, "vat_amount": 24.0, "vat_category": "1"},
+         {"line_number": 2, "net_value": 50.0, "vat_amount": 6.5, "vat_category": "2"}]),
+        "cls_json": json.dumps([{"line": 1, "type": "VAT_361", "amount": 50.0}, {"line": 2, "type": "VAT_362", "amount": 100.0}])}
+    assert [round(x, 2) for _, _, x in input_vat(d)] == [6.5, 24.0], input_vat(d)
     print("OK")
