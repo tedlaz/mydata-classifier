@@ -890,3 +890,19 @@ table.report .num{font-size:1rem}
 @media (max-width:980px){ .yr-kpis{grid-template-columns:repeat(2,minmax(0,1fr))} }
 @media (max-width:520px){ .yr-kpis{grid-template-columns:1fr} .yr-head{align-items:flex-start} }
 @media (prefers-reduced-motion:reduce){ .yr-kpi{animation:none} }
+/* Καθαρό κέρδος: γραμμές κάτω από τα «Σύνολα εξόδων» */
+.yr-pl-head th,.yr-pl-head td{padding:18px 12px 8px;background:var(--surface);font-family:var(--font-ui);font-size:.7rem;
+  font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;border-top:1px solid var(--line)}
+.yr-pl th,.yr-pl td{padding:9px 12px;background:var(--surface);border-bottom:1px dashed var(--line-soft);white-space:nowrap}
+.yr-pl th{font-family:var(--font-ui);font-weight:600;font-size:.86rem;color:var(--ink-2);text-align:left}
+.yr-pl td.num{font-family:var(--font-data);font-weight:700;color:var(--ink)}
+.yr-table .yr-pl-note{font-family:var(--font-ui);font-size:.78rem;color:var(--muted);white-space:normal !important}
+.yr-pl--minus td.num{color:var(--accent)}
+.yr-pl--sub th,.yr-pl--sub td{border-top:2px solid var(--line);border-bottom:0}
+.yr-pl--sub th{color:var(--ink);font-weight:700}
+.yr-pl--result th,.yr-pl--result td{padding:14px 12px;background:var(--accent-soft);border:0;border-top:2px solid var(--accent)}
+.yr-pl--result th{font-weight:800;color:var(--accent-deep);font-size:.95rem}
+.yr-pl--result td.num{font-size:1.15rem;color:var(--accent-deep)}
+.yr-pl--result.is-neg th,.yr-pl--result.is-neg td{background:var(--err-soft);border-top-color:var(--err)}
+.yr-pl--result.is-neg th,.yr-pl--result.is-neg td.num{color:var(--err)}
+.yr-pl-warn{margin:0 18px 16px}

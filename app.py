@@ -2035,13 +2035,17 @@ def _empty_report_totals() -> dict:
 
 
 # Ετήσια σύνοψη (όπως η «Σύνοψη» της πύλης myDATA): ανά μήνα, έσοδα και έξοδα.
-_YEARLY_COLUMNS = ("net", "vat", "withheld", "other_taxes", "stamp_duty", "fees", "deductions", "third_party")
+_YEARLY_COLUMNS = ("net", "vat", "withheld", "other_taxes", "stamp_duty", "fees", "deductions", "third_party",
+                   "assets", "depreciation")
+ASSET_CATEGORY = "category2_7"  # αγορές παγίων: κεφαλαιοποιούνται, δεν είναι έξοδο χρήσης
+DEPRECIATION_TYPE = "E3_587"    # αποσβέσεις (π.χ. εγγραφή 17.x)
 _GREEK_MONTHS = ("Ιαν.", "Φεβ.", "Μαρ.", "Απρ.", "Μαΐ.", "Ιουν.", "Ιουλ.", "Αυγ.", "Σεπ.", "Οκτ.", "Νοέ.", "Δεκ.")
 
 
 def _yearly_totals(docs: list[dict]) -> dict:
     """{μήνας 1–12: {στήλη: ποσό}}. Τα πιστωτικά αφαιρούνται. «Τρίτων» = ποσά χαρακτηρισμών
-    κατηγορίας x_9 (για λογαριασμό τρίτων)."""
+    κατηγορίας x_9 (για λογαριασμό τρίτων). assets = Ε3 κατηγορίας 2.7 (αγορές παγίων),
+    depreciation = Ε3 αποσβέσεων (E3_587…), από τον ισχύοντα χαρακτηρισμό (cls_json)."""
     months = {m: dict.fromkeys(_YEARLY_COLUMNS, 0.0) for m in range(1, 13)}
     for d in docs:
         try:
@@ -2049,14 +2053,15 @@ def _yearly_totals(docs: list[dict]) -> dict:
         except ValueError:
             continue
         sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
-        third = sum(
-            e.get("amount") or 0 for e in json.loads(d["cls_json"] or "[]")
-            if (e.get("category") or "").endswith("_9")
-        )
+        e3 = [e for e in json.loads(d["cls_json"] or "[]") if not (e.get("type") or "").startswith("VAT_")]
+        third = sum(e.get("amount") or 0 for e in e3 if (e.get("category") or "").endswith("_9"))
+        assets = sum(e.get("amount") or 0 for e in e3 if e.get("category") == ASSET_CATEGORY)
+        depreciation = sum(e.get("amount") or 0 for e in e3 if (e.get("type") or "").startswith(DEPRECIATION_TYPE))
         row = months[month]
         for col, value in (("net", d["total_net"]), ("vat", d["total_vat"]), ("withheld", d["total_withheld"]),
                            ("other_taxes", d["total_other_taxes"]), ("stamp_duty", d["total_stamp_duty"]),
-                           ("fees", d["total_fees"]), ("deductions", d["total_deductions"]), ("third_party", third)):
+                           ("fees", d["total_fees"]), ("deductions", d["total_deductions"]), ("third_party", third),
+                           ("assets", assets), ("depreciation", depreciation)):
             row[col] += sign * (value or 0)
     return {m: {c: round(v, 2) for c, v in r.items()} for m, r in months.items()}
 

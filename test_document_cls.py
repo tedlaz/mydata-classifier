@@ -281,5 +281,10 @@ y = _yearly_totals([doc("2026-03-05", "1.1", 100.0, total_withheld=20.0),
                     doc("bad", "1.1", 999.0)])
 assert y[3]["net"] == 120.0 and y[3]["vat"] == 28.8 and y[3]["withheld"] == 20.0 and y[3]["third_party"] == 50.0, y[3]
 assert y[4]["net"] == 0.0 and y[3]["stamp_duty"] == 0.0
+# Αγορές παγίων (2.7, χωρίς τον ΦΠΑ τους) και αποσβέσεις (E3_587) — για το πραγματικό καθαρό κέρδος.
+y = _yearly_totals([doc("2025-11-15", "1.1", 1047.58, [{"type": "E3_882_001", "category": "category2_7", "amount": 1047.58},
+                                                       {"type": "VAT_362", "amount": 1047.58}]),
+                    doc("2025-12-31", "17.5", 200.0, [{"type": "E3_587_001", "category": "category2_6", "amount": 200.0}])])
+assert y[11]["assets"] == 1047.58 and y[12]["depreciation"] == 200.0 and y[12]["assets"] == 0.0, (y[11], y[12])
 
 print("OK")

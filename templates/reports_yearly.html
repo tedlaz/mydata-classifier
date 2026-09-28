@@ -4,6 +4,9 @@
                ('stamp_duty', 'Ψηφιακό<br>τέλος συν.'), ('fees', 'Τέλη'), ('deductions', 'Κρατήσεις'), ('third_party', 'Έσοδα/Έξοδα<br>τρίτων')] %}
 {% set balance = (income_total.net - expense_total.net)|round(2) %}
 {% set vat_due = (income_total.vat - expense_total.vat)|round(2) %}
+{# Πραγματικό κέρδος: οι αγορές παγίων (2.7) κεφαλαιοποιούνται — στο αποτέλεσμα μπαίνουν μόνο οι αποσβέσεις. #}
+{% set op_expense = (expense_total.net - expense_total.assets)|round(2) %}
+{% set real_profit = (income_total.net - op_expense)|round(2) %}
 {% macro money(v) -%}<span class="{{ 'yz' if v == 0 else 'yneg' if v < 0 }}">{{ v|el_amount }}</span>{%- endmacro %}
 {% macro amounts(r) -%}
   {% for key, label in cols %}<td class="num" data-label="{{ label|replace('<br>', ' ') }}">{{ money(r[key]) }}</td>{% endfor %}
@@ -117,6 +120,28 @@
           <td class="num yr-net">{{ expense_total.net|el_amount }}</td>
           {% for key, label in cols %}<td class="num">{{ expense_total[key]|el_amount }}</td>{% endfor %}
         </tr>
+        {# Καθαρό κέρδος: οι αγορές παγίων (2.7) αφαιρούνται από τα έξοδα — στο αποτέλεσμα μένουν μόνο οι αποσβέσεις. #}
+        <tr class="yr-pl-head"><th class="yr-sticky" colspan="2">Καθαρό κέρδος</th><td colspan="{{ cols|length + 2 }}"></td></tr>
+        <tr class="yr-pl">
+          <th class="yr-sticky" colspan="2">Σύνολα εξόδων</th>
+          <td class="num">{{ expense_total.net|el_amount }}</td>
+          <td colspan="{{ cols|length + 1 }}" class="yr-pl-note">όλα τα έξοδα, όπως στη γραμμή «Σύνολα εξόδων»</td>
+        </tr>
+        <tr class="yr-pl yr-pl--minus">
+          <th class="yr-sticky" colspan="2">− Αγορές παγίων</th>
+          <td class="num">− {{ expense_total.assets|el_amount }}</td>
+          <td colspan="{{ cols|length + 1 }}" class="yr-pl-note">κατηγορία 2.7 (E3_882 / E3_883) — δεν είναι έξοδο χρήσης· στο αποτέλεσμα μπαίνουν μόνο οι αποσβέσεις</td>
+        </tr>
+        <tr class="yr-pl yr-pl--sub">
+          <th class="yr-sticky" colspan="2">= Έξοδα χωρίς αγορές παγίων</th>
+          <td class="num">{{ op_expense|el_amount }}</td>
+          <td colspan="{{ cols|length + 1 }}" class="yr-pl-note">εκ των οποίων αποσβέσεις {{ expense_total.depreciation|el_amount }} (E3_587)</td>
+        </tr>
+        <tr class="yr-pl yr-pl--result {{ 'is-neg' if real_profit < 0 }}">
+          <th class="yr-sticky" colspan="2">Καθαρό κέρδος</th>
+          <td class="num">{{ real_profit|el_amount }}</td>
+          <td colspan="{{ cols|length + 1 }}" class="yr-pl-note">Σύνολα εσόδων {{ income_total.net|el_amount }} − Έξοδα χωρίς αγορές παγίων {{ op_expense|el_amount }}</td>
+        </tr>
       </tfoot>
     </table>
     </div>
@@ -125,7 +150,14 @@
       του «Βιβλίου εξόδων». Τα πιστωτικά αφαιρούνται. «Τρίτων» = χαρακτηρισμοί κατηγορίας 1.9/2.9.
       Παρακρατήσεις, τέλη κ.λπ. συμπληρώνονται με την ανάκτηση — για παλιότερες ανακτήσεις κάνε ξανά «Ανάκτηση».
     </p>
+    {% if expense_total.assets and not expense_total.depreciation %}
+    <p class="note note--warn yr-pl-warn">
+      ⚠ Υπάρχουν αγορές παγίων αλλά <strong>καμία απόσβεση</strong> στο {{ year }}. Το καθαρό κέρδος αφαιρεί μόνο τις αποσβέσεις
+      που έχουν καταχωρηθεί — πέρασέ τες με <a href="{{ url_for('new_expense') }}">Νέα εγγραφή</a> (τύπος 17.x, χαρακτηρισμός E3_587).
+    </p>
+    {% endif %}
   </section>
+
 </div>
 {% endblock %}
 
