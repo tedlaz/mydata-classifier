@@ -41,6 +41,27 @@ def _sent(d: dict) -> bool:
     return (d.get("mark") or "").isdigit()
 
 
+def input_vat(d: dict) -> list[tuple[str, float, float]]:
+    """(χαρακτηρισμός VAT_36x, βάση, φόρος) ενός εξόδου, με πρόσημο (πιστωτικά αρνητικά). Φόρος =
+    ο ΦΠΑ της γραμμής (χαρακτηρισμός ανά γραμμή) ή αναλογικά του παραστατικού· στις πράξεις λήπτη
+    βάση × 24%. Χωρίς χαρακτηρισμό ΦΠΑ → [] (ο ΦΠΑ του δεν εκπίπτει)."""
+    sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+    vat_cls = [e for e in json.loads(d["cls_json"] or "[]") if (e.get("type") or "") in INPUT_CODES]
+    lines = {ln.get("line_number"): ln for ln in json.loads(d["lines_json"] or "[]")}
+    total = sum(e.get("amount") or 0.0 for e in vat_cls) or 1.0
+    out = []
+    for e in vat_cls:
+        base = sign * (e.get("amount") or 0.0)
+        if e["type"] in REVERSE_CHARGE:
+            tax = round(base * REVERSE_RATE, 2)
+        elif e.get("line") in lines:  # χαρακτηρισμός ανά γραμμή → ο ΦΠΑ της γραμμής
+            tax = sign * (lines[e["line"]].get("vat_amount") or 0.0)
+        else:  # ανά παραστατικό → αναλογικά στον ΦΠΑ του παραστατικού
+            tax = sign * (d["total_vat"] or 0.0) * (e.get("amount") or 0.0) / total
+        out.append((e["type"], base, tax))
+    return out
+
+
 def compute(income: list[dict], expense: list[dict], prev_credit: float = 0.0, prev_debit: float = 0.0) -> dict:
     """Κωδικοί Φ2 → ποσά. income/expense: γραμμές του db.period_documents. prev_credit = 401
     (πιστωτικό προηγ. περιόδου), prev_debit = 483 (χρεωστικό έως 30 € προηγ. περιόδου).
@@ -60,22 +81,10 @@ def compute(income: list[dict], expense: list[dict], prev_credit: float = 0.0, p
     for d in filter(_sent, expense):
         if d.get("local_action") in ("reject", "cancel"):
             continue
-        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
-        vat_cls = [e for e in json.loads(d["cls_json"] or "[]") if (e.get("type") or "") in INPUT_CODES]
-        if not vat_cls:  # χωρίς χαρακτηρισμό ΦΠΑ → εκτός δήλωσης
-            continue
-        lines = {ln.get("line_number"): ln for ln in json.loads(d["lines_json"] or "[]")}
-        total = sum(e.get("amount") or 0.0 for e in vat_cls) or 1.0
-        for e in vat_cls:
-            base_code, tax_code = INPUT_CODES[e["type"]]
-            base = sign * (e.get("amount") or 0.0)
-            if e["type"] in REVERSE_CHARGE:
-                tax = round(base * REVERSE_RATE, 2)
+        for typ, base, tax in input_vat(d):  # χωρίς χαρακτηρισμό ΦΠΑ → εκτός δήλωσης
+            base_code, tax_code = INPUT_CODES[typ]
+            if typ in REVERSE_CHARGE:
                 add("303", base)  # ο φόρος εκροών προκύπτει από το 303 × 24%
-            elif e.get("line") in lines:  # χαρακτηρισμός ανά γραμμή → ο ΦΠΑ της γραμμής
-                tax = sign * (lines[e["line"]].get("vat_amount") or 0.0)
-            else:  # ανά παραστατικό → αναλογικά στον ΦΠΑ του παραστατικού
-                tax = sign * (d["total_vat"] or 0.0) * (e.get("amount") or 0.0) / total
             if not tax:  # χαρακτηρισμός ΦΠΑ χωρίς φόρο → εκτός δήλωσης
                 continue
             add(base_code, base)

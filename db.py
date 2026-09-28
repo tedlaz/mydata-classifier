@@ -702,102 +702,22 @@ def count_by_status(company_id: int, kind: str) -> dict:
     return {r["status"]: r["n"] for r in rows}
 
 
-def sum_totals(
-    company_id: int | None,
-    kind: str,
-    statuses: list[str] | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
-) -> dict:
-    """Αθροίσματα (καθαρή αξία, ΦΠΑ, σύνολο) + πλήθος για παραστατικά ενός kind,
-    προαιρετικά φιλτραρισμένα ανά status και εύρος ημερομηνίας έκδοσης (ISO
-    yyyy-mm-dd, inclusive). Επιστρέφει {"net","vat","gross","count"}."""
-    if not company_id:
-        return {"net": 0.0, "vat": 0.0, "gross": 0.0, "count": 0}
-    q = (
-        "SELECT COALESCE(SUM(total_net),0) AS net, COALESCE(SUM(total_vat),0) AS vat, "
-        "COALESCE(SUM(total_gross),0) AS gross, COUNT(*) AS count FROM documents "
-        "WHERE company_id = ? AND kind = ?"
-    )
-    params: list = [company_id, kind]
-    if statuses:
-        q += f" AND status IN ({','.join('?' * len(statuses))})"
-        params.extend(statuses)
-    if date_from:
-        q += " AND issue_date >= ?"
-        params.append(date_from)
-    if date_to:
-        q += " AND issue_date <= ?"
-        params.append(date_to)
-    with get_conn() as conn:
-        row = conn.execute(q, params).fetchone()
-    return {
-        "net": row["net"] or 0.0,
-        "vat": row["vat"] or 0.0,
-        "gross": row["gross"] or 0.0,
-        "count": row["count"] or 0,
-    }
-
-
-def report_documents(
-    company_id: int | None,
-    kind: str,
-    statuses: list[str] | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
-) -> list[dict]:
-    """Παραστατικά και χαρακτηρισμοί που χρειάζονται για αναλυτικές αναφορές."""
+def olap_documents(company_id: int | None, kind: str, statuses: list[str]) -> list[dict]:
+    """Όλα τα παραστατικά ενός kind (στις δοσμένες καταστάσεις) με γραμμές, ισχύοντα χαρακτηρισμό
+    και όλα τα σύνολα — η πρώτη ύλη του κύβου OLAP."""
     if not company_id:
         return []
-    q = (
-        "SELECT d.id, d.issue_date, d.counterparty_vat, s.name AS counterparty_name, "
-        "d.invoice_type, d.total_net, d.total_vat, d.total_gross, "
-        "d.lines_json, d.cls_json FROM documents AS d "
-        "LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
-        "WHERE d.company_id = ? AND d.kind = ?"
-    )
-    params: list = [company_id, kind]
-    if statuses:
-        q += f" AND d.status IN ({','.join('?' * len(statuses))})"
-        params.extend(statuses)
-    if date_from:
-        q += " AND d.issue_date >= ?"
-        params.append(date_from)
-    if date_to:
-        q += " AND d.issue_date <= ?"
-        params.append(date_to)
-
+    cols = ", ".join(f"d.{c}" for c in (
+        "id", "mark", "issue_date", "invoice_type", "series", "aa", "counterparty_vat",
+        "total_net", "total_vat", "total_gross", "lines_json", "cls_json") + EXTRA_TOTALS)
     with get_conn() as conn:
-        documents = [dict(r) for r in conn.execute(q, params).fetchall()]
-        if not documents:
-            return []
-        ids = [doc["id"] for doc in documents]
-        cls_rows = conn.execute(
-            "SELECT document_id, line_number, classification_type, "
-            "classification_category, amount FROM classifications "
-            f"WHERE document_id IN ({','.join('?' * len(ids))}) ORDER BY id",
-            ids,
+        rows = conn.execute(
+            f"SELECT {cols}, s.name AS counterparty_name FROM documents AS d "
+            "LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
+            f"WHERE d.company_id = ? AND d.kind = ? AND d.status IN ({','.join('?' * len(statuses))})",
+            [company_id, kind, *statuses],
         ).fetchall()
-
-    by_document: dict[int, list[dict]] = {}
-    for row in cls_rows:
-        by_document.setdefault(row["document_id"], []).append(
-            {
-                "line": row["line_number"],
-                "type": row["classification_type"],
-                "category": row["classification_category"],
-                "amount": row["amount"],
-            }
-        )
-    for doc in documents:
-        doc["lines"] = json.loads(doc.pop("lines_json") or "[]")
-        local_cls = by_document.get(doc["id"])
-        doc["classifications"] = (
-            local_cls if local_cls is not None else json.loads(doc.pop("cls_json") or "[]")
-        )
-        if local_cls is not None:
-            doc.pop("cls_json", None)
-    return documents
+    return [dict(r) for r in rows]
 
 
 def save_local_classification(

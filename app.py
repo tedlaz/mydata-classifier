@@ -5,6 +5,7 @@ myDATA Expense Classifier - Flask UI
 
 import json
 import os
+import re
 import unicodedata
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -1845,14 +1846,6 @@ def income():
 # επιβεβαιωμένα — όλα έχουν χαρακτηρισμό).
 _INCOME_CLASSIFIED_STATUSES = ["classified"]
 _EXPENSE_CLASSIFIED_STATUSES = ["classified", "sent", "confirmed"]
-_REPORT_GROUPS = ("counterparty", "invoice_type", "classification", "vat")
-_REPORT_GROUP_LABELS = {
-    "period": "Περίοδος",
-    "counterparty": "Συναλλασσόμενος",
-    "invoice_type": "Τύπος παραστατικού",
-    "classification": "Χαρακτηρισμός",
-    "vat": "Κατηγορία ΦΠΑ",
-}
 _VAT_CATEGORY_LABELS = {
     "1": "24%",
     "2": "13%",
@@ -1862,6 +1855,8 @@ _VAT_CATEGORY_LABELS = {
     "6": "4%",
     "7": "0%",
     "8": "Χωρίς ΦΠΑ",
+    "9": "3%",
+    "10": "4% (νησιά)",
 }
 _CLASSIFICATION_NAMES = {**INCOME_TYPES, **EXPENSE_TYPES}
 _CLASSIFICATION_CATEGORY_NAMES = {**INCOME_CATEGORIES, **EXPENSE_CATEGORIES}
@@ -1872,21 +1867,6 @@ def _report_number(value) -> float:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
-
-
-def _report_period(issue_date: str | None, period: str) -> str:
-    if not issue_date:
-        return ""
-    try:
-        issued = date.fromisoformat(issue_date)
-    except ValueError:
-        return ""
-    if period == "day":
-        return issued.isoformat()
-    if period == "month":
-        return issued.strftime("%Y-%m")
-    quarter = (issued.month - 1) // 3 + 1
-    return f"{issued.year}-Q{quarter}"
 
 
 def _report_financial_parts(doc: dict, group_by_vat: bool) -> list[dict]:
@@ -1956,114 +1936,58 @@ def _report_classifications(doc: dict) -> list[dict]:
     return result
 
 
-def _report_group_totals(
-    documents: list[dict], period: str, group_by: list[str]
-) -> dict:
-    grouped: dict = {}
-    by_classification = "classification" in group_by
-    by_vat = "vat" in group_by
-
-    for doc in documents:
-        classifications = _report_classifications(doc) if by_classification else []
-        for part in _report_financial_parts(doc, by_vat):
-            allocations = [{"key": ("", ""), "weight": 1.0}]
-            if by_classification and classifications:
-                exact = [
-                    item
-                    for item in classifications
-                    if part["line"] is not None and item["line"] == part["line"]
-                ]
-                allocations = exact or classifications
-            weight_total = sum(item["weight"] for item in allocations)
-
-            for allocation in allocations:
-                share = (
-                    allocation["weight"] / weight_total
-                    if weight_total
-                    else 1 / len(allocations)
-                )
-                key_parts = []
-                if period:
-                    key_parts.append(_report_period(doc.get("issue_date"), period))
-                if "counterparty" in group_by:
-                    key_parts.append(
-                        (
-                            str(doc.get("counterparty_name") or ""),
-                            str(doc.get("counterparty_vat") or ""),
-                        )
-                    )
-                if "invoice_type" in group_by:
-                    key_parts.append(str(doc.get("invoice_type") or ""))
-                if by_classification:
-                    key_parts.append(allocation["key"])
-                if by_vat:
-                    key_parts.append(part["vat_category"])
-                key = tuple(key_parts)
-                bucket = grouped.setdefault(
-                    key, {"net": 0.0, "vat": 0.0, "gross": 0.0, "_ids": set()}
-                )
-                for amount_name in ("net", "vat", "gross"):
-                    bucket[amount_name] += part[amount_name] * share
-                bucket["_ids"].add(doc["id"])
-
-    for bucket in grouped.values():
-        bucket["count"] = len(bucket.pop("_ids"))
-        for amount_name in ("net", "vat", "gross"):
-            bucket[amount_name] = round(bucket[amount_name], 2)
-    return grouped
-
-
-def _report_group_label(dimension: str, value) -> str:
-    if dimension == "period":
-        if not value:
-            return "Χωρίς ημερομηνία"
-        if "-Q" in value:
-            year, quarter = value.split("-Q", 1)
-            return f"{quarter}ο τρίμηνο {year}"
-        if len(value) == 7:
-            year, month = value.split("-", 1)
-            return f"{month}/{year}"
-        try:
-            return date.fromisoformat(value).strftime("%d/%m/%Y")
-        except ValueError:
-            return value
-    if dimension == "invoice_type":
-        if not value:
-            return "Χωρίς τύπο"
-        description = INVOICE_TYPE_NAMES.get(value)
-        return f"{value} — {description}" if description else value
-    if dimension == "counterparty":
-        name, vat = value
-        if name and vat:
-            return f"{name} — {vat}"
-        if name:
-            return name
-        if vat:
-            return vat
-        return "Χωρίς στοιχεία συναλλασσόμενου"
-    if dimension == "classification":
-        category, classification_type = value
-        if not (category or classification_type):
-            return "Χωρίς χαρακτηρισμό"
-        parts = []
-        if classification_type:
-            description = _CLASSIFICATION_NAMES.get(classification_type)
-            parts.append(
-                f"{classification_type} — {description}"
-                if description
-                else classification_type
-            )
-        if category:
-            description = _CLASSIFICATION_CATEGORY_NAMES.get(category)
-            parts.append(f"{category} — {description}" if description else category)
-        return " · ".join(parts)
-    if not value:
-        return "Άγνωστη κατηγορία ΦΠΑ"
-    return f"{_VAT_CATEGORY_LABELS.get(value, value)} (κατηγορία {value})"
-
-
-def _empty_report_totals() -> dict:
-    return {"net": 0.0, "vat": 0.0, "gross": 0.0, "count": 0}
+def _olap_cube(cid: int | None) -> dict:
+    """Πρώτη ύλη του κύβου OLAP (το pivot γίνεται στον browser, static/olap.js).
+    docs: ένα ανά παραστατικό (διαστάσεις επιπέδου παραστατικού). facts: ένα ανά
+    (παραστατικό × γραμμή/κατηγορία ΦΠΑ × χαρακτηρισμό Ε3) = [doc, κατηγ. Ε3, τύπος Ε3, κατηγ. ΦΠΑ,
+    καθαρή, ΦΠΑ, σύνολο, παρακρ., λοιποί φόροι, ψηφ. τέλος, τέλη, κρατήσεις, μη εκπιπτόμενος ΦΠΑ].
+    Μη εκπιπτόμενος = ΦΠΑ εξόδων χωρίς χαρακτηρισμό ΦΠΑ 361–366 (όπως στη δήλωση Φ2). Τα ποσά μοιράζονται
+    αναλογικά (γραμμές κατά ποσό, χαρακτηρισμοί κατά ποσό)· οι φόροι επιπέδου παραστατικού ακολουθούν
+    το μερίδιο καθαρής αξίας. Τα πιστωτικά αφαιρούνται (αρνητικό πρόσημο)."""
+    # ponytail: όλα τα παραστατικά της εταιρείας στον browser — αν γίνουν δεκάδες χιλιάδες,
+    # φίλτρο διαστήματος στο query.
+    docs, facts = [], []
+    for kind, statuses in (("income", _INCOME_CLASSIFIED_STATUSES), ("expense", _EXPENSE_CLASSIFIED_STATUSES)):
+        for d in db.olap_documents(cid, kind, statuses):
+            i = len(docs)
+            docs.append({"k": kind[:2], "mark": d["mark"], "date": d["issue_date"] or "", "type": d["invoice_type"] or "",
+                         "series": d["series"] or "", "aa": d["aa"] or "", "cp": d["counterparty_vat"] or "",
+                         "cpn": d["counterparty_name"] or ""})
+            d["lines"] = json.loads(d["lines_json"] or "[]")
+            d["classifications"] = json.loads(d["cls_json"] or "[]")
+            sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+            taxes = [sign * _report_number(d["total_" + t]) for t in
+                     ("withheld", "other_taxes", "stamp_duty", "fees", "deductions")]
+            # ponytail: ένα ποσοστό ανά παραστατικό — σε μικτό (γραμμές με και χωρίς έκπτωση) μοιράζεται
+            # ομοιόμορφα στις γραμμές· ανά γραμμή αν χρειαστεί.
+            nondeductible = 0.0
+            if kind == "expense" and d["total_vat"]:
+                deductible = sum(tax for typ, _, tax in vat_return.input_vat(d) if typ not in vat_return.REVERSE_CHARGE)
+                nondeductible = min(max(1 - deductible / (sign * d["total_vat"]), 0.0), 1.0)
+            parts = _report_financial_parts(d, True)
+            net_total = sum(abs(p["net"]) for p in parts)
+            e3 = _report_classifications(d) or [{"key": ("", ""), "line": None, "weight": 1.0}]
+            for p in parts:
+                frac = abs(p["net"]) / net_total if net_total else 1 / len(parts)
+                allocs = [a for a in e3 if p["line"] is not None and a["line"] == p["line"]] or e3
+                weights = sum(a["weight"] for a in allocs)
+                for a in allocs:
+                    share = a["weight"] / weights if weights else 1 / len(allocs)
+                    amounts = [sign * p[x] * share for x in ("net", "vat", "gross")] + [t * frac * share for t in taxes]
+                    amounts.append(amounts[1] * nondeductible)
+                    facts.append([i, *a["key"], p["vat_category"], *(round(v, 4) for v in amounts)])
+    used = lambda n: {f[n] for f in facts}  # noqa: E731
+    return {
+        "docs": docs, "facts": facts,
+        "labels": {
+            "type": {t: INVOICE_TYPE_NAMES.get(t, "") for t in {d["type"] for d in docs}},
+            # «… (-) / (+)» στο τέλος: σήμανση προσήμου του Ε3, περιττή στον κύβο
+            "e3c": {c: re.sub(r"\s*\([-+]\)(\s*/\s*\([-+]\))?\s*$", "", _CLASSIFICATION_CATEGORY_NAMES.get(c, ""))
+                    for c in used(1)},
+            "e3t": {t: _CLASSIFICATION_NAMES.get(t, "") for t in used(2)},
+            "vat": {v: _VAT_CATEGORY_LABELS.get(v, v) for v in used(3)},
+        },
+    }
 
 
 # Ετήσια σύνοψη (όπως η «Σύνοψη» της πύλης myDATA): ανά μήνα, έσοδα και έξοδα.
@@ -2345,162 +2269,8 @@ def _yearly_chart(rows: list[dict]) -> dict:
 
 @app.route("/reports")
 def reports():
-    # Αν δεν δόθηκαν ρητά στο URL, χρησιμοποίησε τις τελευταίες τιμές της συνεδρίας.
-    if "date_from" in request.args or "date_to" in request.args:
-        date_from = request.args.get("date_from", "").strip()
-        date_to = request.args.get("date_to", "").strip()
-    else:
-        date_from = session.get("reports_date_from", "")
-        date_to = session.get("reports_date_to", "")
-
-    # Επικύρωση (αν δόθηκαν): ISO yyyy-mm-dd. Κενά = χωρίς όριο.
-    valid = True
-    for d in (date_from, date_to):
-        if d:
-            try:
-                date.fromisoformat(d)
-            except ValueError:
-                valid = False
-    if valid and date_from and date_to and date_from > date_to:
-        valid = False
-    if not valid:
-        flash("Μη έγκυρες ημερομηνίες.", "error")
-        date_from = date_to = ""
-
-    # Απομνημόνευση των τελευταίων έγκυρων τιμών για την επόμενη επίσκεψη.
-    session["reports_date_from"] = date_from
-    session["reports_date_to"] = date_to
-
-    cid = _active_company_id()
-    submitted = bool(date_from or date_to)
-    period = request.args.get("period", "")
-    if period not in ("", "day", "month", "quarter"):
-        period = ""
-    requested_groups = set(request.args.getlist("group_by"))
-    group_by = [group for group in _REPORT_GROUPS if group in requested_groups]
-    dimensions = (["period"] if period else []) + group_by
-    detailed = bool(dimensions)
-
-    income = db.sum_totals(
-        cid, "income", _INCOME_CLASSIFIED_STATUSES, date_from or None, date_to or None
-    )
-    expense = db.sum_totals(
-        cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, date_from or None, date_to or None
-    )
-    profit = {
-        "net": round(income["net"] - expense["net"], 2),
-        "vat": round(income["vat"] - expense["vat"], 2),
-        "gross": round(income["gross"] - expense["gross"], 2),
-    }
-    breakdown = []
-    period_breakdowns = []
-    if detailed:
-        income_documents = db.report_documents(
-            cid,
-            "income",
-            _INCOME_CLASSIFIED_STATUSES,
-            date_from or None,
-            date_to or None,
-        )
-        expense_documents = db.report_documents(
-            cid,
-            "expense",
-            _EXPENSE_CLASSIFIED_STATUSES,
-            date_from or None,
-            date_to or None,
-        )
-        income_groups = _report_group_totals(
-            income_documents, period, group_by
-        )
-        expense_groups = _report_group_totals(
-            expense_documents, period, group_by
-        )
-        empty = _empty_report_totals()
-
-        def group_sort_key(values):
-            def sortable(value):
-                if isinstance(value, tuple):
-                    # Στον αντισυμβαλλόμενο το πρώτο στοιχείο είναι η επωνυμία.
-                    # Αν λείπει, χρησιμοποίησε το ΑΦΜ ως εφεδρικό κλειδί σειράς.
-                    if len(value) == 2 and not value[0]:
-                        return str(value[1]).casefold()
-                    return " ".join(str(part) for part in value).casefold()
-                return str(value).casefold()
-
-            return tuple(sortable(value) for value in values)
-
-        if period:
-            income_periods = _report_group_totals(income_documents, period, [])
-            expense_periods = _report_group_totals(expense_documents, period, [])
-            period_rows: dict = {}
-            if group_by:
-                for key in sorted(
-                    income_groups.keys() | expense_groups.keys(), key=group_sort_key
-                ):
-                    period_key, detail_key = key[0], key[1:]
-                    period_rows.setdefault(period_key, []).append(
-                        {
-                            "labels": [
-                                _report_group_label(dimension, value)
-                                for dimension, value in zip(group_by, detail_key)
-                            ],
-                            "income": income_groups.get(key, empty),
-                            "expense": expense_groups.get(key, empty),
-                        }
-                    )
-            period_keys = income_periods.keys() | expense_periods.keys()
-            for (period_key,) in sorted(period_keys, key=group_sort_key):
-                period_income = income_periods.get((period_key,), empty)
-                period_expense = expense_periods.get((period_key,), empty)
-                period_breakdowns.append(
-                    {
-                        "label": _report_group_label("period", period_key),
-                        "rows": period_rows.get(period_key, []),
-                        "income": period_income,
-                        "expense": period_expense,
-                        "profit": {
-                            "net": round(
-                                period_income["net"] - period_expense["net"], 2
-                            ),
-                            "vat": round(
-                                period_income["vat"] - period_expense["vat"], 2
-                            ),
-                            "gross": round(
-                                period_income["gross"] - period_expense["gross"], 2
-                            ),
-                        },
-                    }
-                )
-        else:
-            for key in sorted(
-                income_groups.keys() | expense_groups.keys(), key=group_sort_key
-            ):
-                breakdown.append(
-                    {
-                        "labels": [
-                            _report_group_label(dimension, value)
-                            for dimension, value in zip(dimensions, key)
-                        ],
-                        "income": income_groups.get(key, empty),
-                        "expense": expense_groups.get(key, empty),
-                    }
-                )
-    return render_template(
-        "reports.html",
-        date_from=date_from,
-        date_to=date_to,
-        submitted=submitted,
-        period=period,
-        group_by=group_by,
-        dimensions=[_REPORT_GROUP_LABELS[name] for name in dimensions],
-        detail_dimensions=[_REPORT_GROUP_LABELS[name] for name in group_by],
-        detailed=detailed,
-        breakdown=breakdown,
-        period_breakdowns=period_breakdowns,
-        income=income,
-        expense=expense,
-        profit=profit,
-    )
+    """OLAP: κύβος ανάλυσης εσόδων-εξόδων (pivot, slice, drill-down στον browser)."""
+    return render_template("reports.html", cube=_olap_cube(_active_company_id()))
 
 
 def _copy_lines(inv, local: list[dict]) -> list[dict]:

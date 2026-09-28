@@ -510,56 +510,6 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
   .totals{justify-content:space-between}
 }
 
-/* ---------- Αναφορές ---------- */
-.report-options{border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px;margin:14px 0 0;
-  display:flex;gap:10px 24px;flex-wrap:wrap}
-.report-options legend{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:0 6px}
-.report-options label{display:flex;align-items:center;gap:8px;margin:0;text-transform:none;letter-spacing:0;
-  font-size:.88rem;font-weight:500;cursor:pointer}
-.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:20px}
-.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);
-  animation:rise .45s var(--ease) both;transition:transform .2s var(--ease),box-shadow .2s}
-.kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow-hi)}
-.kpi:nth-child(2){animation-delay:.06s} .kpi:nth-child(3){animation-delay:.12s}
-.kpi .kicker{display:flex;justify-content:space-between}
-.kpi-v{font-family:var(--font-data);font-size:clamp(1.2rem,2.4vw,1.6rem);font-weight:700;margin-top:6px;line-height:1.15}
-.kpi-sub{font-size:.8rem;color:var(--muted)}
-.kpi--income{border-top:3px solid var(--ok)} .kpi--income .kpi-v{color:var(--ok)}
-.kpi--expense{border-top:3px solid var(--err)} .kpi--expense .kpi-v{color:var(--err)}
-.kpi--profit{border-top:3px solid var(--accent)} .kpi--profit .kpi-v{color:var(--accent-deep)}
-.kpi--profit.is-neg .kpi-v{color:var(--err)}
-@media (max-width:760px){ .kpis{grid-template-columns:1fr} .report-options{display:grid} }
-
-table.report{table-layout:fixed}
-table.report thead th:first-child{width:40%}
-table.report thead th:nth-child(2){width:12%}
-table.report thead th:nth-child(n+3){width:16%}
-table.report tbody td{padding:14px 12px;font-size:.95rem}
-table.report .num{font-size:1rem}
-.r-income td{color:var(--ok)}
-.r-expense td{color:var(--err)}
-.r-profit td{border-top:2px solid var(--ink);font-size:1.05rem;font-weight:700;color:var(--ink)}
-.r-profit td.amount-pos{color:var(--ok)}
-.r-profit td.amount-neg{color:var(--err)}
-.r-profit td.amount-zero{color:var(--ink-2)}
-.report-section-heading td{background:var(--surface-2);border-top:2px solid var(--ink);border-bottom:1px solid var(--line)}
-.report-subtotal td{background:var(--surface-2);border-top:2px solid currentColor}
-.report-grand-total td{background:var(--surface-2);border-top:3px double var(--ink)}
-.report-period-heading td,.report-overall-heading td{background:var(--side);color:#fff;padding:12px !important}
-.report-period-heading td{border-top:10px solid var(--surface)}
-.report-overall-heading td{border-top:16px solid var(--surface)}
-.report-period-heading small{display:block;color:var(--side-ink);font-size:.67rem;text-transform:uppercase;letter-spacing:.08em}
-.report-overall-row td{background:var(--surface-2);font-weight:700}
-.report-overall-difference.is-pos td{background:var(--ok-soft)}
-.report-overall-difference.is-neg td{background:var(--err-soft)}
-.report-dimension{display:inline-block;margin:0 22px 0 0;font-size:.82rem;color:var(--ink)}
-@container (max-width:1000px){
-  .ledger tbody tr.report-section-heading,.ledger tbody tr.report-period-heading,.ledger tbody tr.report-overall-heading{
-    box-shadow:none;border:0;background:transparent;padding:0;margin:18px 0 8px}
-  .report-detail-row td:first-child{flex-direction:column;align-items:flex-end}
-  .report-dimension{margin:0 0 6px}
-}
-
 /* ---------- Σεβασμός στη μειωμένη κίνηση ---------- */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after,::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){
@@ -827,7 +777,6 @@ table.report .num{font-size:1rem}
 .yr-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:-1px;flex:none}
 .yr-dot--in{background:var(--yr-in)} .yr-dot--out{background:var(--yr-out)}
 
-  background:var(--surface);box-shadow:var(--shadow);animation:rise .4s var(--ease) both}
 .yneg{color:var(--err)}
 .yz{color:var(--muted);opacity:.55}
 
@@ -1052,4 +1001,147 @@ table.report .num{font-size:1rem}
   .f2{width:1080px;min-width:1080px;max-width:1080px;margin:0;zoom:.675;
     -webkit-print-color-adjust:exact;print-color-adjust:exact;break-inside:avoid}
   @page{size:A4 portrait;margin:8mm}
+}
+
+/* =====================================================================
+   OLAP (Αναλύσεις → OLAP): κύβος εσόδων-εξόδων, static/olap.js.
+   Χρώματα Εσόδων/Εξόδων = το επικυρωμένο ζεύγος της ετήσιας σύνοψης (.yr).
+   ===================================================================== */
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);
+  animation:rise .45s var(--ease) both;transition:transform .2s var(--ease),box-shadow .2s}
+.kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow-hi)}
+.kpi .kicker{display:flex;align-items:center;gap:6px}
+.kpi .kicker span{margin-left:auto}
+.kpi-v{font-family:var(--font-data);font-size:clamp(1.15rem,2.2vw,1.45rem);font-weight:700;margin-top:6px;line-height:1.15;font-variant-numeric:tabular-nums}
+.kpi-sub{font-size:.78rem;color:var(--muted);margin-top:2px}
+
+.olap .yr-dot--acc{background:var(--accent)}
+.ol-presets{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
+.ol-preset{flex:none;padding:7px 14px;border-radius:999px;font-size:.84rem;font-weight:600;background:var(--surface);color:var(--ink-2);
+  border:1px solid var(--line);box-shadow:none;transition:background .15s,color .15s,border-color .15s}
+.ol-preset:hover{background:var(--accent-soft);color:var(--accent-deep);border-color:var(--accent-glow);box-shadow:none;filter:none}
+.ol-preset[aria-pressed="true"]{background:var(--accent-grad);color:var(--on-accent);border-color:transparent;box-shadow:0 6px 16px -8px rgba(74,85,232,.7)}
+
+.ol-controls{padding:16px 18px 14px}
+.ol-axes{display:grid;grid-template-columns:minmax(0,1.2fr) auto minmax(0,1.2fr) minmax(0,1.3fr) minmax(0,.9fr) minmax(0,.9fr);gap:12px;align-items:end}
+.ol-axes label{margin-bottom:5px}
+.ol-swap{align-self:end;height:42px;width:42px;font-size:1.1rem}
+.ol-swap:hover{transform:none}
+.ol-slices{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+.ol-seg{display:flex;gap:3px;padding:3px;border-radius:11px;background:var(--surface-3)}
+.ol-seg button{padding:5px 12px;border-radius:8px;font-size:.82rem;font-weight:600;background:none;color:var(--muted);border:0;box-shadow:none}
+.ol-seg button:hover{color:var(--ink);transform:none;filter:none;box-shadow:none}
+.ol-seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(20,26,46,.12)}
+.ol-seg .yr-dot{margin-right:6px}
+.ol-slices-label{margin-left:6px;font-size:.68rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.ol-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 4px 3px 10px;border-radius:999px;background:var(--accent-soft);
+  border:1px solid var(--accent-glow);color:var(--accent-deep);font-size:.82rem;font-weight:600;animation:rise .25s var(--ease) both}
+.ol-chip small{font-weight:500;color:var(--muted);font-size:.72rem}
+.ol-chip button{width:22px;height:22px;padding:0;border-radius:50%;background:none;border:0;box-shadow:none;color:inherit;font-size:.7rem}
+.ol-chip button:hover{background:var(--accent-glow);transform:none;filter:none;box-shadow:none}
+.ol-clear{padding:4px 10px;font-size:.8rem;background:none;border:0;box-shadow:none;color:var(--muted);text-decoration:underline dotted}
+.ol-clear:hover{color:var(--err);transform:none;filter:none;box-shadow:none}
+.ol-hint{font-size:.8rem;color:var(--muted);margin-left:4px}
+
+.ol-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:18px 0}
+.ol-kpi{position:relative;overflow:hidden}
+.ol-kpi::before{content:"";position:absolute;inset:0 0 auto;height:3px;background:var(--kc,var(--accent))}
+.ol-kpi .kicker{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.ol-kpi .kicker span{font-weight:600;letter-spacing:0;text-transform:none;font-family:var(--font-data)}
+.ol-kpi .yr-dot{margin-right:0}
+.ol-kpi--in{--kc:var(--yr-in)} .ol-kpi--out{--kc:var(--yr-out)}
+.ol-kpi--res .kpi-v{color:var(--accent-deep)}
+.ol-kpi.is-neg .kpi-v{color:var(--err)}
+.ol-kpi--vat{--kc:var(--info)} .ol-kpi--tax{--kc:var(--muted)}
+.ol-kpi:nth-child(2){animation-delay:.04s} .ol-kpi:nth-child(3){animation-delay:.08s}
+.ol-kpi:nth-child(4){animation-delay:.12s} .ol-kpi:nth-child(5){animation-delay:.16s}
+
+/* Διάγραμμα: HTML μπάρες (κάθετες για χρόνο, οριζόντιες για κατηγορίες), --a = αρχή, --s = μήκος (% άξονα) */
+.ol-chart-card{position:relative;padding:18px 18px 14px}
+.ol-chart{position:relative;font-family:var(--font-data)}
+.ol-grid{position:absolute;pointer-events:none}
+.ol-grid i{position:absolute;display:block}
+.ol-grid span{position:absolute;font-size:10.5px;color:var(--muted);font-style:normal;white-space:nowrap}
+.ol-bar{position:absolute;display:block;background:var(--accent);transition:opacity .15s}
+.ol-bar--in{background:var(--yr-in)} .ol-bar--out{background:var(--yr-out)} .ol-bar--acc{background:var(--accent)}
+.ol-chart button{background:none;border:0;box-shadow:none;padding:0;border-radius:6px;color:inherit;font:inherit;cursor:pointer}
+.ol-chart button:hover{transform:none;filter:none;box-shadow:none}
+.ol-chart button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.ol-chart:has(.is-active) [data-tip]:not(.is-active) .ol-bar{opacity:.4}
+
+.ol-chart--v{height:280px;margin-top:10px}
+.ol-chart--v .ol-grid{left:56px;right:0;top:6px;bottom:26px}
+.ol-chart--v .ol-grid i{left:0;right:0;bottom:var(--p);border-top:1px solid var(--line-soft)}
+.ol-chart--v .ol-grid i.is-zero{border-top:1.5px solid var(--line)}
+.ol-chart--v .ol-grid span{right:calc(100% + 8px);top:-7px}
+.ol-cols{position:absolute;left:56px;right:0;top:6px;bottom:0;display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr))}
+.ol-col{display:grid;grid-template-rows:1fr 26px;grid-template-columns:minmax(0,1fr);gap:0;align-items:stretch;justify-items:stretch;min-width:0}
+.ol-chart .ol-col.is-active{background:var(--surface-3)}
+.ol-col .ol-plot{position:relative;display:flex;justify-content:center;gap:2px}
+.ol-col .ol-slot{position:relative;flex:0 1 22px;min-width:3px}
+.ol-col .ol-bar{left:0;right:0;bottom:var(--a);height:var(--s);border-radius:4px 4px 0 0}
+.ol-col .ol-bar.is-neg{border-radius:0 0 4px 4px}
+.ol-lab{align-self:center;text-align:center;font-family:var(--font-ui);font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap;overflow:visible}
+
+.ol-chart--h{display:grid;gap:3px;padding-bottom:22px;margin-top:10px}
+.ol-hgrid,.ol-hrow{display:grid;grid-template-columns:minmax(120px,30%) minmax(0,1fr) 112px;gap:12px;align-items:center}
+.ol-hgrid{position:absolute;inset:0 0 22px 0;pointer-events:none}
+.ol-hgrid .ol-grid{position:relative;height:100%}
+.ol-chart--h .ol-grid i{top:0;bottom:0;left:var(--p);border-left:1px solid var(--line-soft)}
+.ol-chart--h .ol-grid i.is-zero{border-left:1.5px solid var(--line)}
+.ol-chart--h .ol-grid span{bottom:-18px;transform:translateX(-50%)}
+.ol-hrow{position:relative;width:100%;padding:4px 0;text-align:left;justify-content:stretch}
+.ol-chart .ol-hrow.is-active{background:var(--surface-2)}
+.ol-hlab{font-family:var(--font-ui);font-size:.82rem;font-weight:600;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:6px}
+.ol-hrow .ol-plot{position:relative;display:grid;gap:2px}
+.ol-hrow .ol-slot{position:relative;height:calc(22px / var(--k))}
+.ol-hrow .ol-bar{top:0;bottom:0;left:var(--a);width:var(--s);border-radius:0 4px 4px 0}
+.ol-hrow .ol-bar.is-neg{border-radius:4px 0 0 4px}
+.ol-hval{font-size:.8rem;font-weight:600;text-align:right;padding-right:6px;font-variant-numeric:tabular-nums}
+.ol-tip{top:0;z-index:6}
+
+/* Πίνακας pivot */
+.ol-table-card{padding:0}
+.ol-table-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px 12px}
+.ol-table-head h2{margin:0;font-size:1rem;display:flex;align-items:center;gap:10px}
+.ol-table-tools{display:flex;gap:8px}
+.ol-table-tools [aria-pressed="true"]{background:var(--accent-soft)}
+.ol-table{min-width:0}
+.ol-table thead th{padding:0;vertical-align:bottom}
+.ol-sort{display:flex;align-items:center;gap:4px;width:100%;padding:12px 12px 10px;background:none;border:0;box-shadow:none;border-radius:0;
+  font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;white-space:normal;text-align:inherit;justify-content:flex-start;cursor:pointer;min-width:84px;max-width:240px}
+.ol-table th.num .ol-sort{justify-content:flex-end;margin-left:auto;text-align:right}
+.ol-sort:hover{color:var(--accent);transform:none;filter:none;box-shadow:none}
+.ol-sort .yr-dot{margin-right:3px}
+.ol-table tbody:hover td,.ol-table tbody:hover th{background:var(--surface)}
+.ol-table tbody tr:hover td,.ol-table tbody tr:hover th{background:var(--surface-2)}
+.ol-table td,.ol-table tbody th{border-bottom:1px solid var(--line-soft)}
+.ol-table td{padding:0}
+.ol-table td > button,.ol-rh button{display:block;width:100%;padding:9px 12px;background:none;border:0;box-shadow:none;border-radius:0;
+  font:inherit;color:inherit;text-align:inherit;cursor:pointer}
+.ol-table td > button:hover,.ol-rh button:hover{transform:none;filter:none;box-shadow:inset 0 0 0 1.5px var(--accent-glow)}
+.ol-table td > button:focus-visible,.ol-rh button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.ol-table td > .yz{display:block;padding:9px 12px}
+.ol-rh{padding:0;text-align:left;background:var(--surface);font-family:var(--font-ui);font-size:.85rem;font-weight:600;color:var(--ink);max-width:340px}
+.ol-rh button{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ol-rh button:hover{color:var(--accent)}
+.ol-heat td.ol-c,.ol-heat tbody tr:hover td.ol-c{background:color-mix(in oklab,var(--accent) calc(var(--h) * 24%),var(--surface))}
+.ol-table td.ol-t,.ol-table tbody tr:hover td.ol-t{background:linear-gradient(to left,color-mix(in oklab,var(--accent) 16%,transparent) var(--b),transparent var(--b)),var(--surface-2);font-weight:700}
+.ol-table td.ol-t.is-neg,.ol-table tbody tr:hover td.ol-t.is-neg{background:linear-gradient(to left,var(--err-soft) var(--b),transparent var(--b)),var(--surface-2)}
+.ol-has-total thead th:last-child{background:var(--surface-2)}
+.ol-foot th,.ol-foot td{background:var(--accent-soft) !important;border-top:2px solid var(--accent);font-weight:700}
+.ol-foot th{padding:12px;font-family:var(--font-ui);text-align:left;color:var(--accent-deep)}
+.ol-foot .ol-grand{color:var(--accent-deep)}
+.ol-table .ol-empty,.ol-chart .ol-empty{padding:28px 18px;text-align:center;color:var(--muted);font-family:var(--font-ui)}
+.ol-more{display:flex;justify-content:center;padding:10px}
+.ol-more:empty{display:none}
+.ol-docs td{padding:8px 12px}
+.ol-docs th small{font-weight:500;text-transform:none;letter-spacing:0}
+
+@media (max-width:980px){ .ol-axes{grid-template-columns:1fr auto 1fr} .ol-axes > div:nth-child(4){grid-column:1 / -1} }
+@media (max-width:640px){
+  .ol-axes{grid-template-columns:1fr 1fr} .ol-swap{display:none} .ol-axes > div:nth-child(4){grid-column:1 / -1}
+  .ol-hgrid,.ol-hrow{grid-template-columns:minmax(90px,36%) minmax(0,1fr) 84px;gap:8px}
+  .ol-chart--v{height:220px}
+  .ol-kpis{grid-template-columns:1fr 1fr;gap:10px} .ol-kpi{padding:12px 14px} .ol-kpi--res{grid-column:1 / -1}
 }

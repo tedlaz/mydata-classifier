@@ -322,4 +322,42 @@ inv = MyDataClient("u", "k")._parse_requested_doc(ET.fromstring(xml))[0]
 assert inv.has_income_line_classification and inv.income_classifications == [
     {"type": "E3_561_001", "category": "category1_3", "amount": 80.65, "line": 1}], inv.income_classifications
 
+# 19) Κύβος OLAP: γεγονότα ανά (γραμμή × χαρακτηρισμό Ε3), split γραμμής αναλογικά, φόροι παραστατικού
+#     κατά μερίδιο καθαρής αξίας, πιστωτικό αρνητικό. Τα αθροίσματα = τα σύνολα των παραστατικών.
+import app as app_module  # noqa: E402
+
+olap_docs = {
+    "income": [{"id": 1, "mark": "1", "issue_date": "2026-03-05", "invoice_type": "2.1", "series": "A", "aa": "1",
+                "counterparty_vat": "123", "counterparty_name": "Πελάτης", "total_net": 150.0, "total_vat": 30.5,
+                "total_gross": 180.5, "total_withheld": 30.0, "total_other_taxes": 0, "total_stamp_duty": None,
+                "total_fees": 0, "total_deductions": 0,
+                "lines_json": json.dumps([{"line_number": 1, "net_value": 100.0, "vat_amount": 24.0, "vat_category": "1"},
+                                          {"line_number": 2, "net_value": 50.0, "vat_amount": 6.5, "vat_category": "2"}]),
+                "cls_json": json.dumps([{"line": 1, "type": "E3_561_001", "category": "category1_3", "amount": 100.0},
+                                        {"line": 2, "type": "E3_561_001", "category": "category1_3", "amount": 20.0},
+                                        {"line": 2, "type": "E3_561_002", "category": "category1_2", "amount": 30.0}])}],
+    "expense": [{"id": 2, "mark": "2", "issue_date": "2026-03-06", "invoice_type": "5.1", "series": "", "aa": "7",
+                 "counterparty_vat": None, "counterparty_name": None, "total_net": 40.0, "total_vat": 9.6,
+                 "total_gross": 49.6, "total_withheld": 0, "total_other_taxes": 0, "total_stamp_duty": 0,
+                 "total_fees": 0, "total_deductions": 0, "lines_json": "[]",
+                 "cls_json": json.dumps([{"type": "E3_585_016", "category": "category2_4", "amount": 40.0},
+                                         {"type": "VAT_361", "amount": 40.0}])}],
+}
+app_module.db.olap_documents = lambda cid, kind, statuses: [dict(d) for d in olap_docs[kind]]
+cube = app_module._olap_cube(1)
+facts = cube["facts"]
+assert [d["k"] for d in cube["docs"]] == ["in", "ex"] and cube["docs"][1]["cp"] == ""
+assert len(facts) == 4, facts  # γραμμή 1, γραμμή 2 × 2 χαρακτηρισμοί, πιστωτικό (ο VAT_361 δεν είναι Ε3)
+by = {(f[0], f[2], f[3]): f for f in facts}
+assert by[(0, "E3_561_002", "2")][4:7] == [30.0, 3.9, 33.9], by  # 3/5 της γραμμής 2
+assert by[(0, "E3_561_001", "1")][7] == 20.0 and by[(0, "E3_561_002", "2")][7] == 6.0  # παρακράτηση 30 × μερίδιο
+assert by[(1, "E3_585_016", "")][4:7] == [-40.0, -9.6, -49.6]  # πιστωτικό: αρνητικό
+assert round(sum(f[4] for f in facts if f[0] == 0), 2) == 150.0 and round(sum(f[7] for f in facts), 2) == 30.0
+assert cube["labels"]["vat"] == {"1": "24%", "2": "13%", "": ""}, cube["labels"]["vat"]
+# Μη εκπιπτόμενος ΦΠΑ (θέση 12): τα έσοδα 0· έξοδο με VAT_361 → εκπίπτει· χωρίς χαρακτηρισμό ΦΠΑ → όλος.
+assert all(f[12] == 0 for f in facts), facts
+olap_docs["income"] = []
+olap_docs["expense"][0]["cls_json"] = json.dumps([{"type": "E3_585_016", "category": "category2_5", "amount": 40.0}])
+assert app_module._olap_cube(1)["facts"][0][12] == -9.6
+
 print("OK")

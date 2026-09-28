@@ -1,271 +1,80 @@
 {% extends "base.html" %}
-{% macro detailed_section(rows, section_income, section_expense, section_profit) %}
-  <tr class="report-section-heading r-income">
-    <td colspan="5" data-label=""><strong>Έσοδα</strong></td>
-  </tr>
-  {% for group in rows %}
-    {% if group.income.count %}
-    <tr class="r-income report-detail-row">
-      <td data-label="">
-        {% for label in group.labels %}
-          <span class="report-dimension">
-            <strong>{{ label }}</strong>
-          </span>
-        {% endfor %}
-      </td>
-      <td data-label="Παραστατικά" class="num">{{ group.income.count }}</td>
-      <td data-label="Καθαρή αξία" class="num">{{ group.income.net|el_amount }} €</td>
-      <td data-label="ΦΠΑ" class="num">{{ group.income.vat|el_amount }} €</td>
-      <td data-label="Σύνολο" class="num"><strong>{{ group.income.gross|el_amount }} €</strong></td>
-    </tr>
-    {% endif %}
-  {% endfor %}
-  <tr class="report-subtotal r-income">
-    <td data-label=""><strong>Σύνολο εσόδων</strong></td>
-    <td data-label="Παραστατικά" class="num"><strong>{{ section_income.count }}</strong></td>
-    <td data-label="Καθαρή αξία" class="num"><strong>{{ section_income.net|el_amount }} €</strong></td>
-    <td data-label="ΦΠΑ" class="num"><strong>{{ section_income.vat|el_amount }} €</strong></td>
-    <td data-label="Σύνολο" class="num"><strong>{{ section_income.gross|el_amount }} €</strong></td>
-  </tr>
-
-  <tr class="report-section-heading r-expense">
-    <td colspan="5" data-label=""><strong>Έξοδα</strong></td>
-  </tr>
-  {% for group in rows %}
-    {% if group.expense.count %}
-    <tr class="r-expense report-detail-row">
-      <td data-label="">
-        {% for label in group.labels %}
-          <span class="report-dimension">
-            <strong>{{ label }}</strong>
-          </span>
-        {% endfor %}
-      </td>
-      <td data-label="Παραστατικά" class="num">{{ group.expense.count }}</td>
-      <td data-label="Καθαρή αξία" class="num">{{ group.expense.net|el_amount }} €</td>
-      <td data-label="ΦΠΑ" class="num">{{ group.expense.vat|el_amount }} €</td>
-      <td data-label="Σύνολο" class="num"><strong>{{ group.expense.gross|el_amount }} €</strong></td>
-    </tr>
-    {% endif %}
-  {% endfor %}
-  <tr class="report-subtotal r-expense">
-    <td data-label=""><strong>Σύνολο εξόδων</strong></td>
-    <td data-label="Παραστατικά" class="num"><strong>{{ section_expense.count }}</strong></td>
-    <td data-label="Καθαρή αξία" class="num"><strong>{{ section_expense.net|el_amount }} €</strong></td>
-    <td data-label="ΦΠΑ" class="num"><strong>{{ section_expense.vat|el_amount }} €</strong></td>
-    <td data-label="Σύνολο" class="num"><strong>{{ section_expense.gross|el_amount }} €</strong></td>
-  </tr>
-
-  <tr class="r-profit report-grand-total {{ 'is-neg' if section_profit.gross < 0 else 'is-pos' }}">
-    <td data-label=""><strong>Διαφορά εσόδων − εξόδων</strong></td>
-    <td data-label="Παραστατικά" class="num"></td>
-    <td data-label="Καθαρή αξία"
-        class="num difference-amount {{ 'amount-neg' if section_profit.net < 0 else 'amount-pos' if section_profit.net > 0 else 'amount-zero' }}">
-      <strong>{{ section_profit.net|el_amount }} €</strong>
-    </td>
-    <td data-label="ΦΠΑ"
-        class="num difference-amount {{ 'amount-neg' if section_profit.vat < 0 else 'amount-pos' if section_profit.vat > 0 else 'amount-zero' }}">
-      <strong>{{ section_profit.vat|el_amount }} €</strong>
-    </td>
-    <td data-label="Σύνολο"
-        class="num difference-amount {{ 'amount-neg' if section_profit.gross < 0 else 'amount-pos' if section_profit.gross > 0 else 'amount-zero' }}">
-      <strong>{{ section_profit.gross|el_amount }} €</strong>
-    </td>
-  </tr>
-{% endmacro %}
-{% block title %}Αναφορές{% endblock %}
+{% block title %}OLAP{% endblock %}
 {% block content %}
-<div class="page-head">
-  <div>
-    <h1>Αναφορές</h1>
-    <p class="page-sub">
-      Σύνοψη <strong>χαρακτηρισμένων</strong> εσόδων και εξόδων για το διάστημα (με βάση την
-      ημερομηνία έκδοσης) και η διαφορά τους <strong>Έσοδα − Έξοδα = Κέρδη</strong>.
-      Κενές ημερομηνίες = χωρίς όριο.
+{# Κύβος ανάλυσης: όλο το pivot γίνεται στον browser (static/olap.js) από τα γεγονότα του olap-data. #}
+<div class="yr olap" id="olap" data-doc-url="{{ url_for('document', mark='__MARK__') }}">
+  <div class="yr-head">
+    <div>
+      <h1>OLAP <span class="yr-year">κύβος</span></h1>
+      <p class="page-sub">Διάλεξε γραμμές, στήλες και μέτρο. Κλικ σε γραμμή για εμβάθυνση (drill-down), σε κελί για τα παραστατικά του.</p>
+    </div>
+    <nav class="yr-years" aria-label="Έτος" data-years></nav>
+  </div>
+
+  <div class="ol-presets" role="toolbar" aria-label="Έτοιμοι κύβοι" data-presets></div>
+
+  <section class="card ol-controls">
+    <div class="ol-axes">
+      <div>
+        <label for="ol-rows">Γραμμές</label>
+        <select id="ol-rows" data-dim="rows"></select>
+      </div>
+      <button type="button" class="btn-ghost btn-icon ol-swap" data-swap title="Εναλλαγή γραμμών/στηλών" aria-label="Εναλλαγή γραμμών και στηλών">⇄</button>
+      <div>
+        <label for="ol-cols">Στήλες</label>
+        <select id="ol-cols" data-dim="cols"></select>
+      </div>
+      <div>
+        <label for="ol-measure">Μέτρο</label>
+        <select id="ol-measure" data-measure></select>
+      </div>
+      <div>
+        <label for="ol-from">Από</label>
+        <input type="date" id="ol-from" data-from>
+      </div>
+      <div>
+        <label for="ol-to">Έως</label>
+        <input type="date" id="ol-to" data-to>
+      </div>
+    </div>
+    <div class="ol-slices" data-slices aria-live="polite"></div>
+  </section>
+
+  <div class="ol-kpis" data-kpis></div>
+
+  <section class="card ol-chart-card">
+    <div class="yr-chart-head">
+      <h2 data-chart-title></h2>
+      <ul class="yr-legend" data-legend></ul>
+    </div>
+    <div class="ol-chart" data-chart></div>
+    <div class="yr-tip ol-tip" role="status" hidden></div>
+  </section>
+
+  <section class="card yr-table-card ol-table-card">
+    <div class="ol-table-head">
+      <h2 data-table-title></h2>
+      <div class="ol-table-tools">
+        <button type="button" class="btn-ghost btn-sm" data-heat aria-pressed="true" title="Χρωματισμός κελιών ανάλογα με το μέγεθος">Θερμικός χάρτης</button>
+        <button type="button" class="btn-ghost btn-sm" data-csv>⭳ CSV</button>
+      </div>
+    </div>
+    <div class="yr-scroll"><table class="yr-table ol-table" data-table></table></div>
+    <div class="ol-more" data-more></div>
+    <p class="muted small yr-note">
+      Ποσά σε €. Έσοδα = χαρακτηρισμένα του «Βιβλίου εσόδων»· Έξοδα = χαρακτηρισμένα/απεσταλμένα/ολοκληρωμένα
+      του «Βιβλίου εξόδων». Τα πιστωτικά αφαιρούνται. Όταν ένα παραστατικό έχει πολλές γραμμές ή χαρακτηρισμούς,
+      τα ποσά του μοιράζονται αναλογικά· οι φόροι/κρατήσεις του παραστατικού ακολουθούν την καθαρή αξία.
+      ΦΠΑ εκπιπτόμενος: στα έσοδα όλος ο ΦΠΑ εκροών· στα έξοδα όσος έχει χαρακτηρισμό ΦΠΑ 361–366, όπως τον μετρά
+      η Δήλωση ΦΠΑ (Φ2). Ο υπόλοιπος ΦΠΑ εξόδων είναι μη εκπιπτόμενος και, ως κόστος, μετρά στα έξοδα του «Αποτελέσματος».
     </p>
-  </div>
-  <div class="btn-row">
-    <a class="btn btn-ghost" href="{{ url_for('reports_yearly') }}">📅 Ετήσια σύνοψη ανά μήνα</a>
-    <a class="btn btn-ghost" href="{{ url_for('reports_vat') }}">🧾 Δήλωση ΦΠΑ (Φ2)</a>
-  </div>
-</div>
+  </section>
 
-<div class="card">
-  <form method="get" action="{{ url_for('reports') }}">
-    <div class="grid grid-3">
-      <div>
-        <label for="date_from">Από</label>
-        <input type="date" id="date_from" name="date_from" value="{{ date_from }}">
-      </div>
-      <div>
-        <label for="date_to">Έως</label>
-        <input type="date" id="date_to" name="date_to" value="{{ date_to }}">
-      </div>
-      <div>
-        <label for="period">Χρονική ανάλυση</label>
-        <select id="period" name="period">
-          <option value="" {{ 'selected' if not period }}>Χωρίς χρονική ανάλυση</option>
-          <option value="day" {{ 'selected' if period == 'day' }}>Ανά ημέρα</option>
-          <option value="month" {{ 'selected' if period == 'month' }}>Ανά μήνα</option>
-          <option value="quarter" {{ 'selected' if period == 'quarter' }}>Ανά τρίμηνο</option>
-        </select>
-      </div>
-    </div>
-    <fieldset class="report-options">
-      <legend>Πρόσθετη ανάλυση</legend>
-      {% for value, label in [('counterparty', 'Ανά συναλλασσόμενο'), ('invoice_type', 'Τύπος παραστατικού'), ('classification', 'Χαρακτηρισμός'), ('vat', 'Κατηγορία ΦΠΑ (24%, 13%, 0% κ.λπ.)')] %}
-      <label>
-        <input type="checkbox" name="group_by" value="{{ value }}" {{ 'checked' if value in group_by }}>
-        {{ label }}
-      </label>
-      {% endfor %}
-    </fieldset>
-    <div class="btn-row">
-      <button type="submit">Υπολογισμός</button>
-      {% if detailed %}
-        <a class="btn btn-ghost" href="{{ url_for('reports', date_from=date_from, date_to=date_to) }}">Βασική σύνοψη</a>
-      {% endif %}
-    </div>
-  </form>
+  <dialog class="modal modal--wide yr-docs-modal" id="ol-docs" aria-label="Παραστατικά κελιού" closedby="any"></dialog>
 </div>
+<script type="application/json" id="olap-data">{{ cube|tojson }}</script>
+{% endblock %}
 
-<div class="kpis">
-  <div class="kpi kpi--income">
-    <div class="kicker">Έσοδα <span>{{ income.count }} παρ.</span></div>
-    <div class="kpi-v">{{ income.gross|el_amount }} €</div>
-    <div class="kpi-sub">Καθαρή {{ income.net|el_amount }} €</div>
-  </div>
-  <div class="kpi kpi--expense">
-    <div class="kicker">Έξοδα <span>{{ expense.count }} παρ.</span></div>
-    <div class="kpi-v">{{ expense.gross|el_amount }} €</div>
-    <div class="kpi-sub">Καθαρή {{ expense.net|el_amount }} €</div>
-  </div>
-  <div class="kpi kpi--profit {{ 'is-neg' if profit.gross < 0 }}">
-    <div class="kicker">Κέρδη <span>Έσοδα − Έξοδα</span></div>
-    <div class="kpi-v">{{ profit.gross|el_amount }} €</div>
-    <div class="kpi-sub">Καθαρή {{ profit.net|el_amount }} €</div>
-  </div>
-</div>
-
-<div class="card">
-  <h2>Έσοδα − Έξοδα
-    {% if date_from or date_to %}
-      <span class="pill">{{ date_from or '…' }} → {{ date_to or '…' }}</span>
-    {% else %}
-      <span class="pill">όλο το διάστημα</span>
-    {% endif %}
-  </h2>
-  <div class="table-wrap">
-  <table class="ledger report">
-    <thead>
-      <tr>
-        <th>
-          {% if period and detail_dimensions %}
-            {{ detail_dimensions|join(' / ') }}
-          {% elif detailed and not period %}
-            {{ dimensions|join(' / ') }}
-          {% endif %}
-        </th>
-        <th class="num">Παραστατικά</th>
-        <th class="num">Καθαρή αξία</th>
-        <th class="num">ΦΠΑ</th>
-        <th class="num">Σύνολο</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% if not detailed %}
-      <tr class="r-income">
-        <td data-label=""><b>Έσοδα</b> <span class="muted">(χαρακτηρισμένα)</span></td>
-        <td data-label="Παραστατικά" class="num">{{ income.count }}</td>
-        <td data-label="Καθαρή αξία" class="num">{{ income.net|el_amount }} €</td>
-        <td data-label="ΦΠΑ" class="num">{{ income.vat|el_amount }} €</td>
-        <td data-label="Σύνολο" class="num"><strong>{{ income.gross|el_amount }} €</strong></td>
-      </tr>
-      <tr class="r-expense">
-        <td data-label=""><b>Έξοδα</b> <span class="muted">(χαρακτηρισμένα)</span></td>
-        <td data-label="Παραστατικά" class="num">{{ expense.count }}</td>
-        <td data-label="Καθαρή αξία" class="num">− {{ expense.net|el_amount }} €</td>
-        <td data-label="ΦΠΑ" class="num">− {{ expense.vat|el_amount }} €</td>
-        <td data-label="Σύνολο" class="num"><strong>− {{ expense.gross|el_amount }} €</strong></td>
-      </tr>
-      <tr class="r-profit {{ 'is-neg' if profit.gross < 0 else 'is-pos' }}">
-        <td data-label=""><b>Κέρδη</b> <span class="muted">(Έσοδα − Έξοδα)</span></td>
-        <td data-label="Παραστατικά" class="num"></td>
-        <td data-label="Καθαρή αξία"
-            class="num difference-amount {{ 'amount-neg' if profit.net < 0 else 'amount-pos' if profit.net > 0 else 'amount-zero' }}">
-          <strong>{{ profit.net|el_amount }} €</strong>
-        </td>
-        <td data-label="ΦΠΑ"
-            class="num difference-amount {{ 'amount-neg' if profit.vat < 0 else 'amount-pos' if profit.vat > 0 else 'amount-zero' }}">
-          <strong>{{ profit.vat|el_amount }} €</strong>
-        </td>
-        <td data-label="Σύνολο"
-            class="num difference-amount {{ 'amount-neg' if profit.gross < 0 else 'amount-pos' if profit.gross > 0 else 'amount-zero' }}">
-          <strong>{{ profit.gross|el_amount }} €</strong>
-        </td>
-      </tr>
-    {% elif period_breakdowns %}
-      {% for period_group in period_breakdowns %}
-        <tr class="report-period-heading">
-          <td colspan="5" data-label="">
-            <small>Περίοδος</small>
-            <strong>{{ period_group.label }}</strong>
-          </td>
-        </tr>
-        {{ detailed_section(
-          period_group.rows,
-          period_group.income,
-          period_group.expense,
-          period_group.profit
-        ) }}
-      {% endfor %}
-      <tr class="report-overall-heading">
-        <td colspan="5" data-label=""><strong>Γενικό σύνολο επιλεγμένου διαστήματος</strong></td>
-      </tr>
-      <tr class="r-income report-overall-row">
-        <td data-label=""><strong>Σύνολο εσόδων</strong></td>
-        <td data-label="Παραστατικά" class="num">{{ income.count }}</td>
-        <td data-label="Καθαρή αξία" class="num">{{ income.net|el_amount }} €</td>
-        <td data-label="ΦΠΑ" class="num">{{ income.vat|el_amount }} €</td>
-        <td data-label="Σύνολο" class="num"><strong>{{ income.gross|el_amount }} €</strong></td>
-      </tr>
-      <tr class="r-expense report-overall-row">
-        <td data-label=""><strong>Σύνολο εξόδων</strong></td>
-        <td data-label="Παραστατικά" class="num">{{ expense.count }}</td>
-        <td data-label="Καθαρή αξία" class="num">{{ expense.net|el_amount }} €</td>
-        <td data-label="ΦΠΑ" class="num">{{ expense.vat|el_amount }} €</td>
-        <td data-label="Σύνολο" class="num"><strong>{{ expense.gross|el_amount }} €</strong></td>
-      </tr>
-      <tr class="r-profit report-grand-total report-overall-difference {{ 'is-neg' if profit.gross < 0 else 'is-pos' }}">
-        <td data-label=""><strong>Τελική διαφορά</strong></td>
-        <td data-label="Παραστατικά" class="num"></td>
-        <td data-label="Καθαρή αξία"
-            class="num difference-amount {{ 'amount-neg' if profit.net < 0 else 'amount-pos' if profit.net > 0 else 'amount-zero' }}">
-          <strong>{{ profit.net|el_amount }} €</strong>
-        </td>
-        <td data-label="ΦΠΑ"
-            class="num difference-amount {{ 'amount-neg' if profit.vat < 0 else 'amount-pos' if profit.vat > 0 else 'amount-zero' }}">
-          <strong>{{ profit.vat|el_amount }} €</strong>
-        </td>
-        <td data-label="Σύνολο"
-            class="num difference-amount {{ 'amount-neg' if profit.gross < 0 else 'amount-pos' if profit.gross > 0 else 'amount-zero' }}">
-          <strong>{{ profit.gross|el_amount }} €</strong>
-        </td>
-      </tr>
-    {% elif breakdown %}
-      {{ detailed_section(breakdown, income, expense, profit) }}
-    {% else %}
-      <tr>
-        <td colspan="5" data-label="" class="muted">Δεν βρέθηκαν παραστατικά για τις επιλεγμένες παραμέτρους.</td>
-      </tr>
-    {% endif %}
-    </tbody>
-  </table>
-  </div>
-  <p class="muted small">
-    Έσοδα = χαρακτηρισμένα του «Βιβλίου εσόδων». Έξοδα = χαρακτηρισμένα/απεσταλμένα/ολοκληρωμένα
-    του «Βιβλίου εξόδων». Η στήλη ΦΠΑ στα Κέρδη είναι η διαφορά ΦΠΑ εκροών−εισροών (ενδεικτική).
-  </p>
-</div>
-
+{% block scripts %}
+<script src="{{ url_for('static', filename='olap.js') }}" defer></script>
 {% endblock %}
