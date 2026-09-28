@@ -54,8 +54,12 @@ def input_vat(d: dict) -> list[tuple[str, float, float]]:
         base = sign * (e.get("amount") or 0.0)
         if e["type"] in REVERSE_CHARGE:
             tax = round(base * REVERSE_RATE, 2)
-        elif e.get("line") in lines:  # χαρακτηρισμός ανά γραμμή → ο ΦΠΑ της γραμμής
-            tax = sign * (lines[e["line"]].get("vat_amount") or 0.0)
+        elif (e.get("line") in lines and lines[e["line"]].get("net_value")
+              and 0 < (e.get("amount") or 0.0) <= lines[e["line"]]["net_value"] + 0.01):
+            # Χαρακτηρισμός γραμμής → ΦΠΑ γραμμής × ποσό / καθαρή γραμμής. Ποσό μεγαλύτερο από τη
+            # γραμμή = χαρακτηρισμός όλου του παραστατικού που το myDATA δένει στη γραμμή 1 → παρακάτω.
+            ln = lines[e["line"]]
+            tax = sign * (ln.get("vat_amount") or 0.0) * (e.get("amount") or 0.0) / ln["net_value"]
         else:  # ανά παραστατικό → αναλογικά στον ΦΠΑ του παραστατικού
             tax = sign * (d["total_vat"] or 0.0) * (e.get("amount") or 0.0) / total
         out.append((e["type"], base, tax))
@@ -163,4 +167,14 @@ if __name__ == "__main__":
     r = compute([{"mark": "11", "invoice_type": "2.1", "lines_json": json.dumps(
         [{"net_value": 125, "vat_amount": 30, "vat_category": "1"}])}], [])["codes"]
     assert (r["511"], r["carry"]) == (0, 30), r  # ακριβώς 30 € → μεταφέρεται
+    # Χαρακτηρισμός όλου του παραστατικού δεμένος στη γραμμή 1 (400012184930639): ΦΠΑ = 90,24, όχι 59,04.
+    d = {"mark": "12", "invoice_type": "1.1", "total_vat": 90.24, "lines_json": json.dumps(
+        [{"line_number": 1, "net_value": 246.0, "vat_amount": 59.04}, {"line_number": 2, "net_value": 130.0, "vat_amount": 31.2}]),
+        "cls_json": json.dumps([{"line": 1, "type": "VAT_361", "amount": 376.0}])}
+    assert [round(t, 2) for _, _, t in input_vat(d)] == [90.24] and compute([], [d])["codes"]["381"] == 90.24
+    # ...και με στρογγυλοποιήσεις ανά γραμμή (400012397574828): ακριβώς ο ΦΠΑ του παραστατικού.
+    d = {"mark": "13", "invoice_type": "1.1", "total_vat": 51.9, "lines_json": json.dumps(
+        [{"line_number": 1, "net_value": 111.6, "vat_amount": 26.78}, {"line_number": 2, "net_value": 104.65, "vat_amount": 25.12}]),
+        "cls_json": json.dumps([{"line": 1, "type": "VAT_361", "amount": 216.25}])}
+    assert input_vat(d)[0][2] == 51.9, input_vat(d)
     print("OK")
