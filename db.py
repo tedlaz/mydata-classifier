@@ -692,6 +692,20 @@ def get_document(company_id: int, mark: str) -> dict | None:
     return dict(row) if row else None
 
 
+def month_counts(company_id: int, kind: str, date_from: str) -> dict:
+    """Πλήθος παραστατικών ανά μήνα έκδοσης (από date_from): {"yyyy-mm": {status: n}}."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT substr(issue_date, 1, 7) AS ym, status, COUNT(*) AS n FROM documents "
+            "WHERE company_id = ? AND kind = ? AND issue_date >= ? GROUP BY ym, status",
+            (company_id, kind, date_from),
+        ).fetchall()
+    out: dict = {}
+    for r in rows:
+        out.setdefault(r["ym"], {})[r["status"]] = r["n"]
+    return out
+
+
 def count_by_status(company_id: int, kind: str) -> dict:
     with get_conn() as conn:
         rows = conn.execute(

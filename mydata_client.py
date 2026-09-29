@@ -604,6 +604,10 @@ class MyDataClient:
         Τα Vat38x/Vat30x κ.λπ. είναι ποσά ΦΠΑ/εσόδων, όχι χαρακτηρισμοί εξόδων → παραλείπονται."""
         entries: dict[str, list[dict]] = {}
         for r in self._request_info("RequestE3Info", date_from, date_to):
+            # Στα αχαρακτήριστα η ΑΑΔΕ δίνει placeholder γραμμή με κατηγορία κείμενο
+            # («ΜΗ ΧΑΡΑΚΤΗΡΙΣΜΕΝΑ ΕΞΟΔΑ») αντί για κωδικό category2_x: δεν είναι χαρακτηρισμός.
+            if not (r.get("V_Class_Category") or "category2_").startswith("category"):
+                continue
             if r.get("V_Mark") and (r.get("V_Class_Type") or r.get("V_Class_Category")):
                 entries.setdefault(r["V_Mark"], []).append(
                     {"line": None, "type": r.get("V_Class_Type") or None,

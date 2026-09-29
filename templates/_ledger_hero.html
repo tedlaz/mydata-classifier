@@ -26,7 +26,7 @@
 .lh .btn-ghost:hover{background:rgba(255,255,255,.16)}
 
 .lh-mid{position:relative;display:grid;grid-template-columns:1fr auto;gap:14px;margin-top:22px;align-items:stretch}
-.lh-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.lh-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
 @property --lh-ang{syntax:"<angle>";inherits:false;initial-value:0deg}
 .lh-tile{position:relative;display:flex;flex-direction:column;gap:2px;padding:14px 16px;border-radius:14px;text-decoration:none;color:#fff;
   background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);overflow:hidden;
@@ -44,6 +44,7 @@
 .lh-tile.is-on span{color:#fff;font-weight:700}
 @keyframes lh-spin{to{--lh-ang:360deg}}
 @keyframes lh-rise{from{opacity:0;transform:translateY(16px)}}
+.lh-tile--sync{--c:#6fd3ff}
 .lh-tile--unclassified{--c:#f2c265}.lh-tile--classified{--c:#8a93ff}.lh-tile--sent{--c:#bba2ff}.lh-tile--confirmed{--c:#4fd1a0}
 
 .lh-ring{display:flex;align-items:center;gap:14px;padding:12px 18px;border-radius:14px;background:rgba(255,255,255,.06);
@@ -86,8 +87,15 @@
 
   <div class="lh-mid">
     <nav class="lh-tiles" aria-label="Κατάσταση παραστατικών">
+      {# Πρώτη καρτέλα: Ανάκτηση / Διαγραφή του ίδιου βιβλίου (ξεχωριστό route, ίδια κεφαλίδα). #}
+      {% set sync_ep = ep ~ '_sync' %}
+      <a class="lh-tile lh-tile--sync {{ 'is-on' if request.endpoint == sync_ep }}" style="--i:0"
+         href="{{ url_for(sync_ep) }}" {% if request.endpoint == sync_ep %}aria-current="page"{% endif %}>
+        <span class="e" aria-hidden="true">⟳</span>
+        <b aria-hidden="true">⇅</b><span>Ανάκτηση / Διαγραφή</span>
+      </a>
       {% for v, label, emoji in tabs %}
-      <a class="lh-tile lh-tile--{{ v }} {{ 'is-on' if q.view == v }}" style="--i:{{ loop.index0 }}"
+      <a class="lh-tile lh-tile--{{ v }} {{ 'is-on' if q.view == v }}" style="--i:{{ loop.index }}"
          href="{{ url_for(ep, **dict(q, view=v)) }}" {% if q.view == v %}aria-current="page"{% endif %}>
         <span class="e" aria-hidden="true">{{ emoji }}</span>
         <b data-count="{{ counts[v] }}">{{ counts[v] }}</b><span>{{ label }}</span>
@@ -130,9 +138,19 @@
 // τα σύνολα και η κάρτα του βιβλίου· η υπόλοιπη κεφαλίδα μένει ως έχει.
 (function(){
   var root = document.documentElement, ctrl, ro;
-  var SWAP = ['.lh-tiles', '.lh-sums', '.ledger-card'];
+  // [data-lh-body]: ό,τι είναι κάτω από την κεφαλίδα (κάρτα βιβλίου ή καρτέλα Ανάκτησης).
+  var SWAP = ['.lh-tiles', '.lh-sums', '[data-lh-body]'];
 
-  function samePath(url) { return new URL(url, location.href).pathname === location.pathname; }
+  // Ίδιο βιβλίο = ίδιο πρώτο τμήμα διαδρομής (/invoices ⇄ /invoices/sync).
+  function samePath(url) { return new URL(url, location.href).pathname.split('/')[1] === location.pathname.split('/')[1]; }
+  function activate(body) {  // ό,τι θα γινόταν σε κανονική φόρτωση: ημερομηνίες + scripts της περιοχής
+    if (window.initDates) initDates(body);
+    body.querySelectorAll('script').forEach(function(s){
+      var n = document.createElement('script');
+      n.textContent = s.textContent;
+      s.replaceWith(n);
+    });
+  }
   function watchToolbar() {  // το sticky thead ακολουθεί το ύψος του (νέου) toolbar
     var tb = document.querySelector('.ledger-toolbar');
     if (ro) ro.disconnect();
@@ -142,7 +160,7 @@
     }
   }
   function load(url, push, scroll) {
-    var card = document.querySelector('.ledger-card');
+    var card = document.querySelector('[data-lh-body]');
     if (ctrl) ctrl.abort();
     ctrl = new AbortController();
     card.classList.add('is-loading');
@@ -156,29 +174,31 @@
         var now = document.querySelector(sel), next = doc.querySelector(sel);
         if (now && next) now.replaceWith(next);
       });
+      document.title = doc.title;
+      activate(document.querySelector('[data-lh-body]'));
       watchToolbar();
       if (push) history.pushState(null, '', url);
-      if (scroll) document.querySelector('.ledger-card').scrollIntoView({behavior: 'smooth', block: 'start'});
+      if (scroll) document.querySelector('[data-lh-body]').scrollIntoView({behavior: 'smooth', block: 'start'});
     }).catch(function(e){
       if (e.name !== 'AbortError') location.href = url;  // αποτυχία: κανονική πλοήγηση
     });
   }
 
   document.addEventListener('click', function(e){
-    var a = e.target.closest('.lh-tiles a, .ledger-card a');
-    if (!a || !document.querySelector('.ledger-card') || !samePath(a.href) || a.target
+    var a = e.target.closest('.lh-tiles a, [data-lh-body] a');
+    if (!a || !document.querySelector('[data-lh-body]') || !samePath(a.href) || a.target
         || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
     load(a.href, true, !!a.closest('.pager'));
   });
   document.addEventListener('submit', function(e){
     var f = e.target;
-    if (!f.closest('.ledger-card') || f.method.toLowerCase() !== 'get' || !samePath(f.action)) return;
+    if (!f.closest('[data-lh-body]') || f.method.toLowerCase() !== 'get' || !samePath(f.action)) return;
     e.preventDefault();
     load(f.action.split('?')[0] + '?' + new URLSearchParams(new FormData(f)), true, false);
   }, true);
-  addEventListener('popstate', function(){ if (document.querySelector('.ledger-card')) load(location.href, false, false); });
+  addEventListener('popstate', function(){ if (document.querySelector('[data-lh-body]')) load(location.href, false, false); });
 })();
 </script>
-<style>.ledger-card{transition:opacity .2s}.ledger-card.is-loading{opacity:.55;pointer-events:none}</style>
+<style>[data-lh-body]{transition:opacity .2s}[data-lh-body].is-loading{opacity:.55;pointer-events:none}</style>
 {%- endmacro %}

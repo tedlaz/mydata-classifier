@@ -618,16 +618,28 @@ def page_numbers(page: int, total: int, edge: int = 2, around: int = 1) -> list:
 
 
 
+def _last_months(today: date, n: int = 12) -> list[str]:
+    """Οι τελευταίοι n μήνες έως και τον τρέχοντα, ως "yyyy-mm" (παλαιότερος πρώτος)."""
+    idx = today.year * 12 + today.month - 1
+    return [f"{y}-{m + 1:02d}" for y, m in (divmod(i, 12) for i in range(idx - n + 1, idx + 1))]
+
+
 def _sync_page(kind: str):
     """Χωριστή σελίδα ανάκτησης από το myDATA / διαγραφής διαστήματος, ανά βιβλίο."""
-    today = datetime.now(ATHENS).strftime("%Y-%m-%d")
+    now = datetime.now(ATHENS)
+    today = now.strftime("%Y-%m-%d")
     cid = _active_company_id()
     views = _INCOME_VIEWS if kind == "income" else _EXPENSE_VIEWS
     by_status = db.count_by_status(cid, kind) if cid else {}
+    months = _last_months(now.date())
+    by_month = db.month_counts(cid, kind, months[0] + "-01") if cid else {}
+    marks = [int(r["mark"]) for r in (db.get_documents(cid, kind) if cid else []) if (r["mark"] or "").isdigit()]
     return render_template(
         "sync.html",
         kind=kind,
         counts={v: by_status.get(v, 0) for v in views},
+        months=[(ym, by_month.get(ym, {})) for ym in months],
+        last_mark=str(max(marks)) if marks else None,  # όπως στην κεφαλίδα του βιβλίου
         range_date_from=request.args.get("date_from", "").strip() or today,
         range_date_to=request.args.get("date_to", "").strip() or today,
         date_range=db.get_setting(
@@ -1193,9 +1205,14 @@ def classify(mark):
     if remote_pi:
         pi_e3, pi_vat = remote_pi
     empty = {"category": "", "type": "", "amount": None}
+    uncl, uncl_prev, uncl_next = _unclassified_around(inv)
     return render_template(
         "classify.html",
         inv=inv,
+        uncl_total=len(uncl),
+        uncl_pos=next((i + 1 for i, r in enumerate(uncl) if r["mark"] == inv.mark), None),
+        uncl_prev=uncl_prev and uncl_prev["mark"],
+        uncl_next=uncl_next and uncl_next["mark"],
         post_mode=1 if remote_pi else post_mode,
         remote_pi=bool(remote_pi),
         pi_allowed=inv.invoice_type != "1.5" and bool(inv.lines),
@@ -1381,15 +1398,21 @@ def submit(mark):
     return _classified_redirect(manual, inv)
 
 
+def _unclassified_around(inv):
+    """Αχαρακτήριστα εξόδων σε σειρά βιβλίου + το προηγούμενο/επόμενο του inv (ή None)."""
+    key = lambda r: (r["issue_date"] or "", r["mark"])  # noqa: E731
+    rest = sorted(db.get_documents(_active_company_id(), "expense", ["unclassified"]), key=key)
+    here = (inv.issue_date or "", inv.mark)
+    prev = next((r for r in reversed(rest) if key(r) < here), None)
+    nxt = next((r for r in rest if key(r) > here), None)
+    return rest, prev, nxt
+
+
 def _classified_redirect(manual: bool, inv):
     """Μήνυμα + μετάβαση μετά την αποθήκευση χαρακτηρισμού (και για τους δύο τρόπους):
     στο επόμενο αχαρακτήριστο (σειρά βιβλίου), αλλιώς στη λίστα."""
-    rest = sorted(
-        db.get_documents(_active_company_id(), "expense", ["unclassified"]),
-        key=lambda r: (r["issue_date"] or "", r["mark"]),
-    )
-    here = (inv.issue_date or "", inv.mark)
-    nxt = next((r for r in rest if (r["issue_date"] or "", r["mark"]) > here), rest[0] if rest else None)
+    rest, _, nxt = _unclassified_around(inv)
+    nxt = nxt or (rest[0] if rest else None)
     if nxt:
         flash(f"✔ Ο χαρακτηρισμός του {inv.mark} αποθηκεύτηκε. Επόμενο προς χαρακτηρισμό ({len(rest)} απομένουν).", "ok")
         return redirect(url_for("classify", mark=nxt["mark"]))

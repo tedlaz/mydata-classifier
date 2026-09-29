@@ -9,10 +9,11 @@
 // Πριν το πρώτο paint: θέμα + εικονίδιο εναλλαγής, για να μην «αναβοσβήνει».
 (function(){var r=document.documentElement,t;try{t=localStorage.getItem('theme')}catch(e){}
 if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')})();
-// Ίδια σελίδα (φίλτρο, σελιδοποίηση, αποθήκευση που επιστρέφει εδώ): χωρίς εισαγωγικά animations και crossfade.
-(function(){var s=false;try{s=new URL(document.referrer).pathname===location.pathname}catch(e){}
+// Ίδια σελίδα (φίλτρο, σελιδοποίηση, καρτέλα του ίδιου βιβλίου π.χ. /invoices ⇄ /invoices/sync):
+// ίδιο πρώτο τμήμα διαδρομής → χωρίς εισαγωγικά animations και crossfade.
+(function(){var s=false;try{s=new URL(document.referrer).pathname.split('/')[1]===location.pathname.split('/')[1]}catch(e){}
 if(!s)return;document.documentElement.dataset.samePage='';
-addEventListener('pagereveal',function(e){if(e.viewTransition)e.viewTransition.skipTransition()})})();
+addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.catch(function(){});v.skipTransition()}})})();
 </script>
 {# Inline opt-in: ο Chrome το ελέγχει πριν φορτωθεί το app.css → αλλιώς «ViewTransition opt-in disabled». #}
 <style>@view-transition{navigation:auto}</style>
@@ -28,12 +29,10 @@ addEventListener('pagereveal',function(e){if(e.viewTransition)e.viewTransition.s
 {% set ep = request.endpoint %}
 {% set nav = [
   ('Έσοδα', [
-    ('income', 'Βιβλίο εσόδων', 'in', ['income'], False),
-    ('income_sync', 'Ανάκτηση / Διαγραφή', 'sync', ['income_sync'], True),
+    ('income', 'Βιβλίο εσόδων', 'in', ['income', 'income_sync'], False),
   ]),
   ('Έξοδα', [
-    ('invoices', 'Βιβλίο εξόδων', 'out', ['invoices', 'document', 'classify'], False),
-    ('invoices_sync', 'Ανάκτηση / Διαγραφή', 'sync', ['invoices_sync'], True),
+    ('invoices', 'Βιβλίο εξόδων', 'out', ['invoices', 'invoices_sync', 'document', 'classify'], False),
     ('new_expense', 'Νέα εγγραφή', 'plus', ['new_expense'], True),
   ]),
   ('Αναλύσεις', [

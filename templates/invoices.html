@@ -19,11 +19,10 @@
 {% call ledger_hero('invoices', q, '📥 Βιβλίο εξόδων', 'Παραστατικά που σου διαβίβασαν άλλοι: χαρακτήρισε, στείλε, επιβεβαίωσε.',
     [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️'), ('sent', 'Απεσταλμένα', '🚀'), ('confirmed', 'Ολοκληρωμένα', '✅')],
     'confirmed', sums, date_range, last_mark, 'out') %}
-  <a class="btn btn-ghost" href="{{ url_for('invoices_sync') }}">⟳ Ανάκτηση / Διαγραφή</a>
   <a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>
 {% endcall %}
 
-<div class="card ledger-card" data-view="{{ view }}">
+<div class="card ledger-card" data-view="{{ view }}" data-lh-body>
   <div class="ledger-toolbar">
 
   {% if view == 'classified' %}
@@ -38,7 +37,7 @@
   </div>
 
   {% if total == 0 %}
-    {{ empty_state('invoices', q, 'σε αυτή την κατάσταση. Κάνε ανάκτηση από τη σελίδα «Ανάκτηση / Διαγραφή».') }}
+    {{ empty_state('invoices', q, 'σε αυτή την κατάσταση. Κάνε ανάκτηση από την καρτέλα «⟳ Ανάκτηση / Διαγραφή».') }}
   {% else %}
 
   {# Το wrapper form εξαρτάται από την καρτέλα: bulk χαρακτηρισμός (αχαρακτήριστα),
@@ -193,18 +192,15 @@
   {% endif %}
 
   {% endif %}
+  <script>
+  // Κατηγορία 2.5 (χωρίς δικαίωμα έκπτωσης ΦΠΑ) → «Χωρίς χαρακτηρισμό ΦΠΑ».
+  // Μέσα στην κάρτα: ξανατρέχει σε κάθε AJAX φόρτωσή της (καρτέλες βιβλίου).
+  document.currentScript.closest('[data-lh-body]').addEventListener('change', e => {
+    if (e.target.id !== 'bulk_category') return;
+    const vat = document.getElementById('bulk_vat_type');
+    if (e.target.value === 'category2_5') vat.value = 'none';
+    else if (vat.value === 'none') vat.value = 'auto';
+  });
+  </script>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-// Κατηγορία 2.5 (χωρίς δικαίωμα έκπτωσης ΦΠΑ) → «Χωρίς χαρακτηρισμό ΦΠΑ».
-// Delegated: η κάρτα του βιβλίου αντικαθίσταται με AJAX όταν αλλάζει καρτέλα.
-document.addEventListener('change', e => {
-  if (e.target.id !== 'bulk_category') return;
-  const vat = document.getElementById('bulk_vat_type');
-  if (e.target.value === 'category2_5') vat.value = 'none';
-  else if (vat.value === 'none') vat.value = 'auto';
-});
-</script>
 {% endblock %}

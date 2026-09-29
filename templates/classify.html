@@ -82,7 +82,7 @@
 {% if combos %}{% set _ = notes.append(('accent', '🔒 Εμφανίζονται μόνο οι κατηγορίες και οι τύποι Ε3 που επιτρέπει η ΑΑΔΕ για τον τύπο ' ~ inv.invoice_type ~ '.')) %}{% endif %}
 {% set attention = notes|selectattr(0, 'equalto', 'warn')|list %}
 
-<form method="post" action="{{ url_for('submit', mark=inv.mark) }}" id="cls-form">
+<form method="post" action="{{ url_for('submit', mark=inv.mark) }}" id="cls-form" data-allowed="{{ combos|tojson|forceescape }}">
 <style>
 /* ---------- Κεφαλίδα χαρακτηρισμού (ίδια οικογένεια με βιβλία/παραστατικό) ---------- */
 .ch-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(20px,3.5vw,30px);color:#fff;margin-bottom:18px;
@@ -92,7 +92,9 @@
 .ch-blob.b2{width:220px;height:220px;background:#1fbf8a;bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
 @keyframes ch-float{50%{transform:translate(26px,-18px) scale(1.1)}}
 @keyframes ch-rise{from{opacity:0;transform:translateY(14px)}}
-.ch-nav{position:relative;display:flex;justify-content:space-between;gap:8px;margin-bottom:16px}
+.ch-nav{position:relative;display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin-bottom:16px}
+.ch-nav .grp{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ch-pos{font:600 .8rem var(--font-data);color:#aab2d4;padding:0 6px}
 .ch-hero .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
 .ch-hero .btn-ghost:hover{background:rgba(255,255,255,.16)}
 .ch-hero .info-btn.has-attention{border-color:#f2c265;color:#f2c265}
@@ -166,6 +168,8 @@
 @keyframes ch-glow{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 25%,transparent),0 12px 28px -10px var(--accent)}}
 @media (max-width:900px){ .ch-mid{grid-template-columns:repeat(3,minmax(0,1fr))} .ch-prog{grid-column:1/-1} }
 @media (max-width:520px){ .ch-mid{grid-template-columns:1fr 1fr} }
+#cls-form.is-loading{cursor:progress;pointer-events:none}
+[data-same-page] :is(.ch-hero,.ch-av,.ch-tot,.ch-prog,.ch-info,#cls-form .cls-line){animation:none}
 @media (prefers-reduced-motion:reduce){ .ch-hero *,.ch-hero *::before,.ch-hero *::after,#cls-form .cls-line,#cls-form .cls-line *{animation:none!important;transition:none!important} }
 </style>
 
@@ -176,10 +180,19 @@
     </svg>
     <div class="ch-nav">
       <a class="btn btn-ghost btn-sm" href="{{ url_for('document', mark=inv.mark) }}">← Παραστατικό</a>
-      <button type="button" class="btn-ghost btn-sm info-btn {{ 'has-attention' if attention }}"
-              data-toggle="#cls-info" aria-expanded="false" aria-controls="cls-info">
-        ℹ Πληροφορίες{% if notes %} <span class="count">{{ notes|length }}</span>{% endif %}
-      </button>
+      <div class="grp">
+        {% if uncl_total %}
+        <a class="btn btn-ghost btn-sm {{ 'pg-off' if not uncl_prev }}" data-cls-nav {% if uncl_prev %}href="{{ url_for('classify', mark=uncl_prev) }}"{% endif %}
+           title="Προηγούμενο αχαρακτήριστο" aria-label="Προηγούμενο αχαρακτήριστο">‹</a>
+        <span class="ch-pos">{% if uncl_pos %}{{ uncl_pos }} από {{ uncl_total }}{% else %}{{ uncl_total }}{% endif %} αχαρακτήριστα</span>
+        <a class="btn btn-ghost btn-sm {{ 'pg-off' if not uncl_next }}" data-cls-nav {% if uncl_next %}href="{{ url_for('classify', mark=uncl_next) }}"{% endif %}
+           title="Επόμενο αχαρακτήριστο (παράλειψη)" aria-label="Επόμενο αχαρακτήριστο">›</a>
+        {% endif %}
+        <button type="button" class="btn-ghost btn-sm info-btn {{ 'has-attention' if attention }}"
+                data-toggle="#cls-info" aria-expanded="false" aria-controls="cls-info">
+          ℹ Πληροφορίες{% if notes %} <span class="count">{{ notes|length }}</span>{% endif %}
+        </button>
+      </div>
     </div>
     <div class="ch-who">
       <div class="ch-av" style="--h:{{ ((inv.issuer_vat or '0')[-3:]|int(0) * 7) % 360 }}" aria-hidden="true">
@@ -337,268 +350,318 @@
 
 {% block scripts %}
 <script>
-// Επιτρεπόμενοι συνδυασμοί {category: [E3,...]} για τον τύπο· κενό = χωρίς φίλτρο.
-const ALLOWED = {{ combos|tojson }};
-const FILTER = Object.keys(ALLOWED).length > 0;
-const NO_VAT_RIGHT = 'category2_5';  // χωρίς δικαίωμα έκπτωσης ΦΠΑ: ο ΦΠΑ πάει στο Ε3
-const THIRD_PARTY = 'category2_9';   // για λογαριασμό τρίτων: ένα Ε3, κανένας ΦΠΑ
-const form = document.getElementById('cls-form');
-const money = v => v.toLocaleString('el-GR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
-const num = el => parseFloat(el.value) || 0;
-const f = (row, name) => row.querySelector('[data-f=' + name + ']');
-const mode = () => (form.querySelector('[name=post_mode]:checked') || {value: '0'}).value;
-const isPi = line => line.classList.contains('pi-group');
-const piGroups = () => [...document.querySelectorAll('.pi-group')];
-const piRows = () => [...document.querySelectorAll('.pi-group .cls-row')];
-const lineData = line => ({
-  net: parseFloat(line.dataset.net) || 0,
-  vat: parseFloat(line.dataset.vat) || 0,
-  gross: parseFloat(line.dataset.gross) || 0,
-});
-
-// ---- Φιλτράρισμα κατηγορίας/τύπου βάσει των συνδυασμών της ΑΑΔΕ ----
-function filterCats(row) {
-  if (!FILTER) return;
-  [...f(row, 'category').options].forEach(o => {
-    if (!o.value) return;
-    const ok = Object.prototype.hasOwnProperty.call(ALLOWED, o.value);
-    o.hidden = o.disabled = !ok;
+// Η φόρμα αρχικοποιείται ξανά σε κάθε AJAX φόρτωση (προηγούμενο/επόμενο αχαρακτήριστο).
+function initCls() {
+  // Επιτρεπόμενοι συνδυασμοί {category: [E3,...]} για τον τύπο· κενό = χωρίς φίλτρο.
+  const form = document.getElementById('cls-form');
+  const ALLOWED = JSON.parse(form.dataset.allowed);
+  const FILTER = Object.keys(ALLOWED).length > 0;
+  const NO_VAT_RIGHT = 'category2_5';  // χωρίς δικαίωμα έκπτωσης ΦΠΑ: ο ΦΠΑ πάει στο Ε3
+  const THIRD_PARTY = 'category2_9';   // για λογαριασμό τρίτων: ένα Ε3, κανένας ΦΠΑ
+  const money = v => v.toLocaleString('el-GR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+  const num = el => parseFloat(el.value) || 0;
+  const f = (row, name) => row.querySelector('[data-f=' + name + ']');
+  const mode = () => (form.querySelector('[name=post_mode]:checked') || {value: '0'}).value;
+  const isPi = line => line.classList.contains('pi-group');
+  const piGroups = () => [...document.querySelectorAll('.pi-group')];
+  const piRows = () => [...document.querySelectorAll('.pi-group .cls-row')];
+  const lineData = line => ({
+    net: parseFloat(line.dataset.net) || 0,
+    vat: parseFloat(line.dataset.vat) || 0,
+    gross: parseFloat(line.dataset.gross) || 0,
   });
-}
-function filterTypes(row, clearInvalid) {
-  if (!FILTER) return;
-  const cat = f(row, 'category').value;
-  const sel = f(row, 'type');
-  const allowed = ALLOWED[cat] || [];
-  const anyE3 = allowed.includes('*');
-  const noE3 = allowed.length === 1 && allowed[0] === '-';
-  const ok = v => !!cat && (anyE3 || (!noE3 && allowed.includes(v)));
-  [...sel.options].forEach(o => { if (o.value) o.hidden = o.disabled = !ok(o.value); });
-  if (clearInvalid && sel.value && !ok(sel.value)) sel.value = '';
-}
 
-// ---- Κατάσταση: ποσό Ε3 σε σχέση με το εύρος [min, max] που πρέπει να καλύψει ----
-function rangeState(rows, min, max) {
-  let sum = 0;
-  rows.forEach(r => { sum += num(r.querySelector('.cls-amount')); });
-  const missing = rows.some(r => !f(r, 'category').value || !f(r, 'type').value || !r.querySelector('.cls-amount').value);
-  if (sum < min - 0.01) return {kind: 'short', sum, left: min - sum, missing, target: min};
-  if (sum > max + 0.01) return {kind: 'over', sum, over: sum - max, missing, target: max};
-  return {kind: missing ? 'incomplete' : 'ok', sum, left: 0, missing, target: min};
-}
-// Ανά γραμμή: καθαρή ≤ Ε3 ≤ μικτή.
-function lineState(line) {
-  const {net, gross} = lineData(line);
-  return rangeState([...line.querySelectorAll('.cls-row')], net, gross);
-}
-// Συγκεντρωτική γραμμή (ανά κατηγορία ΦΠΑ): Ε3 = καθαρή + ΦΠΑ που μένει χωρίς χαρακτηρισμό ΦΠΑ.
-function groupState(group) {
-  const {net, vat} = lineData(group);
-  const sel = group.querySelector('.pi-vat');
-  const leftVat = sel && sel.value ? 0 : vat;
-  const st = rangeState([...group.querySelectorAll('.cls-row')], net + leftVat, net + leftVat);
-  const rows = piRows();
-  if (rows.length > 1 && rows.some(r => f(r, 'category').value === THIRD_PARTY)) {
-    st.kind = 'incomplete';
-    st.note = 'Με κατηγορία 2.9 επιτρέπεται μόνο ένας χαρακτηρισμός Ε3';
-  }
-  st.leftVat = leftVat;
-  return st;
-}
-const stateOf = line => (isPi(line) ? groupState(line) : lineState(line));
-
-function paint(line, st) {
-  const status = line.querySelector('.cls-status');
-  if (st.kind === 'ok') status.textContent = '✓ Πλήρης';
-  else if (st.kind === 'short') status.textContent = 'Αχαρακτήριστο: ' + money(st.left);
-  else if (st.kind === 'over') status.textContent = 'Υπέρβαση κατά ' + money(st.over);
-  else status.textContent = st.note || 'Συμπλήρωσε κατηγορία, τύπο και ποσό';
-  line.dataset.state = st.kind;
-  line.querySelector('.meter--line span').style.width =
-    (st.target > 0 ? Math.min(100, st.sum / st.target * 100) : (st.sum ? 100 : 0)) + '%';
-  // «+ υπόλοιπο»: μόνο όταν λείπει ποσό, κάτω από το τελευταίο ποσό
-  const fills = line.querySelectorAll('.cls-fill');
-  fills.forEach((b, i) => {
-    b.hidden = !(st.kind === 'short' && i === fills.length - 1);
-    b.textContent = '+ υπόλοιπο ' + money(st.left || 0);
-  });
-}
-
-function recalc() {
-  const pi = mode() === '1';
-  let ready = 0, total = 0, done = 0, target = 0;
-  const lines = pi ? piGroups() : [...document.querySelectorAll('#cls-lines .cls-line')];
-  lines.forEach(line => {
-    const st = stateOf(line);
-    paint(line, st);
-    total++;
-    if (st.kind === 'ok') ready++;
-    const base = pi ? st.target : lineData(line).net;
-    done += Math.min(st.sum, base);
-    target += base;
-    if (pi) {
-      line.querySelector('.pi-target').textContent = money(st.target) +
-        (st.leftVat ? ' (καθαρή + ΦΠΑ ' + money(st.leftVat) + ')' : '');
-    }
-  });
-  if (pi) {
-    const hint = document.getElementById('pi-hint');
-    hint.hidden = !piRows().some(r => f(r, 'category').value === THIRD_PARTY);
-    hint.textContent = 'Κατηγορία 2.9 (για λογαριασμό τρίτων): ένας μόνο χαρακτηρισμός Ε3 σε όλο το παραστατικό και κανένας χαρακτηρισμός ΦΠΑ.';
-  }
-  const allOk = ready === total;
-  const noun = pi ? ['συγκεντρωτική γραμμή', 'συγκεντρωτικές γραμμές'] : ['γραμμή', 'γραμμές'];
-  document.getElementById('overall-text').textContent = 'Χαρακτηρισμένα ' + money(done) + ' από ' + money(target);
-  document.getElementById('overall-count').textContent = ready + ' από ' + total + ' ' + noun[1] + ' έτοιμες';
-  document.getElementById('overall-bar').style.width = (target ? done / target * 100 : 100) + '%';
-  // Δαχτυλίδι της κεφαλίδας: ίδιο ποσοστό, «γεμίζει» πράσινο όταν όλα είναι έτοιμα.
-  const pct = target ? Math.round(done / target * 100) : 100;
-  const ring = document.getElementById('ch-ring');
-  ring.style.setProperty('--p', pct);
-  ring.querySelector('b').textContent = pct + '%';
-  document.getElementById('ch-prog').classList.toggle('is-done', allOk);
-  const fs = document.getElementById('footer-status');
-  const bad = total - ready;
-  fs.textContent = allOk ? '✓ Έτοιμο για αποθήκευση.'
-    : '⚠ ' + bad + ' ' + (bad === 1 ? noun[0] + ' θέλει' : noun[1] + ' θέλουν') + ' προσοχή πριν την αποθήκευση.';
-  fs.dataset.state = allOk ? 'ok' : 'bad';
-  form.querySelectorAll('button[type=submit]').forEach(b => { b.disabled = !allOk; });
-}
-
-// ---- Εναλλαγή τρόπου: η ανενεργή ενότητα απενεργοποιείται (δεν υποβάλλεται) ----
-function applyMode() {
-  const m = mode();
-  document.querySelectorAll('[data-mode-panel]').forEach(p => {
-    const on = p.dataset.modePanel === m;
-    p.hidden = !on;
-    p.querySelectorAll('input, select, button').forEach(el => { el.disabled = !on; });
-  });
-  if (m === '1') syncThirdParty();
-  recalc();
-}
-
-// ---- Έξυπνες προεπιλογές ----
-// Ανά γραμμή: 2.5 → ΦΠΑ κενός + ποσό = μικτή, και αντίστροφα.
-function syncVat(row, prevCat) {
-  const line = row.closest('.cls-line');
-  if (isPi(line)) return syncPi(row, prevCat);
-  const {net, vat, gross} = lineData(line);
-  const cat = f(row, 'category').value;
-  const vt = row.querySelector('[name=vat_type]');
-  const amt = row.querySelector('.cls-amount');
-  const single = line.querySelectorAll('.cls-row').length === 1;
-  if (vat === 0) { vt.value = ''; return; }
-  if (cat === NO_VAT_RIGHT) {
-    vt.value = '';
-    if (single && Math.abs(num(amt) - net) < 0.005) amt.value = gross.toFixed(2);
-  } else if (prevCat === NO_VAT_RIGHT) {
-    if (!vt.value) vt.value = 'VAT_361';
-    if (single && Math.abs(num(amt) - gross) < 0.005) amt.value = net.toFixed(2);
-  }
-}
-// Συγκεντρωτική γραμμή: 2.5 → ο ΦΠΑ της χωρίς χαρακτηρισμό (μπαίνει στο Ε3), και αντίστροφα.
-function syncPi(row, prevCat) {
-  const group = row.closest('.pi-group');
-  const cat = f(row, 'category').value;
-  const sel = group.querySelector('.pi-vat');
-  const amt = row.querySelector('.cls-amount');
-  const single = group.querySelectorAll('.cls-row').length === 1;
-  const before = groupState(group).target;
-  const special = [NO_VAT_RIGHT, THIRD_PARTY];
-  if (sel && cat === NO_VAT_RIGHT && prevCat !== NO_VAT_RIGHT) sel.value = '';
-  else if (sel && special.includes(prevCat) && !special.includes(cat) && !sel.value) sel.value = 'VAT_361';
-  syncThirdParty();
-  // Αν το ποσό «έκλεινε» πριν, το κρατάμε κλειστό και μετά την αλλαγή.
-  if (single && Math.abs(num(amt) - before) < 0.005) amt.value = groupState(group).target.toFixed(2);
-}
-// 2.9 (σε όλο το παραστατικό): κανένας χαρακτηρισμός ΦΠΑ (κλειδωμένα στο «Χωρίς»).
-function syncThirdParty() {
-  const third = piRows().some(r => f(r, 'category').value === THIRD_PARTY);
-  document.querySelectorAll('.pi-vat').forEach(s => {
-    if (third) s.value = '';
-    s.disabled = third || mode() !== '1';
-  });
-}
-function addRow(line) {
-  const rows = line.querySelector('.cls-rows');
-  const last = rows.lastElementChild;
-  const clone = last.cloneNode(true);
-  f(clone, 'category').value = f(last, 'category').value;
-  f(clone, 'type').value = '';
-  const vt = clone.querySelector('[name=vat_type]');
-  if (vt) vt.value = last.querySelector('[name=vat_type]').value;
-  const st = stateOf(line);
-  clone.querySelector('.cls-amount').value = st.kind === 'short' ? st.left.toFixed(2) : '';
-  rows.appendChild(clone);
-  filterCats(clone);
-  filterTypes(clone, false);
-  if (vt) syncVat(clone);
-  recalc();
-  f(clone, 'type').focus();
-}
-// Κατηγορία/τύπος (+ΦΠΑ) της 1ης γραμμής → σε όλες.
-function copyFirst(lines, withVat) {
-  const src = lines[0].querySelector('.cls-row');
-  const srcVat = lines[0].querySelector('.pi-vat');
-  lines.forEach(line => {
-    line.querySelectorAll('.cls-row').forEach(r => {
-      const prev = f(r, 'category').value;
-      f(r, 'category').value = f(src, 'category').value;
-      filterTypes(r, true);
-      f(r, 'type').value = f(src, 'type').value;
-      const vt = r.querySelector('[name=vat_type]');
-      if (vt) vt.value = src.querySelector('[name=vat_type]').value;
-      syncVat(r, prev);
+  // ---- Φιλτράρισμα κατηγορίας/τύπου βάσει των συνδυασμών της ΑΑΔΕ ----
+  function filterCats(row) {
+    if (!FILTER) return;
+    [...f(row, 'category').options].forEach(o => {
+      if (!o.value) return;
+      const ok = Object.prototype.hasOwnProperty.call(ALLOWED, o.value);
+      o.hidden = o.disabled = !ok;
     });
-    const sel = line.querySelector('.pi-vat');
-    if (withVat && sel && srcVat) sel.value = srcVat.value;
-    // Συγκεντρωτικά με ένα Ε3: το ποσό κλείνει μόνο του.
-    const rows = line.querySelectorAll('.cls-row');
-    if (withVat && rows.length === 1) rows[0].querySelector('.cls-amount').value = groupState(line).target.toFixed(2);
-  });
-  recalc();
-}
-
-// ---- Συμβάντα ----
-const prevCats = new WeakMap();
-form.addEventListener('focusin', e => {
-  if (e.target.dataset.f === 'category') prevCats.set(e.target, e.target.value);
-});
-form.addEventListener('change', e => {
-  if (e.target.name === 'post_mode') { applyMode(); return; }
-  const row = e.target.closest('.cls-row');
-  if (row && e.target.dataset.f === 'category') {
-    filterTypes(row, true);
-    syncVat(row, prevCats.get(e.target));
-    prevCats.set(e.target, e.target.value);
   }
-  recalc();
-});
-form.addEventListener('input', e => { if (e.target.classList.contains('cls-amount')) recalc(); });
-form.addEventListener('click', e => {
-  const line = e.target.closest('.cls-line');
-  if (e.target.closest('.cls-add')) addRow(line);
-  else if (e.target.closest('.cls-del')) {
-    if (line.querySelectorAll('.cls-row').length <= 1) {
-      alert('Χρειάζεται τουλάχιστον ένας χαρακτηρισμός Ε3.');
-      return;
+  function filterTypes(row, clearInvalid) {
+    if (!FILTER) return;
+    const cat = f(row, 'category').value;
+    const sel = f(row, 'type');
+    const allowed = ALLOWED[cat] || [];
+    const anyE3 = allowed.includes('*');
+    const noE3 = allowed.length === 1 && allowed[0] === '-';
+    const ok = v => !!cat && (anyE3 || (!noE3 && allowed.includes(v)));
+    [...sel.options].forEach(o => { if (o.value) o.hidden = o.disabled = !ok(o.value); });
+    if (clearInvalid && sel.value && !ok(sel.value)) sel.value = '';
+  }
+
+  // ---- Κατάσταση: ποσό Ε3 σε σχέση με το εύρος [min, max] που πρέπει να καλύψει ----
+  function rangeState(rows, min, max) {
+    let sum = 0;
+    rows.forEach(r => { sum += num(r.querySelector('.cls-amount')); });
+    const missing = rows.some(r => !f(r, 'category').value || !f(r, 'type').value || !r.querySelector('.cls-amount').value);
+    if (sum < min - 0.01) return {kind: 'short', sum, left: min - sum, missing, target: min};
+    if (sum > max + 0.01) return {kind: 'over', sum, over: sum - max, missing, target: max};
+    return {kind: missing ? 'incomplete' : 'ok', sum, left: 0, missing, target: min};
+  }
+  // Ανά γραμμή: καθαρή ≤ Ε3 ≤ μικτή.
+  function lineState(line) {
+    const {net, gross} = lineData(line);
+    return rangeState([...line.querySelectorAll('.cls-row')], net, gross);
+  }
+  // Συγκεντρωτική γραμμή (ανά κατηγορία ΦΠΑ): Ε3 = καθαρή + ΦΠΑ που μένει χωρίς χαρακτηρισμό ΦΠΑ.
+  function groupState(group) {
+    const {net, vat} = lineData(group);
+    const sel = group.querySelector('.pi-vat');
+    const leftVat = sel && sel.value ? 0 : vat;
+    const st = rangeState([...group.querySelectorAll('.cls-row')], net + leftVat, net + leftVat);
+    const rows = piRows();
+    if (rows.length > 1 && rows.some(r => f(r, 'category').value === THIRD_PARTY)) {
+      st.kind = 'incomplete';
+      st.note = 'Με κατηγορία 2.9 επιτρέπεται μόνο ένας χαρακτηρισμός Ε3';
     }
-    e.target.closest('.cls-row').remove();
-    if (isPi(line)) syncThirdParty();
-    recalc();
-  } else if (e.target.closest('.cls-fill')) {
-    const amt = e.target.closest('.cls-row').querySelector('.cls-amount');
-    amt.value = (num(amt) + stateOf(line).left).toFixed(2);
-    recalc();
-  } else if (e.target.closest('#copy-first')) {
-    copyFirst([...document.querySelectorAll('#cls-lines .cls-line')], false);
-  } else if (e.target.closest('#pi-copy-first')) {
-    copyFirst(piGroups(), true);
+    st.leftVat = leftVat;
+    return st;
   }
-});
+  const stateOf = line => (isPi(line) ? groupState(line) : lineState(line));
 
-// Αρχική κατάσταση (χωρίς να σβήνονται υπάρχουσες τιμές)
-form.querySelectorAll('.cls-row').forEach(r => { filterCats(r); filterTypes(r, false); });
-applyMode();
+  function paint(line, st) {
+    const status = line.querySelector('.cls-status');
+    if (st.kind === 'ok') status.textContent = '✓ Πλήρης';
+    else if (st.kind === 'short') status.textContent = 'Αχαρακτήριστο: ' + money(st.left);
+    else if (st.kind === 'over') status.textContent = 'Υπέρβαση κατά ' + money(st.over);
+    else status.textContent = st.note || 'Συμπλήρωσε κατηγορία, τύπο και ποσό';
+    line.dataset.state = st.kind;
+    line.querySelector('.meter--line span').style.width =
+      (st.target > 0 ? Math.min(100, st.sum / st.target * 100) : (st.sum ? 100 : 0)) + '%';
+    // «+ υπόλοιπο»: μόνο όταν λείπει ποσό, κάτω από το τελευταίο ποσό
+    const fills = line.querySelectorAll('.cls-fill');
+    fills.forEach((b, i) => {
+      b.hidden = !(st.kind === 'short' && i === fills.length - 1);
+      b.textContent = '+ υπόλοιπο ' + money(st.left || 0);
+    });
+  }
+
+  function recalc() {
+    const pi = mode() === '1';
+    let ready = 0, total = 0, done = 0, target = 0;
+    const lines = pi ? piGroups() : [...document.querySelectorAll('#cls-lines .cls-line')];
+    lines.forEach(line => {
+      const st = stateOf(line);
+      paint(line, st);
+      total++;
+      if (st.kind === 'ok') ready++;
+      const base = pi ? st.target : lineData(line).net;
+      done += Math.min(st.sum, base);
+      target += base;
+      if (pi) {
+        line.querySelector('.pi-target').textContent = money(st.target) +
+          (st.leftVat ? ' (καθαρή + ΦΠΑ ' + money(st.leftVat) + ')' : '');
+      }
+    });
+    if (pi) {
+      const hint = document.getElementById('pi-hint');
+      hint.hidden = !piRows().some(r => f(r, 'category').value === THIRD_PARTY);
+      hint.textContent = 'Κατηγορία 2.9 (για λογαριασμό τρίτων): ένας μόνο χαρακτηρισμός Ε3 σε όλο το παραστατικό και κανένας χαρακτηρισμός ΦΠΑ.';
+    }
+    const allOk = ready === total;
+    const noun = pi ? ['συγκεντρωτική γραμμή', 'συγκεντρωτικές γραμμές'] : ['γραμμή', 'γραμμές'];
+    document.getElementById('overall-text').textContent = 'Χαρακτηρισμένα ' + money(done) + ' από ' + money(target);
+    document.getElementById('overall-count').textContent = ready + ' από ' + total + ' ' + noun[1] + ' έτοιμες';
+    document.getElementById('overall-bar').style.width = (target ? done / target * 100 : 100) + '%';
+    // Δαχτυλίδι της κεφαλίδας: ίδιο ποσοστό, «γεμίζει» πράσινο όταν όλα είναι έτοιμα.
+    const pct = target ? Math.round(done / target * 100) : 100;
+    const ring = document.getElementById('ch-ring');
+    ring.style.setProperty('--p', pct);
+    ring.querySelector('b').textContent = pct + '%';
+    document.getElementById('ch-prog').classList.toggle('is-done', allOk);
+    const fs = document.getElementById('footer-status');
+    const bad = total - ready;
+    fs.textContent = allOk ? '✓ Έτοιμο για αποθήκευση.'
+      : '⚠ ' + bad + ' ' + (bad === 1 ? noun[0] + ' θέλει' : noun[1] + ' θέλουν') + ' προσοχή πριν την αποθήκευση.';
+    fs.dataset.state = allOk ? 'ok' : 'bad';
+    form.querySelectorAll('button[type=submit]').forEach(b => { b.disabled = !allOk; });
+  }
+
+  // ---- Εναλλαγή τρόπου: η ανενεργή ενότητα απενεργοποιείται (δεν υποβάλλεται) ----
+  function applyMode() {
+    const m = mode();
+    document.querySelectorAll('[data-mode-panel]').forEach(p => {
+      const on = p.dataset.modePanel === m;
+      p.hidden = !on;
+      p.querySelectorAll('input, select, button').forEach(el => { el.disabled = !on; });
+    });
+    if (m === '1') syncThirdParty();
+    recalc();
+  }
+
+  // ---- Έξυπνες προεπιλογές ----
+  // Ανά γραμμή: 2.5 → ΦΠΑ κενός + ποσό = μικτή, και αντίστροφα.
+  function syncVat(row, prevCat) {
+    const line = row.closest('.cls-line');
+    if (isPi(line)) return syncPi(row, prevCat);
+    const {net, vat, gross} = lineData(line);
+    const cat = f(row, 'category').value;
+    const vt = row.querySelector('[name=vat_type]');
+    const amt = row.querySelector('.cls-amount');
+    const single = line.querySelectorAll('.cls-row').length === 1;
+    if (vat === 0) { vt.value = ''; return; }
+    if (cat === NO_VAT_RIGHT) {
+      vt.value = '';
+      if (single && Math.abs(num(amt) - net) < 0.005) amt.value = gross.toFixed(2);
+    } else if (prevCat === NO_VAT_RIGHT) {
+      if (!vt.value) vt.value = 'VAT_361';
+      if (single && Math.abs(num(amt) - gross) < 0.005) amt.value = net.toFixed(2);
+    }
+  }
+  // Συγκεντρωτική γραμμή: 2.5 → ο ΦΠΑ της χωρίς χαρακτηρισμό (μπαίνει στο Ε3), και αντίστροφα.
+  function syncPi(row, prevCat) {
+    const group = row.closest('.pi-group');
+    const cat = f(row, 'category').value;
+    const sel = group.querySelector('.pi-vat');
+    const amt = row.querySelector('.cls-amount');
+    const single = group.querySelectorAll('.cls-row').length === 1;
+    const before = groupState(group).target;
+    const special = [NO_VAT_RIGHT, THIRD_PARTY];
+    if (sel && cat === NO_VAT_RIGHT && prevCat !== NO_VAT_RIGHT) sel.value = '';
+    else if (sel && special.includes(prevCat) && !special.includes(cat) && !sel.value) sel.value = 'VAT_361';
+    syncThirdParty();
+    // Αν το ποσό «έκλεινε» πριν, το κρατάμε κλειστό και μετά την αλλαγή.
+    if (single && Math.abs(num(amt) - before) < 0.005) amt.value = groupState(group).target.toFixed(2);
+  }
+  // 2.9 (σε όλο το παραστατικό): κανένας χαρακτηρισμός ΦΠΑ (κλειδωμένα στο «Χωρίς»).
+  function syncThirdParty() {
+    const third = piRows().some(r => f(r, 'category').value === THIRD_PARTY);
+    document.querySelectorAll('.pi-vat').forEach(s => {
+      if (third) s.value = '';
+      s.disabled = third || mode() !== '1';
+    });
+  }
+  function addRow(line) {
+    const rows = line.querySelector('.cls-rows');
+    const last = rows.lastElementChild;
+    const clone = last.cloneNode(true);
+    f(clone, 'category').value = f(last, 'category').value;
+    f(clone, 'type').value = '';
+    const vt = clone.querySelector('[name=vat_type]');
+    if (vt) vt.value = last.querySelector('[name=vat_type]').value;
+    const st = stateOf(line);
+    clone.querySelector('.cls-amount').value = st.kind === 'short' ? st.left.toFixed(2) : '';
+    rows.appendChild(clone);
+    filterCats(clone);
+    filterTypes(clone, false);
+    if (vt) syncVat(clone);
+    recalc();
+    f(clone, 'type').focus();
+  }
+  // Κατηγορία/τύπος (+ΦΠΑ) της 1ης γραμμής → σε όλες.
+  function copyFirst(lines, withVat) {
+    const src = lines[0].querySelector('.cls-row');
+    const srcVat = lines[0].querySelector('.pi-vat');
+    lines.forEach(line => {
+      line.querySelectorAll('.cls-row').forEach(r => {
+        const prev = f(r, 'category').value;
+        f(r, 'category').value = f(src, 'category').value;
+        filterTypes(r, true);
+        f(r, 'type').value = f(src, 'type').value;
+        const vt = r.querySelector('[name=vat_type]');
+        if (vt) vt.value = src.querySelector('[name=vat_type]').value;
+        syncVat(r, prev);
+      });
+      const sel = line.querySelector('.pi-vat');
+      if (withVat && sel && srcVat) sel.value = srcVat.value;
+      // Συγκεντρωτικά με ένα Ε3: το ποσό κλείνει μόνο του.
+      const rows = line.querySelectorAll('.cls-row');
+      if (withVat && rows.length === 1) rows[0].querySelector('.cls-amount').value = groupState(line).target.toFixed(2);
+    });
+    recalc();
+  }
+
+  // ---- Συμβάντα ----
+  // Η φόρμα μένει ίδια στις AJAX φορτώσεις: οι listeners της προηγούμενης αρχικοποίησης φεύγουν.
+  if (initCls.ac) initCls.ac.abort();
+  const signal = (initCls.ac = new AbortController()).signal;
+  const prevCats = new WeakMap();
+  form.addEventListener('focusin', e => {
+    if (e.target.dataset.f === 'category') prevCats.set(e.target, e.target.value);
+  }, {signal});
+  form.addEventListener('change', e => {
+    if (e.target.name === 'post_mode') { applyMode(); return; }
+    const row = e.target.closest('.cls-row');
+    if (row && e.target.dataset.f === 'category') {
+      filterTypes(row, true);
+      syncVat(row, prevCats.get(e.target));
+      prevCats.set(e.target, e.target.value);
+    }
+    recalc();
+  }, {signal});
+  form.addEventListener('input', e => { if (e.target.classList.contains('cls-amount')) recalc(); }, {signal});
+  form.addEventListener('click', e => {
+    const line = e.target.closest('.cls-line');
+    if (e.target.closest('.cls-add')) addRow(line);
+    else if (e.target.closest('.cls-del')) {
+      if (line.querySelectorAll('.cls-row').length <= 1) {
+        alert('Χρειάζεται τουλάχιστον ένας χαρακτηρισμός Ε3.');
+        return;
+      }
+      e.target.closest('.cls-row').remove();
+      if (isPi(line)) syncThirdParty();
+      recalc();
+    } else if (e.target.closest('.cls-fill')) {
+      const amt = e.target.closest('.cls-row').querySelector('.cls-amount');
+      amt.value = (num(amt) + stateOf(line).left).toFixed(2);
+      recalc();
+    } else if (e.target.closest('#copy-first')) {
+      copyFirst([...document.querySelectorAll('#cls-lines .cls-line')], false);
+    } else if (e.target.closest('#pi-copy-first')) {
+      copyFirst(piGroups(), true);
+    }
+  }, {signal});
+
+  // Αρχική κατάσταση (χωρίς να σβήνονται υπάρχουσες τιμές)
+  form.querySelectorAll('.cls-row').forEach(r => { filterCats(r); filterTypes(r, false); });
+  applyMode();
+}
+initCls();
+
+// Προηγούμενο/επόμενο αχαρακτήριστο με AJAX: αλλάζουν μόνο οι κόμβοι που διαφέρουν
+// (κείμενα, τιμές, γραμμές)· κεφαλίδα, blobs και animations μένουν ως έχουν.
+(function(){
+  var ctrl;
+  function morph(a, b) {  // a: ζωντανός κόμβος, b: νέος
+    if (a.nodeType !== b.nodeType || a.nodeName !== b.nodeName) { a.replaceWith(b); return; }
+    if (a.nodeType !== 1) { if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue; return; }
+    [...a.attributes].forEach(function(x){ if (!b.hasAttribute(x.name)) a.removeAttribute(x.name); });
+    [...b.attributes].forEach(function(x){ if (a.getAttribute(x.name) !== x.value) a.setAttribute(x.name, x.value); });
+    var ak = [...a.childNodes];
+    [...b.childNodes].forEach(function(n, i){ if (ak[i]) morph(ak[i], n); else a.appendChild(n); });
+    ak.slice(b.childNodes.length).forEach(function(n){ n.remove(); });
+    // Η τρέχουσα τιμή των πεδίων δεν ακολουθεί τα attributes: τη μεταφέρουμε ρητά.
+    if (a.nodeName === 'INPUT') { a.value = b.value; a.checked = b.checked; }
+    else if (a.nodeName === 'SELECT' || a.nodeName === 'TEXTAREA') a.value = b.value;
+  }
+  function load(url, push) {
+    var box = document.getElementById('cls-form');
+    if (ctrl) ctrl.abort();
+    ctrl = new AbortController();
+    box.classList.add('is-loading');
+    fetch(url, {signal: ctrl.signal}).then(function(r){
+      if (!r.ok || new URL(r.url).pathname.indexOf('/classify/') !== 0) throw new Error('redirect');
+      return r.text();
+    }).then(function(html){
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      document.documentElement.dataset.samePage = '';
+      morph(box, doc.getElementById('cls-form'));
+      box.classList.remove('is-loading');
+      document.title = doc.title;
+      if (push) history.pushState(null, '', url);
+      initCls();
+    }).catch(function(e){ if (e.name !== 'AbortError') location.href = url; });
+  }
+  document.addEventListener('click', function(e){
+    var a = e.target.closest('a[data-cls-nav][href]');
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    load(a.href, true);
+  });
+  addEventListener('popstate', function(){ load(location.href, false); });
+})();
 </script>
 {% endblock %}

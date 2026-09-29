@@ -19,8 +19,10 @@
   });
 
   // ---- Ημερομηνίες: εμφάνιση dd/mm/yyyy, υποβολή ISO (yyyy-mm-dd) όπως πριν ----
-  if (window.flatpickr) {
-    flatpickr('input[type=date]', {
+  // Καλείται ξανά για περιεχόμενο που φορτώνεται με AJAX (καρτέλες βιβλίων).
+  window.initDates = root => {
+    if (!window.flatpickr) return;
+    flatpickr(root.querySelectorAll('input[type=date]'), {
       locale: 'gr', dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y',
       allowInput: true, disableMobile: true,
       onReady(_, __, fp) {
@@ -29,7 +31,8 @@
         fp.altInput.placeholder = 'ηη/μμ/εεεε';
       },
     });
-  }
+  };
+  initDates(document);
 
   // ---- Βιβλία: οι επικεφαλίδες στηλών κολλάνε ακριβώς κάτω από το σταθερό toolbar ----
   const toolbar = document.querySelector('.ledger-toolbar');

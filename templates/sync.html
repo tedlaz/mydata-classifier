@@ -7,6 +7,17 @@
 {% set noun = 'εσόδων' if income else 'εξόδων' %}
 {% set tabs = [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️')] if income else
    [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️'), ('sent', 'Απεσταλμένα', '🚀'), ('confirmed', 'Ολοκληρωμένα', '✅')] %}
+
+{# Ίδια κεφαλίδα με το βιβλίο: η Ανάκτηση είναι η πρώτη καρτέλα του. #}
+{% call ledger_hero(book, {'view': ''},
+    '📤 Βιβλίο εσόδων' if income else '📥 Βιβλίο εξόδων',
+    'Τα δικά σου παραστατικά, όπως τα διαβίβασες στο myDATA.' if income else 'Παραστατικά που σου διαβίβασαν άλλοι: χαρακτήρισε, στείλε, επιβεβαίωσε.',
+    tabs, 'confirmed' if not income else 'classified', {}, date_range, last_mark, 'in' if income else 'out') %}
+  {% if not income %}<a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>{% endif %}
+{% endcall %}
+
+{# Κάτω από την κεφαλίδα: αντικαθίσταται με AJAX όταν αλλάζει καρτέλα του βιβλίου. #}
+<div data-lh-body>
 <style>
 .sy-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:18px;align-items:stretch}
 .sy-card{background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:22px;
@@ -67,14 +78,32 @@ body.is-busy .sy-busy{display:flex}
 .sy-act.is-loading .e{animation:sy-spin 1s linear infinite}
 .sy-note{margin-top:16px}
 
+/* Τελευταίοι 12 μήνες: πλήθος παραστατικών στο τοπικό βιβλίο· κλικ = διάστημα του μήνα. */
+.sy-months{margin-top:18px}
+.sy-months-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:6px 16px}
+.sy-legend{display:flex;gap:14px;font-size:.78rem;color:var(--muted)}
+.sy-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:var(--accent)}
+.sy-legend i.w{background:var(--warn)}
+.sy-legend i.e{background:none;border:1px dashed var(--line)}
+.sy-mgrid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:8px;margin-top:14px}
+.sy-mo{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 4px 8px;border-radius:12px;font-weight:400;
+  background:var(--surface-2);color:var(--ink);border:1px solid var(--line-soft);box-shadow:none}
+.sy-mo:hover{border-color:var(--accent);box-shadow:none;filter:none}
+.sy-mo.is-on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.sy-mo.is-now{background:var(--accent-soft)}
+.sy-mo.is-empty{background:none;border-style:dashed;color:var(--muted)}
+.sy-mo .mn{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.sy-mo .yr{font:600 .66rem var(--font-data);color:var(--muted);min-height:1em}
+.sy-mo .bar{position:relative;width:16px;height:54px;border-radius:5px;background:var(--surface-3);overflow:hidden;display:flex;flex-direction:column-reverse}
+.sy-mo .bar span{display:block;width:100%;background:var(--accent)}
+.sy-mo .bar span.w{background:var(--warn);min-height:3px}
+.sy-mo.is-empty .bar{background:none}
+.sy-mo b{font:700 .9rem var(--font-data)}
+@media (max-width:700px){ .sy-mgrid{grid-template-columns:repeat(6,minmax(0,1fr))} }
+
 @media (max-width:900px){ .sy-grid,.sy-acts{grid-template-columns:1fr} }
 @media (prefers-reduced-motion:reduce){ .sy-grid *,.sy-acts *,.sy-card,.sy-act{animation:none!important;transition:none!important} }
 </style>
-
-{% call ledger_hero(book, {'view': ''}, '⟳ Ανάκτηση / διαγραφή ' ~ noun, 'Φέρε παραστατικά από το myDATA στο τοπικό βιβλίο, ή καθάρισε ένα διάστημα.',
-    tabs, 'confirmed' if not income else 'classified', {}, date_range, none, 'in' if income else 'out') %}
-  <a class="btn btn-ghost" href="{{ url_for(book) }}">← {{ 'Βιβλίο εσόδων' if income else 'Βιβλίο εξόδων' }}</a>
-{% endcall %}
 
 <form method="post" action="{{ url_for('income_fetch' if income else 'fetch') }}" id="sy-form">
   <div class="sy-grid">
@@ -117,6 +146,40 @@ body.is-busy .sy-busy{display:flex}
     </section>
   </div>
 
+  {% set mnames = ['Ιαν', 'Φεβ', 'Μάρ', 'Απρ', 'Μάι', 'Ιούν', 'Ιούλ', 'Αύγ', 'Σεπ', 'Οκτ', 'Νοέ', 'Δεκ'] %}
+  {% set labels = {} %}
+  {% for key, label, _ in tabs %}{% set _ = labels.update({key: label}) %}{% endfor %}
+  <section class="sy-card sy-months" style="--i:2">
+    <div class="sy-months-head">
+      <h2>🗓️ Τελευταίοι 12 μήνες</h2>
+      <div class="sy-legend">
+        <span><i></i>παραστατικά στο βιβλίο</span>
+        {% if not income %}<span><i class="w"></i>αχαρακτήριστα</span>{% endif %}
+        <span><i class="e"></i>κενός μήνας</span>
+      </div>
+    </div>
+    {% set ns = namespace(peak=1) %}
+    {% for ym, st in months %}{% set ns.peak = [ns.peak, st.values()|sum]|max %}{% endfor %}
+    <div class="sy-mgrid" role="group" aria-label="Παραστατικά ανά μήνα — κλικ για το διάστημα του μήνα">
+      {% for ym, st in months %}
+        {% set total = st.values()|sum %}
+        {% set pending = 0 if income else st.get('unclassified', 0) %}
+        {% set m = ym[5:]|int %}
+        <button type="button" data-preset="month-of" data-ym="{{ ym }}"
+                class="sy-mo {{ 'is-empty' if not total }} {{ 'is-now' if loop.last }}"
+                title="{{ mnames[m - 1] }} {{ ym[:4] }}: {% if total %}{% for key, n in st.items() %}{{ labels.get(key, key) }} {{ n }}{{ ' · ' if not loop.last }}{% endfor %}{% else %}κανένα παραστατικό{% endif %}">
+          <span class="mn">{{ mnames[m - 1] }}</span>
+          <span class="yr">{{ ym[:4] if loop.first or m == 1 }}</span>
+          <span class="bar" aria-hidden="true">
+            {% if total %}<span style="height:{{ ((total - pending) / ns.peak * 100)|round(1) }}%"></span>{% endif %}
+            {% if pending %}<span class="w" style="height:{{ (pending / ns.peak * 100)|round(1) }}%"></span>{% endif %}
+          </span>
+          <b>{{ total or '—' }}</b>
+        </button>
+      {% endfor %}
+    </div>
+  </section>
+
   <div class="sy-acts">
     <button type="submit" class="sy-act sy-act--go" style="--i:0">
       <span class="e">📥</span><b>Ανάκτηση {{ noun }}</b>
@@ -139,9 +202,7 @@ body.is-busy .sy-busy{display:flex}
   ⚠ Με τη διαγραφή χάνονται οριστικά ό,τι υπήρχε <strong>μόνο τοπικά</strong>: χαρακτηρισμοί που δεν έχουν σταλεί
   {%- if not income %} και «Νέες εγγραφές» που δεν έχουν διαβιβαστεί{% endif %}.
 </p>
-{% endblock %}
 
-{% block scripts %}
 <script>
 (function(){
   var form = document.getElementById('sy-form');
@@ -160,6 +221,10 @@ body.is-busy .sy-busy{display:flex}
       case 'quarter': from = new Date(y, m - m % 3, 1); break;
       case 'year': from = new Date(y, 0, 1); break;
       case 'lastyear': from = new Date(y - 1, 0, 1); to = new Date(y - 1, 11, 31); break;
+      case 'month-of': {  // κελί της λωρίδας μηνών: data-ym="yyyy-mm"
+        var ym = b.dataset.ym.split('-');
+        from = new Date(+ym[0], ym[1] - 1, 1); to = new Date(+ym[0], +ym[1], 0); break;
+      }
       case 'since': {  // «ηη/μμ/εεεε – ηη/μμ/εεεε»: η τελευταία ημερομηνία ως σήμερα
         var p = (b.dataset.last.match(/\d{2}\/\d{2}\/\d{4}/g) || []).pop();
         if (p) { var a = p.split('/'); from = new Date(+a[2], +a[1] - 1, +a[0]); }
@@ -170,4 +235,5 @@ body.is-busy .sy-busy{display:flex}
   });
 })();
 </script>
+</div>
 {% endblock %}

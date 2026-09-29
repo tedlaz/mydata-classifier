@@ -7,17 +7,16 @@
 {% call ledger_hero('income', q, '📤 Βιβλίο εσόδων', 'Τα δικά σου παραστατικά, όπως τα διαβίβασες στο myDATA.',
     [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️')],
     'classified', sums, date_range, last_mark, 'in') %}
-  <a class="btn btn-ghost" href="{{ url_for('income_sync') }}">⟳ Ανάκτηση / Διαγραφή</a>
 {% endcall %}
 
-<div class="card ledger-card" data-view="{{ view }}">
+<div class="card ledger-card" data-view="{{ view }}" data-lh-body>
   <div class="ledger-toolbar">
 
   {% if counts[view] > 0 %}{{ filter_bar('income', q, 'Πελάτης / ΑΦΜ') }}{% endif %}
   </div>
 
   {% if total == 0 %}
-    {{ empty_state('income', q, 'εσόδων σε αυτή την κατάσταση. Κάνε ανάκτηση από τη σελίδα «Ανάκτηση / Διαγραφή».') }}
+    {{ empty_state('income', q, 'εσόδων σε αυτή την κατάσταση. Κάνε ανάκτηση από την καρτέλα «⟳ Ανάκτηση / Διαγραφή».') }}
   {% else %}
   <div class="table-wrap">
   <table class="ledger">
