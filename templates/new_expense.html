@@ -101,6 +101,7 @@
 
 <form method="post" action="{{ url_for('new_expense_submit') }}" id="ne-form">
   <input type="hidden" name="edit_mark" value="{{ edit_mark }}">
+  {% if template and template.monthly_day %}<input type="hidden" name="template_id" value="{{ template.id }}">{% endif %}
 
   <section class="card ne-card" style="--i:0">
     <div class="ne-card-head"><h2><span class="ne-no">1</span>Στοιχεία εγγραφής</h2></div>

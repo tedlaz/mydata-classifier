@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Μηνιαίες εγγραφές{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Μηνιαίες εγγραφές</h1>
+    <p class="page-sub">Πρότυπα «Νέας εγγραφής» (ΕΦΚΑ, ενοίκιο, μισθοδοσία…) που δημιουργούνται μία φορά τον μήνα.
+      Δεύτερη εγγραφή του ίδιου προτύπου για τον ίδιο μήνα δεν γίνεται ποτέ. Οι εγγραφές μπαίνουν στα
+      «Χαρακτηρισμένα» με τα ποσά του προτύπου — έλεγξέ τα πριν την αποστολή.</p>
+  </div>
+</div>
+
+<div class="card">
+  <form method="get" class="inline-form">
+    <label>Μήνας <input type="month" name="period" value="{{ period }}" data-autosubmit></label>
+  </form>
+
+  {% if templates %}
+  <form method="post">
+    <input type="hidden" name="period" value="{{ period }}">
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr><th class="col-check"></th><th>Πρότυπο</th><th>Ημέρα μήνα</th><th>{{ period }}</th></tr>
+      </thead>
+      <tbody>
+        {% for t in templates %}
+        {% set d = done.get(t.id) %}
+        <tr>
+          <td class="row-head" data-label="">
+            {% if t.monthly_day and not d %}<input type="checkbox" class="sel" name="template_ids" value="{{ t.id }}" checked aria-label="Επιλογή {{ t.name }}">{% endif %}
+          </td>
+          <td data-label="Πρότυπο"><a href="{{ url_for('new_expense', template=t.id) }}">{{ t.name }}</a></td>
+          <td data-label="Ημέρα μήνα">
+            <input type="number" name="day_{{ t.id }}" value="{{ t.monthly_day or '' }}" min="1" max="31"
+                   placeholder="—" style="width:5em" aria-label="Ημέρα μήνα για {{ t.name }}">
+          </td>
+          <td data-label="{{ period }}">
+            {% if d %}✔ <a href="{{ url_for('document', mark=d.mark) }}">{{ d.mark }}</a> <span class="muted">({{ d.status }})</span>
+            {% elif t.monthly_day %}<span class="pill">εκκρεμεί</span>
+            {% else %}<span class="muted">όχι μηνιαίο</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="muted">Κενή ημέρα = το πρότυπο δεν είναι μηνιαίο. Ημέρα 31 = τελευταία του μήνα.</p>
+    <div class="btn-row">
+      <button type="submit" formaction="{{ url_for('recurring_create') }}" data-require=".sel">🔁 Δημιουργία επιλεγμένων για {{ period }}</button>
+      <button type="submit" formaction="{{ url_for('recurring_days') }}" class="btn-ghost">Αποθήκευση ημερών</button>
+    </div>
+  </form>
+  {% else %}
+  <div class="empty"><b>Δεν υπάρχουν πρότυπα.</b> Φτιάξε ένα από τη <a href="{{ url_for('new_expense') }}">Νέα εγγραφή</a> → «Αποθήκευση ως πρότυπο».</div>
+  {% endif %}
+</div>
+{% endblock %}

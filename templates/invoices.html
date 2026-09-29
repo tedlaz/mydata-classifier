@@ -181,6 +181,8 @@
     {% elif view == 'classified' %}
     <div class="btn-row">
       <button type="submit" class="btn-send">📤 Αποστολή στο myDATA (επιλεγμένα ή όλα)</button>
+      <button type="submit" formaction="{{ url_for('unclassify') }}" class="btn-ghost" data-require=".sel"
+              data-confirm="Οι επιλεγμένοι χαρακτηρισμοί θα διαγραφούν και τα παραστατικά θα επιστρέψουν στα αχαρακτήριστα. Οι δικές σου «Νέες εγγραφές» θα διαγραφούν. Συνέχεια;">↩ Επαναφορά σε αχαρακτήριστα</button>
     </div>
     {% endif %}
   </form>

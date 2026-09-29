@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_macros.html" import issuer_name, type_badge with context %}
+{% block title %}Επιβεβαίωση αυτόματου χαρακτηρισμού{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Επιβεβαίωση αυτόματου χαρακτηρισμού</h1>
+    <p class="page-sub">Τα παρακάτω αχαρακτήριστα έχουν αποθηκευμένη πρόταση συναλλασσόμενου. Ο χαρακτηρισμός
+      γίνεται μόνο τοπικά — η αποστολή στο myDATA γίνεται από τα «Χαρακτηρισμένα».</p>
+  </div>
+</div>
+
+<div class="card">
+  {% if invoices %}
+  <form method="post" action="{{ url_for('bulk_classify') }}">
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th class="col-check"><input type="checkbox" checked data-check-all=".sel" aria-label="Επιλογή όλων"></th>
+          <th>Ημ/νία</th><th>Εκδότης / ΑΦΜ</th><th>Τύπος</th>
+          <th class="num">Σύνολο</th><th>Πρόταση</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in invoices %}
+        {% set rule = rules.get(inv.issuer_vat or '') %}
+        <tr>
+          <td class="row-head" data-label="">
+            <div class="row-sel">
+              <input type="checkbox" class="sel" name="marks" value="{{ inv.mark }}" checked aria-label="Επιλογή {{ inv.mark }}">
+              <span class="mark"><a href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}">{{ inv.mark }}</a></span>
+            </div>
+          </td>
+          <td data-label="Ημ/νία" class="doc-date">{{ inv.issue_date or "—" }}</td>
+          <td data-label="Εκδότης">{{ issuer_name(inv) }} <span class="vat">{{ inv.issuer_vat or "" }}</span></td>
+          <td data-label="Τύπος">{{ type_badge(inv) }}</td>
+          <td data-label="Σύνολο" class="num"><strong>{{ "%.2f"|format(inv.total_gross or 0) }} €</strong></td>
+          <td data-label="Πρόταση">
+            {% if rule %}{{ rule.category }} · {{ rule.type }}{% if rule.vat_type %} · {{ rule.vat_type }}{% endif %}
+            {% else %}<span class="muted">ανά κατηγορία ΦΠΑ</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="btn-row">
+      <button type="submit" name="action" value="rules" data-require=".sel">✔ Χαρακτηρισμός επιλεγμένων</button>
+      <a class="btn btn-ghost" href="{{ url_for('invoices') }}">Άκυρο</a>
+    </div>
+  </form>
+  {% else %}
+  <div class="empty"><b>Τίποτα για αυτόματο χαρακτηρισμό.</b> <a href="{{ url_for('invoices') }}">Στο βιβλίο εξόδων</a></div>
+  {% endif %}
+</div>
+{% endblock %}

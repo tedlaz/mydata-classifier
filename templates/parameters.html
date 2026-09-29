@@ -9,7 +9,7 @@
 </div>
 
 <div class="tabs">
-  {% for key, label in [('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί'), ('reports', 'Αναφορές')] %}
+  {% for key, label in [('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί'), ('reports', 'Αναφορές & αυτοματισμοί')] %}
   <a class="tab {{ 'is-active' if active_tab == key }}" href="{{ url_for('parameters', tab=key) }}">{{ label }}</a>
   {% endfor %}
 </div>
@@ -66,6 +66,18 @@
   </form>
 </div>
 
+<div class="card">
+  <h2>Αυτόματος χαρακτηρισμός μετά τη λήψη</h2>
+  <form method="post" action="{{ url_for('parameters_automation') }}">
+    <label class="check">
+      <input type="checkbox" name="auto_classify" value="1" {{ 'checked' if auto_classify }}>
+      <span><b>Πρόταση χαρακτηρισμού μετά τη λήψη εξόδων</b><br><small class="muted">Μετά τη λήψη εμφανίζεται οθόνη
+        επιβεβαίωσης με τα αχαρακτήριστα που έχουν αποθηκευμένη πρόταση συναλλασσόμενου. Τίποτα δεν στέλνεται στο myDATA.</small></span>
+    </label>
+    <div class="btn-row" style="margin-top:16px"><button type="submit">Αποθήκευση</button></div>
+  </form>
+</div>
+
 {% else %}
 <div class="card">
   <h2>Συνδυασμοί χαρακτηρισμών</h2>
@@ -74,11 +86,14 @@
     <strong>κατηγορίες</strong> και <strong>τύποι E3</strong> επιτρέπονται ανά τύπο παραστατικού.
     Όταν είναι φορτωμένος, η φόρμα χαρακτηρισμού <strong>περιορίζει</strong> τις επιλογές αλυσιδωτά.
     Αν δεν φορτωθεί, εμφανίζονται όλες οι επιλογές (χωρίς περιορισμό).
+    Η εφαρμογή φέρνει έτοιμο το αρχείο της ΑΑΔΕ και το φορτώνει αυτόματα στην πρώτη εκκίνηση, καθώς και όταν μια
+    νέα έκδοση της εφαρμογής φέρει νεότερο αρχείο. Αν η ΑΑΔΕ βγάλει νέο αρχείο, εισήγαγέ το εδώ: αντικαθιστά
+    πλήρως τους παλιούς συνδυασμούς.
   </p>
 
   {% if combinations_count %}
   <p class="note note--ok">
-    ✔ Φορτωμένοι <strong>{{ combinations_count }}</strong> συνδυασμοί για <strong>{{ combinations_invoice_types|length }}</strong> τύπους παραστατικών.
+    ✔ Φορτωμένοι <strong>{{ combinations_count }}</strong> συνδυασμοί για <strong>{{ combinations_invoice_types|length }}</strong> τύπους παραστατικών{% if combinations_version %} (αρχείο ΑΑΔΕ v{{ combinations_version }}){% endif %}.
   </p>
   {% else %}
   <p class="note note--warn">Δεν έχουν φορτωθεί συνδυασμοί — η φόρμα χαρακτηρισμού δείχνει όλες τις επιλογές.</p>

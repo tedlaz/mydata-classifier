@@ -157,6 +157,9 @@ _DOCUMENT_COLUMNS = {
     "total_deductions": "REAL",    # κρατήσεις
     # Ανάλυση φόρων/κρατήσεων: [{"type","category","base","amount"}] (για εμφάνιση).
     "taxes_json": "TEXT",
+    # Μηνιαία εγγραφή από πρότυπο: μία ανά (εταιρεία, πρότυπο, μήνας) — unique index στο init_db.
+    "template_id": "INTEGER",
+    "period": "TEXT",
 }
 EXTRA_TOTALS = ("total_withheld", "total_other_taxes", "total_stamp_duty", "total_fees", "total_deductions")
 # Ανά παραστατικό, ο χαρακτηρισμός ΦΠΑ κρατά κατηγορία ΦΠΑ + ποσό ΦΠΑ της ομάδας.
@@ -247,6 +250,12 @@ def init_db() -> None:
                 conn.execute(f"ALTER TABLE classifications ADD COLUMN {col} {decl}")
         if "counterparty_name" in doc_cols:
             conn.execute("ALTER TABLE documents DROP COLUMN counterparty_name")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_documents_template_period "
+            "ON documents(company_id, template_id, period) WHERE template_id IS NOT NULL"
+        )
+        if "monthly_day" not in {r["name"] for r in conn.execute("PRAGMA table_info(expense_templates)")}:
+            conn.execute("ALTER TABLE expense_templates ADD COLUMN monthly_day INTEGER")
 
 
 # --------------------------------------------------------------------- #
@@ -851,6 +860,27 @@ def save_local_classification(
     return True
 
 
+def unclassify(company_id: int | None, marks: list[str]) -> int:
+    """Αναιρεί τον τοπικό χαρακτηρισμό (μόνο status='classified', όχι πρόχειρα νέας εγγραφής):
+    το παραστατικό επιστρέφει στα αχαρακτήριστα. Επιστρέφει πόσα άλλαξαν."""
+    if not company_id or not marks:
+        return 0
+    q = ",".join("?" * len(marks))
+    with get_conn() as conn:
+        ids = [r["id"] for r in conn.execute(
+            f"SELECT id FROM documents WHERE company_id = ? AND mark IN ({q}) "
+            "AND status = 'classified' AND local_action = 'classify'",
+            (company_id, *marks),
+        )]
+        for doc_id in ids:
+            conn.execute("DELETE FROM classifications WHERE document_id = ?", (doc_id,))
+            conn.execute(
+                "UPDATE documents SET status = 'unclassified', cls_json = '[]', cls_post_mode = 0 "
+                "WHERE id = ?", (doc_id,),
+            )
+    return len(ids)
+
+
 def get_local_classification(doc_id: int) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
@@ -941,42 +971,49 @@ def stage_action(company_id: int | None, mark: str, action: str) -> bool:
 
 
 def create_local_expense(
-    company_id: int, doc: dict, draft: dict, cls_info: list
+    company_id: int, doc: dict, draft: dict, cls_info: list, origin: tuple | None = None
 ) -> int | None:
     """Δημιουργεί ΤΟΠΙΚΑ αυτοτιμολογούμενη εγγραφή εξόδου (Νέα εγγραφή), σε κατάσταση
     «Χαρακτηρισμένο» με local_action='create'. Διαβιβάζεται μαζικά μέσω /send.
-    Το mark είναι προσωρινό μέχρι τη διαβίβαση."""
+    Το mark είναι προσωρινό μέχρι τη διαβίβαση. origin = (template_id, "YYYY-MM"): αν υπάρχει
+    ήδη εγγραφή του προτύπου για τον μήνα, δεν δημιουργείται (επιστρέφει None)."""
     import uuid as _uuid
 
     now = datetime.now(UTC).isoformat(timespec="seconds")
     tmp_mark = "NEW-" + _uuid.uuid4().hex[:12]
-    with get_conn() as conn:
-        cur = conn.execute(
-            "INSERT INTO documents (company_id, kind, mark, issue_date, "
-            "counterparty_vat, invoice_type, series, aa, "
-            "total_net, total_vat, total_gross, is_self_issued, status, "
-            "local_action, draft_json, lines_json, cls_json, updated_at) "
-            "VALUES (?, 'expense', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'classified', "
-            "'create', ?, ?, ?, ?)",
-            (
-                company_id,
-                tmp_mark,
-                doc.get("issue_date"),
-                doc.get("issuer_vat"),
-                doc.get("invoice_type"),
-                doc.get("series"),
-                doc.get("aa"),
-                doc.get("total_net"),
-                doc.get("total_vat"),
-                doc.get("total_gross"),
-                json.dumps(draft, ensure_ascii=False),
-                json.dumps(doc.get("lines") or [], ensure_ascii=False),
-                json.dumps(cls_info, ensure_ascii=False),
-                now,
-            ),
-        )
-        _set_extra_totals(conn, company_id, dict(doc, mark=tmp_mark))
-        return cur.lastrowid
+    template_id, period = origin or (None, None)
+    try:
+        with get_conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO documents (company_id, kind, mark, issue_date, "
+                "counterparty_vat, invoice_type, series, aa, "
+                "total_net, total_vat, total_gross, is_self_issued, status, "
+                "local_action, draft_json, lines_json, cls_json, updated_at, template_id, period) "
+                "VALUES (?, 'expense', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'classified', "
+                "'create', ?, ?, ?, ?, ?, ?)",
+                (
+                    company_id,
+                    tmp_mark,
+                    doc.get("issue_date"),
+                    doc.get("issuer_vat"),
+                    doc.get("invoice_type"),
+                    doc.get("series"),
+                    doc.get("aa"),
+                    doc.get("total_net"),
+                    doc.get("total_vat"),
+                    doc.get("total_gross"),
+                    json.dumps(draft, ensure_ascii=False),
+                    json.dumps(doc.get("lines") or [], ensure_ascii=False),
+                    json.dumps(cls_info, ensure_ascii=False),
+                    now,
+                    template_id,
+                    period,
+                ),
+            )
+            _set_extra_totals(conn, company_id, dict(doc, mark=tmp_mark))
+            return cur.lastrowid
+    except sqlite3.IntegrityError:  # υπάρχει ήδη εγγραφή του προτύπου για τον μήνα
+        return None
 
 
 def finalize_created(doc_id: int, new_mark: str | None) -> None:
@@ -1220,7 +1257,8 @@ def list_templates(company_id: int | None) -> list[dict]:
         return []
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, name FROM expense_templates WHERE company_id = ? ORDER BY name", (company_id,)
+            "SELECT id, name, monthly_day FROM expense_templates WHERE company_id = ? ORDER BY name",
+            (company_id,)
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -1228,10 +1266,28 @@ def list_templates(company_id: int | None) -> list[dict]:
 def get_template(company_id: int | None, template_id) -> dict | None:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, name, draft_json FROM expense_templates WHERE company_id = ? AND id = ?",
+            "SELECT id, name, draft_json, monthly_day FROM expense_templates WHERE company_id = ? AND id = ?",
             (company_id or 0, template_id),
         ).fetchone()
-    return {"id": row["id"], "name": row["name"], "draft": json.loads(row["draft_json"])} if row else None
+    return {"id": row["id"], "name": row["name"], "draft": json.loads(row["draft_json"]),
+            "monthly_day": row["monthly_day"]} if row else None
+
+
+def set_template_monthly_day(company_id: int | None, template_id, day: int | None) -> None:
+    """Ημέρα του μήνα για τη μηνιαία εγγραφή (None = όχι μηνιαίο)."""
+    with get_conn() as conn:
+        conn.execute("UPDATE expense_templates SET monthly_day = ? WHERE company_id = ? AND id = ?",
+                     (day, company_id or 0, template_id))
+
+
+def template_periods(company_id: int | None, period: str) -> dict[int, dict]:
+    """template_id → εγγραφή (mark, status) όσων προτύπων έχουν ήδη εγγραφή τον μήνα."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT template_id, mark, status FROM documents WHERE company_id = ? AND period = ? "
+            "AND template_id IS NOT NULL", (company_id or 0, period),
+        ).fetchall()
+    return {r["template_id"]: dict(r) for r in rows}
 
 
 def save_template(company_id: int, name: str, draft: dict) -> int:

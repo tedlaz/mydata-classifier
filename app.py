@@ -3,17 +3,21 @@ myDATA Expense Classifier - Flask UI
 Εκτέλεση:  python app.py  →  http://127.0.0.1:5000
 """
 
+import calendar
+import glob
 import json
 import os
 import re
 import unicodedata
 from datetime import date, datetime, timedelta
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from flask import (
     Flask,
     Response,
+    abort,
     flash,
     redirect,
     render_template,
@@ -58,6 +62,16 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "dev-secret-change-me")
 
 
+@app.before_request
+def _same_origin_post():
+    """CSRF: POST μόνο από σελίδες της ίδιας εφαρμογής. Ο browser στέλνει πάντα Origin σε
+    cross-site POST· χωρίς Origin/Referer (curl, tests) επιτρέπεται."""
+    if request.method == "POST":
+        src = request.headers.get("Origin") or request.headers.get("Referer")
+        if src and urlparse(src).netloc != request.host:
+            abort(403)
+
+
 @app.template_filter("el_amount")
 def format_el_amount(value) -> str:
     """Ποσό με ελληνικά διαχωριστικά χιλιάδων και δεκαδικών."""
@@ -90,6 +104,40 @@ os.makedirs(_DATA_DIR, exist_ok=True)
 
 # Μόνιμη αποθήκευση σε SQLite (βλ. db.py). Δημιουργία schema στην εκκίνηση.
 db.init_db()
+
+
+def _combos_version(name: str) -> tuple | None:
+    """Έκδοση από όνομα αρχείου ΑΑΔΕ, π.χ. syndiasmoi_xaraktirismwn_v1.0.8.xlsx → (1, 0, 8)."""
+    m = re.search(r"v(\d+(?:\.\d+)*)", os.path.basename(name or ""))
+    return tuple(int(x) for x in m.group(1).split(".")) if m else None
+
+
+def _bundled_combos() -> tuple[str, tuple] | None:
+    """Το νεότερο αρχείο συνδυασμών που συνοδεύει την εφαρμογή (docs/)."""
+    files = [(f, _combos_version(f)) for f in glob.glob(os.path.join(_BASE_DIR, "docs", "syndiasmoi_xaraktirismwn_v*.xlsx"))]
+    files = [x for x in files if x[1]]
+    return max(files, key=lambda x: x[1]) if files else None
+
+
+def _load_bundled_combos() -> None:
+    """Πρώτη εκκίνηση (ή νεότερο αρχείο σε νέα έκδοση της εφαρμογής): φόρτωση των συνδυασμών
+    ΑΑΔΕ. Ποτέ πάνω από νεότερη ή ίδια έκδοση που υπάρχει ήδη· ο «Καθαρισμός» δεν ξαναφορτώνει."""
+    bundled = _bundled_combos()
+    if not bundled:
+        return
+    path, version = bundled
+    stored = _combos_version("v" + (db.get_setting("combos_version") or ""))
+    if stored and stored >= version:
+        return
+    try:
+        with open(path, "rb") as fh:
+            if db.import_combos_xlsx(fh.read()):
+                db.set_setting("combos_version", ".".join(map(str, version)))
+    except Exception as e:  # noqa: BLE001 — χαλασμένο αρχείο δεν σταματά την εκκίνηση
+        print(f"Αποτυχία φόρτωσης συνδυασμών από {path}: {e}")
+
+
+_load_bundled_combos()
 
 
 def _active_company_id() -> int | None:
@@ -541,7 +589,34 @@ def fetch():
         "παραστατικά.",
         "ok",
     )
+    if db.get_setting("auto_classify") == "1" and _auto_classify_candidates(cid):
+        return redirect(url_for("auto_classify"))
     return redirect(url_for("invoices"))
+
+
+def _auto_classify_candidates(cid: int) -> list:
+    """Αχαρακτήριστα έξοδα με αποθηκευμένη πρόταση συναλλασσόμενου (εκτός 1.5, όπως στο bulk)."""
+    rules, names = load_rules(), db.load_names()
+    out = []
+    for row in db.get_documents(cid, "expense", ["unclassified"]):
+        inv = _row_to_invoice(row, names)
+        vat = inv.issuer_vat or ""
+        if inv.invoice_type != "1.5" and (rules.get(vat) or _patterns_for(vat)):
+            out.append(inv)
+    return sorted(out, key=lambda i: i.issue_date or "")
+
+
+@app.route("/invoices/auto-classify")
+def auto_classify():
+    """Οθόνη επιβεβαίωσης του αυτόματου χαρακτηρισμού: υποβάλλει στο bulk_classify (action=rules)."""
+    cid = _active_company_id()
+    return render_template(
+        "auto_classify.html",
+        invoices=_auto_classify_candidates(cid) if cid else [],
+        rules=load_rules(),
+        type_names=INVOICE_TYPE_NAMES,
+        credit_types=CREDIT_INVOICE_TYPES,
+    )
 
 
 @app.route("/documents/delete-range", methods=["POST"])
@@ -1619,6 +1694,26 @@ def bulk_classify():
     return redirect(url_for("invoices", view="classified" if ok else "unclassified"))
 
 
+@app.route("/unclassify", methods=["POST"])
+def unclassify():
+    """Επαναφορά τοπικά χαρακτηρισμένων (μη απεσταλμένων) στα αχαρακτήριστα. Οι δικές μας
+    «Νέες εγγραφές» δεν έχουν αχαρακτήριστη μορφή → απλώς διαγράφονται."""
+    cid = _active_company_id()
+    marks = request.form.getlist("marks")
+    if not marks:
+        flash("Δεν επιλέχθηκε κανένα παραστατικό.", "error")
+        return redirect(url_for("invoices", view="classified"))
+    drafts = [m for m in marks if (db.get_document(cid, m) or {}).get("local_action") == "create"]
+    for m in drafts:
+        db.delete_document(cid, m)
+    n = db.unclassify(cid, marks)
+    if drafts:
+        flash(f"🗑 Διαγράφηκαν {len(drafts)} τοπικές «Νέες εγγραφές».", "ok")
+    if n or not drafts:
+        flash(f"↩ Επέστρεψαν {n} παραστατικά στα αχαρακτήριστα.", "ok")
+    return redirect(url_for("invoices", view="unclassified" if n or not drafts else "classified"))
+
+
 @app.route("/send", methods=["POST"])
 def send():
     """Μαζική αποστολή στο myDATA των τοπικά χαρακτηρισμένων (όλων ή επιλεγμένων).
@@ -2533,6 +2628,9 @@ def dashboard():
             todo("↻", "🔄", f"Ανάκτηση {label} από myDATA",
                  "Δεν έχει γίνει ακόμα" if days is None else f"Το τελευταίο διάστημα έληξε πριν από {days} ημέρες",
                  url_for(endpoint), "muted")
+    due_monthly = [t for t in _recurring_pending(cid, today.strftime("%Y-%m")) if t["monthly_day"] <= today.day]
+    todo(len(due_monthly), "🔁", "Μηνιαίες εγγραφές προς δημιουργία", ", ".join(t["name"] for t in due_monthly),
+         url_for("recurring"), "accent")
     if vat["days"] <= 15:
         todo(f"{max(vat['days'], 0)}ημ", "🏛", f"Δήλωση ΦΠΑ {vat['label']}",
              f"Προθεσμία {vat['due']}" + (f" · προς καταβολή {format_el_amount(vat['pay'])} €" if vat["pay"] else ""),
@@ -2984,6 +3082,51 @@ def new_expense_submit():
 
     # Αποθήκευση ΤΟΠΙΚΑ στα «Χαρακτηρισμένα» (χωρίς διαβίβαση). Η μαζική «Αποστολή
     # στο myDATA» θα εκτελέσει το SendInvoices (δημιουργία+διαβίβαση+χαρακτηρισμός).
+    draft = {
+        "invoice_type": invoice_type,
+        "series": series,
+        "aa": aa,
+        "issue_date": issue_date,
+        "lines": lines,
+        "issuer_vat": issuer_vat,
+        "issuer_country": issuer_country,
+        "payment_method": payment_method,
+        "withheld_amount": withheld,
+        "deductions_amount": deductions,
+        "withheld_base": withheld_base,
+    }
+    # Μηνιαίο πρότυπο: μία εγγραφή ανά μήνα. Στην επεξεργασία κρατιέται το πρότυπο της παλιάς.
+    edit_mark = request.form.get("edit_mark", "").strip()
+    existing = db.get_document(cid, edit_mark) if edit_mark else None
+    if existing and existing.get("local_action") != "create":
+        existing = None
+    tid = (existing or {}).get("template_id") or request.form.get("template_id", "").strip()
+    origin = (int(tid), issue_date[:7]) if str(tid).isdigit() else None
+    if origin:
+        taken = db.template_periods(cid, origin[1]).get(origin[0])
+        if taken and taken["mark"] != edit_mark:
+            flash(f"Υπάρχει ήδη εγγραφή του προτύπου για τον μήνα {origin[1]} ({taken['mark']}).", "error")
+            return again()
+    # Επεξεργασία: αντικατάσταση του υπάρχοντος τοπικού draft.
+    if existing:
+        db.delete_document(cid, edit_mark)
+    _store_self_expense(cid, draft, origin)
+    verb = "ενημερώθηκε" if edit_mark else "αποθηκεύτηκε"
+    flash(
+        f"✔ Η εγγραφή {invoice_type} ({SELF_EXPENSE_TYPES[invoice_type]}) {verb} "
+        "τοπικά στα «Χαρακτηρισμένα». Μάζεψε κι άλλες και στείλ' τες μαζικά με "
+        "«Αποστολή στο myDATA».",
+        "ok",
+    )
+    return redirect(url_for("invoices", view="classified"))
+
+
+def _store_self_expense(cid: int, draft: dict, origin: tuple | None = None) -> int | None:
+    """Έγκυρο draft «Νέας εγγραφής» → τοπική εγγραφή στα «Χαρακτηρισμένα».
+    None αν υπάρχει ήδη εγγραφή του ίδιου προτύπου για τον μήνα (origin)."""
+    lines = draft["lines"]
+    withheld, deductions = draft["withheld_amount"] or 0.0, draft["deductions_amount"] or 0.0
+    withheld_base = draft["withheld_base"]
     total_net = round(sum(line["amount"] for line in lines), 2)
     total_vat = round(sum(line["vat_amount"] for line in lines), 2)
     def line_cls(line):  # Ε3 + (αν υπάρχει ΦΠΑ) ο χαρακτηρισμός ΦΠΑ της γραμμής
@@ -3005,26 +3148,13 @@ def new_expense_submit():
         for i, line in enumerate(lines)
     ]
     cls_info = [c for line in lines for c in line_cls(line)]
-    draft = {
-        "invoice_type": invoice_type,
-        "series": series,
-        "aa": aa,
-        "issue_date": issue_date,
-        "lines": lines,
-        "issuer_vat": issuer_vat,
-        "issuer_country": issuer_country,
-        "payment_method": payment_method,
-        "withheld_amount": withheld,
-        "deductions_amount": deductions,
-        "withheld_base": withheld_base,
-    }
     doc = {
-        "issue_date": issue_date,
-        "issuer_vat": issuer_vat,
+        "issue_date": draft["issue_date"],
+        "issuer_vat": draft["issuer_vat"],
         "issuer_name": None,
-        "invoice_type": invoice_type,
-        "series": series,
-        "aa": aa,
+        "invoice_type": draft["invoice_type"],
+        "series": draft["series"],
+        "aa": draft["aa"],
         "total_net": total_net,
         "total_vat": total_vat,
         "total_gross": round(total_net + total_vat - withheld - deductions, 2),
@@ -3038,20 +3168,99 @@ def new_expense_submit():
                  if t["amount"]]),
         },
     }
-    # Επεξεργασία: αντικατάσταση του υπάρχοντος τοπικού draft.
-    edit_mark = request.form.get("edit_mark", "").strip()
-    if edit_mark:
-        existing = db.get_document(cid, edit_mark)
-        if existing and existing.get("local_action") == "create":
-            db.delete_document(cid, edit_mark)
-    db.create_local_expense(cid, doc, draft, cls_info)
-    verb = "ενημερώθηκε" if edit_mark else "αποθηκεύτηκε"
-    flash(
-        f"✔ Η εγγραφή {invoice_type} ({SELF_EXPENSE_TYPES[invoice_type]}) {verb} "
-        "τοπικά στα «Χαρακτηρισμένα». Μάζεψε κι άλλες και στείλ' τες μαζικά με "
-        "«Αποστολή στο myDATA».",
-        "ok",
+    return db.create_local_expense(cid, doc, draft, cls_info, origin)
+
+
+def _recurring_pending(cid: int | None, period: str) -> list[dict]:
+    """Μηνιαία πρότυπα χωρίς εγγραφή για τον μήνα."""
+    done = db.template_periods(cid, period)
+    return [t for t in db.list_templates(cid) if t["monthly_day"] and t["id"] not in done]
+
+
+def _draft_for_month(cid: int, template: dict, period: str) -> dict | None:
+    """Το πρότυπο ως έγκυρο draft για τον μήνα: ημ/νία = ημέρα προτύπου (ή τελευταία του μήνα),
+    Α/Α συνέχεια της σειράς. None αν το πρότυπο δεν έχει γραμμές με ποσό."""
+    d = template["draft"]
+    y, m = map(int, period.split("-"))
+    day = min(template["monthly_day"], calendar.monthrange(y, m)[1])
+    lines = []
+    for ln in d.get("lines") or []:
+        if not ln or not ln.get("amount"):
+            continue
+        vat_amount = ln.get("vat_amount") or 0.0
+        lines.append(dict(ln, vat_amount=vat_amount, vat_category=ln.get("vat_category") or "8",
+                          vat_type=(ln.get("vat_type") or "VAT_361") if vat_amount > 0 else ""))
+    if not lines:
+        return None
+    counterparty = _self_counterparty(d)
+    withheld = d.get("withheld_amount") or 0.0
+    return dict(
+        d,
+        lines=lines,
+        issue_date=f"{period}-{day:02d}",
+        aa=str(db.next_aa(cid, counterparty, d.get("series", ""))),
+        issuer_vat=counterparty,
+        issuer_country=d.get("issuer_country") or "GR",
+        payment_method=d.get("payment_method") or "5",
+        withheld_amount=withheld,
+        deductions_amount=d.get("deductions_amount") or 0.0,
+        withheld_base=d.get("withheld_base") if withheld else None,
     )
+
+
+def _period_arg(value: str | None) -> str:
+    return value if value and re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", value) else datetime.now(ATHENS).strftime("%Y-%m")
+
+
+@app.route("/recurring")
+def recurring():
+    """Μηνιαίες εγγραφές από πρότυπα: ημέρα ανά πρότυπο + δημιουργία για έναν μήνα."""
+    cid = _active_company_id()
+    period = _period_arg(request.args.get("period"))
+    return render_template("recurring.html", period=period, templates=db.list_templates(cid),
+                           done=db.template_periods(cid, period))
+
+
+@app.route("/recurring/days", methods=["POST"])
+def recurring_days():
+    cid = _active_company_id()
+    for t in db.list_templates(cid):
+        v = request.form.get(f"day_{t['id']}", "").strip()
+        db.set_template_monthly_day(cid, t["id"], min(max(int(v), 1), 31) if v.isdigit() else None)
+    flash("✔ Αποθηκεύτηκαν οι ημέρες των μηνιαίων εγγραφών.", "ok")
+    return redirect(url_for("recurring", period=request.form.get("period")))
+
+
+@app.route("/recurring/create", methods=["POST"])
+def recurring_create():
+    cid = _active_company_id()
+    period = _period_arg(request.form.get("period"))
+    if not get_own_vat():  # ίδιος έλεγχος με τη «Νέα εγγραφή» (εκδότης 17.x / λήπτης)
+        flash("Λείπει το ΑΦΜ της εταιρείας - συμπλήρωσέ το στη Διαχείριση εταιρειών.", "error")
+        return redirect(url_for("recurring", period=period))
+    ids = set(request.form.getlist("template_ids"))
+    made, skipped, empty = [], [], []
+    for t in _recurring_pending(cid, period) if cid else []:
+        if str(t["id"]) not in ids:
+            continue
+        template = db.get_template(cid, t["id"])
+        draft = _draft_for_month(cid, template, period)
+        if draft is None:
+            empty.append(t["name"])
+        elif _store_self_expense(cid, draft, (t["id"], period)):
+            made.append(t["name"])
+        else:  # ταυτόχρονη δημιουργία — το unique index το απέτρεψε
+            skipped.append(t["name"])
+    if made:
+        flash(f"✔ Δημιουργήθηκαν για {period}: {', '.join(made)}. Έλεγξε τα ποσά (Επεξεργασία) "
+              "και στείλ' τα με «Αποστολή στο myDATA».", "ok")
+    if skipped:
+        flash(f"Υπήρχαν ήδη για {period}: {', '.join(skipped)}.", "error")
+    if empty:
+        flash(f"Χωρίς γραμμές με ποσό (διόρθωσε το πρότυπο): {', '.join(empty)}.", "error")
+    if not (made or skipped or empty):
+        flash("Δεν επιλέχθηκε κανένα εκκρεμές πρότυπο.", "error")
+        return redirect(url_for("recurring", period=period))
     return redirect(url_for("invoices", view="classified"))
 
 
@@ -3148,7 +3357,9 @@ def parameters():
         acc=get_accountant(),
         combinations_count=db.combos_count(),
         combinations_invoice_types=sorted(db.combos_invoice_types()),
+        combinations_version=db.get_setting("combos_version"),
         stock_reports=[(k, title, desc, stock_in(k)) for k, title, _, desc in STOCK_REPORTS],
+        auto_classify=db.get_setting("auto_classify") == "1",
     )
 
 
@@ -3157,6 +3368,13 @@ def parameters_reports():
     for key, *_ in STOCK_REPORTS:
         db.set_setting("stock_in_" + key, "1" if request.form.get(key) else "0")
     flash("✔ Αποθηκεύτηκαν οι ρυθμίσεις αναφορών.", "ok")
+    return redirect(url_for("parameters", tab="reports"))
+
+
+@app.route("/parameters/automation", methods=["POST"])
+def parameters_automation():
+    db.set_setting("auto_classify", "1" if request.form.get("auto_classify") else "0")
+    flash("✔ Αποθηκεύτηκε η ρύθμιση αυτόματου χαρακτηρισμού.", "ok")
     return redirect(url_for("parameters", tab="reports"))
 
 
@@ -3586,6 +3804,9 @@ def combinations_import():
             text = data.decode("utf-8", errors="replace")
         n = db.import_combos_csv(text)
     if n:
+        # Νεότερη έκδοση της εφαρμογής φέρνει νεότερο αρχείο → αντικαθιστά· ίδια/παλαιότερη όχι.
+        version = _combos_version(f.filename) or (_bundled_combos() or (None, None))[1]
+        db.set_setting("combos_version", ".".join(map(str, version)) if version else "")
         flash(
             f"✔ Εισήχθησαν {n} συνδυασμοί για {len(db.combos_invoice_types())} τύπους παραστατικών.",
             "ok",
