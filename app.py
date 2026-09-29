@@ -8,11 +8,15 @@ import glob
 import json
 import os
 import re
+import sys
+import threading
+import tomllib
 import unicodedata
 from datetime import date, datetime, timedelta
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
+import requests
 from dotenv import load_dotenv
 from flask import (
     Flask,
@@ -3829,10 +3833,33 @@ def combinations_clear():
     return redirect(url_for("parameters", tab="combinations"))
 
 
+# Νέα έκδοση στο GitHub; Μόνο στο Windows build (frozen): ο installer είναι για αυτό.
+# Ένας έλεγχος στην εκκίνηση, στο παρασκήνιο· offline/σφάλμα → απλώς κανένα banner.
+_update = None
+
+
+def _check_update():
+    global _update
+    try:
+        with open(os.path.join(_BASE_DIR, "pyproject.toml"), "rb") as fh:
+            current = tomllib.load(fh)["project"]["version"]
+        rel = requests.get("https://api.github.com/repos/tedlaz/mydata-classifier/releases/latest", timeout=5).json()
+        latest = rel["tag_name"].lstrip("v")
+        if tuple(map(int, latest.split("."))) > tuple(map(int, current.split("."))):
+            url = next((a["browser_download_url"] for a in rel.get("assets", []) if a["name"].endswith(".exe")), rel["html_url"])
+            _update = {"version": latest, "url": url}
+    except Exception:
+        pass
+
+
+if getattr(sys, "frozen", False):
+    threading.Thread(target=_check_update, daemon=True).start()
+
+
 @app.context_processor
 def inject_company():
     # self_types: τύποι που εκδίδουμε εμείς (13.x–17.x) → επιτρέπεται «Αντιγραφή».
-    return {"active_company": get_active_company(), "self_types": SELF_EXPENSE_TYPES}
+    return {"active_company": get_active_company(), "self_types": SELF_EXPENSE_TYPES, "update": _update}
 
 
 if __name__ == "__main__":

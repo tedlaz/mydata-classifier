@@ -1,7 +1,7 @@
 from PyInstaller.utils.hooks import collect_data_files
 
 
-datas = [("templates", "templates"), ("static", "static"), ("docs/syndiasmoi_xaraktirismwn_v*.xlsx", "docs")]
+datas = [("templates", "templates"), ("static", "static"), ("pyproject.toml", "."), ("docs/syndiasmoi_xaraktirismwn_v*.xlsx", "docs")]
 datas += collect_data_files("tzdata")
 
 a = Analysis(
