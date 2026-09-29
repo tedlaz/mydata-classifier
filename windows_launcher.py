@@ -95,6 +95,7 @@ def main() -> int:
 
         root = tk.Tk()
         root.title(APP_TITLE)
+        root.iconbitmap(os.path.join(app.static_folder, "app.ico"))
         root.resizable(False, False)
         root.geometry("420x180")
 

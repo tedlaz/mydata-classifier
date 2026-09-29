@@ -17,6 +17,7 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
 </script>
 {# Inline opt-in: ο Chrome το ελέγχει πριν φορτωθεί το app.css → αλλιώς «ViewTransition opt-in disabled». #}
 <style>@view-transition{navigation:auto}</style>
+<link rel="icon" href="{{ url_for('static', filename='app.ico') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fonts/fonts.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/flatpickr.min.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">

@@ -30,6 +30,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    icon="static/app.ico",
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,

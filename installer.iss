@@ -23,6 +23,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 AppMutex=myDATAClassifier-8CC7589D-8531-4D61-917B-ED77EDAD83FB
+SetupIconFile=static\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
