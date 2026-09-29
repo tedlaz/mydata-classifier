@@ -7,7 +7,7 @@ import json
 import os
 import re
 import unicodedata
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -490,7 +490,7 @@ def _row_to_invoice(row: dict, names: dict | None = None) -> ExpenseInvoice:
 
 @app.route("/")
 def index():
-    return redirect(url_for("invoices"))
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/fetch", methods=["POST"])
@@ -2025,6 +2025,21 @@ def _report_classifications(doc: dict) -> list[dict]:
     return result
 
 
+_E3_GROUP_NAMES = {"E3_585": "Λοιπά Έξοδα"}  # λογαριασμοί χωρίς κοινό όνομα στους τύπους τους
+
+
+def _e3_group_label(group: str) -> str:
+    """Όνομα λογαριασμού Ε3 (π.χ. E3_561) από τους τύπους του (E3_561_001…): το κοινό τους
+    πρόθεμα, κομμένο σε ολόκληρη λέξη — «Πωλήσεις αγαθών & υπηρεσιών»."""
+    if group in _E3_GROUP_NAMES:
+        return _E3_GROUP_NAMES[group]
+    names = [n for k, n in _CLASSIFICATION_NAMES.items() if k == group or k.startswith(group + "_")]
+    if len(names) <= 1:
+        return names[0] if names else ""
+    prefix = os.path.commonprefix(names)
+    return prefix.rsplit(" ", 1)[0].rstrip(" -/&(") if " " in prefix else ""
+
+
 def _olap_cube(cid: int | None) -> dict:
     """Πρώτη ύλη του κύβου OLAP (το pivot γίνεται στον browser, static/olap.js).
     docs: ένα ανά παραστατικό (διαστάσεις επιπέδου παραστατικού). facts: ένα ανά
@@ -2079,6 +2094,7 @@ def _olap_cube(cid: int | None) -> dict:
             "e3c": {c: re.sub(r"\s*\([-+]\)(\s*/\s*\([-+]\))?\s*$", "", _CLASSIFICATION_CATEGORY_NAMES.get(c, ""))
                     for c in used(1)},
             "e3t": {t: _CLASSIFICATION_NAMES.get(t, "") for t in used(2)},
+            "e3g": {g: _e3_group_label(g) for g in {"_".join(t.split("_")[:2]) for t in used(2) if t}},
             "vat": {v: _VAT_CATEGORY_LABELS.get(v, v) for v in used(3)},
         },
     }
@@ -2120,6 +2136,17 @@ def _yearly_totals(docs: list[dict]) -> dict:
     return {m: {c: round(v, 2) for c, v in r.items()} for m, r in months.items()}
 
 
+def _yearly_vat_periods(rows: list[dict], year: str, now) -> list[dict]:
+    """Κάρτες ΦΠΑ κάτω από το διάγραμμα, κατά την περίοδο ΦΠΑ της εταιρείας: ανά μήνα
+    (μηνιαίος) ή ανά τρίμηνο (τριμηνιαίος). partial = περίοδος που δεν έχει κλείσει."""
+    if (get_active_company() or {}).get("vat_period") == "q":
+        return [dict(rows[i]["vat_quarter"], short=f"{_QUARTER_NAMES[i // 3]} τριμ.",
+                     title=rows[i]["vat_quarter"]["span"]) for i in range(0, len(rows), 3)]
+    current = year == str(now.year)
+    return [dict(r["vat_month"], short=_GREEK_MONTHS[i], title=r["label"],
+                 partial=current and i + 1 == now.month) for i, r in enumerate(rows)]
+
+
 @app.route("/reports/yearly")
 def reports_yearly():
     cid = _active_company_id()
@@ -2137,10 +2164,17 @@ def reports_yearly():
     ]
     _add_vat_periods(rows, year)
     total = lambda part: {c: round(sum(r[part][c] for r in rows), 2) for c in _YEARLY_COLUMNS}  # noqa: E731
+    # Στήλες χωρίς κανένα ποσό κρύβονται (ο ΦΠΑ μένει πάντα) — πιο συμπαγής πίνακας.
+    used = lambda key: any(r[p][key] for r in rows for p in ("income", "expense"))  # noqa: E731
+    cols = [c for c in YEARLY_TABLE_COLS if c[0] == "vat" or used(c[0])]
     return render_template(
-        "reports_yearly.html", year=year, years=years, rows=rows, cols=YEARLY_TABLE_COLS,
+        "reports_yearly.html", year=year, years=years, rows=rows, cols=cols,
+        hidden_cols=[label.replace("<br>", " ") for key, label in YEARLY_TABLE_COLS if (key, label) not in cols],
         income_total=total("income"), expense_total=total("expense"),
         chart=_yearly_chart(rows), current_month=now.month if year == str(now.year) else None,
+        max_net=max([abs(r[p]["net"]) for r in rows for p in ("income", "expense")] + [1]),
+        vat_periods=_yearly_vat_periods(rows, year, now),
+        spark_in=_spark([r["income"]["net"] for r in rows]), spark_out=_spark([r["expense"]["net"] for r in rows]),
     )
 
 
@@ -2224,6 +2258,12 @@ def _vat_bounds(year: int, kind: str, n: int) -> tuple[str, str]:
     return f"{year}-{first:02d}-01", f"{year}-{last:02d}-{calendar.monthrange(year, last)[1]:02d}"
 
 
+def _vat_due_period(kind: str, now) -> tuple[int, int]:
+    """(έτος, n) της περιόδου ΦΠΑ που δηλώνεται τώρα: η προηγούμενη του τρέχοντος μήνα/τριμήνου."""
+    cur = now.month if kind == "m" else (now.month - 1) // 3 + 1
+    return (now.year, cur - 1) if cur > 1 else (now.year - 1, 12 if kind == "m" else 4)
+
+
 def _vat_auto_carry(cid: int | None, year: int, kind: str, n: int) -> tuple[float, float]:
     """(401, 483) αυτόματα από την προηγούμενη περίοδο ίδιου τύπου: το «ποσό για έκπτωση» (502)
     και το χρεωστικό έως 30 € που δεν αποδόθηκε. Επειδή κάθε περίοδος εξαρτάται από τη
@@ -2262,10 +2302,10 @@ def reports_vat():
     if not (len(period) >= 2 and period[0] == kind and period[1:].isdigit()
             and 1 <= int(period[1:]) <= (12 if kind == "m" else 4)):
         # Προεπιλογή: η προηγούμενη περίοδος (αυτή που δηλώνεται τώρα).
-        cur = now.month if kind == "m" else (now.month - 1) // 3 + 1
-        period = f"{kind}{cur - 1 or (12 if kind == 'm' else 4)}"
+        due_y, due_n = _vat_due_period(kind, now)
+        period = f"{kind}{due_n}"
         if "year" not in request.args:
-            year = str(now.year if cur > 1 else now.year - 1)
+            year = str(due_y)
     n, y = int(period[1:]), int(year)
     date_from, date_to = _vat_bounds(y, kind, n)
     auto_credit, auto_debit = _vat_auto_carry(cid, y, kind, n)
@@ -2324,7 +2364,7 @@ def _yearly_chart(rows: list[dict]) -> dict:
     """Γεωμετρία SVG (viewBox 760×260): ανά μήνα μπάρα εσόδων και στοιβαγμένη μπάρα εξόδων —
     κάτω τα έξοδα χωρίς αγορές παγίων, πάνω οι αγορές παγίων (κατηγορία 2.7). Αρνητικά (μήνας
     με μόνο πιστωτικά) σχεδιάζονται μηδενικά — φαίνονται στον πίνακα."""
-    W, H, left, right, top, bottom = 760, 260, 58, 8, 14, 30
+    W, H, left, right, top, bottom = 760, 220, 58, 8, 14, 30
     base = H - bottom
     top_value = max([r["income"]["net"] for r in rows] + [r["expense"]["net"] for r in rows] + [0])
     step = _nice_step(top_value)
@@ -2363,6 +2403,139 @@ def _yearly_chart(rows: list[dict]) -> dict:
     return {"w": W, "h": H, "left": left, "right": W - right, "base": base, "top": top, "months": months,
             "has_assets": any(m["asset_path"] for m in months),
             "ticks": [{"v": step * k, "y": round(y(step * k), 1)} for k in range(int(n_ticks) + 1)]}
+
+
+def _spark(values: list[float], w: int = 120, h: int = 34) -> str:
+    """Σημεία polyline για sparkline (viewBox w×h)."""
+    lo, hi = min(values + [0]), max(values + [0])
+    span, step = (hi - lo) or 1, w / max(len(values) - 1, 1)
+    return " ".join(f"{i * step:.1f},{h - 2 - (v - lo) / span * (h - 4):.1f}" for i, v in enumerate(values))
+
+
+def _days_since_range(setting: str) -> int | None:
+    """Μέρες από το τέλος του τελευταίου διαστήματος ανάκτησης («dd/mm/yyyy – dd/mm/yyyy»)."""
+    try:
+        end = datetime.strptime((db.get_setting(setting) or "").split("–")[-1].strip(), "%d/%m/%Y").date()
+    except ValueError:
+        return None
+    return (datetime.now(ATHENS).date() - end).days
+
+
+@app.route("/dashboard")
+def dashboard():
+    """Πίνακας ελέγχου: εκκρεμότητες, σύνοψη έτους, ΦΠΑ περιόδου, κορυφαίοι προμηθευτές, πρόσφατα."""
+    import calendar
+
+    company = get_active_company()
+    if not company:
+        return redirect(url_for("companies"))
+    cid, now = company["id"], datetime.now(ATHENS)
+    year, today = str(now.year), now.date()
+    exp_st, inc_st = db.count_by_status(cid, "expense"), db.count_by_status(cid, "income")
+
+    # Σύνοψη έτους (ίδιοι υπολογισμοί με την Ετήσια σύνοψη).
+    income = _yearly_totals(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year))
+    expense = _yearly_totals(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year))
+    rows = [{"label": f"{_GREEK_MONTHS[m - 1]} {year}", "income": income[m], "expense": expense[m],
+             "balance": round(income[m]["net"] - expense[m]["net"], 2)} for m in range(1, now.month + 1)]
+    ytd = lambda part, col: round(sum(r[part][col] for r in rows), 2)  # noqa: E731
+    kpi = {
+        "income": ytd("income", "net"), "expense": ytd("expense", "net"),
+        "vat": round(ytd("income", "vat") - ytd("expense", "vat"), 2),
+        "spark_in": _spark([r["income"]["net"] for r in rows]),
+        "spark_out": _spark([r["expense"]["net"] for r in rows]),
+    }
+    kpi["result"] = round(kpi["income"] - kpi["expense"], 2)
+    _add_vat_periods(rows, year)
+
+    # ΦΠΑ: η περίοδος που δηλώνεται τώρα, με προθεσμία το τέλος του επόμενου μήνα.
+    kind = company.get("vat_period") or "m"
+    vy, vn = _vat_due_period(kind, now)
+    date_from, date_to = _vat_bounds(vy, kind, vn)
+    # Τριμηνιαία: μετά την προθεσμία (τέλος 1ου μήνα του τριμήνου) δείξε το τρέχον τρίμηνο.
+    running = date_to < (today.replace(day=1) - timedelta(days=1)).replace(day=1).isoformat()
+    if running:
+        vy, vn = now.year, (now.month - 1) // 3 + 1
+        date_from, date_to = _vat_bounds(vy, kind, vn)
+    codes = vat_return.compute(
+        db.period_documents(cid, "income", date_from, date_to),
+        db.period_documents(cid, "expense", date_from, date_to),
+        *_vat_auto_carry(cid, vy, kind, vn),
+    )["codes"]
+    last_month = vn if kind == "m" else 3 * vn
+    dy, dm = (vy, last_month + 1) if last_month < 12 else (vy + 1, 1)
+    due = date(dy, dm, calendar.monthrange(dy, dm)[1])
+    vat = {
+        "label": (_QUARTER_NAMES[vn - 1] + " τρίμηνο" if kind == "q" else _GREEK_MONTHS[vn - 1]) + f" {vy}",
+        "period": f"{kind}{vn}", "year": str(vy), "pay": codes["511"], "credit": codes["502"],
+        "out": codes["337"], "in": codes["430"], "due": due.strftime("%d/%m/%Y"),
+        "days": (due - today).days, "kind": kind, "running": running,
+    }
+
+    # Εκκρεμότητες: μόνο όσες έχουν κάτι να γίνει.
+    todos = []
+
+    def todo(n, icon, title, sub, href, tone):
+        if n:
+            todos.append({"n": n, "icon": icon, "title": title, "sub": sub, "href": href, "tone": tone})
+
+    todo(exp_st.get("unclassified", 0), "🧾", "Έξοδα προς χαρακτηρισμό", "Αχαρακτήριστα παραστατικά εξόδων",
+         url_for("invoices", view="unclassified"), "warn")
+    todo(exp_st.get("classified", 0), "📤", "Χαρακτηρισμοί προς αποστολή", "Έτοιμοι τοπικά — αποστολή στο myDATA",
+         url_for("invoices", view="classified"), "accent")
+    todo(exp_st.get("sent", 0), "⏳", "Αναμένουν επιβεβαίωση", "Απεσταλμένα — ανανέωση από το myDATA",
+         url_for("invoices", view="sent"), "info")
+    todo(inc_st.get("unclassified", 0), "💶", "Έσοδα προς χαρακτηρισμό", "Αχαρακτήριστα παραστατικά εσόδων",
+         url_for("income", view="unclassified"), "warn")
+    for setting, label, endpoint in (("last_range", "εξόδων", "invoices_sync"),
+                                     ("last_income_range", "εσόδων", "income_sync")):
+        days = _days_since_range(setting)
+        if days is None or days > 7:
+            todo("↻", "🔄", f"Ανάκτηση {label} από myDATA",
+                 "Δεν έχει γίνει ακόμα" if days is None else f"Το τελευταίο διάστημα έληξε πριν από {days} ημέρες",
+                 url_for(endpoint), "muted")
+    if vat["days"] <= 15:
+        todo(f"{max(vat['days'], 0)}ημ", "🏛", f"Δήλωση ΦΠΑ {vat['label']}",
+             f"Προθεσμία {vat['due']}" + (f" · προς καταβολή {format_el_amount(vat['pay'])} €" if vat["pay"] else ""),
+             url_for("reports_vat", year=vat["year"], period=vat["period"]), "err" if vat["days"] <= 5 else "warn")
+
+    # Πρόοδος βιβλίου εξόδων (donut): τμήματα ως stroke-dasharray σε κύκλο pathLength=100.
+    exp_total = sum(exp_st.values())
+    segments, acc = [], 0.0
+    for key, label, color, view in (("confirmed", "Επιβεβαιωμένα", "var(--ok)", "confirmed"),
+                                    ("sent", "Απεσταλμένα", "var(--info)", "sent"),
+                                    ("classified", "Προς αποστολή", "var(--accent)", "classified"),
+                                    ("unclassified", "Αχαρακτήριστα", "var(--warn)", "unclassified")):
+        n = exp_st.get(key, 0)
+        pct = n / exp_total * 100 if exp_total else 0
+        segments.append({"label": label, "n": n, "pct": round(pct, 2), "offset": round(-acc, 2),
+                         "color": color, "href": url_for("invoices", view=view)})
+        acc += pct
+    done_pct = round(exp_st.get("confirmed", 0) / exp_total * 100) if exp_total else 0
+
+    # Κορυφαίοι προμηθευτές έτους + πρόσφατη κίνηση.
+    exp_docs = db.period_documents(cid, "expense", f"{year}-01-01", f"{year}-12-31")
+    inc_docs = db.period_documents(cid, "income", f"{year}-01-01", f"{year}-12-31")
+    top: dict = {}
+    for d in exp_docs:
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        t = top.setdefault(d["counterparty_vat"], {"name": d["counterparty_name"] or d["counterparty_vat"] or "—",
+                                                   "vat": d["counterparty_vat"], "amount": 0.0, "n": 0})
+        t["amount"] += sign * (d["total_net"] or 0)
+        t["n"] += 1
+    top = sorted(top.values(), key=lambda t: -t["amount"])[:5]
+    recent = sorted([dict(d, kind="expense") for d in exp_docs] + [dict(d, kind="income") for d in inc_docs],
+                    key=lambda d: (d["issue_date"] or "", d["mark"] or ""), reverse=True)[:7]
+    for d in recent:
+        d["credit"] = d["invoice_type"] in CREDIT_INVOICE_TYPES
+
+    return render_template(
+        "dashboard.html", company=company, year=year, kpi=kpi, chart=_yearly_chart(rows), vat=vat,
+        vat_periods=_yearly_vat_periods(rows, year, now),
+        todos=todos, segments=segments, exp_total=exp_total, done_pct=done_pct, inc_st=inc_st,
+        top=top, top_max=max([t["amount"] for t in top] + [1]), recent=recent,
+        type_names=INVOICE_TYPE_NAMES, today=today.strftime("%d/%m/%Y"), hour=now.hour,
+    )
 
 
 @app.route("/reports")

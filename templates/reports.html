@@ -3,15 +3,18 @@
 {% block content %}
 {# Κύβος ανάλυσης: όλο το pivot γίνεται στον browser (static/olap.js) από τα γεγονότα του olap-data. #}
 <div class="yr olap" id="olap" data-doc-url="{{ url_for('document', mark='__MARK__') }}">
-  <div class="yr-head">
-    <div>
-      <h1>OLAP <span class="yr-year">κύβος</span></h1>
-      <p class="page-sub">Διάλεξε γραμμές, στήλες και μέτρο. Κλικ σε γραμμή για εμβάθυνση (drill-down), σε κελί για τα παραστατικά του.</p>
+  <section class="db-hero yr-hero ol-hero">
+    <span class="db-blob b1"></span><span class="db-blob b2"></span><span class="db-blob b3"></span>
+    <div class="db-hero-in">
+      <div>
+        <h1>OLAP <span class="yr-hero-year">κύβος</span></h1>
+        <p class="db-hi">Γραμμές, στήλες, υποανάλυση και μέτρο. Κλικ σε γραμμή για εμβάθυνση, σε κελί για τα παραστατικά του.</p>
+      </div>
+      <nav class="yr-years" aria-label="Έτος" data-years></nav>
     </div>
-    <nav class="yr-years" aria-label="Έτος" data-years></nav>
-  </div>
-
-  <div class="ol-presets" role="toolbar" aria-label="Έτοιμοι κύβοι" data-presets></div>
+    <div class="ol-presets" role="toolbar" aria-label="Έτοιμες αναλύσεις" data-presets></div>
+    <div class="db-kpis ol-kpis" data-kpis aria-live="polite"></div>
+  </section>
 
   <section class="card ol-controls">
     <div class="ol-axes">
@@ -25,14 +28,22 @@
         <select id="ol-cols" data-dim="cols"></select>
       </div>
       <div>
+        <label for="ol-csub" title="Υποανάλυση στηλών">Υπο-στήλες</label>
+        <select id="ol-csub" data-csub></select>
+      </div>
+      <div>
+        <label for="ol-sub" title="Υποανάλυση γραμμών">Υπο-γραμμές</label>
+        <select id="ol-sub" data-sub></select>
+      </div>
+      <div>
         <label for="ol-measure">Μέτρο</label>
         <select id="ol-measure" data-measure></select>
       </div>
-      <div>
+      <div class="ol-date">
         <label for="ol-from">Από</label>
         <input type="date" id="ol-from" data-from>
       </div>
-      <div>
+      <div class="ol-date">
         <label for="ol-to">Έως</label>
         <input type="date" id="ol-to" data-to>
       </div>
@@ -40,13 +51,12 @@
     <div class="ol-slices" data-slices aria-live="polite"></div>
   </section>
 
-  <div class="ol-kpis" data-kpis></div>
-
   <section class="card ol-chart-card">
     <div class="yr-chart-head">
       <h2 data-chart-title></h2>
-      <ul class="yr-legend" data-legend></ul>
+      <div class="ol-charts" role="toolbar" aria-label="Τύπος διαγράμματος" data-charts></div>
     </div>
+    <ul class="yr-legend ol-legend" data-legend></ul>
     <div class="ol-chart" data-chart></div>
     <div class="yr-tip ol-tip" role="status" hidden></div>
   </section>
@@ -55,6 +65,7 @@
     <div class="ol-table-head">
       <h2 data-table-title></h2>
       <div class="ol-table-tools">
+        <button type="button" class="btn-ghost btn-sm" data-expand style="display:none"></button>
         <button type="button" class="btn-ghost btn-sm" data-heat aria-pressed="true" title="Χρωματισμός κελιών ανάλογα με το μέγεθος">Θερμικός χάρτης</button>
         <button type="button" class="btn-ghost btn-sm" data-csv>⭳ CSV</button>
       </div>
@@ -71,6 +82,7 @@
   </section>
 
   <dialog class="modal modal--wide yr-docs-modal" id="ol-docs" aria-label="Παραστατικά κελιού" closedby="any"></dialog>
+  <dialog class="modal ol-fdlg" id="ol-filter" aria-label="Φίλτρο" closedby="any"></dialog>
 </div>
 <script type="application/json" id="olap-data">{{ cube|tojson }}</script>
 {% endblock %}

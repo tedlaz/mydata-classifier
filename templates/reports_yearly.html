@@ -1,80 +1,163 @@
 {% extends "base.html" %}
+{% from "_macros.html" import vat_tiles with context %}
 {% block title %}Ετήσια σύνοψη {{ year }}{% endblock %}
 {% set balance = (income_total.net - expense_total.net)|round(2) %}
 {# Πραγματικό κέρδος: οι αγορές παγίων (2.7) κεφαλαιοποιούνται — στο αποτέλεσμα μπαίνουν μόνο οι αποσβέσεις. #}
 {% set op_expense = (expense_total.net - expense_total.assets)|round(2) %}
 {% set real_profit = (income_total.net - op_expense)|round(2) %}
-{% macro money(v) -%}<span class="{{ 'yz' if v == 0 else 'yneg' if v < 0 }}">{{ v|el_amount }}</span>{%- endmacro %}
+{% macro money(v) -%}{% if v %}<span class="{{ 'yneg' if v < 0 }}">{{ v|el_amount }}</span>{% else %}<span class="yz">–</span>{% endif %}{%- endmacro %}
+{# Καθαρή αξία με «data bar» ανάλογη του μεγαλύτερου μήνα. #}
+{% macro net(v, kind) -%}<span class="yr-dbar yr-dbar--{{ kind }}" style="--w:{{ ((v|abs) / max_net * 100)|round(1) }}%">{{ money(v) }}</span>{%- endmacro %}
 {% macro amounts(r) -%}
   {% for key, label in cols %}<td class="num" data-label="{{ label|replace('<br>', ' ') }}">{{ money(r[key]) }}</td>{% endfor %}
 {%- endmacro %}
+{% set vat_diff = (income_total.vat - expense_total.vat)|round(2) %}
 
 {% block content %}
-<div class="yr">
-  <div class="yr-head">
-    <div>
-      <a class="back back--inline" href="{{ url_for('reports') }}">← Αναφορές</a>
-      <h1>Ετήσια σύνοψη <span class="yr-year">{{ year }}</span></h1>
-      <p class="page-sub">Ανά μήνα, όπως η «Σύνοψη» της πύλης myDATA.</p>
+<div class="yr yr2">
+  {# ================= Κεφαλίδα + KPI ================= #}
+  <section class="db-hero yr-hero">
+    <span class="db-blob b1"></span><span class="db-blob b2"></span><span class="db-blob b3"></span>
+    <div class="db-hero-in">
+      <div>
+        <a class="yr-hero-back" href="{{ url_for('reports') }}">← Αναφορές</a>
+        <h1>Ετήσια σύνοψη <span class="yr-hero-year">{{ year }}</span></h1>
+        <p class="db-hi">Ανά μήνα, όπως η «Σύνοψη» της πύλης myDATA</p>
+      </div>
+      <nav class="yr-years" aria-label="Έτος">
+        {% for y in years %}<a href="{{ url_for('reports_yearly', year=y) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
+      </nav>
     </div>
-    <nav class="yr-years" aria-label="Έτος">
-      {% for y in years %}<a href="{{ url_for('reports_yearly', year=y) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
-    </nav>
-  </div>
-
-  {# Διάγραμμα: καθαρή αξία εσόδων/εξόδων ανά μήνα #}
-  <section class="card yr-chart">
-    <div class="yr-chart-head">
-      <h2>Καθαρή αξία ανά μήνα</h2>
-      <ul class="yr-legend">
-        <li><i class="yr-dot yr-dot--in"></i>Έσοδα</li>
-        <li><i class="yr-dot yr-dot--out"></i>Έξοδα{% if chart.has_assets %} χωρίς αγορές παγίων{% endif %}</li>
-        {% if chart.has_assets %}<li><i class="yr-dot yr-dot--asset"></i>Αγορές παγίων</li>{% endif %}
-      </ul>
-    </div>
-    <div class="yr-plot">
-      <svg viewBox="0 0 {{ chart.w }} {{ chart.h }}" role="img"
-           aria-label="Μπάρες καθαρής αξίας εσόδων και εξόδων ανά μήνα {{ year }}, με τις αγορές παγίων ξεχωριστά πάνω στα έξοδα — αναλυτικά στον πίνακα παρακάτω">
-        <defs>
-          {# Διαγράμμιση 45° για τις αγορές παγίων: ξεχωρίζουν και χωρίς χρώμα (CVD / εκτύπωση). #}
-          <pattern id="yr-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <rect class="yr-hatch-bg" width="6" height="6"/><rect class="yr-hatch-fg" width="2.5" height="6"/>
-          </pattern>
-        </defs>
-        {% for t in chart.ticks %}
-        <line class="yr-grid {{ 'yr-grid--base' if loop.first }}" x1="{{ chart.left }}" x2="{{ chart.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
-        <text class="yr-tick" x="{{ chart.left - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ '{:,.0f}'.format(t.v).replace(',', '.') }}</text>
-        {% endfor %}
-        {% for m in chart.months %}
-        <g class="yr-col" data-month="{{ m.full }}" data-in="{{ m.income|el_amount }}" data-out="{{ m.expense|el_amount }}"
-           data-op="{{ m.op|el_amount }}" data-assets="{{ m.assets|el_amount if m.assets else '' }}"
-           data-profit="{{ m.profit|el_amount }}" data-neg="{{ 1 if m.profit < 0 else 0 }}">
-          <rect class="yr-hit" x="{{ m.x }}" y="{{ chart.top }}" width="{{ m.w }}" height="{{ chart.base - chart.top }}"/>
-          {% if m.income_path %}<path class="yr-bar yr-bar--in" d="{{ m.income_path }}"/>{% endif %}
-          {% if m.op_path %}<path class="yr-bar yr-bar--out" d="{{ m.op_path }}"/>{% endif %}
-          {% if m.asset_path %}<path class="yr-bar yr-bar--asset" d="{{ m.asset_path }}"/>{% endif %}
-          <text class="yr-month {{ 'is-now' if loop.index == current_month }}" x="{{ m.cx }}" y="{{ chart.h - 9 }}" text-anchor="middle">{{ m.label }}</text>
-        </g>
-        {% endfor %}
-      </svg>
-      <div class="yr-tip" role="status" hidden></div>
+    <div class="db-kpis">
+      <div class="db-kpi" style="--i:0">
+        <small><i class="db-dot" style="background:var(--yr-in)"></i>Έσοδα</small>
+        <b><span data-num="{{ income_total.net }}">{{ income_total.net|el_amount }}</span><i>€</i></b>
+        <svg viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true"><polyline points="{{ spark_in }}" stroke="var(--yr-in)"/></svg>
+      </div>
+      <div class="db-kpi" style="--i:1">
+        <small><i class="db-dot" style="background:var(--yr-out)"></i>Έξοδα</small>
+        <b><span data-num="{{ expense_total.net }}">{{ expense_total.net|el_amount }}</span><i>€</i></b>
+        <svg viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true"><polyline points="{{ spark_out }}" stroke="var(--yr-out)"/></svg>
+      </div>
+      <div class="db-kpi" style="--i:2">
+        <small>⚖️ Υπόλοιπο εσ. − εξ.</small>
+        <b><span class="{{ 'neg' if balance < 0 }}" data-num="{{ balance }}">{{ balance|el_amount }}</span><i>€</i></b>
+        <span class="db-kpi-note">Όλα τα έξοδα, μαζί με τα πάγια</span>
+      </div>
+      <button type="button" class="db-kpi" style="--i:3" data-docs="{{ url_for('reports_yearly_e3', year=year) }}" title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">
+        <small>📈 Καθαρό κέρδος</small>
+        <b><span class="{{ 'neg' if real_profit < 0 }}" data-num="{{ real_profit }}">{{ real_profit|el_amount }}</span><i>€</i></b>
+        <span class="db-kpi-note">Ανάλυση ανά Ε3 →</span>
+      </button>
+      <div class="db-kpi" style="--i:4">
+        <small>🧮 ΦΠΑ εκροών − εισροών</small>
+        <b><span class="{{ 'neg' if vat_diff < 0 }}" data-num="{{ vat_diff }}">{{ vat_diff|el_amount }}</span><i>€</i></b>
+        <span class="db-kpi-note">{{ 'Προς απόδοση' if vat_diff > 0 else 'Πιστωτικό' }} για το έτος</span>
+      </div>
     </div>
   </section>
 
-  {# Αναλυτικός πίνακας: ένα tbody ανά μήνα (hover φωτίζει και τις δύο γραμμές) #}
+  <div class="yr-cols">
+    {# ================= Διάγραμμα + ΦΠΑ τριμήνων ================= #}
+    <section class="card yr-chart">
+      <div class="yr-chart-head">
+        <h2>📊 Καθαρή αξία ανά μήνα</h2>
+        <ul class="yr-legend">
+          <li><i class="yr-dot yr-dot--in"></i>Έσοδα</li>
+          <li><i class="yr-dot yr-dot--out"></i>Έξοδα{% if chart.has_assets %} χωρίς πάγια{% endif %}</li>
+          {% if chart.has_assets %}<li><i class="yr-dot yr-dot--asset"></i>Αγορές παγίων</li>{% endif %}
+        </ul>
+      </div>
+      <div class="yr-plot">
+        <svg viewBox="0 0 {{ chart.w }} {{ chart.h }}" role="img"
+             aria-label="Μπάρες καθαρής αξίας εσόδων και εξόδων ανά μήνα {{ year }}, με τις αγορές παγίων ξεχωριστά πάνω στα έξοδα — αναλυτικά στον πίνακα παρακάτω">
+          <defs>
+            {# Διαγράμμιση 45° για τις αγορές παγίων: ξεχωρίζουν και χωρίς χρώμα (CVD / εκτύπωση). #}
+            <pattern id="yr-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <rect class="yr-hatch-bg" width="6" height="6"/><rect class="yr-hatch-fg" width="2.5" height="6"/>
+            </pattern>
+          </defs>
+          {% for t in chart.ticks %}
+          <line class="yr-grid {{ 'yr-grid--base' if loop.first }}" x1="{{ chart.left }}" x2="{{ chart.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
+          <text class="yr-tick" x="{{ chart.left - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ '{:,.0f}'.format(t.v).replace(',', '.') }}</text>
+          {% endfor %}
+          {% for m in chart.months %}
+          <g class="yr-col" style="--i:{{ loop.index0 }}" data-month="{{ m.full }}" data-in="{{ m.income|el_amount }}" data-out="{{ m.expense|el_amount }}"
+             data-op="{{ m.op|el_amount }}" data-assets="{{ m.assets|el_amount if m.assets else '' }}"
+             data-profit="{{ m.profit|el_amount }}" data-neg="{{ 1 if m.profit < 0 else 0 }}">
+            <rect class="yr-hit" x="{{ m.x }}" y="{{ chart.top }}" width="{{ m.w }}" height="{{ chart.base - chart.top }}" rx="6"/>
+            {% if m.income_path %}<path class="yr-bar yr-bar--in" d="{{ m.income_path }}"/>{% endif %}
+            {% if m.op_path %}<path class="yr-bar yr-bar--out" d="{{ m.op_path }}"/>{% endif %}
+            {% if m.asset_path %}<path class="yr-bar yr-bar--asset" d="{{ m.asset_path }}"/>{% endif %}
+            <text class="yr-month {{ 'is-now' if loop.index == current_month }}" x="{{ m.cx }}" y="{{ chart.h - 9 }}" text-anchor="middle">{{ m.label }}</text>
+          </g>
+          {% endfor %}
+        </svg>
+        <div class="yr-tip" role="status" hidden></div>
+      </div>
+      {{ vat_tiles(vat_periods) }}
+    </section>
+
+    {# ================= Καθαρό κέρδος (waterfall) ================= #}
+    {% set pmax = [income_total.net, expense_total.net, real_profit|abs, 1]|max %}
+    <section class="card yr-pl-card">
+      <div class="yr-chart-head">
+        <h2>💰 Καθαρό κέρδος</h2>
+        <button type="button" class="btn-ghost btn-sm" data-docs="{{ url_for('reports_yearly_e3', year=year) }}" title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">Ανάλυση Ε3 →</button>
+      </div>
+      <ul class="yr-wf">
+        {% for label, v, cls, note in [
+            ('Σύνολα εσόδων', income_total.net, 'in', ''),
+            ('Σύνολα εξόδων', expense_total.net, 'out', 'όλα τα έξοδα'),
+            ('− Αγορές παγίων', expense_total.assets, 'asset', 'κατηγορία 2.7 — κεφαλαιοποιούνται'),
+            ('= Έξοδα χωρίς πάγια', op_expense, 'out', 'εκ των οποίων αποσβέσεις ' ~ expense_total.depreciation|el_amount)] %}
+        <li style="--i:{{ loop.index0 }}">
+          <span class="yr-wf-l">{{ label }}{% if note %}<small>{{ note }}</small>{% endif %}</span>
+          <span class="yr-wf-bar"><i class="{{ cls }}" style="--w:{{ ((v|abs) / pmax * 100)|round(1) }}%"></i></span>
+          <b>{{ v|el_amount }}</b>
+        </li>
+        {% endfor %}
+        <li class="yr-wf-res {{ 'is-neg' if real_profit < 0 }}" style="--i:4">
+          <span class="yr-wf-l">Καθαρό κέρδος<small>έσοδα − έξοδα χωρίς πάγια</small></span>
+          <span class="yr-wf-bar"><i class="res" style="--w:{{ ((real_profit|abs) / pmax * 100)|round(1) }}%"></i></span>
+          <b>{{ real_profit|el_amount }}</b>
+        </li>
+      </ul>
+      {% if income_total.net > 0 %}
+      {% set margin = (real_profit / income_total.net * 100)|round|int %}
+      <div class="yr-margin">
+        <span>Περιθώριο κέρδους</span><b class="{{ 'yneg' if margin < 0 }}">{{ margin }}%</b>
+      </div>
+      {% endif %}
+      {% if expense_total.assets and not expense_total.depreciation %}
+      <p class="note note--warn yr-pl-warn">
+        ⚠ Αγορές παγίων χωρίς <strong>καμία απόσβεση</strong> στο {{ year }} — πέρασέ τες με
+        <a href="{{ url_for('new_expense') }}">Νέα εγγραφή</a> (τύπος 17.x, E3_587).
+      </p>
+      {% endif %}
+    </section>
+  </div>
+
+  {# ================= Αναλυτικός πίνακας: ένα tbody ανά μήνα ================= #}
   <section class="card yr-table-card">
     <div class="yr-scroll">
     <table class="yr-table">
       <thead>
         <tr>
           <th class="yr-sticky">Μήνας</th><th>Είδος</th>
-          <th class="num">Καθαρή<br>αξία</th><th class="num">Υπόλοιπο<br>Εσ. − Εξ.</th>
+          <th class="num">Καθαρή αξία</th><th class="num">Εσ. − Εξ.</th>
           {% for key, label in cols %}<th class="num">{{ label|safe }}</th>{% endfor %}
         </tr>
       </thead>
       {% for r in rows %}
       {% set vm, vq = r.vat_month, r.vat_quarter %}
-      <tbody class="{{ 'is-now' if loop.index == current_month }}" tabindex="0"
+      {% if not ((r.income.values()|select|list) or (r.expense.values()|select|list)) %}
+      <tbody class="yr-empty {{ 'is-now' if loop.index == current_month }}" style="--i:{{ loop.index0 }}">
+        <tr><th class="yr-sticky yr-month-cell" scope="row">{{ r.label }}</th>
+          <td colspan="{{ cols|length + 3 }}" class="yr-empty-note">χωρίς κίνηση</td></tr>
+      </tbody>
+      {% else %}
+      <tbody class="{{ 'is-now' if loop.index == current_month }}" style="--i:{{ loop.index0 }}" tabindex="0"
              title="Κλικ για τον ΦΠΑ του μήνα και του τριμήνου"
              aria-label="{{ r.label }}: διαφορά ΦΠΑ μήνα {{ vm.diff|el_amount }} €, τριμήνου {{ vq.diff|el_amount }} €"
              data-month="{{ r.label }}" data-m-out="{{ vm.out|el_amount }}" data-m-in="{{ vm.in|el_amount }}"
@@ -86,7 +169,7 @@
           <th class="yr-sticky yr-month-cell" rowspan="2" scope="rowgroup">{{ r.label }}</th>
           <td><button type="button" class="yr-kind yr-kind--in" data-docs="{{ url_for('reports_yearly_docs', year=year, month=loop.index, kind='income') }}"
                       title="Αναλυτικά τα παραστατικά εσόδων του μήνα"><i class="yr-dot yr-dot--in"></i>Έσοδα</button></td>
-          <td class="num yr-net">{{ money(r.income.net) }}</td>
+          <td class="num yr-net">{{ net(r.income.net, 'in') }}</td>
           <td class="num" rowspan="2">
             <span class="yr-bal {{ 'is-neg' if r.balance < 0 else 'is-zero' if r.balance == 0 else 'is-pos' }}">{{ r.balance|el_amount }}</span>
           </td>
@@ -95,10 +178,11 @@
         <tr>
           <td><button type="button" class="yr-kind yr-kind--out" data-docs="{{ url_for('reports_yearly_docs', year=year, month=loop.index, kind='expense') }}"
                       title="Αναλυτικά τα παραστατικά εξόδων του μήνα"><i class="yr-dot yr-dot--out"></i>Έξοδα</button></td>
-          <td class="num yr-net">{{ money(r.expense.net) }}</td>
+          <td class="num yr-net">{{ net(r.expense.net, 'out') }}</td>
           {{ amounts(r.expense) }}
         </tr>
       </tbody>
+      {% endif %}
       {% endfor %}
       <tfoot>
         <tr class="yr-total yr-total--in">
@@ -112,50 +196,20 @@
           <td class="num yr-net">{{ expense_total.net|el_amount }}</td>
           {% for key, label in cols %}<td class="num">{{ expense_total[key]|el_amount }}</td>{% endfor %}
         </tr>
-        {# Καθαρό κέρδος: οι αγορές παγίων (2.7) αφαιρούνται από τα έξοδα — στο αποτέλεσμα μένουν μόνο οι αποσβέσεις. #}
-        <tr class="yr-pl-head"><th class="yr-sticky" colspan="2">Καθαρό κέρδος</th><td colspan="{{ cols|length + 2 }}"></td></tr>
-        <tr class="yr-pl">
-          <th class="yr-sticky" colspan="2">Σύνολα εξόδων</th>
-          <td class="num">{{ expense_total.net|el_amount }}</td>
-          <td colspan="{{ cols|length + 1 }}" class="yr-pl-note">όλα τα έξοδα, όπως στη γραμμή «Σύνολα εξόδων»</td>
-        </tr>
-        <tr class="yr-pl yr-pl--minus">
-          <th class="yr-sticky" colspan="2">− Αγορές παγίων</th>
-          <td class="num">− {{ expense_total.assets|el_amount }}</td>
-          <td colspan="{{ cols|length + 1 }}" class="yr-pl-note">κατηγορία 2.7 (E3_882 / E3_883) — δεν είναι έξοδο χρήσης· στο αποτέλεσμα μπαίνουν μόνο οι αποσβέσεις</td>
-        </tr>
-        <tr class="yr-pl yr-pl--sub">
-          <th class="yr-sticky" colspan="2">= Έξοδα χωρίς αγορές παγίων</th>
-          <td class="num">{{ op_expense|el_amount }}</td>
-          <td colspan="{{ cols|length + 1 }}" class="yr-pl-note">εκ των οποίων αποσβέσεις {{ expense_total.depreciation|el_amount }} (E3_587)</td>
-        </tr>
-        <tr class="yr-pl yr-pl--result {{ 'is-neg' if real_profit < 0 }}">
-          <th class="yr-sticky" colspan="2">
-            <button type="button" class="yr-kind yr-pl-open" data-docs="{{ url_for('reports_yearly_e3', year=year) }}"
-                    title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">Καθαρό κέρδος</button>
-          </th>
-          <td class="num">{{ real_profit|el_amount }}</td>
-          <td colspan="{{ cols|length + 1 }}" class="yr-pl-note">Σύνολα εσόδων {{ income_total.net|el_amount }} − Έξοδα χωρίς αγορές παγίων {{ op_expense|el_amount }}</td>
-        </tr>
       </tfoot>
     </table>
     </div>
     <div class="yr-tip yr-tip--vat" role="status" hidden></div>
-    {# Modal «Αναλυτικά»: γεμίζει με fetch από το reports_yearly_docs #}
-    <dialog class="modal modal--wide yr-docs-modal" id="yr-docs" aria-label="Αναλυτικά παραστατικά" closedby="any"></dialog>
     <p class="muted small yr-note">
       Ποσά σε €. Έσοδα = χαρακτηρισμένα του «Βιβλίου εσόδων»· Έξοδα = χαρακτηρισμένα/απεσταλμένα/ολοκληρωμένα
       του «Βιβλίου εξόδων». Τα πιστωτικά αφαιρούνται. «Τρίτων» = χαρακτηρισμοί κατηγορίας 1.9/2.9.
       Παρακρατήσεις, τέλη κ.λπ. συμπληρώνονται με την ανάκτηση — για παλιότερες ανακτήσεις κάνε ξανά «Ανάκτηση».
+      {% if hidden_cols %}<br>Κρύβονται οι στήλες χωρίς ποσά: {{ hidden_cols|join(', ') }}.{% endif %}
     </p>
-    {% if expense_total.assets and not expense_total.depreciation %}
-    <p class="note note--warn yr-pl-warn">
-      ⚠ Υπάρχουν αγορές παγίων αλλά <strong>καμία απόσβεση</strong> στο {{ year }}. Το καθαρό κέρδος αφαιρεί μόνο τις αποσβέσεις
-      που έχουν καταχωρηθεί — πέρασέ τες με <a href="{{ url_for('new_expense') }}">Νέα εγγραφή</a> (τύπος 17.x, χαρακτηρισμός E3_587).
-    </p>
-    {% endif %}
   </section>
 
+  {# Modal «Αναλυτικά»: γεμίζει με fetch από το reports_yearly_docs / reports_yearly_e3 #}
+  <dialog class="modal modal--wide yr-docs-modal" id="yr-docs" aria-label="Αναλυτικά παραστατικά" closedby="any"></dialog>
 </div>
 {% endblock %}
 
@@ -230,7 +284,7 @@
 
   // Κλικ στο «Έσοδα»/«Έξοδα»: modal με τα παραστατικά του μήνα.
   const dlg = document.getElementById('yr-docs');
-  card.addEventListener('click', async e => {
+  document.querySelector('.yr').addEventListener('click', async e => {
     const btn = e.target.closest('[data-docs]');
     if (!btn) return;
     hide();

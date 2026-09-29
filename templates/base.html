@@ -28,6 +28,9 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
 <div class="progress"></div>
 {% set ep = request.endpoint %}
 {% set nav = [
+  ('Επισκόπηση', [
+    ('dashboard', 'Πίνακας ελέγχου', 'home', ['dashboard'], False),
+  ]),
   ('Έσοδα', [
     ('income', 'Βιβλίο εσόδων', 'in', ['income', 'income_sync'], False),
   ]),
@@ -50,7 +53,7 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
 ] %}
 <div class="shell">
   <aside class="sidebar" id="sidebar">
-    <a class="brand" href="{{ url_for('invoices') }}">
+    <a class="brand" href="{{ url_for('dashboard') }}">
       <span class="brand-mark">my</span>
       <span><b>myDATA</b><small>Έσοδα-Έξοδα</small></span>
     </a>
@@ -88,7 +91,7 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
   <div class="content">
     <header class="topbar">
       <button type="button" class="menu-btn" data-nav-toggle aria-label="Μενού" aria-controls="sidebar">{{ icon('menu') }}</button>
-      <a class="brand" href="{{ url_for('invoices') }}"><span class="brand-mark">my</span><b>myDATA</b></a>
+      <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark">my</span><b>myDATA</b></a>
       {% if active_company %}
       <a class="who who--bar {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('companies') }}"
          title="Αλλαγή ενεργής εταιρείας">{{ active_company.company_name }}<small>{{ active_company.MYDATA_ENV or 'prod' }}</small></a>

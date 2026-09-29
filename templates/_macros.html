@@ -3,6 +3,7 @@
 {% set _icons = {
   'out': '<circle cx="12" cy="12" r="10"/><path d="M8 12l4 4 4-4M12 8v8"/>',
   'in': '<circle cx="12" cy="12" r="10"/><path d="M16 12l-4-4-4 4M12 16V8"/>',
+  'home': '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10M10 20v-6h4v6"/>',
   'plus': '<path d="M12 5v14M5 12h14"/>',
   'chart': '<path d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/>',
   'sliders': '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
@@ -109,4 +110,21 @@
   {%- else %}<span class="pg pg-off">Επόμ. ›</span>{% endif %}
 </nav>
 {% endif %}
+{%- endmacro %}
+
+{# Κάρτες ΦΠΑ ανά περίοδο της εταιρείας (από το _yearly_vat_periods): μήνας ή τρίμηνο. #}
+{% macro vat_tiles(vat_periods) -%}
+  {% set qmax = ([1] + vat_periods|map(attribute='out')|list + vat_periods|map(attribute='in')|list)|max %}
+  <div class="yr-quarters {{ 'yr-quarters--m' if vat_periods|length > 4 }}">
+    {% for q in vat_periods %}
+    <div class="yr-q" style="--i:{{ loop.index0 }}" title="{{ q.title }}{{ ' · έως τώρα' if q.partial }} — εκροών {{ q.out|el_amount }} / εισροών {{ q.in|el_amount }}">
+      <small>ΦΠΑ {{ q.short }}{% if q.partial %} <em>σε εξέλιξη</em>{% endif %}</small>
+      <b class="{{ 'yneg' if q.diff < 0 }}">{{ q.diff|el_amount }}</b>
+      <span class="yr-q-bars">
+        <i class="in" style="--w:{{ (q.out / qmax * 100)|round(1) }}%"></i>
+        <i class="out" style="--w:{{ (q.in / qmax * 100)|round(1) }}%"></i>
+      </span>
+    </div>
+    {% endfor %}
+  </div>
 {%- endmacro %}

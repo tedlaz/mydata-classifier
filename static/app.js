@@ -164,6 +164,33 @@
     if (e.submitter) e.submitter.classList.add('is-loading');
     document.body.classList.add('is-busy');
   });
+  // ---- Αριθμοί που «μετράνε» μέχρι την τιμή τους: data-num (ποσό €) / data-int (ακέραιος) ----
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches && !('samePage' in root.dataset)) {
+    const money = new Intl.NumberFormat('el-GR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    // Η τελική τιμή γράφεται σε κάθε περίπτωση στο τέλος (και αν τα frames παγώσουν,
+    // π.χ. κρυφή καρτέλα) — ποτέ δεν μένει «0,00» στην οθόνη.
+    const run = (el, to, fmt, delay) => {
+      const final = el.textContent;
+      let t0 = null, done = false;
+      setTimeout(() => requestAnimationFrame(function step(t) {
+        if (done) return;
+        t0 = t0 || t;
+        const k = Math.min((t - t0) / 1100, 1);
+        el.textContent = k < 1 ? fmt(to * (1 - Math.pow(1 - k, 3))) : final;
+        if (k < 1) requestAnimationFrame(step);
+      }), delay);
+      setTimeout(() => { done = true; el.textContent = final; }, delay + 1300);
+    };
+    document.querySelectorAll('[data-num]').forEach((el, i) => {
+      const to = parseFloat(el.dataset.num);
+      if (to) run(el, to, v => money.format(v), 150 + i * 90);
+    });
+    document.querySelectorAll('[data-int]').forEach(el => {
+      const to = parseInt(el.dataset.int, 10);
+      if (to) run(el, to, v => Math.round(v), 400);
+    });
+  }
+
   // Επιστροφή με «Πίσω» (bfcache): καθάρισε τις ενδείξεις.
   addEventListener('pageshow', () => {
     document.body.classList.remove('is-busy', 'nav-open');
