@@ -205,3 +205,47 @@
 </div>
 </div>
 {% endblock %}
+
+{% block scripts %}
+<script>
+// Αλλαγή έτους / περιόδου / 401-483 χωρίς φόρτωση σελίδας: φέρνει τη νέα έκδοση με fetch και αλλάζει
+// μόνο τα τρία κομμάτια της (κεφαλίδα, μπάρα περιόδων, έντυπο). Πίσω/Εμπρός του browser: popstate.
+(function () {
+  const PARTS = ['.yr-head.f2-noprint', '.f2-bar', '.f2-wrap'];
+  let seq = 0;
+  async function go(url, push) {
+    const my = ++seq, wrap = document.querySelector('.f2-wrap');
+    wrap.classList.add('is-loading');
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(r.status);
+      const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+      if (my !== seq) return;  // πιο πρόσφατο κλικ σε εξέλιξη
+      const fresh = PARTS.map(s => doc.querySelector(s));
+      if (fresh.some(n => !n)) throw new Error('no content');
+      PARTS.forEach((s, i) => { fresh[i].classList.add('is-live'); document.querySelector(s).replaceWith(fresh[i]); });
+      if (push) history.pushState({f2: 1}, '', url);
+    } catch (_) {
+      location.href = url;  // αν κάτι αποτύχει: κανονική πλοήγηση
+    }
+  }
+  document.addEventListener('click', e => {
+    const a = e.target.closest('.yr-head.f2-noprint .yr-years a, .f2-periods a, .f2-reset');
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    // Η επιλογή φαίνεται αμέσως, πριν έρθουν τα ποσά.
+    a.parentElement.querySelectorAll('a').forEach(x => x.removeAttribute('aria-current'));
+    if (!a.classList.contains('f2-reset')) a.setAttribute('aria-current', 'page');
+    go(a.href, true);
+  });
+  document.addEventListener('submit', e => {
+    const f = e.target.closest('.f2-filter');
+    if (!f) return;
+    e.preventDefault();
+    go(f.action + '?' + new URLSearchParams(new FormData(f)), true);
+  });
+  history.replaceState({f2: 1}, '', location.href);
+  addEventListener('popstate', e => { if (e.state && e.state.f2) go(location.href, false); });
+})();
+</script>
+{% endblock %}

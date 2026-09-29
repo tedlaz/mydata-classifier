@@ -2175,6 +2175,13 @@ def _yearly_vat_periods(rows: list[dict], year: str, now) -> list[dict]:
                  partial=current and i + 1 == now.month) for i, r in enumerate(rows)]
 
 
+def _yearly_statuses(kind: str, unclassified: bool) -> list[str]:
+    """Καταστάσεις της ετήσιας σύνοψης· unclassified=True προσθέτει και τα αχαρακτήριστα
+    (για σύγκριση με το συνοπτικό βιβλίο του myDATA, που τα μετρά όλα)."""
+    statuses = _INCOME_CLASSIFIED_STATUSES if kind == "income" else _EXPENSE_CLASSIFIED_STATUSES
+    return statuses + ["unclassified"] if unclassified else statuses
+
+
 @app.route("/reports/yearly")
 def reports_yearly():
     cid = _active_company_id()
@@ -2182,8 +2189,10 @@ def reports_yearly():
     years = sorted(set(db.document_years(cid)) | {str(now.year)}, reverse=True)
     year = request.args.get("year", "")
     year = year if year in years else str(now.year)
-    income = _yearly_totals(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year), stock_in("yearly"))
-    expense = _yearly_totals(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year), stock_in("yearly"))
+    unc = request.args.get("unc") == "1"  # και τα αχαρακτήριστα (κουμπί στην κεφαλίδα)
+    income = _yearly_totals(db.yearly_documents(cid, "income", _yearly_statuses("income", unc), year), stock_in("yearly"))
+    expense = _yearly_totals(db.yearly_documents(cid, "expense", _yearly_statuses("expense", unc), year), stock_in("yearly"))
+    unc_count = sum(len(db.yearly_documents(cid, k, ["unclassified"], year)) for k in ("income", "expense"))
     last = now.month if year == str(now.year) else 12  # τρέχον έτος: έως τον τρέχοντα μήνα
     rows = [
         {"label": f"{_GREEK_MONTHS[m - 1]} {year}", "income": income[m], "expense": expense[m],
@@ -2195,6 +2204,7 @@ def reports_yearly():
     # Όλες οι στήλες, πάντα — ίδιες με το συνοπτικό βιβλίο του myDATA.
     return render_template(
         "reports_yearly.html", year=year, years=years, rows=rows, cols=YEARLY_TABLE_COLS, stock_in=stock_in("yearly"),
+        unc=unc, unc_count=unc_count,
         income_total=total("income"), expense_total=total("expense"),
         chart=_yearly_chart(rows), current_month=now.month if year == str(now.year) else None,
         max_net=max([abs(r[p]["net"]) for r in rows for p in ("income", "expense")] + [1]),
@@ -2211,7 +2221,7 @@ def reports_yearly_docs():
     year, month = request.args.get("year", ""), request.args.get("month", "")
     if kind not in ("income", "expense") or not (year.isdigit() and month.isdigit() and 1 <= int(month) <= 12):
         return "Μη έγκυρη επιλογή.", 400
-    statuses = _INCOME_CLASSIFIED_STATUSES if kind == "income" else _EXPENSE_CLASSIFIED_STATUSES
+    statuses = _yearly_statuses(kind, request.args.get("unc") == "1")
     docs = db.month_documents(_active_company_id(), kind, statuses, f"{year}-{int(month):02d}")
     for d in docs:
         d["credit"] = d["invoice_type"] in CREDIT_INVOICE_TYPES

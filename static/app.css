@@ -1502,3 +1502,26 @@ button.db-kpi:hover{filter:none;box-shadow:none}
 .ol-th-in{display:flex;align-items:center;justify-content:flex-end}
 .ol-th-in .ol-sort{width:auto;margin-left:0}
 .olap .ol-axes select,.olap .ol-axes input{padding-left:10px;padding-right:8px}
+
+/* Ετήσια σύνοψη: διακόπτης «Με αχαρακτήριστα» στην κεφαλίδα */
+.yr-hero-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.yr-unc{display:inline-flex;align-items:center;gap:9px;padding:6px 12px 6px 7px;border-radius:12px;font-size:.84rem;font-weight:600;
+  color:#dfe3fb;text-decoration:none;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);transition:background .2s,border-color .2s}
+.yr-unc:hover{background:rgba(255,255,255,.14)}
+.yr-unc b{min-width:22px;padding:1px 7px;border-radius:99px;background:rgba(255,255,255,.12);font:700 .74rem var(--font-data);text-align:center}
+.yr-unc-knob{position:relative;width:32px;height:18px;border-radius:99px;background:rgba(255,255,255,.2);transition:background .2s}
+.yr-unc-knob::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .2s var(--ease)}
+.yr-unc[aria-checked="true"]{background:rgba(242,194,101,.18);border-color:rgba(242,194,101,.45);color:#ffe2a6}
+.yr-unc[aria-checked="true"] .yr-unc-knob{background:#f2c265}
+.yr-unc[aria-checked="true"] .yr-unc-knob::after{transform:translateX(14px)}
+.yr-unc[aria-checked="true"] b{background:rgba(242,194,101,.3)}
+.yr-tag--unc{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)}
+/* Ανανέωση AJAX της ετήσιας σύνοψης: τα νέα κομμάτια χωρίς εισαγωγικά animations, οι μπάρες «μεταμορφώνονται» */
+.yr-unc.is-busy{cursor:progress}
+.yr2.is-live .yr-cols *,.yr2.is-live .yr-table-card,.yr2.is-live .yr-table-card *,.yr2.is-live .yr-pl-card{animation:none!important}
+.yr2 .yr-bar{transition:d .5s var(--ease),opacity .15s}
+@media (prefers-reduced-motion:reduce){.yr2 .yr-bar{transition:none}}
+/* Δήλωση ΦΠΑ: ανανέωση AJAX — τα νέα κομμάτια χωρίς εισαγωγικό animation, απαλό «σβήσιμο» όσο φορτώνει */
+main > .is-live{animation:none}
+.f2-wrap{transition:opacity .15s}
+.f2-wrap.is-loading{opacity:.55}

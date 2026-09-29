@@ -30,6 +30,7 @@
         <span title="{{ type_names.get(d.invoice_type, '') }}">{{ d.invoice_type }}</span>
         <span class="muted">{{ d.series or '' }}/{{ d.aa or '' }}</span>
         {% if d.credit %}<span class="pill yr-tag">πιστωτικό</span>{% endif %}
+        {% if d.status == 'unclassified' %}<span class="pill yr-tag yr-tag--unc">αχαρακτήριστο</span>{% endif %}
         {% if d.t.assets %}<span class="pill yr-tag yr-tag--asset">πάγιο {{ d.t.assets|el_amount }}</span>{% endif %}
         {% if d.t.third_party %}<span class="pill yr-tag">τρίτων</span>{% endif %}
       </td>
