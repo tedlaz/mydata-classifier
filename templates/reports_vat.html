@@ -11,33 +11,43 @@
 {% macro ka(code) -%}<td class="k">{{ code }}</td><td class="a">{{ v(code) }}</td>{%- endmacro %}
 
 {% block content %}
-<div class="page-head f2-noprint">
+<div class="yr-head f2-noprint">
   <div>
     <a class="back back--inline" href="{{ url_for('reports') }}">← Αναφορές</a>
     <h1>Δήλωση ΦΠΑ <span class="yr-year">{{ period_label }} {{ year }}</span></h1>
+    <p class="page-sub">{{ 'Τριμηνιαία' if is_q else 'Μηνιαία' }} δήλωση Φ2 · {{ d_from }} – {{ d_to }}</p>
   </div>
+  <div class="f2-actions">
+    <nav class="yr-years" aria-label="Έτος">
+      {% for y in years %}<a href="{{ url_for('reports_vat', year=y, period=period) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
+    </nav>
+    <button type="button" class="btn-ghost" onclick="print()">🖨 Εκτύπωση</button>
+  </div>
+</div>
+
+<section class="card f2-bar f2-noprint">
+  <nav class="yr-years f2-periods" aria-label="Περίοδος">
+    {% for p in (quarters if is_q else months) %}{% set pv = ('q' if is_q else 'm') ~ loop.index %}
+    <a href="{{ url_for('reports_vat', year=year, period=pv) }}" {% if pv == period %}aria-current="page"{% endif %}>{{ p ~ ' τρίμηνο' if is_q else p }}</a>{% endfor %}
+  </nav>
   <form method="get" action="{{ url_for('reports_vat') }}" class="f2-filter">
-    <select name="year" aria-label="Έτος">{% for y in years %}<option {{ 'selected' if y == year }}>{{ y }}</option>{% endfor %}</select>
-    <select name="period" aria-label="Περίοδος">
-      <optgroup label="Μήνας">{% for m in months %}<option value="m{{ loop.index }}" {{ 'selected' if period == 'm' ~ loop.index }}>{{ m }}</option>{% endfor %}</optgroup>
-      <optgroup label="Τρίμηνο">{% for q in quarters %}<option value="q{{ loop.index }}" {{ 'selected' if period == 'q' ~ loop.index }}>{{ q }} τρίμηνο</option>{% endfor %}</optgroup>
-    </select>
+    <input type="hidden" name="year" value="{{ year }}">
+    <input type="hidden" name="period" value="{{ period }}">
     {# 401 / 483: κενό = αυτόματα από την προηγούμενη περίοδο· τιμή = χειροκίνητη αλλαγή. #}
-    {% for code, arg, man, auto, what in [
-        ('401', 'prev_credit', manual_credit, auto_credit, 'Πιστωτικό υπόλοιπο προηγούμενης περιόδου (502 της προηγούμενης)'),
-        ('483', 'prev_debit', manual_debit, auto_debit, 'Χρεωστικό έως 30 € προηγούμενης περιόδου, που δεν αποδόθηκε')] %}
-    <label class="f2-credit">{{ code }}
+    {% for code, arg, man, auto, short, what in [
+        ('401', 'prev_credit', manual_credit, auto_credit, 'Πιστωτικό προηγ.', 'Πιστωτικό υπόλοιπο προηγούμενης περιόδου (502 της προηγούμενης)'),
+        ('483', 'prev_debit', manual_debit, auto_debit, 'Χρεωστικό ≤30 €', 'Χρεωστικό έως 30 € προηγούμενης περιόδου, που δεν αποδόθηκε')] %}
+    <label class="f2-credit" title="{{ what }} — κενό: αυτόματα ({{ auto|el_amount }})">
+      <span><b>{{ code }}</b>{{ short }}</span>
       <input name="{{ arg }}" type="number" step="0.01" min="0" value="{{ '%.2f'|format(man) if man is not none else '' }}"
-             placeholder="αυτόματα {{ auto|el_amount }}" aria-label="{{ what }} ({{ code }})"
-             title="{{ what }} — κενό: αυτόματα ({{ auto|el_amount }})">
+             placeholder="αυτόματα {{ auto|el_amount }}" aria-label="{{ what }} ({{ code }})">
     </label>
     {% endfor %}
     {% if manual_credit is not none or manual_debit is not none %}
     <a class="f2-reset" href="{{ url_for('reports_vat', year=year, period=period) }}" title="401 και 483 αυτόματα">↺ αυτόματα</a>{% endif %}
     <button type="submit">Υπολογισμός</button>
-    <button type="button" class="btn-ghost" onclick="print()">🖨 Εκτύπωση</button>
   </form>
-</div>
+</section>
 
 <div class="f2-wrap">
 <div class="f2">

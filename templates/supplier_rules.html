@@ -59,6 +59,15 @@
     (π.χ. 24% → έξοδα με ΦΠΑ, 0% → χωρίς δικαίωμα έκπτωσης). Η <strong>βασική</strong> ισχύει για όσες κατηγορίες ΦΠΑ
     δεν έχουν δική τους γραμμή· αν λείπει, βασική γίνεται η πρώτη. Χωρίς καμία γραμμή, οι προτάσεις διαγράφονται.
   </p>
+  <div class="btn-row">
+    <fieldset class="seg" title="Τρόπος χαρακτηρισμού (και στον μαζικό χαρακτηρισμό με την πρόταση)">
+      <legend class="sr-only">Τρόπος χαρακτηρισμού</legend>
+      <label title="Κάθε γραμμή του παραστατικού χαρακτηρίζεται χωριστά">
+        <input type="radio" name="post_mode" value="0" {{ 'checked' if not post_mode }}> Ανά γραμμή</label>
+      <label title="Οι γραμμές αθροίζονται ανά κατηγορία ΦΠΑ και χαρακτηρίζονται μαζί">
+        <input type="radio" name="post_mode" value="1" {{ 'checked' if post_mode }}> Συγκεντρωτικά</label>
+    </fieldset>
+  </div>
   <div id="rule-rows">
     {% for r in rows %}{{ rule_row(r) }}{% endfor %}
   </div>

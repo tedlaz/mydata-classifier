@@ -49,6 +49,15 @@ f = db.foreign_rule(1, "222")
 assert f["company_name"] == "Β" and f["default"]["type"] == "E3_585_016" and f["patterns"] == {}
 assert db.foreign_rule(1, "999") is None
 
+# 3β) Τρόπος χαρακτηρισμού της πρότασης (ανά γραμμή / συγκεντρωτικά), ανά εταιρεία.
+assert db.get_rule_post_mode(2, "222") == 0
+db.set_rule_post_mode(2, "222", 1)
+db.save_rule_patterns(2, "222", {"1": {"category": "category2_1", "type": "E3_102_001"}})  # νέα γραμμή
+assert db.get_rule_post_mode(2, "222") == 1 and db.foreign_rule(1, "222")["post_mode"] == 1
+assert db.get_rule_post_mode(1, "222") == 0
+db.set_rule_post_mode(2, "222", 0)
+assert db.get_rule_post_mode(2, "222") == 0
+
 # 4) Κατάλογος ανά εταιρεία: μόνο όσοι έχουν παραστατικά ή πρόταση της εταιρείας.
 db.upsert_supplier("333", "Χωρίς συναλλαγές")
 assert [s["vat"] for s in db.list_suppliers(1)] == ["111"]

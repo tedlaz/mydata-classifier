@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS companies (
     aade_subscription_key  TEXT,
     aade_vat_number        TEXT,
     mydata_env             TEXT DEFAULT 'prod',
-    use_accountant         INTEGER DEFAULT 0
+    use_accountant         INTEGER DEFAULT 0,
+    allow_cancel           INTEGER DEFAULT 0,
+    vat_period             TEXT DEFAULT 'm'  -- περίοδος ΦΠΑ: 'm' = μηνιαία, 'q' = τριμηνιαία
 );
 
 CREATE TABLE IF NOT EXISTS accountant (
@@ -74,6 +76,7 @@ CREATE TABLE IF NOT EXISTS supplier_rules (
     rule_category  TEXT,
     rule_type      TEXT,
     rule_vat_type  TEXT,
+    rule_post_mode INTEGER DEFAULT 0,  -- 0 = ανά γραμμή, 1 = συγκεντρωτικά· ίδιο σε όλες τις γραμμές του ΑΦΜ
     updated_at     TEXT,
     PRIMARY KEY (company_id, vat, vat_category),
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
@@ -234,6 +237,10 @@ def init_db() -> None:
         comp_cols = {r["name"] for r in conn.execute("PRAGMA table_info(companies)")}
         if "allow_cancel" not in comp_cols:
             conn.execute("ALTER TABLE companies ADD COLUMN allow_cancel INTEGER DEFAULT 0")
+        if "vat_period" not in comp_cols:
+            conn.execute("ALTER TABLE companies ADD COLUMN vat_period TEXT DEFAULT 'm'")
+        if "rule_post_mode" not in {r["name"] for r in conn.execute("PRAGMA table_info(supplier_rules)")}:
+            conn.execute("ALTER TABLE supplier_rules ADD COLUMN rule_post_mode INTEGER DEFAULT 0")
         cls_cols = {r["name"] for r in conn.execute("PRAGMA table_info(classifications)")}
         for col, decl in _CLASSIFICATION_COLUMNS.items():
             if col not in cls_cols:
@@ -277,6 +284,7 @@ def _company_row_to_dict(row: sqlite3.Row) -> dict:
         "MYDATA_ENV": row["mydata_env"] or "prod",
         "use_accountant": bool(row["use_accountant"]),
         "allow_cancel": bool(row["allow_cancel"]),
+        "vat_period": "q" if row["vat_period"] == "q" else "m",
     }
 
 
@@ -290,7 +298,7 @@ def add_company(data: dict) -> int | None:
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO companies (company_name, aade_user_id, aade_subscription_key, "
-            "aade_vat_number, mydata_env, use_accountant, allow_cancel) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "aade_vat_number, mydata_env, use_accountant, allow_cancel, vat_period) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 data.get("company_name", ""),
                 data.get("AADE_USER_ID", ""),
@@ -299,6 +307,7 @@ def add_company(data: dict) -> int | None:
                 data.get("MYDATA_ENV", "prod"),
                 1 if data.get("use_accountant") else 0,
                 1 if data.get("allow_cancel") else 0,
+                "q" if data.get("vat_period") == "q" else "m",
             ),
         )
         return cur.lastrowid
@@ -309,7 +318,7 @@ def update_company(company_id: int, data: dict) -> None:
         conn.execute(
             "UPDATE companies SET company_name = ?, aade_user_id = ?, "
             "aade_subscription_key = ?, aade_vat_number = ?, mydata_env = ?, "
-            "use_accountant = ?, allow_cancel = ? WHERE id = ?",
+            "use_accountant = ?, allow_cancel = ?, vat_period = ? WHERE id = ?",
             (
                 data.get("company_name", ""),
                 data.get("AADE_USER_ID", ""),
@@ -318,6 +327,7 @@ def update_company(company_id: int, data: dict) -> None:
                 data.get("MYDATA_ENV", "prod"),
                 1 if data.get("use_accountant") else 0,
                 1 if data.get("allow_cancel") else 0,
+                "q" if data.get("vat_period") == "q" else "m",
                 company_id,
             ),
         )
@@ -443,6 +453,28 @@ def replace_rule_patterns(company_id: int | None, vat: str | None, patterns: dic
     save_rule_patterns(company_id, vat, patterns)
 
 
+def get_rule_post_mode(company_id: int | None, vat: str | None) -> int:
+    """Τρόπος χαρακτηρισμού της πρότασης: 0 = ανά γραμμή, 1 = συγκεντρωτικά (postPerInvoice)."""
+    if not company_id or not vat:
+        return 0
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT MAX(rule_post_mode) AS m FROM supplier_rules WHERE company_id = ? AND vat = ?",
+            (company_id, vat),
+        ).fetchone()
+    return int(row["m"] or 0)
+
+
+def set_rule_post_mode(company_id: int | None, vat: str | None, post_mode: int) -> None:
+    if not company_id or not vat:
+        return
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE supplier_rules SET rule_post_mode = ? WHERE company_id = ? AND vat = ?",
+            (1 if post_mode else 0, company_id, vat),
+        )
+
+
 def load_all_rule_patterns(company_id: int | None, vat: str) -> dict:
     """{vat_category: rule} του συναλλασσόμενου, μαζί με τη βασική ('*')."""
     return _load_all_rules(company_id, vat).get(vat, {})
@@ -467,6 +499,7 @@ def foreign_rule(company_id: int | None, vat: str | None) -> dict | None:
         "company_name": row["company_name"],
         "default": pats.pop(DEFAULT_RULE, {}),
         "patterns": pats,
+        "post_mode": get_rule_post_mode(row["company_id"], vat),
     }
 
 

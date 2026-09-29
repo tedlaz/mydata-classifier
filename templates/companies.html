@@ -20,6 +20,14 @@
       {% endfor %}
     </div>
   </div>
+  <div class="co-span">
+    <label>Περίοδος ΦΠΑ</label>
+    <div class="co-seg">
+      {% for v, lbl in [('m', '📅 Μηνιαία'), ('q', '🗓 Τριμηνιαία')] %}
+      <label><input type="radio" name="vat_period" value="{{ v }}" {{ 'checked' if (c.vat_period or 'm') == v }}><span>{{ lbl }}</span></label>
+      {% endfor %}
+    </div>
+  </div>
   <div>
     <label for="{{ pfx }}-uid">AADE User ID</label>
     <input type="text" id="{{ pfx }}-uid" name="aade_user_id" value="{{ c.AADE_USER_ID or '' }}" autocomplete="off">

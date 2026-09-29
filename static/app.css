@@ -918,10 +918,15 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .check--danger input{accent-color:var(--err)}
 
 /* Δήλωση ΦΠΑ (Φ2): αντίγραφο του εντύπου — «χαρτί» πάντα ανοιχτό, και στο σκούρο θέμα */
-.f2-filter{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.f2-filter select,.f2-filter input{width:auto}
-.f2-filter input{width:150px;font-family:var(--font-ui)}
-.f2-credit{display:inline-flex;align-items:center;gap:6px;margin:0;font-weight:700;font-family:var(--font-data);text-transform:none}
+.f2-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.f2-bar{display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap;padding:12px 14px;margin-bottom:14px}
+.f2-periods{flex:0 1 auto}
+.f2-filter{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.f2-credit{display:flex;align-items:center;gap:0;margin:0;border:1px solid var(--line);border-radius:var(--radius-sm);
+  background:var(--surface-2);overflow:hidden;text-transform:none;letter-spacing:0}
+.f2-credit span{display:flex;flex-direction:column;padding:4px 10px;font-size:.7rem;font-weight:600;color:var(--muted);line-height:1.2;white-space:nowrap}
+.f2-credit span b{font-family:var(--font-data);font-size:.9rem;color:var(--ink)}
+.f2-credit input{width:140px;border:0;border-left:1px solid var(--line);border-radius:0;background:var(--surface)}
 .f2-reset{font-size:.8rem;white-space:nowrap}
 .f2-wrap{overflow-x:auto;margin-top:10px}
 .f2{--f2-ink:#111;--f2-line:#222;--f2-key:#cfe0f1;--f2-hd:#e9eef4;--f2-blue:#2d6fb7;
