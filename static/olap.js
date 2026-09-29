@@ -103,6 +103,14 @@
   const MEASURE_COLS = ['net', 'vat', 'vatnd', 'wh', 'ot', 'sd', 'fe', 'de', 'gross'];  // στήλες «Μέτρα»
   const TAX_COLS = ['wh', 'ot', 'sd', 'fe', 'de'];
   const HIDE_ZERO = [...TAX_COLS, 'vatnd'];  // στις «Μέτρα» κρύβονται όταν είναι παντού μηδέν
+  // Σύνολα στηλών «Μέτρα» (επιλογή στις Στήλες): cols = μέτρα-στήλες, hide = κρύβονται όταν είναι παντού 0,
+  // series = σειρές του διαγράμματος (κλειδί, τίτλος, χρώμα) ή sum = μία σειρά-άθροισμα.
+  const MEASURE_SETS = {
+    measures: {label: 'Μέτρα: ποσά, φόροι & κρατήσεις', title: 'Ποσά, φόροι & κρατήσεις', cols: MEASURE_COLS, hide: HIDE_ZERO,
+      sum: ['tax', 'Φόροι & κρατήσεις', TAX_COLS]},
+    mvat: {label: 'Μέτρα: ποσά & ΦΠΑ', title: 'Ποσά & ΦΠΑ', cols: ['net', 'vat', 'vatded', 'vatnd', 'gross'], hide: ['vatnd'],
+      series: [['net', 'Καθαρή αξία', 's1'], ['vat', 'ΦΠΑ', 's2']]},
+  };
   const mv = (f, m) => f[m.i] - (m.minus ? f[m.minus] : 0) + (m.plus ? f[m.plus] : 0);
 
   const CHARTS = [
@@ -127,6 +135,7 @@
     {label: 'Ημέρες εβδομάδας', rows: 'wday', cols: 'kind', m: 'cnt', chart: 'bar'},
     {label: 'Κλίμακα ποσών', rows: 'size', cols: 'kind', m: 'cnt', chart: 'stack'},
     {label: 'Φόροι & κρατήσεις', rows: 'month', cols: 'measures', m: 'net', kind: 'in', chart: 'bar'},
+    {label: 'Ποσά & ΦΠΑ ανά μήνα', rows: 'month', cols: 'mvat', m: 'net', chart: 'bar'},
   ];
 
   const years = [...new Set(docs.map(d => d.date.slice(0, 4)).filter(Boolean))].sort().reverse();
@@ -144,7 +153,7 @@
     }
     if (p.get('rows') in DIMS) state.rows = p.get('rows');
     const c = p.get('cols');
-    if (c === '' || c === 'measures' || (c in DIMS && c !== state.rows)) state.cols = c;
+    if (c === '' || c in MEASURE_SETS || (c in DIMS && c !== state.rows)) state.cols = c;
     if (p.get('m') in MEASURES) state.m = p.get('m');
     const sub = p.get('sub');
     if (sub in DIMS && sub !== state.rows && sub !== state.cols) state.sub = sub;
@@ -188,7 +197,7 @@
 
   let cube;
   function compute() {
-    const R = DIMS[state.rows], mm = state.cols === 'measures', m = MEASURES[state.m];
+    const R = DIMS[state.rows], MS = MEASURE_SETS[state.cols] || null, mm = !!MS, m = MEASURES[state.m];
     const C = mm ? null : DIMS[state.cols] || null, S = state.sub ? DIMS[state.sub] : null;
     const CS = C && state.csub && state.csub !== state.cols ? DIMS[state.csub] : null;
     const csubs = new Map();  // στήλη → κλειδιά υποστηλών
@@ -208,7 +217,7 @@
         sr = row.subs.get(sk);
         if (!sr) row.subs.set(sk, sr = {k: sk, cells: new Map(), total: cell()});
       }
-      const parts = mm ? MEASURE_COLS.map(id => [id, mv(f, MEASURES[id])]) : [[C ? C.key(f, d) : '', count ? 0 : mv(f, m)]];
+      const parts = mm ? MS.cols.map(id => [id, mv(f, MEASURES[id])]) : [[C ? C.key(f, d) : '', count ? 0 : mv(f, m)]];
       for (const [ck, v] of parts) {
         const cv = signed ? v * s : v, tv = !count && kindAxis ? v * s : cv, rv = kindAxis === 'cols' ? tv : cv;
         bump(put(row.cells, ck), cv, f[0]);
@@ -226,8 +235,11 @@
       }
     }
     const val = c => c ? (count ? c.docs.size : c.v) : 0;
-    let colKeys = mm ? MEASURE_COLS.filter(k => !HIDE_ZERO.includes(k) || [...rows.values()].some(r => Math.abs(r.cells.get(k).v) >= 0.005))
+    const nonZero = k => [...rows.values()].some(r => Math.abs(r.cells.get(k).v) >= 0.005);
+    let colKeys = mm ? MS.cols.filter(k => !MS.hide.includes(k) || nonZero(k))
       : sortKeys([...cols.keys()].filter(k => !k.includes(SEP)), C && state.cols, k => Math.abs(val(cols.get(k))));
+    // «Ποσά & ΦΠΑ»: χωρίς μη εκπιπτόμενο ΦΠΑ ο εκπιπτόμενος = όλος ο ΦΠΑ — περιττή στήλη.
+    if (mm && MS.cols.includes('vatded') && !colKeys.includes('vatnd')) colKeys = colKeys.filter(k => k !== 'vatded');
     let rest = null;
     if (C && !C.time && colKeys.length > COL_LIMIT) {  // πολλές στήλες: οι μεγαλύτερες + «Λοιπά»
       rest = new Set(colKeys.splice(COL_LIMIT - 1));
@@ -275,7 +287,7 @@
       const order = sortKeys(rowList.map(r => r.k), state.rows, k => Math.abs(val(rows.get(k).total)));
       rowList = order.map(k => rows.get(k));
     }
-    cube = {R, C, S, CS, mm, m, count, kindAxis, signed, rows: rowList, cols, colKeys, colSubs, csubRest, rest, grand, val};
+    cube = {R, C, S, CS, MS, mm, m, count, kindAxis, signed, rows: rowList, cols, colKeys, colSubs, csubRest, rest, grand, val};
     cube.disp = dispCols();
     return cube;
   }
@@ -287,7 +299,7 @@
   const kindDot = (dim, k) => dim === 'kind' ? `<i class="ol-dot c-${k === 'in' ? 'in' : 'out'}"></i>` : '';
   const totalLabel = () => cube.kindAxis === 'cols' && !cube.count ? 'Εσ. − Εξ.' : 'Σύνολο';
   const showTotalCol = () => cube.C && !cube.mm;
-  const measureTitle = () => cube.mm ? 'Ποσά, φόροι & κρατήσεις' :
+  const measureTitle = () => cube.mm ? cube.MS.title :
     MEASURES[state.m].label + (cube.signed && !MEASURES[state.m].signed ? ' (Εσ. − Εξ.)' : '');
   const unit = () => cube.count ? '' : ' €';
   // Χρώμα: σταθερό για Έσοδα/Έξοδα, αλλιώς οι θέσεις της παλέτας με τη σειρά (το 8ο = «Λοιπά»).
@@ -302,7 +314,7 @@
   function renderControls() {
     const dims = Object.entries(DIMS);
     selRows.innerHTML = opts(dims.map(([k, d]) => [k, d.label, k === state.cols]), state.rows);
-    selCols.innerHTML = opts([['', '— Χωρίς (μόνο σύνολο)'], ['measures', 'Μέτρα: ποσά, φόροι & κρατήσεις'],
+    selCols.innerHTML = opts([['', '— Χωρίς (μόνο σύνολο)'], ...Object.entries(MEASURE_SETS).map(([k, s]) => [k, s.label]),
       ...dims.map(([k, d]) => [k, d.label, k === state.rows])], state.cols);
     selSub.innerHTML = opts([['', '— Χωρίς υποανάλυση'], ...dims.map(([k, d]) => [k, d.label, k === state.rows || k === state.cols])], state.sub);
     const colDim = state.cols in DIMS;
@@ -310,7 +322,7 @@
       ...dims.map(([k, d]) => [k, d.label, k === state.rows || k === state.cols])], colDim ? state.csub : '');
     selCsub.disabled = !colDim;
     selM.innerHTML = opts(Object.entries(MEASURES).map(([k, m]) => [k, m.label]), state.m);
-    selM.disabled = state.cols === 'measures';
+    selM.disabled = state.cols in MEASURE_SETS;
     setDate(inFrom, state.from);
     setDate(inTo, state.to);
 
@@ -320,7 +332,7 @@
     }).join('');
 
     $('[data-presets]').innerHTML = PRESETS.map((p, i) => {
-      const on = p.rows === state.rows && p.cols === state.cols && (p.cols === 'measures' || p.m === state.m) &&
+      const on = p.rows === state.rows && p.cols === state.cols && (p.cols in MEASURE_SETS || p.m === state.m) &&
         (p.sub || '') === state.sub && (p.csub || '') === state.csub && (p.kind || '') === (state.slices.kind || '') &&
         Object.keys(state.slices).every(k => k === 'kind');
       return `<button type="button" class="ol-preset" data-preset="${i}" aria-pressed="${on}">${esc(p.label)}</button>`;
@@ -538,7 +550,11 @@
 
   function chartSeries(type) {
     const {val} = cube;
-    if (cube.mm) return {series: [['tax', 'Φόροι & κρατήσεις', 'acc']], value: r => TAX_COLS.reduce((s, k) => s + val(r.cells.get(k)), 0)};
+    if (cube.mm && cube.MS.sum) {
+      const [key, label, ks] = cube.MS.sum;
+      return {series: [[key, label, 'acc']], value: r => ks.reduce((s, k) => s + val(r.cells.get(k)), 0)};
+    }
+    if (cube.mm) return {series: cube.MS.series, value: (r, k) => val(r.cells.get(k))};
     if (cube.C && (state.cols === 'kind' || type === 'stack' || type === 'line')) {
       return {series: cube.colKeys.map((k, i) => [k, colLabel(k), colorOf(state.cols, k, i)]), value: (r, k) => val(r.cells.get(k))};
     }
