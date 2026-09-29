@@ -34,6 +34,19 @@
   <tbody>
     {{ section('Έσοδα', 'εσόδων', 'yr-dot--in', income, inc_e3, inc_net) }}
     {{ section('Έξοδα', 'εξόδων', 'yr-dot--out', expense, exp_e3, exp_net) }}
+    {% if stock %}
+    {# Αποθέματα έναρξης/λήξης: για το κόστος πωληθέντων — δεν μετρούν στα έξοδα ούτε στο κέρδος. #}
+    <tr class="yr-e3-section"><th colspan="4">Αποθέματα <small class="muted">— πληροφοριακά, εκτός εξόδων και κέρδους</small></th></tr>
+    {% for g in stock %}
+    <tr class="is-asset">
+      <td class="yr-e3-code">{{ g.type or '—' }}</td>
+      <td class="yr-e3-desc">{{ g.type_label or 'Χωρίς τύπο Ε3' }}
+        <small>{{ g.category }}{% if g.category_label %} · {{ g.category_label }}{% endif %}</small></td>
+      <td class="num">{{ g.count }}</td>
+      <td class="num yr-net">{{ g.amount|el_amount }}</td>
+    </tr>
+    {% endfor %}
+    {% endif %}
   </tbody>
 </table>
 </div>

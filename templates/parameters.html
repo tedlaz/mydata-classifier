@@ -4,12 +4,12 @@
 <div class="page-head">
   <div>
     <h1>Παράμετροι</h1>
-    <p class="page-sub">Κοινές ρυθμίσεις της εφαρμογής: credentials λογιστή και συνδυασμοί χαρακτηρισμών.</p>
+    <p class="page-sub">Κοινές ρυθμίσεις της εφαρμογής: credentials λογιστή, συνδυασμοί χαρακτηρισμών και αναφορές.</p>
   </div>
 </div>
 
 <div class="tabs">
-  {% for key, label in [('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί')] %}
+  {% for key, label in [('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί'), ('reports', 'Αναφορές')] %}
   <a class="tab {{ 'is-active' if active_tab == key }}" href="{{ url_for('parameters', tab=key) }}">{{ label }}</a>
   {% endfor %}
 </div>
@@ -44,6 +44,25 @@
     <div>
       <button type="submit">Αποθήκευση</button>
     </div>
+  </form>
+</div>
+
+{% elif active_tab == 'reports' %}
+<div class="card">
+  <h2>Αποθέματα έναρξης / λήξης στα έξοδα</h2>
+  <p class="muted prose">
+    Οι χαρακτηρισμοί <strong>2.13 Αποθέματα Έναρξης</strong> και <strong>2.14 Αποθέματα Λήξης</strong> (π.χ. εγγραφή 17.x με
+    E3_101 / E3_104) δεν είναι έξοδα της περιόδου — χρησιμεύουν στο κόστος πωληθέντων. Διάλεξε σε ποιες αναφορές
+    θα μετρούν στα έξοδα. Το καθαρό κέρδος και η ανάλυση Ε3 τα αφήνουν πάντα εκτός.
+  </p>
+  <form method="post" action="{{ url_for('parameters_reports') }}">
+    {% for key, title, desc, on in stock_reports %}
+    <label class="check">
+      <input type="checkbox" name="{{ key }}" value="1" {{ 'checked' if on }}>
+      <span><b>{{ title }}</b> — τα αποθέματα μετρούν στα έξοδα<br><small class="muted">{{ desc }}</small></span>
+    </label>
+    {% endfor %}
+    <div class="btn-row" style="margin-top:16px"><button type="submit">Αποθήκευση</button></div>
   </form>
 </div>
 

@@ -2,8 +2,10 @@
 {% from "_macros.html" import vat_tiles with context %}
 {% block title %}Ετήσια σύνοψη {{ year }}{% endblock %}
 {% set balance = (income_total.net - expense_total.net)|round(2) %}
-{# Πραγματικό κέρδος: οι αγορές παγίων (2.7) κεφαλαιοποιούνται — στο αποτέλεσμα μπαίνουν μόνο οι αποσβέσεις. #}
-{% set op_expense = (expense_total.net - expense_total.assets)|round(2) %}
+{# Πραγματικό κέρδος: οι αγορές παγίων (2.7) κεφαλαιοποιούνται — στο αποτέλεσμα μπαίνουν μόνο οι αποσβέσεις.
+   Τα αποθέματα (2.13/2.14), αν μετρούν στα έξοδα του πίνακα (Παράμετροι → Αναφορές), δεν μετρούν στο κέρδος. #}
+{% set stock = expense_total.stock if stock_in else 0 %}
+{% set op_expense = (expense_total.net - expense_total.assets - stock)|round(2) %}
 {% set real_profit = (income_total.net - op_expense)|round(2) %}
 {% macro money(v) -%}{% if v %}<span class="{{ 'yneg' if v < 0 }}">{{ v|el_amount }}</span>{% else %}<span class="yz">–</span>{% endif %}{%- endmacro %}
 {# Καθαρή αξία με «data bar» ανάλογη του μεγαλύτερου μήνα. #}
@@ -110,7 +112,9 @@
             ('Σύνολα εσόδων', income_total.net, 'in', ''),
             ('Σύνολα εξόδων', expense_total.net, 'out', 'όλα τα έξοδα'),
             ('− Αγορές παγίων', expense_total.assets, 'asset', 'κατηγορία 2.7 — κεφαλαιοποιούνται'),
-            ('= Έξοδα χωρίς πάγια', op_expense, 'out', 'εκ των οποίων αποσβέσεις ' ~ expense_total.depreciation|el_amount)] %}
+            ('− Αποθέματα', stock, 'asset', 'έναρξης / λήξης 2.13 · 2.14 — για το κόστος πωληθέντων'),
+            ('= Έξοδα χρήσης', op_expense, 'out', 'εκ των οποίων αποσβέσεις ' ~ expense_total.depreciation|el_amount)]
+            if v or label != '− Αποθέματα' %}
         <li style="--i:{{ loop.index0 }}">
           <span class="yr-wf-l">{{ label }}{% if note %}<small>{{ note }}</small>{% endif %}</span>
           <span class="yr-wf-bar"><i class="{{ cls }}" style="--w:{{ ((v|abs) / pmax * 100)|round(1) }}%"></i></span>
@@ -118,7 +122,7 @@
         </li>
         {% endfor %}
         <li class="yr-wf-res {{ 'is-neg' if real_profit < 0 }}" style="--i:4">
-          <span class="yr-wf-l">Καθαρό κέρδος<small>έσοδα − έξοδα χωρίς πάγια</small></span>
+          <span class="yr-wf-l">Καθαρό κέρδος<small>έσοδα − έξοδα χρήσης</small></span>
           <span class="yr-wf-bar"><i class="res" style="--w:{{ ((real_profit|abs) / pmax * 100)|round(1) }}%"></i></span>
           <b>{{ real_profit|el_amount }}</b>
         </li>
@@ -144,8 +148,8 @@
     <table class="yr-table">
       <thead>
         <tr>
-          <th class="yr-sticky">Μήνας</th><th>Είδος</th>
-          <th class="num">Καθαρή αξία</th><th class="num">Εσ. − Εξ.</th>
+          <th class="yr-sticky">Μήνας</th><th>Είδος<br>συναλλαγής</th>
+          <th class="num">Καθαρή<br>αξία</th><th class="num">Υπόλοιπο<br>Εσ. − Εξ.</th>
           {% for key, label in cols %}<th class="num">{{ label|safe }}</th>{% endfor %}
         </tr>
       </thead>
@@ -203,9 +207,7 @@
     <p class="muted small yr-note">
       Ποσά σε €. Έσοδα = χαρακτηρισμένα του «Βιβλίου εσόδων»· Έξοδα = χαρακτηρισμένα/απεσταλμένα/ολοκληρωμένα
       του «Βιβλίου εξόδων». Τα πιστωτικά αφαιρούνται. «Τρίτων» = χαρακτηρισμοί κατηγορίας 1.9/2.9.
-      Παρακρατήσεις, τέλη κ.λπ. συμπληρώνονται με την ανάκτηση — για παλιότερες ανακτήσεις κάνε ξανά «Ανάκτηση».
-      {% if hidden_cols %}<br>Κρύβονται οι στήλες χωρίς ποσά: {{ hidden_cols|join(', ') }}.{% endif %}
-    </p>
+      Παρακρατήσεις, τέλη κ.λπ. συμπληρώνονται με την ανάκτηση — για παλιότερες ανακτήσεις κάνε ξανά «Ανάκτηση».    </p>
   </section>
 
   {# Modal «Αναλυτικά»: γεμίζει με fetch από το reports_yearly_docs / reports_yearly_e3 #}

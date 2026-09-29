@@ -2050,7 +2050,7 @@ def _olap_cube(cid: int | None) -> dict:
     το μερίδιο καθαρής αξίας. Τα πιστωτικά αφαιρούνται (αρνητικό πρόσημο)."""
     # ponytail: όλα τα παραστατικά της εταιρείας στον browser — αν γίνουν δεκάδες χιλιάδες,
     # φίλτρο διαστήματος στο query.
-    docs, facts = [], []
+    docs, facts, with_stock = [], [], stock_in("olap")
     for kind, statuses in (("income", _INCOME_CLASSIFIED_STATUSES), ("expense", _EXPENSE_CLASSIFIED_STATUSES)):
         for d in db.olap_documents(cid, kind, statuses):
             i = len(docs)
@@ -2081,6 +2081,8 @@ def _olap_cube(cid: int | None) -> dict:
                 if deductible is not None and line_vat:
                     nondeductible = min(max(1 - deductible.get(p["line"], 0.0) / line_vat, 0.0), 1.0)
                 for a in allocs:
+                    if not with_stock and a["key"][0] in STOCK_CATEGORIES:  # αποθέματα: όχι έξοδο της περιόδου
+                        continue
                     share = a["weight"] / weights if weights else 1 / len(allocs)
                     amounts = [sign * p[x] * share for x in ("net", "vat", "gross")] + [t * frac * share for t in taxes]
                     amounts.append(amounts[1] * nondeductible)
@@ -2102,20 +2104,45 @@ def _olap_cube(cid: int | None) -> dict:
 
 # Ετήσια σύνοψη (όπως η «Σύνοψη» της πύλης myDATA): ανά μήνα, έσοδα και έξοδα.
 _YEARLY_COLUMNS = ("net", "vat", "withheld", "other_taxes", "stamp_duty", "fees", "deductions", "third_party",
-                   "assets", "depreciation")
+                   "assets", "depreciation", "stock")
 # Στήλες ποσών (μετά την καθαρή αξία) του πίνακα ετήσιας σύνοψης ΚΑΙ του modal «Αναλυτικά».
 YEARLY_TABLE_COLS = [("vat", "ΦΠΑ"), ("withheld", "Φόροι<br>παρακρ."), ("other_taxes", "Λοιποί<br>φόροι"),
                      ("stamp_duty", "Ψηφιακό<br>τέλος συν."), ("fees", "Τέλη"), ("deductions", "Κρατήσεις"),
                      ("third_party", "Έσοδα/Έξοδα<br>τρίτων")]
 ASSET_CATEGORY = "category2_7"  # αγορές παγίων: κεφαλαιοποιούνται, δεν είναι έξοδο χρήσης
 DEPRECIATION_TYPE = "E3_587"    # αποσβέσεις (π.χ. εγγραφή 17.x)
+# Αποθέματα έναρξης (2.13) / λήξης (2.14): εγγραφές για το κόστος πωληθέντων, όχι έξοδα της περιόδου —
+# εκτός από τα έξοδα όλων των αναφορών (σύνοψη, πίνακας ελέγχου, OLAP, ανάλυση Ε3).
+STOCK_CATEGORIES = ("category2_13", "category2_14")
+
+
+# Ποιες αναφορές μετρούν τα αποθέματα στα έξοδα: ρύθμιση στις Παραμέτρους → «Αναφορές».
+# (κλειδί, τίτλος, προεπιλογή, περιγραφή)
+STOCK_REPORTS = (
+    ("yearly", "Ετήσια / Μηνιαία σύνοψη", True, "Όπως το συνοπτικό βιβλίο του myDATA. Το καθαρό κέρδος τα αφαιρεί πάντα."),
+    ("dashboard", "Πίνακας ελέγχου", False, "Κάρτες εσόδων-εξόδων, αποτέλεσμα, γράφημα και κορυφαίοι προμηθευτές."),
+    ("olap", "OLAP", False, "Όλα τα μέτρα του κύβου. Με ενεργό, εμφανίζονται ως κατηγορία Ε3 2.13 / 2.14."),
+)
+
+
+def stock_in(report: str) -> bool:
+    """Αν η αναφορά μετρά τα αποθέματα (2.13 / 2.14) στα έξοδα."""
+    default = next(d for k, _, d, _ in STOCK_REPORTS if k == report)
+    return db.get_setting("stock_in_" + report, "1" if default else "0") == "1"
+
+
+def _stock_amount(cls_json: str | None) -> float:
+    """Ποσό των χαρακτηρισμών αποθεμάτων (2.13 / 2.14) ενός παραστατικού."""
+    return sum(e.get("amount") or 0 for e in json.loads(cls_json or "[]") if e.get("category") in STOCK_CATEGORIES)
 _GREEK_MONTHS = ("Ιαν.", "Φεβ.", "Μαρ.", "Απρ.", "Μαΐ.", "Ιουν.", "Ιουλ.", "Αυγ.", "Σεπ.", "Οκτ.", "Νοέ.", "Δεκ.")
 
 
-def _yearly_totals(docs: list[dict]) -> dict:
+def _yearly_totals(docs: list[dict], include_stock: bool = False) -> dict:
     """{μήνας 1–12: {στήλη: ποσό}}. Τα πιστωτικά αφαιρούνται. «Τρίτων» = ποσά χαρακτηρισμών
     κατηγορίας x_9 (για λογαριασμό τρίτων). assets = Ε3 κατηγορίας 2.7 (αγορές παγίων),
-    depreciation = Ε3 αποσβέσεων (E3_587…), από τον ισχύοντα χαρακτηρισμό (cls_json)."""
+    depreciation = Ε3 αποσβέσεων (E3_587…), από τον ισχύοντα χαρακτηρισμό (cls_json). stock = αποθέματα
+    2.13/2.14· include_stock=True τα κρατά στην καθαρή αξία (όπως το συνοπτικό βιβλίο του myDATA),
+    αλλιώς η καθαρή αξία είναι χωρίς αυτά (πίνακας ελέγχου, σύγκριση με το Ε3)."""
     months = {m: dict.fromkeys(_YEARLY_COLUMNS, 0.0) for m in range(1, 13)}
     for d in docs:
         try:
@@ -2127,11 +2154,12 @@ def _yearly_totals(docs: list[dict]) -> dict:
         third = sum(e.get("amount") or 0 for e in e3 if (e.get("category") or "").endswith("_9"))
         assets = sum(e.get("amount") or 0 for e in e3 if e.get("category") == ASSET_CATEGORY)
         depreciation = sum(e.get("amount") or 0 for e in e3 if (e.get("type") or "").startswith(DEPRECIATION_TYPE))
+        stock = sum(e.get("amount") or 0 for e in e3 if e.get("category") in STOCK_CATEGORIES)
         row = months[month]
-        for col, value in (("net", d["total_net"]), ("vat", d["total_vat"]), ("withheld", d["total_withheld"]),
+        for col, value in (("net", (d["total_net"] or 0) - (0 if include_stock else stock)), ("vat", d["total_vat"]), ("withheld", d["total_withheld"]),
                            ("other_taxes", d["total_other_taxes"]), ("stamp_duty", d["total_stamp_duty"]),
                            ("fees", d["total_fees"]), ("deductions", d["total_deductions"]), ("third_party", third),
-                           ("assets", assets), ("depreciation", depreciation)):
+                           ("assets", assets), ("depreciation", depreciation), ("stock", stock)):
             row[col] += sign * (value or 0)
     return {m: {c: round(v, 2) for c, v in r.items()} for m, r in months.items()}
 
@@ -2154,8 +2182,8 @@ def reports_yearly():
     years = sorted(set(db.document_years(cid)) | {str(now.year)}, reverse=True)
     year = request.args.get("year", "")
     year = year if year in years else str(now.year)
-    income = _yearly_totals(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year))
-    expense = _yearly_totals(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year))
+    income = _yearly_totals(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year), stock_in("yearly"))
+    expense = _yearly_totals(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year), stock_in("yearly"))
     last = now.month if year == str(now.year) else 12  # τρέχον έτος: έως τον τρέχοντα μήνα
     rows = [
         {"label": f"{_GREEK_MONTHS[m - 1]} {year}", "income": income[m], "expense": expense[m],
@@ -2164,12 +2192,9 @@ def reports_yearly():
     ]
     _add_vat_periods(rows, year)
     total = lambda part: {c: round(sum(r[part][c] for r in rows), 2) for c in _YEARLY_COLUMNS}  # noqa: E731
-    # Στήλες χωρίς κανένα ποσό κρύβονται (ο ΦΠΑ μένει πάντα) — πιο συμπαγής πίνακας.
-    used = lambda key: any(r[p][key] for r in rows for p in ("income", "expense"))  # noqa: E731
-    cols = [c for c in YEARLY_TABLE_COLS if c[0] == "vat" or used(c[0])]
+    # Όλες οι στήλες, πάντα — ίδιες με το συνοπτικό βιβλίο του myDATA.
     return render_template(
-        "reports_yearly.html", year=year, years=years, rows=rows, cols=cols,
-        hidden_cols=[label.replace("<br>", " ") for key, label in YEARLY_TABLE_COLS if (key, label) not in cols],
+        "reports_yearly.html", year=year, years=years, rows=rows, cols=YEARLY_TABLE_COLS, stock_in=stock_in("yearly"),
         income_total=total("income"), expense_total=total("expense"),
         chart=_yearly_chart(rows), current_month=now.month if year == str(now.year) else None,
         max_net=max([abs(r[p]["net"]) for r in rows for p in ("income", "expense")] + [1]),
@@ -2190,7 +2215,7 @@ def reports_yearly_docs():
     docs = db.month_documents(_active_company_id(), kind, statuses, f"{year}-{int(month):02d}")
     for d in docs:
         d["credit"] = d["invoice_type"] in CREDIT_INVOICE_TYPES
-        d["t"] = _yearly_totals([d])[int(month)]  # ίδιος υπολογισμός με τον πίνακα (πρόσημο, πάγια, τρίτων)
+        d["t"] = _yearly_totals([d], stock_in("yearly"))[int(month)]  # ίδιος υπολογισμός με τον πίνακα (πρόσημο, πάγια, τρίτων)
         d["gross"] = (-1 if d["credit"] else 1) * (d["total_gross"] or 0)
     total = {c: round(sum(d["t"][c] for d in docs), 2) for c in _YEARLY_COLUMNS}
     total["gross"] = round(sum(d["gross"] for d in docs), 2)
@@ -2223,6 +2248,7 @@ def _e3_breakdown(docs: list[dict]) -> list[dict]:
         g["category_label"] = _CLASSIFICATION_CATEGORY_NAMES.get(g["category"], "")
         g["asset"] = g["category"] == ASSET_CATEGORY
         g["depreciation"] = g["type"].startswith(DEPRECIATION_TYPE)
+        g["stock"] = g["category"] in STOCK_CATEGORIES
     return rows
 
 
@@ -2236,12 +2262,14 @@ def reports_yearly_e3():
     inc_docs = db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year)
     exp_docs = db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year)
     income, expense = _e3_breakdown(inc_docs), _e3_breakdown(exp_docs)
+    stock = [g for g in expense if g["stock"]]  # πληροφοριακά, εκτός εξόδων και κέρδους
+    expense = [g for g in expense if not g["stock"]]
     inc_e3 = round(sum(g["amount"] for g in income), 2)
     exp_e3 = round(sum(g["amount"] for g in expense), 2)
     assets = round(sum(g["amount"] for g in expense if g["asset"]), 2)
     net = lambda docs: round(sum(v["net"] for v in _yearly_totals(docs).values()), 2)  # noqa: E731
     return render_template(
-        "_yearly_e3.html", year=year, income=income, expense=expense,
+        "_yearly_e3.html", year=year, income=income, expense=expense, stock=stock,
         inc_e3=inc_e3, exp_e3=exp_e3, assets=assets, profit_e3=round(inc_e3 - (exp_e3 - assets), 2),
         inc_net=net(inc_docs), exp_net=net(exp_docs),
     )
@@ -2434,8 +2462,9 @@ def dashboard():
     exp_st, inc_st = db.count_by_status(cid, "expense"), db.count_by_status(cid, "income")
 
     # Σύνοψη έτους (ίδιοι υπολογισμοί με την Ετήσια σύνοψη).
-    income = _yearly_totals(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year))
-    expense = _yearly_totals(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year))
+    with_stock = stock_in("dashboard")
+    income = _yearly_totals(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year), with_stock)
+    expense = _yearly_totals(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year), with_stock)
     rows = [{"label": f"{_GREEK_MONTHS[m - 1]} {year}", "income": income[m], "expense": expense[m],
              "balance": round(income[m]["net"] - expense[m]["net"], 2)} for m in range(1, now.month + 1)]
     ytd = lambda part, col: round(sum(r[part][col] for r in rows), 2)  # noqa: E731
@@ -2519,9 +2548,12 @@ def dashboard():
     top: dict = {}
     for d in exp_docs:
         sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        net = (d["total_net"] or 0) - (0 if with_stock else _stock_amount(d["cls_json"]))
+        if not net:  # μόνο αποθέματα: δεν είναι αγορά από τον συναλλασσόμενο
+            continue
         t = top.setdefault(d["counterparty_vat"], {"name": d["counterparty_name"] or d["counterparty_vat"] or "—",
                                                    "vat": d["counterparty_vat"], "amount": 0.0, "n": 0})
-        t["amount"] += sign * (d["total_net"] or 0)
+        t["amount"] += sign * net
         t["n"] += 1
     top = sorted(top.values(), key=lambda t: -t["amount"])[:5]
     recent = sorted([dict(d, kind="expense") for d in exp_docs] + [dict(d, kind="income") for d in inc_docs],
@@ -3098,7 +3130,7 @@ def parameters():
         return redirect(url_for("suppliers"))
     if tab == "companies":
         return redirect(url_for("companies"))
-    if tab not in {"accountant", "combinations"}:
+    if tab not in {"accountant", "combinations", "reports"}:
         tab = "accountant"
     return render_template(
         "parameters.html",
@@ -3106,7 +3138,16 @@ def parameters():
         acc=get_accountant(),
         combinations_count=db.combos_count(),
         combinations_invoice_types=sorted(db.combos_invoice_types()),
+        stock_reports=[(k, title, desc, stock_in(k)) for k, title, _, desc in STOCK_REPORTS],
     )
+
+
+@app.route("/parameters/reports", methods=["POST"])
+def parameters_reports():
+    for key, *_ in STOCK_REPORTS:
+        db.set_setting("stock_in_" + key, "1" if request.form.get(key) else "0")
+    flash("✔ Αποθηκεύτηκαν οι ρυθμίσεις αναφορών.", "ok")
+    return redirect(url_for("parameters", tab="reports"))
 
 
 @app.route("/companies")
