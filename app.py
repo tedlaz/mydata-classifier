@@ -7,7 +7,9 @@ import calendar
 import glob
 import json
 import os
+import random
 import re
+import statistics
 import sys
 import threading
 import tomllib
@@ -2509,6 +2511,286 @@ def _vat_auto_carry(cid: int | None, year: int, kind: str, n: int) -> tuple[floa
             credit, debit = codes["502"], codes["carry"]
     return credit, debit
 
+
+# ------------------------------------------------------------------ #
+# Πρόβλεψη αποτελέσματος τρέχοντος έτους
+# ------------------------------------------------------------------ #
+_FORECAST_STATUSES = ["unclassified", "classified", "sent", "confirmed"]
+
+
+def _forecast(cur: list[float], prev: list[float], done: int, start: int = 0) -> tuple[list[float], str]:
+    """Σημειακή πρόβλεψη 12 μηνών (λίστες 0–11). Οι μήνες < done είναι πραγματικοί· οι υπόλοιποι:
+    περσινός μήνας × (φετινό / περσινό ίδιου διαστήματος), αλλιώς μέσος όρος μήνα, αλλιώς πέρσι.
+    Βάση = μήνες start..done-1 (start = πρώτος μήνας με κίνηση: νέα εταιρεία ≠ μηδενικοί μήνες)."""
+    actual, prev_same, n = sum(cur[start:done]), sum(prev[start:done]), done - start
+    if n > 0 and prev_same > 0:
+        ratio = actual / prev_same
+        rest, label = [p * ratio for p in prev[done:]], f"εποχικότητα προηγούμενου έτους ×{ratio:.2f}".replace(".", ",")
+    elif n > 0:
+        rest, label = [actual / n] * (12 - done), "μέσος όρος ολοκληρωμένων μηνών"
+    else:
+        rest, label = prev[done:], "περσινά ποσά (δεν υπάρχει ακόμα ολοκληρωμένος μήνας με κίνηση)"
+    return [round(v, 2) for v in cur[:done] + rest], label
+
+
+def _scenarios(cur_in, cur_out, prev_in, prev_out, done: int, seed: int, start: int = 0, fixed: list[float] | None = None,
+               known_in: list[float] | None = None, known_out: list[float] | None = None, runs: int = 5000) -> dict | None:
+    """Bootstrap: κάθε υπόλοιπος μήνας παίρνει τον «συντελεστή» ενός τυχαίου ολοκληρωμένου μήνα
+    (ίδιου για έσοδα/έξοδα — κρατά τη συσχέτιση). fixed = ντετερμινιστικές εκροές ανά μήνα (σταθερά
+    έξοδα, κόστος παγίων) που αφαιρούνται χωρίς τύχη· known_in / known_out = προγραμματισμένα ποσά
+    ανά μήνα (το σκέλος γίνεται ντετερμινιστικό). Επιστρέφει P10/P50/P90 του αποτελέσματος
+    έτους και τα σωρευτικά P10/P90 ανά μήνα (μόνο οι μήνες ≥ done)· None αν < 2 μήνες.
+    ponytail: με λίγους μήνες το εύρος υποεκτιμάται — ιστορικό περισσότερων ετών αν χρειαστεί."""
+    if done - start < 2:
+        return None
+    fixed = fixed or [0.0] * 12
+    rng = random.Random(seed)
+    base = sum(cur_in[:done]) - sum(cur_out[:done]) - sum(fixed[:done])
+
+    def sampler(cur, prev):
+        prev_same = sum(prev[start:done])
+        if prev_same <= 0:  # χωρίς ιστορικό: το ποσό ενός ολοκληρωμένου μήνα
+            return lambda m, k: cur[k]
+        ratio = sum(cur[start:done]) / prev_same
+        return lambda m, k: prev[m] * (cur[k] / prev[k] if prev[k] > 0 else ratio)
+
+    s_in, s_out = sampler(cur_in, prev_in), sampler(cur_out, prev_out)
+    if known_in:
+        s_in = lambda m, k: known_in[m]  # noqa: E731
+    if known_out:
+        s_out = lambda m, k: known_out[m]  # noqa: E731
+    paths = []
+    for _ in range(runs):
+        acc, path = base, []
+        for m in range(done, 12):
+            k = rng.randrange(start, done)
+            acc += s_in(m, k) - s_out(m, k) - fixed[m]
+            path.append(acc)
+        paths.append(path)
+    q = lambda xs: statistics.quantiles(xs, n=10)  # noqa: E731
+    per_month = [q([p[i] for p in paths]) for i in range(12 - done)]
+    final = per_month[-1]
+    return {"p10": round(final[0], 2), "p50": round(final[4], 2), "p90": round(final[8], 2),
+            "lo": [round(m[0], 2) for m in per_month], "hi": [round(m[8], 2) for m in per_month]}
+
+
+_FIXED_E3 = ("E3_585_014", "E3_585_007", "E3_581_")  # ενοίκια, ΕΦΚΑ αυτοαπασχολούμενων, μισθοδοσία
+_DEPR_FULL_LIMIT, _DEPR_RATE = 1500, 0.20  # πάγιο < 1.500 €: 100% στη χρήση αγοράς· αλλιώς 20% τον χρόνο
+
+
+def _expense_lines(docs: list[dict]) -> tuple[list[dict], list[float]]:
+    """Από τους χαρακτηρισμούς (χωρίς ΦΠΑ, πιστωτικά αρνητικά): ([μήνας 0–11]: {E3 type: ποσό} χωρίς
+    πάγια / αποσβέσεις / αποθέματα, [ποσά γραμμών αγορών παγίων 2.7])."""
+    by_type, assets = [{} for _ in range(12)], []
+    for d in docs:
+        try:
+            m = int((d["issue_date"] or "")[5:7]) - 1
+        except ValueError:
+            continue
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        for e in json.loads(d["cls_json"] or "[]"):
+            t, cat, amount = e.get("type") or "", e.get("category"), sign * (e.get("amount") or 0)
+            if cat == ASSET_CATEGORY:
+                assets.append(amount)
+            elif t and not t.startswith(("VAT_", DEPRECIATION_TYPE)) and cat not in STOCK_CATEGORIES:
+                by_type[m][t] = by_type[m].get(t, 0.0) + amount
+    return by_type, assets
+
+
+def _fixed_types(by_type: list[dict], done: int, start: int) -> dict[str, float]:
+    """Σταθερά έξοδα → μηνιαίο ποσό προβολής (μέσος όρος έως 3 τελευταίων ολοκληρωμένων μηνών).
+    Σταθερός = γνωστός κωδικός (ενοίκια, ΕΦΚΑ, μισθοδοσία) ή τύπος που υπάρχει σε καθέναν από
+    τους 3 τελευταίους ολοκληρωμένους μήνες."""
+    last = range(max(start, done - 3), done)
+    types = {t for m in range(start, done) for t in by_type[m]}
+    fixed = {t for t in types if t.startswith(_FIXED_E3)}
+    if len(last) == 3:
+        fixed |= {t for t in types if all(by_type[m].get(t) for m in last)}
+    return {t: round(sum(by_type[m].get(t, 0.0) for m in last) / len(last), 2) for t in sorted(fixed)} if last else {}
+
+
+def _depreciation(asset_lines: dict[int, list[float]], year: int, small: float = 0.0, large: float = 0.0,
+                  months: int = 12) -> dict:
+    """Αποσβέσεις έτους κατά τον κανόνα: γραμμή < 1.500 € αποσβένεται 100% στη χρήση αγοράς,
+    αλλιώς 20% τον χρόνο (5 χρόνια — άρα μετρούν και οι αγορές των 4 προηγούμενων ετών).
+    small / large = εκτιμώμενες νέες αγορές (σύνολο παγίων < 1.500 € / ≥ 1.500 € το καθένα). Τα large
+    αγοράζονται στον τρέχοντα ανοιχτό μήνα: 20% × months/12 (μήνες χρήσης μέσα στο έτος, μαζί με τον μήνα αγοράς).
+    Οι ήδη καταχωρημένες αποσβέσεις (E3_587) δεν μετρούν: θα διπλομετρούσαν."""
+    rate = lambda v: 1.0 if abs(v) < _DEPR_FULL_LIMIT else _DEPR_RATE  # noqa: E731
+    cur = asset_lines.get(year, [])
+    older = sum(v for y in range(year - 4, year) for v in asset_lines.get(y, []) if abs(v) >= _DEPR_FULL_LIMIT)
+    d = {"bought": sum(cur), "cur": sum(v * rate(v) for v in cur), "older_base": older, "older": older * _DEPR_RATE,
+         "small": small, "large": large, "large_depr": large * _DEPR_RATE * months / 12, "months": months}
+    d["total"] = d["cur"] + d["older"] + small + d["large_depr"]
+    return {k: round(v, 2) for k, v in d.items()}
+
+
+def _amount_arg(name: str) -> float | None:
+    """Ποσό ≥ 0 από query string («1500», «1.500,50», «1500.5»)· κενό → None, άκυρο → ValueError."""
+    raw = request.args.get(name, "").strip().replace(" ", "")
+    if "," in raw:
+        raw = raw.replace(".", "").replace(",", ".")
+    if not raw:
+        return None
+    if not re.fullmatch(r"\d{1,12}(\.\d{1,2})?", raw):
+        raise ValueError(name)
+    return min(float(raw), 1e8)
+
+
+def _spread(total: float, weights: list[float]) -> list[float]:
+    """Μοιράζει το total αναλογικά των weights (ισόποσα αν δεν έχουν θετικό άθροισμα)· η διαφορά
+    στρογγυλοποίησης πάει στον τελευταίο, ώστε το άθροισμα να είναι ακριβώς total."""
+    w = weights if sum(weights) > 0 and all(v >= 0 for v in weights) else [1.0] * len(weights)
+    out = [round(total * v / sum(w), 2) for v in w]
+    if out:
+        out[-1] = round(total - sum(out[:-1]), 2)
+    return out
+
+
+def _forecast_chart(inc: list[float], out: list[float], res_m: list[float], prev_res: list[float], sc: dict | None,
+                    done: int, dep: float = 0.0) -> dict:
+    """Γεωμετρία SVG (viewBox 760×280): σωρευτικές γραμμές εσόδων/εξόδων/αποτελέσματος — συνεχείς
+    στους πραγματικούς μήνες, διακεκομμένες στην πρόβλεψη — με βεντάλια P10–P90 και περσινή αναφορά.
+    res_m = αποτέλεσμα ανά μήνα (με το κόστος παγίων dep τον Δεκέμβριο)."""
+    from itertools import accumulate
+
+    W, H, left, right, top, bottom = 760, 280, 58, 118, 16, 30
+    base = H - bottom
+    ci, co, res, pr = (list(accumulate(v)) for v in (inc, out, res_m, prev_res))
+    values = ci + co + res + pr + (sc["lo"] + sc["hi"] if sc else []) + [0]
+    step = _nice_step(max(values) - min(min(values), 0))
+    lo, hi = step * (min(values) // step), step * -(-max(values) // step)
+    hi = hi if hi > lo else lo + step
+    slot = (W - left - right) / 12
+    x = lambda i: round(left + slot * (i + 0.5), 1)  # noqa: E731
+    y = lambda v: round(base - (v - lo) / (hi - lo) * (base - top), 1)  # noqa: E731
+    pts = lambda vals, idx: " ".join(f"{x(i)},{y(vals[i])}" for i in idx)  # noqa: E731
+    split = max(done - 1, 0)
+    actual, future = range(done), range(split, 12)
+
+    def line(vals):
+        return {"actual": "M" + pts(vals, actual) if done > 1 else "", "future": "M" + pts(vals, future),
+                "area": f"M{x(0)},{y(max(lo, 0))} L" + pts(vals, range(12)) + f" L{x(11)},{y(max(lo, 0))}Z"}
+
+    fan = ""
+    if sc:
+        start = res[done - 1]
+        fan = ("M" + f"{x(split)},{y(start)} " + " ".join(f"{x(done + i)},{y(v)}" for i, v in enumerate(sc["hi"]))
+               + " L" + " ".join(f"{x(done + i)},{y(v)}" for i, v in reversed(list(enumerate(sc["lo"])))) + "Z")
+    # Ετικέτες τέλους: ελάχιστη απόσταση 15px ώστε να μη συγκρούονται.
+    ends = sorted([{"key": "in", "label": "Έσοδα", "v": ci[-1]}, {"key": "out", "label": "Έξοδα", "v": co[-1]},
+                   {"key": "res", "label": "Αποτέλεσμα", "v": res[-1]}], key=lambda e: y(e["v"]))
+    last = -99
+    for e in ends:
+        e["y"], e["ly"] = y(e["v"]), max(y(e["v"]), last + 15)
+        last = e["ly"]
+    months = [{"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(left + slot * i, 1), "w": round(slot, 1),
+               "in": round(ci[i], 2), "out": round(co[i], 2), "res": round(res[i], 2), "prev": round(pr[i], 2),
+               "forecast": i >= done, "dep": dep if i == 11 else 0,
+               "lo": sc["lo"][i - done] if sc and i >= done else None, "hi": sc["hi"][i - done] if sc and i >= done else None}
+              for i in range(12)]
+    ticks = [{"v": lo + step * k, "y": y(lo + step * k)} for k in range(int(round((hi - lo) / step)) + 1)]
+    return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "zero": y(0),
+            "split_x": round(left + slot * done, 1), "done": done, "months": months, "ticks": ticks, "ends": ends,
+            "in": line(ci), "out": line(co), "res": line(res), "prev": "M" + pts(pr, range(12)), "fan": fan,
+            "end_x": x(11)}
+
+
+@app.route("/reports/forecast")
+def reports_forecast():
+    cid = _active_company_id()
+    now = datetime.now(ATHENS)
+    year, done, with_stock = now.year, now.month - 1, stock_in("yearly")
+    # Εκτιμώμενες νέες αγορές παγίων έως το τέλος του έτους: σύνολο παγίων < 1.500 € / ≥ 1.500 € το καθένα.
+    # Προγραμματισμένα έσοδα / μεταβλητά έξοδα υπόλοιπων μηνών: αντικαθιστούν τη στατιστική πρόβλεψη.
+    errors = []
+
+    def amount(name, label):
+        try:
+            return _amount_arg(name)
+        except ValueError:
+            errors.append(f"Μη έγκυρο ποσό: {label}.")
+            return None
+
+    small = amount("assets_small", f"αγορές παγίων κάτω από {_DEPR_FULL_LIMIT:,} €".replace(",", ".")) or 0.0
+    large = amount("assets_large", f"αγορές παγίων από {_DEPR_FULL_LIMIT:,} € και πάνω".replace(",", ".")) or 0.0
+    if 0 < large < _DEPR_FULL_LIMIT:
+        errors.append("Οι αγορές παγίων από 1.500 € και πάνω θέλουν ποσό τουλάχιστον 1.500 € (ή κενό).")
+        large = 0.0
+    planned_in = amount("planned_income", "προγραμματισμένα έσοδα")
+    planned_out = amount("planned_expense", "προγραμματισμένα έξοδα")
+
+    past = sorted(int(y) for y in db.document_years(cid) if y.isdigit() and int(y) < year)
+    years = sorted({year, year - 1, *past})
+    docs = {(k, y): db.yearly_documents(cid, k, _FORECAST_STATUSES, str(y)) for k in ("income", "expense") for y in years}
+    totals = {key: _yearly_totals(d, with_stock) for key, d in docs.items()}
+    col = lambda key, c: [totals[key][m][c] for m in range(1, 13)]  # noqa: E731
+    lines = {y: _expense_lines(docs[("expense", y)]) for y in years}  # y → (by_type, γραμμές παγίων)
+    asset_lines = {y: lines[y][1] for y in years}
+    for y in range(years[0] - 4, years[0]):  # αγορές ≥ 1.500 € που αποσβένονται ακόμα
+        asset_lines[y] = _expense_lines(db.yearly_documents(cid, "expense", _FORECAST_STATUSES, str(y)))[1]
+
+    # Έξοδα χρήσης χωρίς αγορές παγίων και καταχωρημένες αποσβέσεις (αντί γι' αυτές: αποσβέσεις κατά τον κανόνα).
+    def operating(y):
+        key = ("expense", y)
+        return [n - a - dp for n, a, dp in zip(col(key, "net"), col(key, "assets"), col(key, "depreciation"))]
+
+    cur_in, prev_in = col(("income", year), "net"), col(("income", year - 1), "net")
+    cur_op, prev_op = operating(year), operating(year - 1)
+    start = next((m for m in range(done) if cur_in[m] or cur_op[m]), done)  # πρώτος μήνας με κίνηση
+    fixed = _fixed_types(lines[year][0], done, start)
+    fixed_m = lambda y: [sum(lines[y][0][m].get(t, 0.0) for t in fixed) for m in range(12)]  # noqa: E731
+    cur_fixed, prev_fixed = fixed_m(year), fixed_m(year - 1)
+    cur_var = [o - f for o, f in zip(cur_op, cur_fixed)]
+    prev_var = [o - f for o, f in zip(prev_op, prev_fixed)]
+
+    f_in, label_in = _forecast(cur_in, prev_in, done, start)
+    f_var, label_var = _forecast(cur_var, prev_var, done, start)
+    forecast_in, forecast_var = round(sum(f_in[done:]), 2), round(sum(f_var[done:]), 2)  # στατιστικά, για τα placeholder
+    planned_label = lambda v: f"προγραμματισμένα {format_el_amount(v)} €, αναλογικά της εποχικότητας"  # noqa: E731
+    if planned_in is not None:
+        f_in[done:], label_in = _spread(planned_in, f_in[done:]), planned_label(planned_in)
+    if planned_out is not None:
+        f_var[done:], label_var = _spread(planned_out, f_var[done:]), planned_label(planned_out)
+    f_fixed = [round(v, 2) for v in cur_fixed[:done]] + [round(sum(fixed.values()), 2)] * (12 - done)
+    dep = _depreciation(asset_lines, year, small, large, months=12 - done)  # αγορά μέσα στον τρέχοντα μήνα
+    dep_m = [0.0] * 11 + [dep["total"]]  # απόσβεση: εγγραφή τέλους χρήσης
+
+    f_op = [round(a + b, 2) for a, b in zip(f_var, f_fixed)]
+    res_m = [round(i - o - d, 2) for i, o, d in zip(f_in, f_op, dep_m)]
+    sc = _scenarios(cur_in, cur_var, prev_in, prev_var, done, seed=year, start=start,
+                    fixed=[a + b for a, b in zip(f_fixed, dep_m)],
+                    known_in=f_in if planned_in is not None else None, known_out=f_var if planned_out is not None else None)
+    rows = [{"label": f"{_GREEK_MONTHS[m]} {year}", "income": f_in[m], "fixed": f_fixed[m], "variable": f_var[m],
+             "dep": dep_m[m], "expense": round(f_op[m] + dep_m[m], 2), "balance": res_m[m], "forecast": m >= done,
+             "planned": m >= done and (planned_in is not None or planned_out is not None)}
+            for m in range(12)]
+    tot = lambda xs: round(sum(xs), 2)  # noqa: E731
+    total = {"income": tot(f_in), "fixed": tot(f_fixed), "variable": tot(f_var), "op": tot(f_op),
+             "dep": dep["total"], "expense": round(tot(f_op) + dep["total"], 2), "result": tot(res_m)}
+    ytd = {"income": tot(cur_in[:done]), "expense": tot(cur_op[:done])}
+
+    # Προηγούμενα έτη με τα ίδια μέτρα (σταθερά = οι ίδιοι κωδικοί, αποσβέσεις κατά τον κανόνα).
+    history = []
+    for y in reversed(past):
+        inc, fx, op = tot(col(("income", y), "net")), tot(fixed_m(y)), tot(operating(y))
+        d = _depreciation(asset_lines, y)["total"]
+        history.append({"year": y, "income": inc, "fixed": fx, "variable": round(op - fx, 2), "dep": d,
+                        "expense": round(op + d, 2), "result": round(inc - op - d, 2)})
+    prev_dep = _depreciation(asset_lines, year - 1)["total"]
+    prev_res = [i - o - (prev_dep if m == 11 else 0) for m, (i, o) in enumerate(zip(prev_in, prev_op))]
+    if sc:  # το «αναμενόμενο» = η σημειακή πρόβλεψη· το εύρος να την περιέχει πάντα
+        sc["p10"], sc["p90"] = min(sc["p10"], total["result"]), max(sc["p90"], total["result"])
+    return render_template(
+        "reports_forecast.html", year=year, prev_year=year - 1, done=done, rows=rows, total=total, ytd=ytd,
+        history=history, sc=sc, start=start, labels={"income": label_in, "expense": label_var},
+        has_prev=any(prev_in) or any(prev_op), prev_in_total=tot(prev_in), errors=errors,
+        fixed=[{"label": EXPENSE_TYPES.get(t, t), "code": t, "amount": v} for t, v in fixed.items()],
+        dep=dep, form={k: request.args.get(k, "") for k in ("assets_small", "assets_large", "planned_income", "planned_expense")},
+        forecast_in=forecast_in, forecast_var=forecast_var,
+        depr_limit=_DEPR_FULL_LIMIT, depr_rate=round(_DEPR_RATE * 100),
+        chart=_forecast_chart(f_in, f_op, res_m, prev_res, sc, done, dep["total"]),
+    )
 
 @app.route("/reports/vat")
 def reports_vat():

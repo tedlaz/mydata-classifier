@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}Πρόβλεψη έτους {{ year }}{% endblock %}
+{% set month_done = ['Ιανουαρίου','Φεβρουαρίου','Μαρτίου','Απριλίου','Μαΐου','Ιουνίου','Ιουλίου','Αυγούστου','Σεπτεμβρίου','Οκτωβρίου','Νοεμβρίου','Δεκεμβρίου'] %}
+{% macro money(v) -%}<span class="{{ 'yneg' if v < 0 }}">{{ v|el_amount }}</span>{%- endmacro %}
+
+{% block content %}
+<div class="yr yr2 fc">
+  {# ================= Κεφαλίδα + KPI ================= #}
+  <section class="db-hero yr-hero">
+    <span class="db-blob b1"></span><span class="db-blob b2"></span><span class="db-blob b3"></span>
+    <div class="db-hero-in">
+      <div>
+        <a class="yr-hero-back" href="{{ url_for('reports') }}">← Αναφορές</a>
+        <h1>Πρόβλεψη έτους <span class="yr-hero-year">{{ year }}</span></h1>
+        <p class="db-hi">{% if done %}Πραγματικά έως τέλος {{ month_done[done - 1] }} · οι υπόλοιποι μήνες εκτιμώνται{% else %}Δεν έχει ολοκληρωθεί ακόμα μήνας — εκτίμηση από τα περσινά{% endif %}</p>
+      </div>
+    </div>
+    <div class="db-kpis">
+      <div class="db-kpi" style="--i:0">
+        <small><i class="db-dot" style="background:var(--yr-in)"></i>Έσοδα έτους (πρόβλεψη)</small>
+        <b><span data-num="{{ total.income }}">{{ total.income|el_amount }}</span><i>€</i></b>
+        <span class="db-kpi-note">Έως τώρα {{ ytd.income|el_amount }} €{% if has_prev %} · {{ prev_year }}: {{ prev_in_total|el_amount }} €{% endif %}</span>
+      </div>
+      <div class="db-kpi" style="--i:1">
+        <small><i class="db-dot" style="background:var(--yr-out)"></i>Σύνολο εξόδων (πρόβλεψη)</small>
+        <b><span data-num="{{ total.expense }}">{{ total.expense|el_amount }}</span><i>€</i></b>
+        <span class="db-kpi-note">Λειτουργικά {{ total.op|el_amount }} € (σταθερά {{ total.fixed|el_amount }} €) · αποσβέσεις {{ total.dep|el_amount }} €</span>
+      </div>
+      <div class="db-kpi fc-kpi-res" style="--i:2">
+        <small><i class="db-dot" style="background:var(--fc-res)"></i>Αποτέλεσμα έτους (πρόβλεψη)</small>
+        <b><span class="{{ 'neg' if total.result < 0 }}" data-num="{{ total.result }}">{{ total.result|el_amount }}</span><i>€</i></b>
+        {% if sc %}
+        {% set span = [sc.p90 - sc.p10, 1]|max %}
+        <div class="fc-range" role="img" aria-label="Χειρότερο σενάριο {{ sc.p10|el_amount }} €, αναμενόμενο {{ total.result|el_amount }} €, καλύτερο {{ sc.p90|el_amount }} €">
+          <div class="fc-range-bar"><i style="--p:{{ ((total.result - sc.p10) / span * 100)|round(1) }}%"></i></div>
+          <div class="fc-range-lbl">
+            <span>Χειρότερο<b class="{{ 'neg' if sc.p10 < 0 }}">{{ sc.p10|el_amount }}</b></span>
+            <span>Αναμενόμενο<b class="{{ 'neg' if total.result < 0 }}">{{ total.result|el_amount }}</b></span>
+            <span>Καλύτερο<b class="{{ 'neg' if sc.p90 < 0 }}">{{ sc.p90|el_amount }}</b></span>
+          </div>
+        </div>
+        {% else %}
+        <span class="db-kpi-note">Λίγα δεδομένα για σενάρια (χρειάζονται ≥ 2 ολοκληρωμένοι μήνες με κίνηση)</span>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  {# ================= Παράμετροι: αποσβέσεις (νέες αγορές παγίων) + σταθερά έξοδα ================= #}
+  <section class="card fc-params">
+    <form method="get" class="fc-dep" id="fc-form">
+      {% for e in errors %}<p class="flash error">{{ e }}</p>{% endfor %}
+      <h2>📅 Προγραμματισμένα έως τέλος έτους</h2>
+      {% set open_months = 12 - done %}
+      <p class="fc-inputs-head">Αν ξέρεις τι θα γίνει στους {{ open_months }} ανοιχτούς μήνες, γράψε το σύνολο· μοιράζεται αναλογικά της εποχικότητας. Κενό = στατιστική πρόβλεψη.</p>
+      <div class="fc-inputs fc-inputs--2">
+        <label>Έσοδα υπόλοιπων μηνών
+          <span class="fc-money"><input type="number" name="planned_income" min="0" step="0.01" inputmode="decimal"
+            value="{{ form.planned_income }}" placeholder="πρόβλεψη {{ forecast_in|el_amount }}"><i>€</i></span>
+          <small>αντικαθιστά την πρόβλεψη εσόδων</small></label>
+        <label>Μεταβλητά έξοδα υπόλοιπων μηνών
+          <span class="fc-money"><input type="number" name="planned_expense" min="0" step="0.01" inputmode="decimal"
+            value="{{ form.planned_expense }}" placeholder="πρόβλεψη {{ forecast_var|el_amount }}"><i>€</i></span>
+          <small>χωρίς σταθερά έξοδα και αποσβέσεις</small></label>
+      </div>
+      <h2>🏗 Αποσβέσεις {{ year }}</h2>
+      {% set lim = '{:,}'.format(depr_limit).replace(',', '.') %}
+      <p class="fc-inputs-head">Εκτιμώμενες νέες αγορές παγίων έως το τέλος του έτους:</p>
+      <div class="fc-inputs">
+        <label>Σύνολο παγίων κάτω από {{ lim }} € το καθένα
+          <span class="fc-money"><input type="number" name="assets_small" min="0" step="0.01" inputmode="decimal"
+            value="{{ form.assets_small }}" placeholder="0,00" aria-describedby="fc-rule"><i>€</i></span>
+          <small>αποσβένονται 100% φέτος</small></label>
+        <label>Σύνολο παγίων {{ lim }} € και πάνω το καθένα
+          <span class="fc-money"><input type="number" name="assets_large" min="{{ depr_limit }}" step="0.01" inputmode="decimal"
+            value="{{ form.assets_large }}" placeholder="κενό ή ≥ {{ lim }}" aria-describedby="fc-rule"><i>€</i></span>
+          <small>αγορά τον τρέχοντα μήνα · {{ depr_rate }}% × {{ dep.months|int }}/12 φέτος</small></label>
+        <button class="btn btn-sm">Υπολογισμός</button>
+      </div>
+      <ul class="fc-dep-list">
+        <li><span>Αγορές παγίων {{ year }} έως τώρα <small>{{ dep.bought|el_amount }} €</small></span><b>{{ dep.cur|el_amount }}</b></li>
+        <li><span>Αγορές ≥ {{ lim }} € προηγούμενων ετών <small>{{ dep.older_base|el_amount }} € × {{ depr_rate }}%</small></span><b>{{ dep.older|el_amount }}</b></li>
+        <li><span>Νέες αγορές κάτω από {{ lim }} € <small>{{ dep.small|el_amount }} € × 100%</small></span><b>{{ dep.small|el_amount }}</b></li>
+        <li><span>Νέες αγορές {{ lim }} € και πάνω <small>{{ dep.large|el_amount }} € × {{ depr_rate }}% × {{ dep.months|int }}/12</small></span><b>{{ dep.large_depr|el_amount }}</b></li>
+        <li class="fc-dep-total"><span>Αποσβέσεις {{ year }} <small>μπαίνουν τον Δεκέμβριο</small></span><b>{{ dep.total|el_amount }} €</b></li>
+      </ul>
+      <p class="muted small" id="fc-rule">Πάγιο κάτω από {{ '{:,}'.format(depr_limit).replace(',', '.') }} € αποσβένεται 100% στη χρήση αγοράς· από {{ '{:,}'.format(depr_limit).replace(',', '.') }} € και πάνω {{ depr_rate }}% τον χρόνο.
+        Οι αγορές παγίων (2.7) δεν μετρούν ως έξοδο — μόνο η απόσβεσή τους. Οι ήδη καταχωρημένες αποσβέσεις (E3_587) δεν μετρούν ξανά.</p>
+    </form>
+    <div class="fc-fixed">
+      <h2>📌 Σταθερά έξοδα</h2>
+      {% if fixed %}
+      <ul class="fc-dep-list">
+        {% for f in fixed %}<li><span>{{ f.label }} <small>{{ f.code }}</small></span><b>{{ f.amount|el_amount }} €/μήνα</b></li>{% endfor %}
+      </ul>
+      <p class="muted small">Προβάλλονται ίδια κάθε μήνα (μέσος όρος των 3 τελευταίων μηνών), χωρίς εποχικότητα.
+        Σταθερά = ενοίκια, ΕΦΚΑ, μισθοδοσία, ή κωδικός Ε3 που εμφανίζεται και τους 3 τελευταίους μήνες.</p>
+      {% else %}
+      <p class="muted small">Δεν αναγνωρίστηκαν σταθερά έξοδα (ενοίκια, ΕΦΚΑ, μισθοδοσία, ή κωδικός Ε3 σε καθέναν από τους 3 τελευταίους μήνες).</p>
+      {% endif %}
+    </div>
+  </section>
+
+  {# ================= Γράφημα: σωρευτικά, πραγματικά → πρόβλεψη ================= #}
+  <section class="card yr-chart">
+    <div class="yr-chart-head">
+      <h2>📈 Σωρευτική πορεία {{ year }}</h2>
+      <ul class="yr-legend">
+        <li><i class="yr-dot yr-dot--in"></i>Έσοδα</li>
+        <li><i class="yr-dot yr-dot--out"></i>Λειτουργικά έξοδα</li>
+        <li><i class="yr-dot fc-dot--res"></i>Αποτέλεσμα</li>
+        {% if sc %}<li><i class="yr-dot fc-dot--fan"></i>Εύρος σεναρίων (10%–90%)</li>{% endif %}
+        {% if has_prev %}<li><i class="fc-dash"></i>Αποτέλεσμα {{ prev_year }}</li>{% endif %}
+      </ul>
+    </div>
+    {% set c = chart %}
+    <div class="yr-plot fc-plot">
+      <svg viewBox="0 0 {{ c.w }} {{ c.h }}" role="img"
+           aria-label="Σωρευτικά έσοδα, έξοδα και αποτέλεσμα {{ year }}· πρόβλεψη αποτελέσματος {{ total.result|el_amount }} €{% if sc %}, εύρος {{ sc.p10|el_amount }} έως {{ sc.p90|el_amount }} €{% endif %} — αναλυτικά στον πίνακα παρακάτω">
+        <defs>
+          <clipPath id="fc-reveal"><rect class="fc-reveal" x="0" y="0" width="{{ c.w }}" height="{{ c.h }}"/></clipPath>
+          <pattern id="fc-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect class="fc-hatch-fg" width="1.2" height="7"/>
+          </pattern>
+        </defs>
+        {# Ζώνη πρόβλεψης + «σήμερα» #}
+        {% if c.done < 12 %}
+        <rect class="fc-zone" x="{{ c.split_x }}" y="{{ c.top }}" width="{{ c.right - c.split_x }}" height="{{ c.base - c.top }}"/>
+        <line class="fc-now" x1="{{ c.split_x }}" x2="{{ c.split_x }}" y1="{{ c.top - 4 }}" y2="{{ c.base }}"/>
+        <text class="fc-now-lbl" x="{{ c.split_x + 6 }}" y="{{ c.top + 8 }}">πρόβλεψη →</text>
+        {% endif %}
+        {% for t in c.ticks %}
+        <line class="yr-grid {{ 'yr-grid--base' if t.v == 0 }}" x1="{{ c.left }}" x2="{{ c.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
+        <text class="yr-tick" x="{{ c.left - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ '{:,.0f}'.format(t.v).replace(',', '.') }}</text>
+        {% endfor %}
+        {% for m in c.months %}
+        <text class="yr-month {{ 'is-fc' if m.forecast }}" x="{{ m.cx }}" y="{{ c.h - 9 }}" text-anchor="middle">{{ m.label }}</text>
+        {% endfor %}
+
+        <g clip-path="url(#fc-reveal)">
+          <path class="fc-area fc-area--in" d="{{ c.in.area }}"/>
+          <path class="fc-area fc-area--out" d="{{ c.out.area }}"/>
+          {% if c.fan %}<path class="fc-fan" d="{{ c.fan }}"/>{% endif %}
+          {% if has_prev %}<path class="fc-prev" d="{{ c.prev }}"/>{% endif %}
+          {% for key in ('in', 'out', 'res') %}
+          {% if c[key].actual %}<path class="fc-line fc-line--{{ key }}" d="{{ c[key].actual }}"/>{% endif %}
+          <path class="fc-line fc-line--{{ key }} is-fc" d="{{ c[key].future }}"/>
+          {% endfor %}
+        </g>
+
+        {# Τελείες/ετικέτες Δεκεμβρίου: «σκάνε» μετά το σχέδιο #}
+        {% for e in c.ends %}
+        <g class="fc-end fc-end--{{ e.key }}" style="--i:{{ loop.index0 }}">
+          <circle cx="{{ c.end_x }}" cy="{{ e.y }}" r="4.5"/>
+          <text x="{{ c.end_x + 12 }}" y="{{ e.ly + 4 }}"><tspan class="fc-end-l">{{ e.label }}</tspan> {{ '{:,.0f}'.format(e.v).replace(',', '.') }}</text>
+        </g>
+        {% endfor %}
+
+        {# Στήλες hover: κάθετη γραμμή + tooltip #}
+        {% for m in c.months %}
+        <g class="yr-col fc-col" data-month="{{ m.label }} {{ year }}" data-in="{{ m.in|el_amount }}" data-out="{{ m.out|el_amount }}"
+           data-res="{{ m.res|el_amount }}" data-neg="{{ 1 if m.res < 0 else 0 }}" data-fc="{{ 1 if m.forecast else 0 }}"
+           data-prev="{{ m.prev|el_amount if has_prev else '' }}" data-dep="{{ m.dep|el_amount if m.dep else '' }}"
+           data-lo="{{ m.lo|el_amount if m.lo is not none else '' }}" data-hi="{{ m.hi|el_amount if m.hi is not none else '' }}">
+          <rect class="yr-hit" x="{{ m.x }}" y="{{ c.top }}" width="{{ m.w }}" height="{{ c.base - c.top }}" rx="6"/>
+          <line class="fc-cross" x1="{{ m.cx }}" x2="{{ m.cx }}" y1="{{ c.top }}" y2="{{ c.base }}"/>
+        </g>
+        {% endfor %}
+      </svg>
+      <div class="yr-tip" role="status" hidden></div>
+    </div>
+    <p class="muted small fc-method">
+      Μέθοδος — έσοδα: {{ labels.income }} · μεταβλητά έξοδα: {{ labels.expense }} · σταθερά έξοδα: ίδια κάθε μήνα · αποσβέσεις: κατά τον κανόνα, τον Δεκέμβριο.
+      {% if sc %}Σενάρια: 5.000 προσομοιώσεις όπου κάθε υπόλοιπος μήνας συμπεριφέρεται σαν έναν τυχαίο ολοκληρωμένο μήνα του {{ year }}·
+      χειρότερο/καλύτερο = 10ο/90ο εκατοστημόριο.{% endif %}
+    </p>
+  </section>
+
+  {# ================= Πίνακας ================= #}
+  <section class="card yr-table-card">
+    <div class="yr-scroll">
+    <table class="yr-table fc-table">
+      <thead><tr><th class="yr-sticky">Μήνας</th><th class="num">Έσοδα</th><th class="num">Σταθερά<br>έξοδα</th><th class="num">Μεταβλητά<br>έξοδα</th><th class="num">Αποσβέσεις</th><th class="num">Σύνολο<br>εξόδων</th><th class="num">Αποτέλεσμα</th><th></th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{{ 'is-fc' if r.forecast }}">
+          <th class="yr-sticky yr-month-cell" scope="row">{{ r.label }}</th>
+          <td class="num">{{ money(r.income) }}</td>
+          <td class="num">{{ money(r.fixed) }}</td>
+          <td class="num">{{ money(r.variable) }}</td>
+          <td class="num">{{ money(r.dep) if r.dep else '' }}</td>
+          <td class="num fc-exp">{{ money(r.expense) }}</td>
+          <td class="num"><span class="yr-bal {{ 'is-neg' if r.balance < 0 else 'is-zero' if r.balance == 0 else 'is-pos' }}">{{ r.balance|el_amount }}</span></td>
+          <td>{% if r.planned %}<span class="fc-tag fc-tag--plan">προγραμματισμένο</span>{% elif r.forecast %}<span class="fc-tag">πρόβλεψη</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="yr-total">
+          <th class="yr-sticky">Σύνολο {{ year }} <span class="fc-tag">πρόβλεψη</span></th>
+          <td class="num">{{ total.income|el_amount }}</td><td class="num">{{ total.fixed|el_amount }}</td>
+          <td class="num">{{ total.variable|el_amount }}</td><td class="num">{{ total.dep|el_amount }}</td><td class="num fc-exp">{{ total.expense|el_amount }}</td>
+          <td class="num"><span class="yr-bal {{ 'is-neg' if total.result < 0 else 'is-pos' }}">{{ total.result|el_amount }}</span></td><td></td>
+        </tr>
+        {% for h in history %}
+        <tr class="yr-total fc-prev-row">
+          <th class="yr-sticky">Σύνολο {{ h.year }}</th>
+          <td class="num">{{ h.income|el_amount }}</td><td class="num">{{ h.fixed|el_amount }}</td>
+          <td class="num">{{ h.variable|el_amount }}</td><td class="num">{{ h.dep|el_amount }}</td>
+          <td class="num fc-exp">{{ h.expense|el_amount }}</td>
+          <td class="num"><span class="yr-bal {{ 'is-neg' if h.result < 0 else 'is-pos' }}">{{ h.result|el_amount }}</span></td><td></td>
+        </tr>
+        {% endfor %}
+      </tfoot>
+    </table>
+    </div>
+    <p class="muted small yr-note">Ποσά σε € (καθαρή αξία). Μετρούν όλα τα παραστατικά των βιβλίων: αχαρακτήριστα, χαρακτηρισμένα,
+      απεσταλμένα και επιβεβαιωμένα. Τα πιστωτικά αφαιρούνται. Οι αγορές παγίων δεν είναι έξοδο — μετρά η απόσβεσή τους. Ο τρέχων μήνας είναι ακόμα ανοιχτός, γι' αυτό εκτιμάται.</p>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const plot = document.querySelector('.fc-plot'), tip = plot.querySelector('.yr-tip');
+  const row = (dot, label, v) => '<span>' + dot + label + '<em>' + v + ' €</em></span>';
+  function show(g) {
+    const d = g.dataset, box = plot.getBoundingClientRect(), r = g.querySelector('.yr-hit').getBoundingClientRect();
+    tip.innerHTML = '<b>' + d.month + ' <small>' + (d.fc === '1' ? 'πρόβλεψη' : 'πραγματικό') + ' · σωρευτικά</small></b>' +
+      row('<i class="yr-dot yr-dot--in"></i>', 'Έσοδα', d.in) + row('<i class="yr-dot yr-dot--out"></i>', 'Λειτουργικά έξοδα', d.out) +
+      (d.dep ? row('', 'Αποσβέσεις', '− ' + d.dep) : '') +
+      '<span class="yr-tip-bal' + (d.neg === '1' ? ' is-neg' : '') + '">Αποτέλεσμα<em>' + d.res + ' €</em></span>' +
+      (d.lo ? '<span class="yr-tip-sum">Εύρος ' + d.lo + ' – ' + d.hi + ' €</span>' : '') +
+      (d.prev ? '<span class="yr-tip-sum">Πέρσι ίδιο διάστημα ' + d.prev + ' €</span>' : '');
+    tip.hidden = false;
+    const x = r.left - box.left + r.width / 2;
+    tip.style.left = Math.min(Math.max(x, tip.offsetWidth / 2 + 4), box.width - tip.offsetWidth / 2 - 4) + 'px';
+    plot.querySelectorAll('.fc-col').forEach(c => c.classList.toggle('is-active', c === g));
+  }
+  const hide = () => { tip.hidden = true; plot.querySelectorAll('.fc-col').forEach(c => c.classList.remove('is-active')); };
+  plot.addEventListener('mouseover', e => { const g = e.target.closest('.fc-col'); if (g) show(g); });
+  plot.addEventListener('focusin', e => { const g = e.target.closest('.fc-col'); if (g) show(g); });
+  plot.addEventListener('mouseleave', hide);
+  plot.addEventListener('focusout', e => { if (!plot.contains(e.relatedTarget)) hide(); });
+  plot.querySelectorAll('.fc-col').forEach(g => {
+    g.setAttribute('tabindex', '0');
+    g.setAttribute('aria-label', g.dataset.month + ': αποτέλεσμα ' + g.dataset.res + ' €' + (g.dataset.fc === '1' ? ' (πρόβλεψη)' : ''));
+  });
+
+})();
+</script>
+{% endblock %}
