@@ -26,6 +26,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_file,
     session,
     url_for,
 )
@@ -3353,18 +3354,38 @@ def parameters():
         return redirect(url_for("suppliers"))
     if tab == "companies":
         return redirect(url_for("companies"))
-    if tab not in {"accountant", "combinations", "reports"}:
+    if tab not in {"accountant", "combinations", "reports", "backup"}:
         tab = "accountant"
     return render_template(
         "parameters.html",
         active_tab=tab,
         acc=get_accountant(),
         combinations_count=db.combos_count(),
-        combinations_invoice_types=sorted(db.combos_invoice_types()),
+        combinations_invoice_types=sorted(
+            db.combos_invoice_types(), key=lambda t: [int(x) if x.isdigit() else 0 for x in t.split(".")]
+        ),
+        type_names=INVOICE_TYPE_NAMES,
+        acc_companies=[c["company_name"] for c in load_companies() if c.get("use_accountant")],
         combinations_version=db.get_setting("combos_version"),
         stock_reports=[(k, title, desc, stock_in(k)) for k, title, _, desc in STOCK_REPORTS],
         auto_classify=db.get_setting("auto_classify") == "1",
+        # Όλα τα tabs αποδίδονται μαζί· η εναλλαγή γίνεται στον browser χωρίς reload.
+        safety_backups=db.list_safety_backups(),
+        keep_safety=db.keep_safety(),
+        backup_info=_backup_info(),
     )
+
+
+def _backup_info() -> dict:
+    """Σύνοψη τρέχουσας βάσης για την καρτέλα «Αντίγραφα ασφαλείας» (μέγεθος μαζί με το WAL)."""
+    stats = db.company_stats().values()
+    wal = db.DB_PATH + "-wal"
+    return {
+        "path": db.DB_PATH,
+        "size": os.path.getsize(db.DB_PATH) + (os.path.getsize(wal) if os.path.exists(wal) else 0),
+        "companies": len(load_companies()),
+        "documents": sum((s["income"] or 0) + (s["expense"] or 0) for s in stats),
+    }
 
 
 @app.route("/parameters/reports", methods=["POST"])
@@ -3778,6 +3799,83 @@ def companies_import():
         "ok",
     )
     return redirect(url_for("companies"))
+
+
+# ------------------------------------------------------------------ #
+# Αντίγραφα ασφαλείας: λήψη / επαναφορά ολόκληρης της βάσης
+# ------------------------------------------------------------------ #
+@app.route("/backup")
+def backup_download():
+    return Response(
+        db.backup_bytes(),
+        mimetype="application/vnd.sqlite3",
+        headers={"Content-Disposition": f"attachment; filename=mydata-backup-{datetime.now():%Y%m%d-%H%M}.db"},
+    )
+
+
+@app.route("/restore", methods=["POST"])
+def backup_restore():
+    f = request.files.get("file")
+    if not f or not f.filename:
+        flash("Επίλεξε αρχείο αντιγράφου (.db).", "error")
+        return redirect(url_for("parameters", tab="backup"))
+    try:
+        safety = db.restore_bytes(f.read())
+    except ValueError as e:
+        flash(f"Αποτυχία επαναφοράς: {e}", "error")
+        return redirect(url_for("parameters", tab="backup"))
+    flash(_RESTORED_MSG.format(safety), "ok")
+    return redirect(url_for("parameters", tab="backup"))
+
+
+_RESTORED_MSG = "✔ Έγινε επαναφορά. Η προηγούμενη βάση φυλάχτηκε ως {} — για αναίρεση πάτησε «Αναίρεση» στη λίστα παρακάτω."
+
+
+@app.route("/restore/safety", methods=["POST"])
+def backup_restore_safety():
+    try:
+        with open(db.safety_path(request.form.get("name", "")), "rb") as f:
+            data = f.read()
+        safety = db.restore_bytes(data)  # εκτός with: το prune μπορεί να σβήσει αυτό το αρχείο
+    except ValueError as e:
+        flash(f"Αποτυχία επαναφοράς: {e}", "error")
+        return redirect(url_for("parameters", tab="backup"))
+    flash(_RESTORED_MSG.format(safety), "ok")
+    return redirect(url_for("parameters", tab="backup"))
+
+
+@app.route("/backup/safety/<name>")
+def backup_safety_download(name):
+    try:
+        path = db.safety_path(name)
+    except ValueError:
+        abort(404)
+    return send_file(path, as_attachment=True, download_name=name)
+
+
+@app.route("/backup/safety/delete", methods=["POST"])
+def backup_safety_delete():
+    try:
+        os.remove(db.safety_path(request.form.get("name", "")))
+        flash("✔ Το αντίγραφο διαγράφηκε.", "ok")
+    except ValueError as e:
+        flash(str(e), "error")
+    return redirect(url_for("parameters", tab="backup"))
+
+
+@app.route("/parameters/backup", methods=["POST"])
+def parameters_backup():
+    try:
+        n = int(request.form.get("keep_safety_backups", ""))
+    except ValueError:
+        n = 0
+    if not 1 <= n <= 50:
+        flash("Το πλήθος αντιγράφων πρέπει να είναι από 1 έως 50.", "error")
+        return redirect(url_for("parameters", tab="backup"))
+    db.set_setting("keep_safety_backups", n)
+    db.prune_safety_backups()
+    flash(f"✔ Θα κρατούνται τα {n} τελευταία αντίγραφα.", "ok")
+    return redirect(url_for("parameters", tab="backup"))
 
 
 # ------------------------------------------------------------------ #

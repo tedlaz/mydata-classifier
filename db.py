@@ -34,6 +34,92 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def backup_bytes() -> bytes:
+    """Συνεπές στιγμιότυπο όλης της βάσης (online backup API· ασφαλές με WAL)."""
+    src, mem = get_conn(), sqlite3.connect(":memory:")
+    try:
+        src.backup(mem)
+        return mem.serialize()
+    finally:
+        src.close()
+        mem.close()
+
+
+def restore_bytes(data: bytes) -> str:
+    """Αντικαθιστά τη βάση με το backup `data`. Πρώτα κρατά αντίγραφο της τρέχουσας
+    (mydata-before-restore-*.db στον φάκελο δεδομένων) και επιστρέφει το όνομά του."""
+    if data[:16] != b"SQLite format 3\x00":
+        raise ValueError("Το αρχείο δεν είναι βάση SQLite.")
+    mem = sqlite3.connect(":memory:")
+    try:
+        # Bytes 18-19 = 2 (WAL): η in-memory βάση δεν ανοίγει σε WAL → rollback journal.
+        mem.deserialize(data[:18] + b"\x01\x01" + data[20:])
+        try:
+            ok = mem.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+            has_companies = mem.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='companies'"
+            ).fetchone()
+        except sqlite3.DatabaseError:
+            ok = False
+        if not ok:
+            raise ValueError("Το αρχείο είναι κατεστραμμένο.")
+        if not has_companies:
+            raise ValueError("Το αρχείο δεν είναι backup της εφαρμογής.")
+
+        safety = f"{_SAFETY_PREFIX}{datetime.now():%Y%m%d-%H%M%S-%f}.db"
+        live, dst = get_conn(), sqlite3.connect(os.path.join(_DATA_DIR, safety))
+        try:
+            live.backup(dst)
+            mem.backup(live)
+        finally:
+            live.close()
+            dst.close()
+    finally:
+        mem.close()
+    init_db()  # παλαιότερο backup → τρέχουσες μεταπτώσεις schema
+    prune_safety_backups()
+    return safety
+
+
+_SAFETY_PREFIX = "mydata-before-restore-"
+
+
+def keep_safety() -> int:
+    """Πόσα αυτόματα αντίγραφα πριν από επαναφορά κρατούνται (ρύθμιση, προεπιλογή 2)."""
+    try:
+        return max(1, int(get_setting("keep_safety_backups") or 2))
+    except ValueError:
+        return 2
+
+
+def list_safety_backups() -> list[dict]:
+    """Τα αντίγραφα πριν από επαναφορά, νεότερο πρώτα (το όνομα περιέχει timestamp)."""
+    names = sorted(
+        (n for n in os.listdir(_DATA_DIR) if n.startswith(_SAFETY_PREFIX) and n.endswith(".db")),
+        reverse=True,
+    )
+    out = []
+    for n in names:
+        st = os.stat(os.path.join(_DATA_DIR, n))
+        out.append({"name": n, "size": st.st_size, "mtime": datetime.fromtimestamp(st.st_mtime)})
+    return out
+
+
+def safety_path(name: str) -> str:
+    """Path ενός αντιγράφου μόνο αν είναι στη λίστα (όχι αυθαίρετα paths από τη φόρμα)."""
+    if name not in {b["name"] for b in list_safety_backups()}:
+        raise ValueError("Το αντίγραφο δεν βρέθηκε.")
+    return os.path.join(_DATA_DIR, name)
+
+
+def prune_safety_backups() -> None:
+    for b in list_safety_backups()[keep_safety():]:
+        try:
+            os.remove(os.path.join(_DATA_DIR, b["name"]))
+        except OSError:
+            pass  # κλειδωμένο (Windows)· σβήνεται στο επόμενο prune
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS companies (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,

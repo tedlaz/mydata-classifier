@@ -1,125 +1,319 @@
 {% extends "base.html" %}
 {% block title %}Παράμετροι{% endblock %}
 {% block content %}
-<div class="page-head">
+{% macro hero(icon, title, sub, stats, status=None, mono=false) %}
+<header class="pm-hero">
+  <div class="pm-hero-text">
+    <span class="pm-hero-icon" aria-hidden="true">{{ icon }}</span>
+    <div>
+      <h2>{{ title }}{% if status %} <span class="pm-status pm-status--{{ status[1] }}">{{ status[0] }}</span>{% endif %}</h2>
+      <p class="pm-hero-sub{{ ' mono' if mono }}" title="{{ sub }}">{{ sub }}</p>
+    </div>
+  </div>
+  <div class="pm-stats">
+    {% for v, lbl in stats %}
+    <div class="pm-stat" style="--i:{{ loop.index0 }}"><b>{{ v }}</b><span>{{ lbl }}</span></div>
+    {% endfor %}
+  </div>
+</header>
+{% endmacro %}
+{% macro fsize(n) %}{{ '%.1f MB'|format(n / 1048576) if n >= 1048576 else '%d KB'|format((n / 1024)|round|int) }}{% endmacro %}
+
+{% set acc_ok = acc.user_id and acc.subscription_key %}
+{% set acc_env = acc.env or 'prod' %}
+{% set n_stock = stock_reports|selectattr(3)|list|length %}
+
+<header class="pm-head">
+  <span class="pm-head-icon" aria-hidden="true">⚙️</span>
   <div>
     <h1>Παράμετροι</h1>
-    <p class="page-sub">Κοινές ρυθμίσεις της εφαρμογής: credentials λογιστή, συνδυασμοί χαρακτηρισμών και αναφορές.</p>
+    <p class="page-sub">Κοινές ρυθμίσεις της εφαρμογής για όλες τις εταιρείες.</p>
+  </div>
+</header>
+
+<nav class="pm-nav" role="tablist" aria-label="Ενότητες παραμέτρων">
+  {% for key, icon, label, status, ok in [
+      ('accountant', '👤', 'Λογιστής',
+        ('Ρυθμισμένο · ' ~ acc_companies|length ~ ' εταιρ.') if acc_ok else 'Δεν έχει οριστεί', acc_ok),
+      ('combinations', '🧩', 'Συνδυασμοί',
+        (combinations_count ~ ' συνδυασμοί' ~ (' · v' ~ combinations_version if combinations_version else '')) if combinations_count else 'Δεν φορτώθηκαν', combinations_count),
+      ('reports', '📊', 'Αναφορές & αυτοματισμοί',
+        'Αποθέματα ' ~ n_stock ~ '/' ~ stock_reports|length ~ ' · αυτόματος ' ~ ('ενεργός' if auto_classify else 'ανενεργός'), true),
+      ('backup', '🛡️', 'Αντίγραφα ασφαλείας',
+        safety_backups|length ~ ' αυτόματα αντίγραφα', true)] %}
+  <a class="pm-nav-item {{ 'is-active' if active_tab == key }}" href="{{ url_for('parameters', tab=key) }}"
+     role="tab" id="pm-tab-{{ key }}" aria-controls="pm-{{ key }}" aria-selected="{{ 'true' if active_tab == key else 'false' }}"
+     data-pm-tab="{{ key }}" style="--i:{{ loop.index0 }}">
+    <span class="pm-nav-icon" aria-hidden="true">{{ icon }}</span>
+    <span class="pm-nav-text">
+      <b>{{ label }}</b>
+      <small class="pm-nav-status pm-nav-status--{{ 'ok' if ok else 'warn' }}">{{ status }}</small>
+    </span>
+  </a>
+  {% endfor %}
+</nav>
+
+<section class="pm-panel" id="pm-accountant" role="tabpanel" aria-labelledby="pm-tab-accountant" {{ 'hidden' if active_tab != 'accountant' }}>
+{{ hero('👤', 'Credentials λογιστή',
+        'Ένα κοινό ζεύγος credentials για όλες τις εταιρείες που διαβιβάζουν στο myDATA μέσω λογιστή.',
+        [('Παραγωγή' if acc_env == 'prod' else 'Δοκιμαστικό', 'Περιβάλλον'), (acc_companies|length, 'Εταιρείες μέσω λογιστή')],
+        status=('✔ Ρυθμισμένο', 'ok') if acc_ok else ('Δεν έχει οριστεί', 'warn')) }}
+
+<div class="pm-split">
+  <div class="card">
+    <h2>Στοιχεία πρόσβασης</h2>
+    <form method="post" action="{{ url_for('accountant') }}" class="pm-form">
+      <div class="grid grid-2">
+        <div>
+          <label for="acc_user">AADE User ID</label>
+          <input type="text" id="acc_user" name="user_id" value="{{ acc.user_id or '' }}" autocomplete="off" placeholder="π.χ. accountant01">
+        </div>
+        <div>
+          <label for="acc_key">Subscription Key</label>
+          <input type="password" id="acc_key" name="subscription_key" value="{{ acc.subscription_key or '' }}"
+                 autocomplete="off" data-reveal placeholder="••••••••">
+        </div>
+      </div>
+      <fieldset class="pm-seg">
+        <legend>Περιβάλλον</legend>
+        {% for val, icon, lbl in [('prod', '🟢', 'Παραγωγή'), ('dev', '🧪', 'Δοκιμαστικό')] %}
+        <label>
+          <input type="radio" name="env" value="{{ val }}" {{ 'checked' if acc_env == val }}>
+          <span>{{ icon }} {{ lbl }} <small class="mono">{{ val }}</small></span>
+        </label>
+        {% endfor %}
+      </fieldset>
+      <div class="btn-row"><button type="submit">Αποθήκευση</button></div>
+    </form>
+
+    <div class="pm-sub">
+      <h3>Εταιρείες που τα χρησιμοποιούν</h3>
+      {% if acc_companies %}
+      <div class="pill-list">{% for n in acc_companies %}<span class="pill">🏢 {{ n }}</span>{% endfor %}</div>
+      {% else %}
+      <p class="muted small">Καμία ακόμη — ενεργοποίησε «Χρήση credentials λογιστή» στη
+        <a href="{{ url_for('companies') }}">Διαχείριση εταιρειών</a>.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card pm-aside">
+    <h2>💡 Πώς λειτουργεί</h2>
+    <ol class="pm-steps">
+      <li><b>Εξουσιοδότηση</b><span>Η εταιρεία εξουσιοδοτεί τον λογιστή στο myTAXISnet → Εξουσιοδοτήσεις.</span></li>
+      <li><b>ΑΦΜ εταιρείας</b><span>Καταχώρισε το ΑΦΜ της στη <a href="{{ url_for('companies') }}">Διαχείριση εταιρειών</a>.</span></li>
+      <li><b>Χρήση λογιστή</b><span>Επίλεξε «Χρήση credentials λογιστή» στην εταιρεία.</span></li>
+    </ol>
+    <p class="muted small">Σε κάθε κλήση στέλνεται αυτόματα το ΑΦΜ της εταιρείας ως <code>entityVatNumber</code>,
+      όπως προβλέπει η ΑΑΔΕ για διαβίβαση από εκπρόσωπο/λογιστή.</p>
   </div>
 </div>
 
-<div class="tabs">
-  {% for key, label in [('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί'), ('reports', 'Αναφορές & αυτοματισμοί')] %}
-  <a class="tab {{ 'is-active' if active_tab == key }}" href="{{ url_for('parameters', tab=key) }}">{{ label }}</a>
-  {% endfor %}
-</div>
+</section>
 
-{% if active_tab == 'accountant' %}
-<div class="card">
-  <h2>Credentials λογιστή</h2>
-  <p class="muted prose">
-    Κοινό ζεύγος credentials για εταιρείες που έχουν επιλέξει «Χρήση credentials λογιστή».
-    Σε κάθε κλήση στο myDATA στέλνεται αυτόματα το ΑΦΜ της εκάστοτε εταιρείας ως
-    <code>entityVatNumber</code>, όπως προβλέπει η ΑΑΔΕ για διαβίβαση από εκπρόσωπο/λογιστή.
-    Απαιτείται η εταιρεία να έχει εξουσιοδοτήσει τον λογιστή (myTAXISnet → Εξουσιοδοτήσεις)
-    και να έχει καταχωρημένο ΑΦΜ στη Διαχείριση εταιρειών.
-  </p>
-  <form method="post" action="{{ url_for('accountant') }}" class="grid grid-accountant">
-    <div>
-      <label for="acc_user">AADE User ID λογιστή</label>
-      <input type="text" id="acc_user" name="user_id" value="{{ acc.user_id or '' }}" autocomplete="off">
-    </div>
-    <div>
-      <label for="acc_key">Subscription Key λογιστή</label>
-      <input type="password" id="acc_key" name="subscription_key" value="{{ acc.subscription_key or '' }}"
-             autocomplete="off" data-reveal>
-    </div>
-    <div>
-      <label for="acc_env">Περιβάλλον</label>
-      <select id="acc_env" name="env">
-        <option value="prod" {% if (acc.env or 'prod') == 'prod' %}selected{% endif %}>prod</option>
-        <option value="dev" {% if acc.env == 'dev' %}selected{% endif %}>dev</option>
-      </select>
-    </div>
-    <div>
-      <button type="submit">Αποθήκευση</button>
-    </div>
-  </form>
-</div>
+<section class="pm-panel" id="pm-reports" role="tabpanel" aria-labelledby="pm-tab-reports" {{ 'hidden' if active_tab != 'reports' }}>
+{{ hero('📊', 'Αναφορές & αυτοματισμοί',
+        'Πώς μετρούν τα αποθέματα στις αναφορές και τι γίνεται αυτόματα μετά τη λήψη παραστατικών.',
+        [(n_stock ~ ' / ' ~ stock_reports|length, 'Αναφορές με αποθέματα'), ('Ενεργός' if auto_classify else 'Ανενεργός', 'Αυτόματος χαρακτηρισμός')]) }}
 
-{% elif active_tab == 'reports' %}
 <div class="card">
-  <h2>Αποθέματα έναρξης / λήξης στα έξοδα</h2>
+  <h2>📦 Αποθέματα έναρξης / λήξης στα έξοδα</h2>
   <p class="muted prose">
     Οι χαρακτηρισμοί <strong>2.13 Αποθέματα Έναρξης</strong> και <strong>2.14 Αποθέματα Λήξης</strong> (π.χ. εγγραφή 17.x με
     E3_101 / E3_104) δεν είναι έξοδα της περιόδου — χρησιμεύουν στο κόστος πωληθέντων. Διάλεξε σε ποιες αναφορές
     θα μετρούν στα έξοδα. Το καθαρό κέρδος και η ανάλυση Ε3 τα αφήνουν πάντα εκτός.
   </p>
   <form method="post" action="{{ url_for('parameters_reports') }}">
-    {% for key, title, desc, on in stock_reports %}
-    <label class="check">
-      <input type="checkbox" name="{{ key }}" value="1" {{ 'checked' if on }}>
-      <span><b>{{ title }}</b> — τα αποθέματα μετρούν στα έξοδα<br><small class="muted">{{ desc }}</small></span>
-    </label>
-    {% endfor %}
-    <div class="btn-row" style="margin-top:16px"><button type="submit">Αποθήκευση</button></div>
+    <div class="pm-toggles">
+      {% set icons = {'yearly': '📅', 'dashboard': '🏠', 'olap': '🧊'} %}
+      {% for key, title, desc, on in stock_reports %}
+      <label class="pm-toggle">
+        <span class="pm-toggle-icon" aria-hidden="true">{{ icons.get(key, '📈') }}</span>
+        <span class="pm-toggle-text"><b>{{ title }}</b><small>{{ desc }}</small></span>
+        <input type="checkbox" class="pm-switch" name="{{ key }}" value="1" {{ 'checked' if on }}
+               aria-label="{{ title }}: τα αποθέματα μετρούν στα έξοδα">
+      </label>
+      {% endfor %}
+    </div>
+    <div class="btn-row"><button type="submit">Αποθήκευση</button></div>
   </form>
 </div>
 
 <div class="card">
-  <h2>Αυτόματος χαρακτηρισμός μετά τη λήψη</h2>
+  <h2>🤖 Αυτόματος χαρακτηρισμός μετά τη λήψη</h2>
   <form method="post" action="{{ url_for('parameters_automation') }}">
-    <label class="check">
-      <input type="checkbox" name="auto_classify" value="1" {{ 'checked' if auto_classify }}>
-      <span><b>Πρόταση χαρακτηρισμού μετά τη λήψη εξόδων</b><br><small class="muted">Μετά τη λήψη εμφανίζεται οθόνη
-        επιβεβαίωσης με τα αχαρακτήριστα που έχουν αποθηκευμένη πρόταση συναλλασσόμενου. Τίποτα δεν στέλνεται στο myDATA.</small></span>
-    </label>
-    <div class="btn-row" style="margin-top:16px"><button type="submit">Αποθήκευση</button></div>
+    <div class="pm-toggles">
+      <label class="pm-toggle">
+        <span class="pm-toggle-icon" aria-hidden="true">⚡</span>
+        <span class="pm-toggle-text"><b>Πρόταση χαρακτηρισμού μετά τη λήψη εξόδων</b>
+          <small>Μετά τη λήψη εμφανίζεται οθόνη επιβεβαίωσης με τα αχαρακτήριστα που έχουν αποθηκευμένη πρόταση
+            συναλλασσόμενου. Τίποτα δεν στέλνεται στο myDATA.</small></span>
+        <input type="checkbox" class="pm-switch" name="auto_classify" value="1" {{ 'checked' if auto_classify }}
+               aria-label="Πρόταση χαρακτηρισμού μετά τη λήψη εξόδων">
+      </label>
+    </div>
+    <div class="btn-row"><button type="submit">Αποθήκευση</button></div>
   </form>
 </div>
 
-{% else %}
-<div class="card">
-  <h2>Συνδυασμοί χαρακτηρισμών</h2>
-  <p class="muted prose">
-    Επίσημος πίνακας ΑΑΔΕ «Συνδυασμοί χαρακτηρισμών»: ορίζει ποιες
-    <strong>κατηγορίες</strong> και <strong>τύποι E3</strong> επιτρέπονται ανά τύπο παραστατικού.
-    Όταν είναι φορτωμένος, η φόρμα χαρακτηρισμού <strong>περιορίζει</strong> τις επιλογές αλυσιδωτά.
-    Αν δεν φορτωθεί, εμφανίζονται όλες οι επιλογές (χωρίς περιορισμό).
-    Η εφαρμογή φέρνει έτοιμο το αρχείο της ΑΑΔΕ και το φορτώνει αυτόματα στην πρώτη εκκίνηση, καθώς και όταν μια
-    νέα έκδοση της εφαρμογής φέρει νεότερο αρχείο. Αν η ΑΑΔΕ βγάλει νέο αρχείο, εισήγαγέ το εδώ: αντικαθιστά
-    πλήρως τους παλιούς συνδυασμούς.
-  </p>
+</section>
 
-  {% if combinations_count %}
-  <p class="note note--ok">
-    ✔ Φορτωμένοι <strong>{{ combinations_count }}</strong> συνδυασμοί για <strong>{{ combinations_invoice_types|length }}</strong> τύπους παραστατικών{% if combinations_version %} (αρχείο ΑΑΔΕ v{{ combinations_version }}){% endif %}.
-  </p>
-  {% else %}
-  <p class="note note--warn">Δεν έχουν φορτωθεί συνδυασμοί — η φόρμα χαρακτηρισμού δείχνει όλες τις επιλογές.</p>
-  {% endif %}
+<section class="pm-panel bk" id="pm-backup" role="tabpanel" aria-labelledby="pm-tab-backup" {{ 'hidden' if active_tab != 'backup' }}>
+  {{ hero('🛡️', 'Τρέχουσα βάση', backup_info.path,
+          [(fsize(backup_info.size), 'Μέγεθος'), (backup_info.companies, 'Εταιρείες'), (backup_info.documents, 'Παραστατικά'), (safety_backups|length, 'Αυτόματα αντίγραφα')],
+          mono=true) }}
 
-  <div class="btn-row">
-    <form method="post" action="{{ url_for('combinations_import') }}" enctype="multipart/form-data" class="inline-form">
-      <input type="file" name="file" accept=".xlsx,.csv,.tsv,.txt" required>
-      <button type="submit" class="btn-ghost">📥 Εισαγωγή αρχείου ΑΑΔΕ (.xlsx/.csv)</button>
-    </form>
-    {% if combinations_count %}
-    <form method="post" action="{{ url_for('combinations_clear') }}" class="inline-form"
-          data-confirm="Καθαρισμός όλων των συνδυασμών;">
-      <button type="submit" class="btn-danger">🗑️ Καθαρισμός</button>
-    </form>
+  <div class="pm-tiles">
+    <div class="card pm-tile">
+      <span class="pm-tile-icon" aria-hidden="true">💾</span>
+      <h2>Λήψη αντιγράφου</h2>
+      <p class="muted">Ολόκληρη η βάση σε ένα αρχείο <span class="mono">.db</span>: εταιρείες, credentials, παραστατικά,
+        χαρακτηρισμοί, κανόνες και ρυθμίσεις.</p>
+      <p class="note note--warn">🔐 Περιέχει τα κλειδιά ΑΑΔΕ — φύλαξέ το σε ασφαλές σημείο.</p>
+      <a class="btn" href="{{ url_for('backup_download') }}" download>💾 Λήψη τώρα</a>
+    </div>
+
+    <div class="card pm-tile">
+      <span class="pm-tile-icon pm-tile-icon--warn" aria-hidden="true">♻️</span>
+      <h2>Επαναφορά από αρχείο</h2>
+      <p class="muted">Αντικαθιστά την τρέχουσα βάση. Πριν από αυτό η τρέχουσα φυλάγεται αυτόματα και μπορείς να
+        επιστρέψεις σε αυτήν με «Αναίρεση».</p>
+      <form method="post" action="{{ url_for('backup_restore') }}" enctype="multipart/form-data" class="pm-drop"
+            data-confirm="Η τρέχουσα βάση θα αντικατασταθεί από το επιλεγμένο αντίγραφο. Συνέχεια;">
+        <input type="file" name="file" accept=".db" required data-autosubmit aria-label="Αρχείο αντιγράφου (.db)">
+        <span class="pm-drop-icon" aria-hidden="true">📂</span>
+        <strong>Σύρε εδώ το αρχείο <span class="mono">.db</span></strong>
+        <span class="muted small">ή κάνε κλικ για επιλογή</span>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Αυτόματα αντίγραφα πριν από επαναφορά <span class="count">{{ safety_backups|length }}</span></h2>
+      <form method="post" action="{{ url_for('parameters_backup') }}" class="bk-keep">
+        <label for="keep-safety">Κρατούνται</label>
+        <input id="keep-safety" type="number" name="keep_safety_backups" min="1" max="50" value="{{ keep_safety }}" required>
+        <span class="muted small">τελευταία</span>
+        <button type="submit" class="btn-ghost btn-sm">Αποθήκευση</button>
+      </form>
+    </div>
+    <p class="muted prose">Σε κάθε επαναφορά η βάση όπως ήταν φυλάγεται εδώ. Η «Αναίρεση» κρατά κι αυτή αντίγραφο,
+      οπότε μπορεί κι αυτή να αναιρεθεί. Τα παλαιότερα διαγράφονται αυτόματα.</p>
+
+    {% if safety_backups %}
+    <ul class="bk-list">
+      {% for b in safety_backups %}
+      <li class="bk-item" style="--i:{{ loop.index0 }}">
+        <span class="bk-item-icon" aria-hidden="true">🗄️</span>
+        <div class="bk-item-main">
+          <span class="bk-item-name mono">{{ b.name }}</span>
+          <span class="bk-item-meta">
+            {% if loop.first %}<span class="pill pill--accent">Πιο πρόσφατο</span>{% endif %}
+            <span>🕒 {{ b.mtime.strftime('%d/%m/%Y %H:%M:%S') }}</span>
+            <span>📦 {{ fsize(b.size) }}</span>
+          </span>
+        </div>
+        <div class="bk-item-actions">
+          <form method="post" action="{{ url_for('backup_restore_safety') }}" class="inline-form"
+                data-confirm="Επιστροφή στη βάση της {{ b.mtime.strftime('%d/%m/%Y %H:%M') }}; Η τρέχουσα θα αντικατασταθεί (και θα φυλαχτεί).">
+            <input type="hidden" name="name" value="{{ b.name }}">
+            <button type="submit" class="btn-danger btn-sm">↩️ Αναίρεση</button>
+          </form>
+          <a class="btn btn-ghost btn-sm" href="{{ url_for('backup_safety_download', name=b.name) }}" download title="Λήψη">💾<span class="bk-lbl"> Λήψη</span></a>
+          <form method="post" action="{{ url_for('backup_safety_delete') }}" class="inline-form"
+                data-confirm="Οριστική διαγραφή του {{ b.name }};">
+            <input type="hidden" name="name" value="{{ b.name }}">
+            <button type="submit" class="btn-ghost btn-sm" title="Διαγραφή" aria-label="Διαγραφή">🗑️</button>
+          </form>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="bk-empty">
+      <span aria-hidden="true">✨</span>
+      <strong>Δεν υπάρχουν αντίγραφα</strong>
+      <span class="muted small">Θα εμφανιστούν εδώ αυτόματα μετά από κάθε επαναφορά.</span>
+    </div>
     {% endif %}
   </div>
-  <p class="muted small">Αποδεκτά: το επίσημο <span class="mono">syndiasmoi_xaraktirismwn_*.xlsx</span> (ένα φύλλο ανά τύπο) ή csv/tsv με κελιά τύπου 1.1 / category2_x / E3_xxx.</p>
+</section>
 
-  {% if combinations_invoice_types %}
-  <h2>Τύποι με ορισμένους συνδυασμούς</h2>
-  <div class="pill-list mono">
-    {% for t in combinations_invoice_types %}<span class="pill">{{ t }}</span>{% endfor %}
+<section class="pm-panel" id="pm-combinations" role="tabpanel" aria-labelledby="pm-tab-combinations" {{ 'hidden' if active_tab != 'combinations' }}>
+{{ hero('🧩', 'Συνδυασμοί χαρακτηρισμών ΑΑΔΕ',
+        'Ποιες κατηγορίες και τύποι Ε3 επιτρέπονται ανά τύπο παραστατικού — η φόρμα χαρακτηρισμού περιορίζει τις επιλογές αλυσιδωτά.',
+        [(combinations_count, 'Συνδυασμοί'), (combinations_invoice_types|length, 'Τύποι παραστατικών'), (('v' ~ combinations_version) if combinations_version else '—', 'Αρχείο ΑΑΔΕ')],
+        status=('✔ Ενεργοί', 'ok') if combinations_count else ('Χωρίς περιορισμούς', 'warn')) }}
+
+<div class="pm-tiles">
+  <div class="card pm-tile">
+    <span class="pm-tile-icon" aria-hidden="true">💡</span>
+    <h2>Πώς λειτουργεί</h2>
+    <p class="muted">Η εφαρμογή φέρνει έτοιμο το αρχείο της ΑΑΔΕ και το φορτώνει αυτόματα στην πρώτη εκκίνηση,
+      καθώς και όταν μια νέα έκδοση της εφαρμογής φέρει νεότερο αρχείο.</p>
+    {% if combinations_count %}
+    <p class="note note--ok">✔ Η φόρμα χαρακτηρισμού δείχνει μόνο τους επιτρεπόμενους συνδυασμούς.</p>
+    <form method="post" action="{{ url_for('combinations_clear') }}" class="inline-form"
+          data-confirm="Καθαρισμός όλων των συνδυασμών; Η φόρμα χαρακτηρισμού θα δείχνει όλες τις επιλογές.">
+      <button type="submit" class="btn-danger btn-sm">🗑️ Καθαρισμός συνδυασμών</button>
+    </form>
+    {% else %}
+    <p class="note note--warn">Δεν έχουν φορτωθεί συνδυασμοί — η φόρμα χαρακτηρισμού δείχνει όλες τις επιλογές.</p>
+    {% endif %}
   </div>
-  {% endif %}
+
+  <div class="card pm-tile">
+    <span class="pm-tile-icon pm-tile-icon--warn" aria-hidden="true">📥</span>
+    <h2>Νέο αρχείο ΑΑΔΕ</h2>
+    <p class="muted">Αν η ΑΑΔΕ βγάλει νέο αρχείο, εισήγαγέ το εδώ: αντικαθιστά πλήρως τους παλιούς συνδυασμούς.</p>
+    <form method="post" action="{{ url_for('combinations_import') }}" enctype="multipart/form-data" class="pm-drop"
+          data-confirm="Οι υπάρχοντες συνδυασμοί θα αντικατασταθούν πλήρως από το αρχείο. Συνέχεια;">
+      <input type="file" name="file" accept=".xlsx,.csv,.tsv,.txt" required data-autosubmit aria-label="Αρχείο συνδυασμών ΑΑΔΕ">
+      <span class="pm-drop-icon" aria-hidden="true">📊</span>
+      <strong>Σύρε εδώ το <span class="mono">.xlsx</span> / <span class="mono">.csv</span></strong>
+      <span class="muted small">ή κάνε κλικ για επιλογή</span>
+    </form>
+    <p class="muted small pm-hint">Αποδεκτά: το επίσημο <span class="mono">syndiasmoi_xaraktirismwn_*.xlsx</span> (ένα φύλλο ανά τύπο)
+      ή csv/tsv με κελιά τύπου 1.1 / category2_x / E3_xxx.</p>
+  </div>
+</div>
+
+{% if combinations_invoice_types %}
+<div class="card">
+  <h2>Τύποι με ορισμένους συνδυασμούς <span class="count">{{ combinations_invoice_types|length }}</span></h2>
+  <div class="pm-types">
+    {% for t in combinations_invoice_types %}
+    <span class="pm-type" style="--i:{{ loop.index0 }}" title="{{ t }} · {{ type_names.get(t, '') }}"><b class="mono">{{ t }}</b><span>{{ type_names.get(t, '') }}</span></span>
+    {% endfor %}
+  </div>
 </div>
 {% endif %}
+</section>
 {% endblock %}
 
+{% block scripts %}
+<script>
+// Εναλλαγή ενοτήτων χωρίς reload: όλα τα panels είναι ήδη στη σελίδα· ενημερώνεται μόνο το ?tab= (Πίσω/Εμπρός: popstate).
+(function () {
+  const items = document.querySelectorAll('[data-pm-tab]');
+  function show(key, push) {
+    const panel = document.getElementById('pm-' + key);
+    if (!panel) return;
+    items.forEach(a => {
+      const on = a.dataset.pmTab === key;
+      a.classList.toggle('is-active', on);
+      a.setAttribute('aria-selected', on);
+    });
+    document.querySelectorAll('.pm-panel').forEach(p => { p.hidden = p !== panel; });
+    if (push) history.pushState(null, '', '?tab=' + key);
+  }
+  items.forEach(a => a.addEventListener('click', e => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;  // νέα καρτέλα browser: κανονικός σύνδεσμος
+    e.preventDefault();
+    if (!a.classList.contains('is-active')) show(a.dataset.pmTab, true);
+  }));
+  addEventListener('popstate', () => show(new URLSearchParams(location.search).get('tab') || 'accountant', false));
+})();
+</script>
+{% endblock %}

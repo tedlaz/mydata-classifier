@@ -278,6 +278,7 @@
   <a href="#errors">⚠️ Σφάλματα</a>
   <a href="#faq">💬 Ερωτήσεις</a>
   <a href="#data">🔒 Δεδομένα</a>
+  <a href="#backup">🛡️ Αντίγραφα</a>
 </nav>
 
 <!-- ================= ΞΕΚΙΝΗΜΑ ================= -->
@@ -444,7 +445,8 @@
 <section id="accountant" class="hp-rv">
   <span class="hp-kicker">Πολυ-εταιρική λειτουργία</span>
   <h2>Κλήσεις μέσω λογιστή</h2>
-  <p class="hp-lead">Ένα σετ credentials για όλους τους πελάτες. Όταν μια εταιρεία έχει ενεργό το «χρήση credentials λογιστή», η κλήση φέρει το ΑΦΜ της ως <code>entityVatNumber</code> <b>μέσα στο XML</b>, ώστε η κίνηση να καταχωρείται στην εταιρεία και όχι στον λογιστή.</p>
+  <p class="hp-lead">Ένα σετ credentials για όλους τους πελάτες. Όταν μια εταιρεία έχει ενεργό το «χρήση credentials λογιστή», η κλήση φέρει το ΑΦΜ της ως <code>entityVatNumber</code> <b>μέσα στο XML</b>, ώστε η κίνηση να καταχωρείται στην εταιρεία και όχι στον λογιστή.
+    Τα κοινά credentials ορίζονται στις <a href="{{ url_for('parameters', tab='accountant') }}">Παραμέτρους → Λογιστής</a>, όπου φαίνεται και ποιες εταιρείες τα χρησιμοποιούν.</p>
   <div class="hp-card">
     <svg class="hp-acc" viewBox="0 0 960 200" role="img" aria-label="Λογιστής → XML με entityVatNumber → myDATA → εταιρεία">
       <path id="hp-a1" class="ln" d="M200 100 H 300"/><path id="hp-a2" class="ln" d="M620 100 H 700"/>
@@ -539,7 +541,8 @@
       ('reports_yearly', {}, 'Αναλύσεις', 'calendar', 'Ετήσια / Μηνιαία', 'Καθαρή αξία ανά μήνα και καθαρό κέρδος ανά Ε3.'),
       ('reports_vat', {}, 'Αναλύσεις', 'receipt', 'Δήλωση ΦΠΑ (Φ2)', 'Τα ποσά της περιοδικής δήλωσης, έτοιμα.'),
       ('suppliers', {}, 'Κατάλογοι', 'users', 'Συναλλασσόμενοι', 'Κοινοί για όλες τις εταιρείες. Import/export .txt και κανόνες χαρακτηρισμού.'),
-      ('parameters', {'tab': 'companies'}, 'Ρυθμίσεις', 'sliders', 'Παράμετροι', 'Εταιρείες, λογιστής, συνδυασμοί, αυτόματος χαρακτηρισμός. Import/export companies.json.'),
+      ('companies', {}, 'Ρυθμίσεις', 'building', 'Εταιρείες', 'Προφίλ εταιρειών, credentials, χρήση λογιστή. Import/export companies.json.'),
+      ('parameters', {}, 'Ρυθμίσεις', 'sliders', 'Παράμετροι', 'Λογιστής, συνδυασμοί, αναφορές & αυτοματισμοί, αντίγραφα ασφαλείας. Οι ενότητες αλλάζουν χωρίς επαναφόρτωση.'),
     ] %}
     <a class="hp-page" href="{{ url_for(ep, **args) }}">
       <span class="g">{{ grp }}</span>
@@ -585,9 +588,14 @@
     <details><summary>Πώς ακυρώνω ή απορρίπτω παραστατικό;</summary>
       <div>Πρώτα ενεργοποίησε το «επιτρέπονται ακυρώσεις» στην εταιρεία (εμφανίζεται το ⚠). Μετά, από τη σελίδα του παραστατικού, εμφανίζονται οι ενέργειες
         ακύρωσης (για δικά σου) ή απόρριψης (για παραστατικά τρίτων).</div></details>
-    <details><summary>Πώς μεταφέρω τις ρυθμίσεις σε άλλον υπολογιστή;</summary>
-      <div>Από τις <a href="{{ url_for('companies') }}">Παραμέτρους</a> κάνε export σε <code>companies.json</code> και import στον άλλο υπολογιστή.
-        Οι συναλλασσόμενοι μεταφέρονται με export/import <code>.txt</code> (μία γραμμή = «ΑΦΜ Επωνυμία»).</div></details>
+    <details><summary>Πώς μεταφέρω τα δεδομένα μου σε άλλον υπολογιστή;</summary>
+      <div>Ο πιο απλός τρόπος: <a href="{{ url_for('parameters', tab='backup') }}">Αντίγραφα ασφαλείας</a> → «Λήψη τώρα» στον παλιό υπολογιστή
+        και «Επαναφορά από αρχείο» στον νέο. Μεταφέρονται <b>όλα</b> (εταιρείες, παραστατικά, χαρακτηρισμοί, ρυθμίσεις).
+        Αν θέλεις μόνο τις εταιρείες, κάνε export/import <code>companies.json</code> από τις <a href="{{ url_for('companies') }}">Εταιρείες</a>·
+        μόνο τους συναλλασσόμενους, export/import <code>.txt</code> (μία γραμμή = «ΑΦΜ Επωνυμία»).</div></details>
+    <details><summary>Έκανα επαναφορά από λάθος αντίγραφο. Χάθηκαν τα δεδομένα μου;</summary>
+      <div>Όχι. Πριν από κάθε επαναφορά η βάση φυλάγεται αυτόματα. Πήγαινε στα <a href="{{ url_for('parameters', tab='backup') }}">Αντίγραφα ασφαλείας</a>
+        και πάτα «↩️ Αναίρεση» στο πιο πρόσφατο αυτόματο αντίγραφο. Δες <a href="#backup">Αντίγραφα ασφαλείας και αναίρεση</a>.</div></details>
     <details><summary>Πού βρίσκω δοκιμαστικά credentials;</summary>
       <div>Στο <a href="https://mydata-dev-register.azurewebsites.net" target="_blank" rel="noopener">mydata-dev-register</a> για <code>dev</code>.
         Για παραγωγή, από το myAADE με κωδικούς TAXISnet (<code>prod</code>).</div></details>
@@ -601,10 +609,40 @@
   <span class="hp-kicker">Ασφάλεια</span>
   <h2>Τα δεδομένα σου μένουν σε σένα</h2>
   <div class="hp-vault">
-    <div class="hp-card"><span class="em">💾</span><div><h3>Τοπική βάση</h3><p>Όλα ζουν στο <code>mydata.db</code> (SQLite). Στα Windows βρίσκεται στο <code>%LOCALAPPDATA%\myDATA Classifier</code>.</p></div></div>
+    <div class="hp-card"><span class="em">💾</span><div><h3>Τοπική βάση</h3><p>Όλα ζουν στο <code>mydata.db</code> (SQLite). Στα Windows βρίσκεται στο <code>%LOCALAPPDATA%\myDATA Classifier</code>.
+      Κράτα αντίγραφο από τα <a href="#backup">Αντίγραφα ασφαλείας</a>.</p></div></div>
     <div class="hp-card"><span class="em">🔄</span><div><h3>Ασφαλείς αναβαθμίσεις</h3><p>Αναβάθμιση ή απεγκατάσταση δεν αγγίζει τη βάση, γιατί βρίσκεται έξω από τον φάκελο εγκατάστασης.</p></div></div>
     <div class="hp-card"><span class="em">🔑</span><div><h3>Credentials στην εφαρμογή</h3><p>Τα κλειδιά της ΑΑΔΕ αποθηκεύονται στη βάση, όχι σε αρχεία <code>.env</code>.</p></div></div>
     <div class="hp-card"><span class="em">🛡️</span><div><h3>Προστασία από ξένες σελίδες</h3><p>Η εφαρμογή δέχεται ενέργειες (αποστολή, ακύρωση, διαγραφή) μόνο από τις δικές της σελίδες. Μια άλλη ιστοσελίδα ανοιχτή στον browser δεν μπορεί να τις εκτελέσει για λογαριασμό σου.</p></div></div>
+  </div>
+</section>
+
+<!-- ================= ΑΝΤΙΓΡΑΦΑ ΑΣΦΑΛΕΙΑΣ ================= -->
+<section id="backup" class="hp-rv">
+  <span class="hp-kicker">Backup &amp; restore</span>
+  <h2>Αντίγραφα ασφαλείας και αναίρεση</h2>
+  <p class="hp-lead">Από τις <a href="{{ url_for('parameters', tab='backup') }}">Παραμέτρους → Αντίγραφα ασφαλείας</a> κατεβάζεις
+    ολόκληρη τη βάση σε ένα αρχείο <code>.db</code> και την επαναφέρεις όποτε χρειαστεί. Μια λάθος επαναφορά αναιρείται με ένα κλικ.</p>
+  <div class="hp-steps">
+    <div class="hp-step"><span class="ico">💾</span><h3>Λήψη αντιγράφου</h3>
+      <p>«Λήψη τώρα» κατεβάζει το <code>mydata-backup-&lt;ημερομηνία&gt;-&lt;ώρα&gt;.db</code>. Κράτα το σε USB, cloud ή άλλον υπολογιστή, όχι μόνο στον ίδιο δίσκο.</p>
+      <a href="{{ url_for('parameters', tab='backup') }}">Αντίγραφα ασφαλείας</a></div>
+    <div class="hp-step"><span class="ico">♻️</span><h3>Επαναφορά</h3>
+      <p>Σύρε το <code>.db</code> στην περιοχή «Επαναφορά από αρχείο» (ή κάνε κλικ) και επιβεβαίωσε. Η τρέχουσα βάση αντικαθίσταται,
+        αλλά πρώτα φυλάγεται αυτόματα.</p></div>
+    <div class="hp-step"><span class="ico">↩️</span><h3>Αναίρεση</h3>
+      <p>Στη λίστα «Αυτόματα αντίγραφα πριν από επαναφορά» πάτα «Αναίρεση» στο πιο πρόσφατο και επιστρέφεις εκεί που ήσουν.
+        Κι η αναίρεση κρατά αντίγραφο, οπότε αναιρείται κι αυτή.</p></div>
+  </div>
+  <div class="hp-vault">
+    <div class="hp-card"><span class="em">📦</span><div><h3>Τι περιέχει</h3><p><b>Όλα</b>: εταιρείες, credentials ΑΑΔΕ και λογιστή, παραστατικά, χαρακτηρισμούς,
+      κανόνες συναλλασσομένων, πρότυπα και ρυθμίσεις. Γι' αυτό φύλαξέ το σαν κωδικό.</p></div></div>
+    <div class="hp-card"><span class="em">🗂️</span><div><h3>Πόσα αυτόματα αντίγραφα</h3><p>Κρατούνται τα <b>2</b> τελευταία ως <code>mydata-before-restore-*.db</code>
+      στον φάκελο της βάσης. Το πλήθος (1–50) αλλάζει από την ίδια οθόνη· τα παλαιότερα σβήνονται μόνα τους. Κάθε αντίγραφο μπορείς να το κατεβάσεις ή να το διαγράψεις.</p></div></div>
+    <div class="hp-card"><span class="em">✅</span><div><h3>Έλεγχος πριν την επαναφορά</h3><p>Αρχείο που δεν είναι βάση της εφαρμογής ή είναι κατεστραμμένο απορρίπτεται,
+      και η τρέχουσα βάση μένει ανέπαφη.</p></div></div>
+    <div class="hp-card"><span class="em">⏳</span><div><h3>Αντίγραφα παλαιότερων εκδόσεων</h3><p>Ένα backup από παλιότερη έκδοση της εφαρμογής ενημερώνεται αυτόματα
+      στη νέα δομή κατά την επαναφορά.</p></div></div>
   </div>
 </section>
 
