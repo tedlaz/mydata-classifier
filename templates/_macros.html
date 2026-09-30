@@ -66,7 +66,7 @@
 {% macro status_tabs(ep, q, tabs) -%}
 <div class="tabs">
   {% for v, label in tabs %}
-  <a class="tab {{ 'is-active' if q.view == v }}" href="{{ url_for(ep, **dict(q, view=v)) }}">{{ label }} <span class="count count--{{ v }}">{{ counts[v] }}</span></a>
+  <a class="tab {{ 'is-active' if q.view == v }}" href="{{ url_for(ep, **dict(q, view=v, sort=None, dir=None)) }}">{{ label }} <span class="count count--{{ v }}">{{ counts[v] }}</span></a>
   {% endfor %}
 </div>
 {%- endmacro %}

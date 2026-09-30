@@ -96,7 +96,7 @@
       </a>
       {% for v, label, emoji in tabs %}
       <a class="lh-tile lh-tile--{{ v }} {{ 'is-on' if q.view == v }}" style="--i:{{ loop.index }}"
-         href="{{ url_for(ep, **dict(q, view=v)) }}" {% if q.view == v %}aria-current="page"{% endif %}>
+         href="{{ url_for(ep, **dict(q, view=v, sort=None, dir=None)) }}" {% if q.view == v %}aria-current="page"{% endif %}>
         <span class="e" aria-hidden="true">{{ emoji }}</span>
         <b data-count="{{ counts[v] }}">{{ counts[v] }}</b><span>{{ label }}</span>
       </a>

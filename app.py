@@ -750,7 +750,7 @@ def invoices():
     if view not in _EXPENSE_VIEWS:
         view = "unclassified"
     sort = request.args.get("sort", "date")
-    direction = request.args.get("dir", "asc")
+    direction = request.args.get("dir", "desc" if view in ("classified", "confirmed") else "asc")
     reverse = direction == "desc"
     filters = {
         "mark": request.args.get("f_mark", "").strip(),
@@ -1934,7 +1934,7 @@ def income():
     if view not in _INCOME_VIEWS:
         view = "unclassified"
     sort = request.args.get("sort", "date")
-    direction = request.args.get("dir", "asc")
+    direction = request.args.get("dir", "desc" if view == "classified" else "asc")
     reverse = direction == "desc"
     filters = {
         "mark": request.args.get("f_mark", "").strip(),

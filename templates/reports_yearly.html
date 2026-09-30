@@ -334,11 +334,16 @@
     const firstCol = oldSvg.querySelector('.yr-col');
     oldSvg.querySelectorAll(':scope > line, :scope > text').forEach(n => n.remove());
     newSvg.querySelectorAll(':scope > line, :scope > text').forEach(n => oldSvg.insertBefore(n, firstCol));
-    const og = [...oldSvg.querySelectorAll('.yr-col')];
-    newSvg.querySelectorAll('.yr-col').forEach((g, i) => {
+    oldSvg.setAttribute('aria-label', newSvg.getAttribute('aria-label'));
+    const og = [...oldSvg.querySelectorAll('.yr-col')], ng = newSvg.querySelectorAll('.yr-col');
+    og.splice(ng.length).forEach(g => g.remove());  // π.χ. τρέχον έτος: λιγότεροι μήνες
+    ng.forEach((g, i) => {
       const o = og[i];
       if (!o) { oldSvg.append(g); return; }
       for (const a of g.attributes) if (a.name.startsWith('data-')) o.setAttribute(a.name, a.value);
+      // Περιοχή hover και ετικέτα μήνα: νέες (άλλο πλάτος στήλης όταν αλλάζει το πλήθος μηνών).
+      o.querySelector('.yr-hit').replaceWith(g.querySelector('.yr-hit'));
+      o.querySelector('.yr-month').replaceWith(g.querySelector('.yr-month'));
       ['in', 'out', 'asset'].forEach(k => {
         const np = g.querySelector('.yr-bar--' + k), op = o.querySelector('.yr-bar--' + k);
         if (np && op) op.setAttribute('d', np.getAttribute('d'));
@@ -352,6 +357,7 @@
     cur.classList.add('is-live');  // τα νέα κομμάτια χωρίς εισαγωγικά animations
     // Κεφαλίδα: υπότιτλος, διακόπτης, σύνδεσμοι ετών, KPI (αριθμοί με tween).
     cur.querySelector('.db-hi').textContent = fresh.querySelector('.db-hi').textContent;
+    cur.querySelector('.yr-hero-year').textContent = fresh.querySelector('.yr-hero-year').textContent;
     cur.querySelector('.yr-hero-tools').replaceWith(fresh.querySelector('.yr-hero-tools'));
     const nk = fresh.querySelectorAll('.yr-hero .db-kpi');
     cur.querySelectorAll('.yr-hero .db-kpi').forEach((k, i) => {
@@ -374,28 +380,32 @@
   }
   let busy = false;
   document.addEventListener('click', async e => {
-    const a = e.target.closest('.yr-unc');
+    const a = e.target.closest('.yr-unc, .yr-years a');
     if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
     e.preventDefault();
-    if (busy) return;
+    const isYear = !a.classList.contains('yr-unc');
+    if (busy || (isYear && a.hasAttribute('aria-current'))) return;
     busy = true;
-    a.setAttribute('aria-checked', a.getAttribute('aria-checked') === 'true' ? 'false' : 'true');  // κινείται αμέσως
+    if (isYear) a.parentNode.querySelectorAll('a').forEach(y => y.toggleAttribute('aria-current', y === a));  // επιλέγεται αμέσως
+    else a.setAttribute('aria-checked', a.getAttribute('aria-checked') === 'true' ? 'false' : 'true');  // κινείται αμέσως
     a.classList.add('is-busy');
     try {
       const r = await fetch(a.href);
       if (!r.ok) throw new Error(r.status);
-      const fresh = new DOMParser().parseFromString(await r.text(), 'text/html').querySelector('.yr');
+      const doc = new DOMParser().parseFromString(await r.text(), 'text/html'), fresh = doc.querySelector('.yr');
       if (!fresh) throw new Error('no content');
       hide();
       applyFresh(fresh);
-      history.replaceState(null, '', a.href);
-      $('.yr-unc').focus({preventScroll: true});
+      document.title = doc.title;
+      history[isYear ? 'pushState' : 'replaceState'](null, '', a.href);
+      $(isYear ? '.yr-years [aria-current]' : '.yr-unc').focus({preventScroll: true});
     } catch (_) {
       location.href = a.href;  // αν κάτι αποτύχει: κανονική πλοήγηση
     } finally {
       busy = false;
     }
   });
+  addEventListener('popstate', () => location.reload());  // «Πίσω» μετά από αλλαγή έτους
 })();
 </script>
 {% endblock %}
