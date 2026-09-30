@@ -822,9 +822,14 @@ def income_sync():
 
 @app.route("/invoices")
 def invoices():
-    view = request.args.get("view", "unclassified")
+    view = request.args.get("view")
     if view not in _EXPENSE_VIEWS:
-        view = "unclassified"
+        # Χωρίς (έγκυρο) tab: το πρώτο με εγγραφές· κανένα → Ανάκτηση / Διαγραφή.
+        cid = _active_company_id()
+        by_status = db.count_by_status(cid, "expense") if cid else {}
+        view = next((v for v in _EXPENSE_VIEWS if by_status.get(v)), None)
+        if view is None:
+            return redirect(url_for("invoices_sync"))
     sort = request.args.get("sort", "date")
     direction = request.args.get("dir", "desc" if view in ("classified", "confirmed") else "asc")
     reverse = direction == "desc"
@@ -2006,9 +2011,14 @@ def income_fetch():
 
 @app.route("/income")
 def income():
-    view = request.args.get("view", "unclassified")
+    view = request.args.get("view")
     if view not in _INCOME_VIEWS:
-        view = "unclassified"
+        # Χωρίς (έγκυρο) tab: το πρώτο με εγγραφές· κανένα → Ανάκτηση / Διαγραφή.
+        cid = _active_company_id()
+        by_status = db.count_by_status(cid, "income") if cid else {}
+        view = next((v for v in _INCOME_VIEWS if by_status.get(v)), None)
+        if view is None:
+            return redirect(url_for("income_sync"))
     sort = request.args.get("sort", "date")
     direction = request.args.get("dir", "desc" if view == "classified" else "asc")
     reverse = direction == "desc"
