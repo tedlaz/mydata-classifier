@@ -31,6 +31,7 @@ from flask import (
     url_for,
 )
 
+import auth
 import db
 import vat_return
 from classifications import (
@@ -75,6 +76,80 @@ def _same_origin_post():
         src = request.headers.get("Origin") or request.headers.get("Referer")
         if src and urlparse(src).netloc != request.host:
             abort(403)
+
+
+_PUBLIC = {"login", "setup", "static"}
+
+
+@app.before_request
+def _require_login():
+    """Κεντρικός χρήστης (βλ. auth.py): χωρίς χρήστη → /setup, χωρίς ξεκλείδωμα → /login.
+    Το session["auth"] πρέπει να ταιριάζει με το nonce στη μνήμη: ένα πλαστό cookie
+    (με το FLASK_SECRET) δεν αρκεί, και κάθε restart ζητά ξανά κωδικό."""
+    if app.testing or request.endpoint in _PUBLIC:
+        return None
+    if db.get_auth() is None:
+        return redirect(url_for("setup"))
+    if not auth.unlocked() or session.get("auth") != auth.nonce:
+        return redirect(url_for("login"))
+    return None
+
+
+@app.route("/setup", methods=["GET", "POST"])
+def setup():
+    if db.get_auth():
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        user = request.form.get("username", "").strip()
+        pw = request.form.get("password", "")
+        if not user or len(pw) < 8 or pw != request.form.get("password2"):
+            flash("Όνομα χρήστη υποχρεωτικό· κωδικός τουλάχιστον 8 χαρακτήρων, ίδιος και στις δύο θέσεις.", "error")
+        else:
+            db.save_auth(auth.create(user, pw))
+            db.encrypt_credentials()
+            session["auth"] = auth.nonce
+            flash("✔ Δημιουργήθηκε ο χρήστης. Τα κλειδιά myDATA αποθηκεύονται πλέον κρυπτογραφημένα.", "ok")
+            return redirect(url_for("dashboard"))
+    return render_template("login.html", setup=True)
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    rec = db.get_auth()
+    if rec is None:
+        return redirect(url_for("setup"))
+    if request.method == "POST":
+        if auth.unlock(request.form.get("username", "").strip(), request.form.get("password", ""), rec):
+            session["auth"] = auth.nonce
+            db.encrypt_credentials()  # π.χ. plaintext κλειδιά από εισαγωγή/παλιό backup
+            return redirect(url_for("dashboard"))
+        flash("Λάθος όνομα χρήστη ή κωδικός.", "error")
+    return render_template("login.html", setup=False)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    auth.lock()
+    return redirect(url_for("login"))
+
+
+@app.route("/password", methods=["POST"])
+def change_password():
+    back = redirect(url_for("parameters", tab="security"))
+    rec = db.get_auth()
+    user = request.form.get("username", "").strip()
+    pw = request.form.get("password", "")
+    if not auth.unlock(rec["auth_user"], request.form.get("old_password", ""), rec):
+        flash("Λάθος τρέχων κωδικός.", "error")
+        return back
+    session["auth"] = auth.nonce  # το unlock ανανεώνει το nonce
+    if not user or len(pw) < 8 or pw != request.form.get("password2"):
+        flash("Όνομα χρήστη υποχρεωτικό· νέος κωδικός τουλάχιστον 8 χαρακτήρων, ίδιος και στις δύο θέσεις.", "error")
+        return back
+    db.save_auth(auth.rewrap(user, pw))
+    flash("✔ Άλλαξε ο κωδικός.", "ok")
+    return back
 
 
 @app.template_filter("el_amount")
@@ -3354,11 +3429,12 @@ def parameters():
         return redirect(url_for("suppliers"))
     if tab == "companies":
         return redirect(url_for("companies"))
-    if tab not in {"accountant", "combinations", "reports", "backup"}:
+    if tab not in {"accountant", "combinations", "reports", "backup", "security"}:
         tab = "accountant"
     return render_template(
         "parameters.html",
         active_tab=tab,
+        auth_user=(db.get_auth() or {}).get("auth_user", ""),
         acc=get_accountant(),
         combinations_count=db.combos_count(),
         combinations_invoice_types=sorted(
@@ -3455,7 +3531,8 @@ def companies_update(idx):
         return redirect(url_for("companies"))
     name = request.form.get("company_name", "").strip()
     user_id = request.form.get("aade_user_id", "").strip()
-    sub_key = request.form.get("aade_subscription_key", "").strip()
+    # Το κλειδί δεν στέλνεται πίσω στη φόρμα: κενό = κράτα το αποθηκευμένο.
+    sub_key = request.form.get("aade_subscription_key", "").strip() or comps[idx]["AADE_SUBSCRIPTION_KEY"]
     if not name or (
         not bool(request.form.get("use_accountant")) and not (user_id and sub_key)
     ):
@@ -3552,7 +3629,9 @@ def accountant():
         save_accountant(
             {
                 "user_id": request.form.get("user_id", "").strip(),
-                "subscription_key": request.form.get("subscription_key", "").strip(),
+                # κενό = κράτα το αποθηκευμένο (δεν στέλνεται πίσω στη φόρμα)
+                "subscription_key": request.form.get("subscription_key", "").strip()
+                or get_accountant().get("subscription_key", ""),
                 "env": request.form.get("env", "prod"),
             }
         )
@@ -3957,6 +4036,8 @@ if getattr(sys, "frozen", False):
 @app.context_processor
 def inject_company():
     # self_types: τύποι που εκδίδουμε εμείς (13.x–17.x) → επιτρέπεται «Αντιγραφή».
+    if request.endpoint in _PUBLIC:
+        return {}  # login/setup: κλειδωμένη, τα κλειδιά των εταιρειών δεν αποκρυπτογραφούνται
     return {"active_company": get_active_company(), "self_types": SELF_EXPENSE_TYPES, "update": _update}
 
 

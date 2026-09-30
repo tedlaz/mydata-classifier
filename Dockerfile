@@ -23,7 +23,7 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 
 # Ο κώδικας της εφαρμογής (μόνο ό,τι χρειάζεται - δες .dockerignore)
-COPY app.py wsgi.py db.py ensure_env.py mydata_client.py classifications.py vies.py gsis.py vat_return.py ./
+COPY app.py wsgi.py auth.py db.py ensure_env.py mydata_client.py classifications.py vies.py gsis.py vat_return.py ./
 COPY templates ./templates
 COPY static ./static
 COPY docs/syndiasmoi_xaraktirismwn_v*.xlsx ./docs/
@@ -40,7 +40,7 @@ USER appuser
 EXPOSE 8000
 VOLUME ["/data"]
 
-# gunicorn: 2 workers x 4 threads αρκούν για single-user εργαλείο με I/O-bound κλήσεις
+# gunicorn: 1 worker (το κλειδί ξεκλειδώματος ζει στη μνήμη της διεργασίας, βλ. auth.py) x 8 threads
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", \
-     "--workers", "2", "--threads", "4", \
+     "--workers", "1", "--threads", "8", \
      "--timeout", "120", "--access-logfile", "-", "wsgi:app"]

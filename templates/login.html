@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ 'Νέος χρήστης' if setup else 'Σύνδεση' }} · myDATA</title>
+<script>
+(function(){var r=document.documentElement,t;try{t=localStorage.getItem('theme')}catch(e){}
+if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')})();
+</script>
+<link rel="icon" href="{{ url_for('static', filename='app.ico') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/fonts/fonts.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+<main class="login">
+  <form method="post" class="card login-card">
+    <a class="brand"><span class="brand-mark">my</span><b>myDATA</b></a>
+    {% if setup %}
+    <h1>Δημιουργία χρήστη</h1>
+    <p class="muted small">Ο κωδικός ξεκλειδώνει την εφαρμογή και κρυπτογραφεί τα κλειδιά myDATA.
+      <b>Αν τον ξεχάσεις, τα κλειδιά δεν ανακτώνται</b> και θα χρειαστεί να τα ξαναπληκτρολογήσεις.</p>
+    {% else %}
+    <h1>Σύνδεση</h1>
+    {% endif %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}<div class="flash {{ cat }}" role="status"><span>{{ msg }}</span></div>{% endfor %}
+    {% endwith %}
+    <label for="username">Όνομα χρήστη</label>
+    <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+    <label for="password">Κωδικός</label>
+    <input type="password" id="password" name="password" autocomplete="{{ 'new-password' if setup else 'current-password' }}"
+           {% if setup %}minlength="8"{% endif %} required>
+    {% if setup %}
+    <label for="password2">Επανάληψη κωδικού</label>
+    <input type="password" id="password2" name="password2" autocomplete="new-password" minlength="8" required>
+    {% endif %}
+    <div class="btn-row"><button type="submit">{{ 'Δημιουργία' if setup else 'Είσοδος' }}</button></div>
+  </form>
+</main>
+</body>
+</html>

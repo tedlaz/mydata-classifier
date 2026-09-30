@@ -17,7 +17,7 @@ docker compose up -d --build
   και ΔΕΝ μπαίνουν στο τελικό image.
 - Αναμενόμενο μέγεθος τελικού image: **~70–90 MB** (Alpine base ~50 MB +
   πακέτα ~25 MB + κώδικας < 1 MB).
-- Τρέχει ως **μη-root** χρήστης, με gunicorn (2 workers × 4 threads).
+- Τρέχει ως **μη-root** χρήστης, με gunicorn (1 worker × 8 threads· το κλειδί ξεκλειδώματος ζει στη μνήμη της διεργασίας).
 
 ## Δεδομένα
 

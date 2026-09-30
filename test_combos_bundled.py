@@ -4,6 +4,8 @@ import tempfile
 
 os.environ["MYDATA_DATA_DIR"] = tempfile.mkdtemp()
 import app as A  # noqa: E402
+
+A.app.testing = True  # χωρίς πύλη login (βλ. _require_login)
 import db  # noqa: E402
 
 # 1) Πρώτη εκκίνηση: φορτώθηκε το αρχείο του docs/.

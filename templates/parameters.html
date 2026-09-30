@@ -32,24 +32,11 @@
 </header>
 
 <nav class="pm-nav" role="tablist" aria-label="Ενότητες παραμέτρων">
-  {% for key, icon, label, status, ok in [
-      ('accountant', '👤', 'Λογιστής',
-        ('Ρυθμισμένο · ' ~ acc_companies|length ~ ' εταιρ.') if acc_ok else 'Δεν έχει οριστεί', acc_ok),
-      ('combinations', '🧩', 'Συνδυασμοί',
-        (combinations_count ~ ' συνδυασμοί' ~ (' · v' ~ combinations_version if combinations_version else '')) if combinations_count else 'Δεν φορτώθηκαν', combinations_count),
-      ('reports', '📊', 'Αναφορές & αυτοματισμοί',
-        'Αποθέματα ' ~ n_stock ~ '/' ~ stock_reports|length ~ ' · αυτόματος ' ~ ('ενεργός' if auto_classify else 'ανενεργός'), true),
-      ('backup', '🛡️', 'Αντίγραφα ασφαλείας',
-        safety_backups|length ~ ' αυτόματα αντίγραφα', true)] %}
+  {% for key, label in [('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί'), ('reports', 'Αναφορές & αυτοματισμοί'),
+                        ('backup', 'Αντίγραφα ασφαλείας'), ('security', 'Ασφάλεια')] %}
   <a class="pm-nav-item {{ 'is-active' if active_tab == key }}" href="{{ url_for('parameters', tab=key) }}"
      role="tab" id="pm-tab-{{ key }}" aria-controls="pm-{{ key }}" aria-selected="{{ 'true' if active_tab == key else 'false' }}"
-     data-pm-tab="{{ key }}" style="--i:{{ loop.index0 }}">
-    <span class="pm-nav-icon" aria-hidden="true">{{ icon }}</span>
-    <span class="pm-nav-text">
-      <b>{{ label }}</b>
-      <small class="pm-nav-status pm-nav-status--{{ 'ok' if ok else 'warn' }}">{{ status }}</small>
-    </span>
-  </a>
+     data-pm-tab="{{ key }}">{{ label }}</a>
   {% endfor %}
 </nav>
 
@@ -70,8 +57,8 @@
         </div>
         <div>
           <label for="acc_key">Subscription Key</label>
-          <input type="password" id="acc_key" name="subscription_key" value="{{ acc.subscription_key or '' }}"
-                 autocomplete="off" data-reveal placeholder="••••••••">
+          <input type="password" id="acc_key" name="subscription_key" value=""
+                 autocomplete="new-password" data-reveal placeholder="{{ "•••• αποθηκευμένο (κενό = δεν αλλάζει)" if acc.subscription_key else "••••••••" }}">
         </div>
       </div>
       <fieldset class="pm-seg">
@@ -289,6 +276,47 @@
   </div>
 </div>
 {% endif %}
+</section>
+
+<section class="pm-panel" id="pm-security" role="tabpanel" aria-labelledby="pm-tab-security" {{ 'hidden' if active_tab != 'security' }}>
+<div class="pm-split">
+  <div class="card">
+    <h2>Αλλαγή κωδικού εφαρμογής</h2>
+    <form method="post" action="{{ url_for('change_password') }}" class="pm-form">
+      <div class="grid grid-2">
+        <div>
+          <label for="pw_user">Όνομα χρήστη</label>
+          <input type="text" id="pw_user" name="username" value="{{ auth_user }}" autocomplete="username" required>
+        </div>
+        <div>
+          <label for="pw_old">Τρέχων κωδικός</label>
+          <input type="password" id="pw_old" name="old_password" autocomplete="current-password" required>
+        </div>
+        <div>
+          <label for="pw_new">Νέος κωδικός</label>
+          <input type="password" id="pw_new" name="password" autocomplete="new-password" minlength="8" required>
+        </div>
+        <div>
+          <label for="pw_new2">Επανάληψη νέου</label>
+          <input type="password" id="pw_new2" name="password2" autocomplete="new-password" minlength="8" required>
+        </div>
+      </div>
+      <div class="btn-row"><button type="submit">Αλλαγή κωδικού</button></div>
+    </form>
+    <form method="post" action="{{ url_for('logout') }}" class="pm-sub">
+      <button type="submit" class="btn-ghost">🔒 Κλείδωμα / Αποσύνδεση</button>
+    </form>
+  </div>
+
+  <div class="card pm-aside">
+    <h2>💡 Πώς λειτουργεί</h2>
+    <p class="muted small">Τα κλειδιά myDATA (εταιρειών και λογιστή) αποθηκεύονται κρυπτογραφημένα. Το κλειδί
+      κρυπτογράφησης προκύπτει από τον κωδικό σου και δεν γράφεται στον δίσκο, οπότε ένα αντίγραφο της βάσης
+      που θα διαρρεύσει δεν αποκαλύπτει τα κλειδιά.</p>
+    <p class="muted small"><b>Αν ξεχάσεις τον κωδικό</b>, τα κλειδιά myDATA δεν ανακτώνται. Δες τη
+      <a href="{{ url_for('help_page') }}#security">Βοήθεια</a> για την επαναφορά.</p>
+  </div>
+</div>
 </section>
 {% endblock %}
 

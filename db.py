@@ -20,6 +20,8 @@ import re as _re
 import sqlite3
 from datetime import UTC, datetime
 
+import auth
+
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _DATA_DIR = os.getenv("MYDATA_DATA_DIR", _BASE_DIR)
 os.makedirs(_DATA_DIR, exist_ok=True)
@@ -78,6 +80,7 @@ def restore_bytes(data: bytes) -> str:
         mem.close()
     init_db()  # παλαιότερο backup → τρέχουσες μεταπτώσεις schema
     prune_safety_backups()
+    auth.lock()  # το backup έχει δικό του χρήστη/κλειδί → νέο login με τον κωδικό του backup
     return safety
 
 
@@ -373,8 +376,8 @@ def _company_row_to_dict(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
         "company_name": row["company_name"],
-        "AADE_USER_ID": row["aade_user_id"] or "",
-        "AADE_SUBSCRIPTION_KEY": row["aade_subscription_key"] or "",
+        "AADE_USER_ID": auth.dec(row["aade_user_id"]),
+        "AADE_SUBSCRIPTION_KEY": auth.dec(row["aade_subscription_key"]),
         "AADE_VAT_NUMBER": row["aade_vat_number"] or "",
         "MYDATA_ENV": row["mydata_env"] or "prod",
         "use_accountant": bool(row["use_accountant"]),
@@ -396,8 +399,8 @@ def add_company(data: dict) -> int | None:
             "aade_vat_number, mydata_env, use_accountant, allow_cancel, vat_period) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 data.get("company_name", ""),
-                data.get("AADE_USER_ID", ""),
-                data.get("AADE_SUBSCRIPTION_KEY", ""),
+                auth.enc(data.get("AADE_USER_ID") or ""),
+                auth.enc(data.get("AADE_SUBSCRIPTION_KEY") or ""),
                 data.get("AADE_VAT_NUMBER", ""),
                 data.get("MYDATA_ENV", "prod"),
                 1 if data.get("use_accountant") else 0,
@@ -416,8 +419,8 @@ def update_company(company_id: int, data: dict) -> None:
             "use_accountant = ?, allow_cancel = ?, vat_period = ? WHERE id = ?",
             (
                 data.get("company_name", ""),
-                data.get("AADE_USER_ID", ""),
-                data.get("AADE_SUBSCRIPTION_KEY", ""),
+                auth.enc(data.get("AADE_USER_ID") or ""),
+                auth.enc(data.get("AADE_SUBSCRIPTION_KEY") or ""),
                 data.get("AADE_VAT_NUMBER", ""),
                 data.get("MYDATA_ENV", "prod"),
                 1 if data.get("use_accountant") else 0,
@@ -451,8 +454,8 @@ def get_accountant() -> dict:
     if not row:
         return {}
     return {
-        "user_id": row["user_id"] or "",
-        "subscription_key": row["subscription_key"] or "",
+        "user_id": auth.dec(row["user_id"]),
+        "subscription_key": auth.dec(row["subscription_key"]),
         "env": row["env"] or "prod",
     }
 
@@ -465,11 +468,62 @@ def save_accountant(data: dict) -> None:
             "user_id = excluded.user_id, subscription_key = excluded.subscription_key, "
             "env = excluded.env",
             (
-                data.get("user_id", ""),
-                data.get("subscription_key", ""),
+                auth.enc(data.get("user_id") or ""),
+                auth.enc(data.get("subscription_key") or ""),
                 data.get("env", "prod"),
             ),
         )
+
+
+# --------------------------------------------------------------------- #
+# Κεντρικός χρήστης (βλ. auth.py): ρυθμίσεις auth_user / auth_salt / auth_dek
+# --------------------------------------------------------------------- #
+_AUTH_KEYS = ("auth_user", "auth_salt", "auth_dek")
+
+
+def get_auth() -> dict | None:
+    rec = {k: get_setting(k) for k in _AUTH_KEYS}
+    return rec if all(rec.values()) else None
+
+
+def save_auth(rec: dict) -> None:
+    for k in _AUTH_KEYS:
+        set_setting(k, rec[k])
+
+
+def encrypt_credentials() -> None:
+    """Μετά το setup/login: όσα plaintext κλειδιά υπάρχουν ξαναγράφονται κρυπτογραφημένα και
+    γίνεται VACUUM, ώστε οι παλιές τιμές να μη μένουν σε ελεύθερες σελίδες ή στο WAL."""
+    with get_conn() as conn:
+        plain = conn.execute(
+            "SELECT (SELECT COUNT(*) FROM companies WHERE aade_user_id NOT LIKE 'enc:%' AND aade_user_id <> '' "
+            "OR aade_subscription_key NOT LIKE 'enc:%' AND aade_subscription_key <> '') + "
+            "(SELECT COUNT(*) FROM accountant WHERE user_id NOT LIKE 'enc:%' AND user_id <> '' "
+            "OR subscription_key NOT LIKE 'enc:%' AND subscription_key <> '')"
+        ).fetchone()[0]
+    if not plain:
+        return
+    for c in list_companies():
+        update_company(c["id"], c)
+    acc = get_accountant()
+    if acc:
+        save_accountant(acc)
+    conn = get_conn()
+    try:
+        conn.execute("VACUUM")
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        conn.close()
+
+
+def reset_auth() -> None:
+    """Ξέχασα τον κωδικό: σβήνει τον χρήστη ΚΑΙ τα κλειδιά myDATA (δεν αποκρυπτογραφούνται πια).
+    Τα παραστατικά μένουν. Από τερματικό: python -c "import db; db.reset_auth()"."""
+    with get_conn() as conn:
+        conn.execute(f"DELETE FROM settings WHERE key IN ({','.join('?' * len(_AUTH_KEYS))})", _AUTH_KEYS)
+        conn.execute("UPDATE companies SET aade_user_id = '', aade_subscription_key = ''")
+        conn.execute("UPDATE accountant SET user_id = '', subscription_key = ''")
+    auth.lock()
 
 
 # --------------------------------------------------------------------- #

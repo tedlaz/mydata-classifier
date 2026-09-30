@@ -199,9 +199,18 @@
 
 /* ---------- Δεδομένα ---------- */
 .hp-vault{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:20px}
-.hp-vault .hp-card{display:flex;gap:14px}
-.hp-vault .em{font-size:1.8rem;line-height:1}
-.hp-foot{margin-top:var(--hp-gap);text-align:center;color:var(--muted);font-size:.86rem}
+.hp-vault .hp-card{padding:20px}
+.hp-vault .em{display:block;font-size:1.6rem;line-height:1;margin-bottom:12px}
+.hp-vault h3{overflow-wrap:normal}
+.hp-vault .hp-wide{grid-column:1/-1}
+.hp-vault ul{margin:0;padding-left:18px;color:var(--ink-2)}
+.hp-vault li{margin:0 0 6px}
+/* ---------- Αντίγραφα ασφαλείας (διάγραμμα) ---------- */
+.hp-bk{margin-top:20px}
+.hp-bk .st,.hp-bk .al{opacity:0;transform:translateY(10px);transition:opacity .5s,transform .5s var(--ease)}
+.hp-bk .st:nth-of-type(2){transition-delay:.2s}.hp-bk .st:nth-of-type(3){transition-delay:.4s}
+.is-in .hp-bk .st,.is-in .hp-bk .al{opacity:1;transform:none}
+.hp .hp-foot{margin-top:var(--hp-gap);text-align:center;color:var(--muted);font-size:.86rem}
 
 /* ---------- Εμφάνιση κατά το scroll ---------- */
 .hp-rv{opacity:0;transform:translateY(24px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
@@ -278,6 +287,7 @@
   <a href="#errors">⚠️ Σφάλματα</a>
   <a href="#faq">💬 Ερωτήσεις</a>
   <a href="#data">🔒 Δεδομένα</a>
+  <a href="#security">🔐 Κωδικός</a>
   <a href="#backup">🛡️ Αντίγραφα</a>
 </nav>
 
@@ -285,10 +295,11 @@
 <section id="start" class="hp-rv">
   <span class="hp-kicker">Σε 4 βήματα</span>
   <h2>Από το μηδέν στον πρώτο χαρακτηρισμό</h2>
-  <p class="hp-lead">Κάνε τα βήματα με αυτή τη σειρά την πρώτη φορά. Μετά, η καθημερινή δουλειά είναι μόνο τα βήματα 3 και 4.</p>
+  <p class="hp-lead">Κάνε τα βήματα με αυτή τη σειρά την πρώτη φορά. Μετά, η καθημερινή δουλειά είναι μόνο τα βήματα 3 και 4.
+    Πριν από όλα, στην πρώτη εκκίνηση ορίζεις όνομα χρήστη και κωδικό εφαρμογής (δες <a href="#security">Κωδικός</a>).</p>
   <div class="hp-steps">
     <div class="hp-step"><span class="ico">🏢</span><h3>Πρόσθεσε εταιρεία</h3>
-      <p>Βάλε <code>aade-user-id</code>, <code>Subscription-Key</code>, ΑΦΜ και περιβάλλον (<code>prod</code>/<code>dev</code>). Αν δουλεύεις ως λογιστής, όρισε και τα κοινά credentials.</p>
+      <p>Βάλε <code>aade-user-id</code>, <code>Subscription-Key</code>, ΑΦΜ και περιβάλλον (<code>prod</code>/<code>dev</code>). Αν δουλεύεις ως λογιστής, όρισε και τα κοινά credentials. Τα κλειδιά αποθηκεύονται κρυπτογραφημένα.</p>
       <a href="{{ url_for('companies') }}">Εταιρείες</a></div>
     <div class="hp-step"><span class="ico">🧩</span><h3>Συνδυασμοί: έτοιμοι</h3>
       <p>Το xlsx «Συνδυασμοί χαρακτηρισμών» της ΑΑΔΕ φορτώνεται αυτόματα στην πρώτη εκκίνηση. Αν η ΑΑΔΕ βγάλει νεότερο, εισήγαγέ το από τις Παραμέτρους και θα αντικαταστήσει το παλιό.</p>
@@ -542,7 +553,7 @@
       ('reports_vat', {}, 'Αναλύσεις', 'receipt', 'Δήλωση ΦΠΑ (Φ2)', 'Τα ποσά της περιοδικής δήλωσης, έτοιμα.'),
       ('suppliers', {}, 'Κατάλογοι', 'users', 'Συναλλασσόμενοι', 'Κοινοί για όλες τις εταιρείες. Import/export .txt και κανόνες χαρακτηρισμού.'),
       ('companies', {}, 'Ρυθμίσεις', 'building', 'Εταιρείες', 'Προφίλ εταιρειών, credentials, χρήση λογιστή. Import/export companies.json.'),
-      ('parameters', {}, 'Ρυθμίσεις', 'sliders', 'Παράμετροι', 'Λογιστής, συνδυασμοί, αναφορές & αυτοματισμοί, αντίγραφα ασφαλείας. Οι ενότητες αλλάζουν χωρίς επαναφόρτωση.'),
+      ('parameters', {}, 'Ρυθμίσεις', 'sliders', 'Παράμετροι', 'Tabs: Λογιστής, Συνδυασμοί, Αναφορές & αυτοματισμοί, Αντίγραφα ασφαλείας, Ασφάλεια (αλλαγή κωδικού, κλείδωμα). Η εναλλαγή γίνεται χωρίς επαναφόρτωση.'),
     ] %}
     <a class="hp-page" href="{{ url_for(ep, **args) }}">
       <span class="g">{{ grp }}</span>
@@ -591,6 +602,7 @@
     <details><summary>Πώς μεταφέρω τα δεδομένα μου σε άλλον υπολογιστή;</summary>
       <div>Ο πιο απλός τρόπος: <a href="{{ url_for('parameters', tab='backup') }}">Αντίγραφα ασφαλείας</a> → «Λήψη τώρα» στον παλιό υπολογιστή
         και «Επαναφορά από αρχείο» στον νέο. Μεταφέρονται <b>όλα</b> (εταιρείες, παραστατικά, χαρακτηρισμοί, ρυθμίσεις).
+        Μετά την επαναφορά συνδέεσαι με τον <b>κωδικό εφαρμογής του παλιού υπολογιστή</b>.
         Αν θέλεις μόνο τις εταιρείες, κάνε export/import <code>companies.json</code> από τις <a href="{{ url_for('companies') }}">Εταιρείες</a>·
         μόνο τους συναλλασσόμενους, export/import <code>.txt</code> (μία γραμμή = «ΑΦΜ Επωνυμία»).</div></details>
     <details><summary>Έκανα επαναφορά από λάθος αντίγραφο. Χάθηκαν τα δεδομένα μου;</summary>
@@ -612,8 +624,31 @@
     <div class="hp-card"><span class="em">💾</span><div><h3>Τοπική βάση</h3><p>Όλα ζουν στο <code>mydata.db</code> (SQLite). Στα Windows βρίσκεται στο <code>%LOCALAPPDATA%\myDATA Classifier</code>.
       Κράτα αντίγραφο από τα <a href="#backup">Αντίγραφα ασφαλείας</a>.</p></div></div>
     <div class="hp-card"><span class="em">🔄</span><div><h3>Ασφαλείς αναβαθμίσεις</h3><p>Αναβάθμιση ή απεγκατάσταση δεν αγγίζει τη βάση, γιατί βρίσκεται έξω από τον φάκελο εγκατάστασης.</p></div></div>
-    <div class="hp-card"><span class="em">🔑</span><div><h3>Credentials στην εφαρμογή</h3><p>Τα κλειδιά της ΑΑΔΕ αποθηκεύονται στη βάση, όχι σε αρχεία <code>.env</code>.</p></div></div>
+    <div class="hp-card"><span class="em">🔑</span><div><h3>Credentials στην εφαρμογή</h3><p>Τα κλειδιά της ΑΑΔΕ αποθηκεύονται στη βάση <a href="#security">κρυπτογραφημένα</a>, όχι σε αρχεία <code>.env</code>.</p></div></div>
     <div class="hp-card"><span class="em">🛡️</span><div><h3>Προστασία από ξένες σελίδες</h3><p>Η εφαρμογή δέχεται ενέργειες (αποστολή, ακύρωση, διαγραφή) μόνο από τις δικές της σελίδες. Μια άλλη ιστοσελίδα ανοιχτή στον browser δεν μπορεί να τις εκτελέσει για λογαριασμό σου.</p></div></div>
+  </div>
+</section>
+
+<!-- ================= ΚΩΔΙΚΟΣ ΕΦΑΡΜΟΓΗΣ ================= -->
+<section id="security" class="hp-rv">
+  <span class="hp-kicker">Κωδικός</span>
+  <h2>Κωδικός εφαρμογής και κρυπτογράφηση</h2>
+  <p class="hp-lead">Στην πρώτη εκκίνηση ορίζεις όνομα χρήστη και κωδικό. Χωρίς αυτά η εφαρμογή δεν ανοίγει, και μετά από κάθε επανεκκίνηση ζητά ξανά κωδικό.</p>
+  <div class="hp-vault">
+    <div class="hp-card"><span class="em">🔐</span><h3>Κρυπτογραφημένα κλειδιά</h3>
+      <p>Τα User ID και Subscription Key εταιρειών και λογιστή αποθηκεύονται κρυπτογραφημένα. Το κλειδί προκύπτει από τον κωδικό σου και δεν γράφεται στον δίσκο.</p></div>
+    <div class="hp-card"><span class="em">🙈</span><h3>Κρυφό Subscription Key</h3>
+      <p>Στις φόρμες δεν εμφανίζεται. Άφησε το πεδίο κενό για να μείνει ίδιο, ή γράψε νέο για αλλαγή.</p></div>
+    <div class="hp-card"><span class="em">🔁</span><h3>Αλλαγή κωδικού</h3>
+      <p>Από τις <a href="{{ url_for('parameters', tab='security') }}">Παραμέτρους → Ασφάλεια</a>, όπου είναι και το «Κλείδωμα». Ένα backup ανοίγει με τον κωδικό <b>που ίσχυε όταν πάρθηκε</b>.</p></div>
+    <div class="hp-card"><span class="em">🆘</span><h3>Ξέχασα τον κωδικό</h3>
+      <p>Τα κλειδιά δεν ανακτώνται. Κλείσε την εφαρμογή και τρέξε <code>python -c "import db; db.reset_auth()"</code>. Μετά ορίζεις νέο κωδικό και ξαναγράφεις τα κλειδιά· τα παραστατικά μένουν.</p></div>
+    <div class="hp-card hp-wide"><span class="em">⚠️</span><h3>Τι δεν κρυπτογραφείται</h3>
+      <ul>
+        <li>Τα παραστατικά και οι ΑΦΜ. Για πλήρη προστασία του δίσκου ενεργοποίησε BitLocker στα Windows.</li>
+        <li>Το <code>companies.json</code> που εξάγεις από τις Εταιρείες: περιέχει τα κλειδιά ακρυπτογράφητα, φύλαξέ το σαν κωδικό.</li>
+        <li>Παλιά αρχεία <code>mydata-before-restore-*.db</code> από πριν τον ορισμό κωδικού: διάγραψέ τα.</li>
+      </ul></div>
   </div>
 </section>
 
@@ -623,6 +658,30 @@
   <h2>Αντίγραφα ασφαλείας και αναίρεση</h2>
   <p class="hp-lead">Από τις <a href="{{ url_for('parameters', tab='backup') }}">Παραμέτρους → Αντίγραφα ασφαλείας</a> κατεβάζεις
     ολόκληρη τη βάση σε ένα αρχείο <code>.db</code> και την επαναφέρεις όποτε χρειαστεί. Μια λάθος επαναφορά αναιρείται με ένα κλικ.</p>
+  <div class="hp-card hp-bk">
+    <svg class="hp-life" viewBox="0 25 960 225" role="img" aria-label="Λήψη: βάση → αρχείο backup. Επαναφορά: η τρέχουσα βάση φυλάγεται πρώτα ως αυτόματο αντίγραφο, μετά το backup την αντικαθιστά. Αναίρεση από το αυτόματο αντίγραφο.">
+      <path id="hp-bk-dl" class="ar" d="M265 62 H 695"/>
+      <path id="hp-bk-rs" class="ar" d="M695 98 H 265"/>
+      <path id="hp-bk-sf" class="ar2" d="M150 118 C 150 200, 250 200, 365 200"/>
+      <g text-anchor="middle"><text class="al" x="480" y="50">⬇ Λήψη αντιγράφου</text><text class="al" x="480" y="122">⬆ Επαναφορά</text></g>
+      <text class="al" x="170" y="232">① φυλάγεται πρώτα · ↩ Αναίρεση</text>
+
+      <g class="st"><rect x="45" y="42" width="220" height="76" rx="14" fill="var(--ok-soft)" stroke="var(--ok)"/>
+        <text class="t1" x="66" y="76">💾 Τρέχουσα βάση</text><text class="t2" x="66" y="98">mydata.db</text></g>
+      <g class="st"><rect x="695" y="42" width="220" height="76" rx="14" fill="var(--info-soft)" stroke="var(--info)"/>
+        <text class="t1" x="716" y="76">📦 Αρχείο backup</text><text class="t2" x="716" y="98">USB · cloud · άλλο PC</text></g>
+      <g class="st"><rect x="365" y="165" width="250" height="70" rx="14" fill="var(--warn-soft)" stroke="var(--warn)"/>
+        <text class="t1" x="386" y="196">🗂️ Αυτόματο αντίγραφο</text><text class="t2" x="386" y="217">mydata-before-restore-*.db</text></g>
+
+      {# Κύκλος 9s: λήψη → (παύση) → φύλαξη τρέχουσας → επαναφορά #}
+      <circle class="tok" r="8"><animateMotion dur="9s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.02;.3;1" calcMode="linear"><mpath href="#hp-bk-dl"/></animateMotion>
+        <animate attributeName="opacity" dur="9s" repeatCount="indefinite" values="0;1;1;0;0" keyTimes="0;.02;.3;.34;1"/></circle>
+      <circle class="tok" r="8" style="fill:var(--warn);filter:drop-shadow(0 0 6px var(--warn))"><animateMotion dur="9s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.42;.6;1" calcMode="linear"><mpath href="#hp-bk-sf"/></animateMotion>
+        <animate attributeName="opacity" dur="9s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;.41;.42;.6;.64;1"/></circle>
+      <circle class="tok" r="8" style="fill:var(--info);filter:drop-shadow(0 0 6px var(--info))"><animateMotion dur="9s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.66;.94;1" calcMode="linear"><mpath href="#hp-bk-rs"/></animateMotion>
+        <animate attributeName="opacity" dur="9s" repeatCount="indefinite" values="0;0;1;1;0" keyTimes="0;.65;.66;.94;1"/></circle>
+    </svg>
+  </div>
   <div class="hp-steps">
     <div class="hp-step"><span class="ico">💾</span><h3>Λήψη αντιγράφου</h3>
       <p>«Λήψη τώρα» κατεβάζει το <code>mydata-backup-&lt;ημερομηνία&gt;-&lt;ώρα&gt;.db</code>. Κράτα το σε USB, cloud ή άλλον υπολογιστή, όχι μόνο στον ίδιο δίσκο.</p>
@@ -635,7 +694,7 @@
         Κι η αναίρεση κρατά αντίγραφο, οπότε αναιρείται κι αυτή.</p></div>
   </div>
   <div class="hp-vault">
-    <div class="hp-card"><span class="em">📦</span><div><h3>Τι περιέχει</h3><p><b>Όλα</b>: εταιρείες, credentials ΑΑΔΕ και λογιστή, παραστατικά, χαρακτηρισμούς,
+    <div class="hp-card"><span class="em">📦</span><div><h3>Τι περιέχει</h3><p><b>Όλα</b>: εταιρείες, credentials ΑΑΔΕ και λογιστή (κρυπτογραφημένα), παραστατικά, χαρακτηρισμούς,
       κανόνες συναλλασσομένων, πρότυπα και ρυθμίσεις. Γι' αυτό φύλαξέ το σαν κωδικό.</p></div></div>
     <div class="hp-card"><span class="em">🗂️</span><div><h3>Πόσα αυτόματα αντίγραφα</h3><p>Κρατούνται τα <b>2</b> τελευταία ως <code>mydata-before-restore-*.db</code>
       στον φάκελο της βάσης. Το πλήθος (1–50) αλλάζει από την ίδια οθόνη· τα παλαιότερα σβήνονται μόνα τους. Κάθε αντίγραφο μπορείς να το κατεβάσεις ή να το διαγράψεις.</p></div></div>

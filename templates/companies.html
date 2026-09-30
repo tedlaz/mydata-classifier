@@ -34,7 +34,7 @@
   </div>
   <div>
     <label for="{{ pfx }}-key">Subscription Key</label>
-    <input type="password" id="{{ pfx }}-key" name="aade_subscription_key" value="{{ c.AADE_SUBSCRIPTION_KEY or '' }}" autocomplete="off" data-reveal>
+    <input type="password" id="{{ pfx }}-key" name="aade_subscription_key" value="" autocomplete="new-password" data-reveal{% if c.AADE_SUBSCRIPTION_KEY %} placeholder="•••• αποθηκευμένο (κενό = δεν αλλάζει)"{% endif %}>
   </div>
 </div>
 <label class="co-switch">
