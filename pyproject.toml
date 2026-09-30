@@ -1,6 +1,6 @@
 [project]
 name = "mydata-classifier"
-version = "1.5.3"
+version = "1.5.4"
 description = "Easy classify AADE expenses"
 readme = "README.md"
 requires-python = ">=3.14"
