@@ -2449,6 +2449,23 @@ def _e3_breakdown(docs: list[dict]) -> list[dict]:
     return rows
 
 
+def _year_profit(cid: int | None, year: str) -> tuple[float, float]:
+    """(καθαρό κέρδος Ε3, παρακρατήσεις εσόδων) μιας χρήσης — ίδιος υπολογισμός με το modal «Καθαρό κέρδος»."""
+    inc = db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year)
+    exp = _e3_breakdown(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year))
+    profit = sum(g["amount"] for g in _e3_breakdown(inc)) - sum(g["amount"] for g in exp if not (g["stock"] or g["asset"]))
+    return round(profit, 2), round(sum(v["withheld"] for v in _yearly_totals(inc).values()), 2)
+
+
+def _year_tax(cid: int | None, year: int, profit: float, withheld: float) -> dict:
+    """Εκκαθάριση φόρου της χρήσης year για την ενεργή εταιρεία· η προκαταβολή που πληρώθηκε
+    = η προκαταβολή που βγάζει η εκκαθάριση της προηγούμενης χρήσης."""
+    company = get_active_company() or {}
+    prev_profit, prev_withheld = _year_profit(cid, str(year - 1))
+    prev_prepay = _tax_due(prev_profit, year - 1, company, prev_withheld, 0.0)["prepay"]
+    return _tax_due(profit, year, company, withheld, prev_prepay)
+
+
 @app.route("/reports/yearly/e3")
 def reports_yearly_e3():
     """Τμήμα HTML για το modal «Καθαρό κέρδος»: έσοδα και έξοδα του έτους ανά χαρακτηρισμό Ε3."""
@@ -2465,10 +2482,15 @@ def reports_yearly_e3():
     exp_e3 = round(sum(g["amount"] for g in expense), 2)
     assets = round(sum(g["amount"] for g in expense if g["asset"]), 2)
     net = lambda docs: round(sum(v["net"] for v in _yearly_totals(docs).values()), 2)  # noqa: E731
+    profit = round(inc_e3 - (exp_e3 - assets), 2)
+    withheld = round(sum(v["withheld"] for v in _yearly_totals(inc_docs).values()), 2)
+    # ?print=1: αυτόνομη σελίδα A4 για «Αποθήκευση ως PDF» από τον browser.
     return render_template(
-        "_yearly_e3.html", year=year, income=income, expense=expense, stock=stock,
-        inc_e3=inc_e3, exp_e3=exp_e3, assets=assets, profit_e3=round(inc_e3 - (exp_e3 - assets), 2),
-        inc_net=net(inc_docs), exp_net=net(exp_docs),
+        "yearly_e3_print.html" if request.args.get("print") else "_yearly_e3.html",
+        year=year, income=income, expense=expense, stock=stock,
+        inc_e3=inc_e3, exp_e3=exp_e3, assets=assets, profit_e3=profit,
+        tax=_year_tax(cid, int(year), profit, withheld),
+        inc_net=net(inc_docs), exp_net=net(exp_docs), now_str=datetime.now().strftime("%d/%m/%Y %H:%M"),
     )
 
 
@@ -2538,7 +2560,8 @@ def _scenarios(cur_in, cur_out, prev_in, prev_out, done: int, seed: int, start: 
     """Bootstrap: κάθε υπόλοιπος μήνας παίρνει τον «συντελεστή» ενός τυχαίου ολοκληρωμένου μήνα
     (ίδιου για έσοδα/έξοδα — κρατά τη συσχέτιση). fixed = ντετερμινιστικές εκροές ανά μήνα (σταθερά
     έξοδα, κόστος παγίων) που αφαιρούνται χωρίς τύχη· known_in / known_out = προγραμματισμένα ποσά
-    ανά μήνα (το σκέλος γίνεται ντετερμινιστικό). Επιστρέφει P10/P50/P90 του αποτελέσματος
+    ανά μήνα: πιάνονται ή χάνονται, ποτέ δεν ξεπερνιούνται — ο μήνας k απέχει από το αναμενόμενο
+    όσο ο ολοκληρωμένος μήνας k, αλλά μόνο προς το χειρότερο (έσοδα ≤, έξοδα ≥ πρόγραμμα). Επιστρέφει P10/P50/P90 του αποτελέσματος
     έτους και τα σωρευτικά P10/P90 ανά μήνα (μόνο οι μήνες ≥ done)· None αν < 2 μήνες.
     ponytail: με λίγους μήνες το εύρος υποεκτιμάται — ιστορικό περισσότερων ετών αν χρειαστεί."""
     if done - start < 2:
@@ -2554,11 +2577,20 @@ def _scenarios(cur_in, cur_out, prev_in, prev_out, done: int, seed: int, start: 
         ratio = sum(cur[start:done]) / prev_same
         return lambda m, k: prev[m] * (cur[k] / prev[k] if prev[k] > 0 else ratio)
 
+    def factors(cur, prev):  # μήνας k: πραγματικό / αναμενόμενο (ίδια λογική με τον sampler)
+        prev_same = sum(prev[start:done])
+        ratio = sum(cur[start:done]) / prev_same if prev_same > 0 else 0
+        mean = sum(cur[start:done]) / (done - start)
+        exp = lambda k: prev[k] * ratio if prev_same > 0 else mean  # noqa: E731
+        return {k: cur[k] / exp(k) if exp(k) > 0 else 1.0 for k in range(start, done)}
+
     s_in, s_out = sampler(cur_in, prev_in), sampler(cur_out, prev_out)
     if known_in:
-        s_in = lambda m, k: known_in[m]  # noqa: E731
+        f_in = factors(cur_in, prev_in)
+        s_in = lambda m, k: known_in[m] * min(f_in[k], 1.0)  # noqa: E731
     if known_out:
-        s_out = lambda m, k: known_out[m]  # noqa: E731
+        f_out = factors(cur_out, prev_out)
+        s_out = lambda m, k: known_out[m] * max(f_out[k], 1.0)  # noqa: E731
     paths = []
     for _ in range(runs):
         acc, path = base, []
@@ -2625,10 +2657,70 @@ def _depreciation(asset_lines: dict[int, list[float]], year: int, small: float =
     return {k: round(v, 2) for k, v in d.items()}
 
 
-def _amount_arg(name: str) -> float | None:
-    """Ποσό ≥ 0 από query string («1500», «1.500,50», «1500.5»)· κενό → None, άκυρο → ValueError."""
-    raw = request.args.get(name, "").strip().replace(" ", "")
-    if "," in raw:
+# Φόρος εισοδήματος: κλίμακες ανά έτος ισχύος — επεξεργάσιμες στις Παραμέτρους («Φορολογία»),
+# αποθηκεύονται στο settings.tax_scales· χωρίς αποθήκευση ισχύουν οι προεπιλογές.
+# limits = άνω όρια κλιμακίων (το τελευταίο ποσοστό ισχύει «και πάνω»)· ποσοστά σε %.
+_DEFAULT_TAX_SCALES = [
+    {"from_year": 2020, "legal_rate": 22, "prepay_sole": 55, "prepay_legal": 80,
+     "limits": [10000, 20000, 30000, 40000], "rates": [9, 22, 28, 36, 44], "young": []},
+    {"from_year": 2026, "legal_rate": 22, "prepay_sole": 55, "prepay_legal": 80,
+     "limits": [10000, 20000, 30000, 40000, 60000], "rates": [9, 20, 26, 34, 39, 44],
+     "young": [{"max_age": 25, "rates": [0, 0, 26, 34, 39, 44]}, {"max_age": 30, "rates": [9, 9, 26, 34, 39, 44]}]},
+]
+
+
+def _tax_scales() -> list[dict]:
+    try:
+        scales = json.loads(db.get_setting("tax_scales") or "null")
+    except ValueError:
+        scales = None
+    return sorted(scales or _DEFAULT_TAX_SCALES, key=lambda s: s["from_year"])
+
+
+def _tax_regime(year: int, scales: list[dict] | None = None) -> dict:
+    """Το καθεστώς με το μεγαλύτερο from_year ≤ year (αλλιώς το παλαιότερο)."""
+    scales = scales or _tax_scales()
+    return next((s for s in reversed(scales) if s["from_year"] <= year), scales[0])
+
+
+def _income_tax(profit: float, year: int, company: dict, regime: dict) -> float:
+    """Φόρος κερδών χρήσης: νομικό πρόσωπο σταθερός συντελεστής· ατομική κλίμακα, με τους συντελεστές
+    νέων αν η ηλικία (έτος − έτος γέννησης) ≤ max_age. Ζημία → 0."""
+    if profit <= 0:
+        return 0.0
+    if company.get("entity_type") != "sole":
+        return round(profit * regime["legal_rate"] / 100, 2)
+    rates, born = regime["rates"], company.get("birth_year")
+    if born:
+        rates = next((y["rates"] for y in sorted(regime["young"], key=lambda y: y["max_age"])
+                      if year - born <= y["max_age"]), rates)
+    tax, low = 0.0, 0.0
+    for high, rate in zip([*regime["limits"], float("inf")], rates):
+        tax += max(0.0, min(profit, high) - low) * rate / 100
+        low = high
+    return round(tax, 2)
+
+
+def _tax_due(profit: float, year: int, company: dict, withheld: float, prev_prepay: float) -> dict:
+    """Εκκαθάριση χρήσης: φόρος − παρακρατήσεις (myDATA εσόδων) − προκαταβολή που πληρώθηκε πέρσι
+    + προκαταβολή επόμενου έτους (ποσοστό του φόρου μείον τις παρακρατήσεις, ποτέ αρνητική).
+    due < 0 = επιστροφή / συμψηφισμός.
+    ponytail: χωρίς μεταφορά ζημιών, ελάχιστο τεκμαρτό εισόδημα, μείωση προκαταβολής 50% τα 3 πρώτα
+    έτη, εισφορά αλληλεγγύης και λοιπά εισοδήματα του φυσικού προσώπου — εκτίμηση, όχι εκκαθαριστικό."""
+    regime = _tax_regime(year)
+    sole = company.get("entity_type") == "sole"
+    tax = _income_tax(profit, year, company, regime)
+    rate = regime["prepay_sole" if sole else "prepay_legal"]
+    prepay = round(max(0.0, tax * rate / 100 - withheld), 2)
+    return {"profit": round(profit, 2), "tax": tax, "withheld": round(withheld, 2), "prev_prepay": round(prev_prepay, 2),
+            "prepay": prepay, "prepay_rate": rate, "due": round(tax - withheld - prev_prepay + prepay, 2),
+            "sole": sole, "regime_year": regime["from_year"]}
+
+
+def _amount_arg(name: str, source=None) -> float | None:
+    """Ποσό ≥ 0 από query string ή source (π.χ. request.form): «1500», «1.500», «1.500,50», «1500.5»· κενό → None, άκυρο → ValueError."""
+    raw = (request.args if source is None else source).get(name, "").strip().replace(" ", "")
+    if "," in raw or re.fullmatch(r"\d{1,3}(\.\d{3})+", raw):  # «1.500,50» / «20.000»
         raw = raw.replace(".", "").replace(",", ".")
     if not raw:
         return None
@@ -2779,11 +2871,27 @@ def reports_forecast():
                         "expense": round(op + d, 2), "result": round(inc - op - d, 2)})
     prev_dep = _depreciation(asset_lines, year - 1)["total"]
     prev_res = [i - o - (prev_dep if m == 11 else 0) for m, (i, o) in enumerate(zip(prev_in, prev_op))]
-    if sc:  # το «αναμενόμενο» = η σημειακή πρόβλεψη· το εύρος να την περιέχει πάντα
-        sc["p10"], sc["p90"] = min(sc["p10"], total["result"]), max(sc["p90"], total["result"])
+    # «Αναμενόμενο» = η σημειακή πρόβλεψη· με πρόγραμμα, η διάμεσος μετά τον κίνδυνο απόκλισης.
+    planned = planned_in is not None or planned_out is not None
+    expected = sc["p50"] if planned and sc else total["result"]
+    if sc:  # το εύρος να περιέχει πάντα το αναμενόμενο
+        sc["p10"], sc["p90"] = min(sc["p10"], expected), max(sc["p90"], expected)
+    # Φόρος επί της σημειακής πρόβλεψης (με πρόγραμμα: το αποτέλεσμα του προγράμματος, όχι η διάμεσος μετά τον
+    # κίνδυνο — ίδια έσοδα με την παρακράτηση). Παρακρατήσεις = πραγματικές των ολοκληρωμένων μηνών (τα έσοδα του
+    # τρέχοντος μήνα είναι πρόβλεψη) + ατομική με παρακρατήσεις: και στα έσοδα της πρόβλεψης, με το ίδιο ποσοστό
+    # (παρακράτηση / καθαρά έσοδα) φέτος, αλλιώς πέρσι.
+    cur_w, prev_w = col(("income", year), "withheld"), col(("income", year - 1), "withheld")
+    w_rate = next((round(sum(w) / sum(i), 4) for w, i in ((cur_w[:done], cur_in[:done]), (prev_w, prev_in)) if sum(i) > 0), 0.0)
+    if (get_active_company() or {}).get("entity_type") != "sole":
+        w_rate = 0.0
+    f_income = round(sum(f_in[done:]), 2)
+    w_future = round(max(w_rate, 0.0) * f_income, 2)
+    tax = _year_tax(cid, year, total["result"], round(sum(cur_w[:done]) + w_future, 2))
+    tax.update(withheld_forecast=w_future, withheld_rate=round(w_rate * 100, 2), forecast_income=f_income,
+               withheld_span=f"{_GREEK_MONTHS[0]}–{_GREEK_MONTHS[done - 1]}" if done else "")
     return render_template(
         "reports_forecast.html", year=year, prev_year=year - 1, done=done, rows=rows, total=total, ytd=ytd,
-        history=history, sc=sc, start=start, labels={"income": label_in, "expense": label_var},
+        history=history, sc=sc, start=start, expected=expected, tax=tax, plan_result=total["result"] if planned else None, labels={"income": label_in, "expense": label_var},
         has_prev=any(prev_in) or any(prev_op), prev_in_total=tot(prev_in), errors=errors,
         fixed=[{"label": EXPENSE_TYPES.get(t, t), "code": t, "amount": v} for t, v in fixed.items()],
         dep=dep, form={k: request.args.get(k, "") for k in ("assets_small", "assets_large", "planned_income", "planned_expense")},
@@ -3715,14 +3823,14 @@ def help_page():
 
 @app.route("/parameters")
 def parameters():
-    tab = request.args.get("tab", "accountant")
+    tab = request.args.get("tab", "reports")
     # Παλιοί σύνδεσμοι: συναλλασσόμενοι και εταιρείες έχουν δική τους σελίδα.
     if tab == "suppliers":
         return redirect(url_for("suppliers"))
     if tab == "companies":
         return redirect(url_for("companies"))
-    if tab not in {"accountant", "combinations", "reports", "backup", "security"}:
-        tab = "accountant"
+    if tab not in {"accountant", "combinations", "reports", "backup", "security", "tax"}:
+        tab = "reports"
     return render_template(
         "parameters.html",
         active_tab=tab,
@@ -3741,6 +3849,8 @@ def parameters():
         safety_backups=db.list_safety_backups(),
         keep_safety=db.keep_safety(),
         backup_info=_backup_info(),
+        tax_scales=_tax_scales(),
+        tax_custom=bool(db.get_setting("tax_scales")),
     )
 
 
@@ -3764,6 +3874,77 @@ def parameters_reports():
     return redirect(url_for("parameters", tab="reports"))
 
 
+def _tax_scales_from_form(form) -> list[dict]:
+    """Καθεστώτα από τη φόρμα «Φορολογία». Ανά καθεστώς i, γραμμή κλιμακίου k: s{i}_lim_{k} (άνω όριο — κενό στην
+    τελευταία = «και πάνω»), s{i}_rate_{k} (γενική %, κενό = η γραμμή αγνοείται), s{i}_y{j}_{k} (νέοι %, κενό = γενική)·
+    s{i}_yage_{j} = ανώτατη ηλικία ομάδας νέων j (κενό = η ομάδα αγνοείται). ValueError(μήνυμα) σε άκυρη τιμή."""
+    def num(name, label, pct=False):
+        try:
+            v = _amount_arg(name, form)
+        except ValueError:
+            raise ValueError(f"Μη έγκυρη τιμή: {label}.") from None
+        if pct and v is not None and v > 100:
+            raise ValueError(f"Ποσοστό πάνω από 100%: {label}.")
+        return v
+
+    scales = []
+    for i in range(int(form.get("count", 0) or 0)):
+        year = num(f"s{i}_from_year", "έτος ισχύος")
+        if year is None:
+            continue
+        where = f"κλίμακα από {int(year)}"
+        rows = [k for k in range(int(form.get(f"s{i}_rows", 0) or 0)) if form.get(f"s{i}_rate_{k}", "").strip()]
+        if not rows:
+            raise ValueError(f"Χρειάζεται τουλάχιστον ένα κλιμάκιο ({where}).")
+        rates = [num(f"s{i}_rate_{k}", f"συντελεστής ({where})", pct=True) for k in rows]
+        limits = [num(f"s{i}_lim_{k}", f"όριο κλιμακίου ({where})") for k in rows[:-1]]
+        if None in limits or any(b <= a for a, b in zip([0.0, *limits], limits)):
+            raise ValueError(f"Τα όρια των κλιμακίων πρέπει να είναι συμπληρωμένα και αύξοντα ({where}).")
+        young = []
+        for j in range(int(form.get(f"s{i}_ycols", 0) or 0)):
+            age = num(f"s{i}_yage_{j}", f"ηλικία νέων ({where})")
+            if age is not None:
+                young.append({"max_age": int(age), "rates": [
+                    r if (v := num(f"s{i}_y{j}_{k}", f"συντελεστής νέων ({where})", pct=True)) is None else v
+                    for k, r in zip(rows, rates)]})
+        scale = {"from_year": int(year), "limits": limits, "rates": rates,
+                 "young": sorted(young, key=lambda y: y["max_age"])}
+        for key, label in (("legal_rate", "συντελεστής νομικών προσώπων"), ("prepay_sole", "προκαταβολή ατομικής"),
+                           ("prepay_legal", "προκαταβολή νομικών προσώπων")):
+            v = num(f"s{i}_{key}", f"{label} ({where})", pct=True)
+            if v is None:
+                raise ValueError(f"Συμπλήρωσε: {label} ({where}).")
+            scale[key] = v
+        scales.append(scale)
+    years = [s["from_year"] for s in scales]
+    if not scales or len(set(years)) != len(years):
+        raise ValueError("Χρειάζεται τουλάχιστον μία κλίμακα και κάθε έτος ισχύος μία φορά.")
+    return sorted(scales, key=lambda s: s["from_year"])
+
+
+@app.route("/parameters/tax", methods=["POST"])
+def parameters_tax():
+    scales = _tax_scales()
+    if request.form.get("action") == "reset":
+        db.set_setting("tax_scales", "")
+        flash("✔ Επαναφέρθηκαν οι προεπιλεγμένες κλίμακες φόρου.", "ok")
+    elif request.form.get("action") == "add":
+        new = dict(json.loads(json.dumps(scales[-1])), from_year=max(scales[-1]["from_year"] + 1, datetime.now(ATHENS).year))
+        db.set_setting("tax_scales", json.dumps(scales + [new], ensure_ascii=False))
+        flash(f"✔ Νέα κλίμακα από {new['from_year']} (αντίγραφο της τελευταίας) — διόρθωσε τις τιμές.", "ok")
+    elif request.form.get("delete", "").isdigit() and len(scales) > 1:
+        gone = scales.pop(min(int(request.form["delete"]), len(scales) - 1))
+        db.set_setting("tax_scales", json.dumps(scales, ensure_ascii=False))
+        flash(f"✔ Διαγράφηκε η κλίμακα από {gone['from_year']}.", "ok")
+    else:
+        try:
+            db.set_setting("tax_scales", json.dumps(_tax_scales_from_form(request.form), ensure_ascii=False))
+            flash("✔ Αποθηκεύτηκαν οι κλίμακες φόρου.", "ok")
+        except ValueError as e:
+            flash(str(e), "error")
+    return redirect(url_for("parameters", tab="tax"))
+
+
 @app.route("/parameters/automation", methods=["POST"])
 def parameters_automation():
     db.set_setting("auto_classify", "1" if request.form.get("auto_classify") else "0")
@@ -3782,6 +3963,19 @@ def companies():
     )
 
 
+def _company_tax_fields() -> dict:
+    return {"entity_type": request.form.get("entity_type", "legal"), "birth_year": request.form.get("birth_year", "").strip()}
+
+
+def _sole_without_birth_year() -> bool:
+    """Ατομική χωρίς έγκυρο έτος γέννησης → μήνυμα λάθους (χρειάζεται για τους συντελεστές νέων)."""
+    f = _company_tax_fields()
+    if f["entity_type"] == "sole" and db.birth_year(f["birth_year"]) is None:
+        flash("Για ατομική επιχείρηση χρειάζεται έγκυρο έτος γέννησης του επιχειρηματία.", "error")
+        return True
+    return False
+
+
 @app.route("/companies/add", methods=["POST"])
 def companies_add():
     name = request.form.get("company_name", "").strip()
@@ -3790,6 +3984,8 @@ def companies_add():
     vat = request.form.get("aade_vat_number", "").strip()
     env = request.form.get("mydata_env", "prod")
     use_acc = bool(request.form.get("use_accountant"))
+    if _sole_without_birth_year():
+        return redirect(url_for("companies"))
     if not name or (not use_acc and not (user_id and sub_key)):
         flash(
             "Επωνυμία υποχρεωτική. User ID/Subscription Key απαιτούνται εκτός αν "
@@ -3807,6 +4003,7 @@ def companies_add():
             "use_accountant": use_acc,
             "allow_cancel": bool(request.form.get("allow_cancel")),
             "vat_period": request.form.get("vat_period", "m"),
+            **_company_tax_fields(),
         }
     )
     if db.get_active_company_id() is None and new_id is not None:
@@ -3825,6 +4022,8 @@ def companies_update(idx):
     user_id = request.form.get("aade_user_id", "").strip()
     # Το κλειδί δεν στέλνεται πίσω στη φόρμα: κενό = κράτα το αποθηκευμένο.
     sub_key = request.form.get("aade_subscription_key", "").strip() or comps[idx]["AADE_SUBSCRIPTION_KEY"]
+    if _sole_without_birth_year():
+        return redirect(url_for("companies"))
     if not name or (
         not bool(request.form.get("use_accountant")) and not (user_id and sub_key)
     ):
@@ -3845,6 +4044,7 @@ def companies_update(idx):
             "use_accountant": bool(request.form.get("use_accountant")),
             "allow_cancel": bool(request.form.get("allow_cancel")),
             "vat_period": request.form.get("vat_period", "m"),
+            **_company_tax_fields(),
         },
     )
     flash(f"✔ Ενημερώθηκε η εταιρεία «{name}».", "ok")
@@ -4104,6 +4304,8 @@ _COMPANY_KEYS = (
     "MYDATA_ENV",
     "use_accountant",
     "vat_period",
+    "entity_type",
+    "birth_year",
 )
 
 

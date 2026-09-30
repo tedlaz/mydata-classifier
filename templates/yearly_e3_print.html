@@ -1,0 +1,52 @@
+{# Ανάλυση Ε3 σε A4: ανοίγει από το κουμπί «PDF» του modal και καλεί την εκτύπωση (→ «Αποθήκευση ως PDF»). #}
+<!DOCTYPE html>
+<html lang="el" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{# Ο τίτλος γίνεται το προτεινόμενο όνομα αρχείου του PDF. #}
+<title>Ε3 {{ year }}{% if active_company %} - {{ active_company.company_name }}{% endif %}</title>
+<link rel="icon" href="{{ url_for('static', filename='app.ico') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/fonts/fonts.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+<style>
+  @page{size:A4;margin:16mm 14mm 18mm}
+  @page{@bottom-left{content:"{{ active_company.company_name if active_company }} · Ε3 {{ year }}";font:8pt "Commissioner",sans-serif;color:#6b7591}
+        @bottom-right{content:"Σελίδα " counter(page) " / " counter(pages);font:8pt "Commissioner",sans-serif;color:#6b7591}}
+  html,body{background:#fff}
+  body{max-width:190mm;margin:0 auto;padding:24px 0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .e3p-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;padding-bottom:14px;margin-bottom:14px;
+    border-bottom:3px solid var(--accent)}
+  .e3p-head h1{margin:0 0 4px;font-size:1.5rem}
+  .e3p-head .e3p-co{font-weight:700;color:var(--ink)}
+  .e3p-meta{text-align:right;font-size:.8rem;color:var(--muted);line-height:1.5}
+  .e3p-meta b{display:block;font-size:1.6rem;color:var(--accent-deep);font-family:var(--font-data);line-height:1.1}
+  .modal-head{display:none}
+  .yr-scroll{overflow:visible;margin:12px 0 0;border:1px solid var(--line);border-radius:10px}
+  .yr-table{min-width:0;font-size:.8rem}
+  .yr-table thead th{position:static}
+  .yr-table tbody:hover td,.yr-table tbody:hover th{background:inherit}
+  .yr-e3 .yr-e3-desc{max-width:none}
+  tr,.yr-e3-result{break-inside:avoid}
+  .yr-e3-section{break-after:avoid}
+  .e3p-foot{margin-top:18px;font-size:.72rem;color:var(--muted)}
+  @media print{body{padding:0;max-width:none}}
+</style>
+</head>
+<body>
+<header class="e3p-head">
+  <div>
+    <h1>Καθαρό κέρδος ανά χαρακτηρισμό Ε3</h1>
+    {% if active_company %}<div class="e3p-co">{{ active_company.company_name }}</div>
+    {% if active_company.AADE_VAT_NUMBER %}<div class="muted">ΑΦΜ {{ active_company.AADE_VAT_NUMBER }}</div>{% endif %}{% endif %}
+  </div>
+  <div class="e3p-meta">Φορολογικό έτος<b>{{ year }}</b></div>
+</header>
+{% include "_yearly_e3.html" %}
+<p class="e3p-foot">Εκτυπώθηκε {{ now_str }} · Πληροφοριακή κατάσταση από τα δεδομένα myDATA — δεν αποτελεί δήλωση.</p>
+<script>
+  // Περιμένει τις γραμματοσειρές, αλλιώς το PDF βγαίνει με τις εφεδρικές.
+  document.fonts.ready.then(() => print());
+</script>
+</body>
+</html>

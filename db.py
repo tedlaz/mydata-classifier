@@ -133,7 +133,9 @@ CREATE TABLE IF NOT EXISTS companies (
     mydata_env             TEXT DEFAULT 'prod',
     use_accountant         INTEGER DEFAULT 0,
     allow_cancel           INTEGER DEFAULT 0,
-    vat_period             TEXT DEFAULT 'm'  -- περίοδος ΦΠΑ: 'm' = μηνιαία, 'q' = τριμηνιαία
+    vat_period             TEXT DEFAULT 'm',  -- περίοδος ΦΠΑ: 'm' = μηνιαία, 'q' = τριμηνιαία
+    entity_type            TEXT DEFAULT 'legal',  -- 'sole' = ατομική, 'legal' = νομικό πρόσωπο
+    birth_year             INTEGER               -- ατομική: έτος γέννησης (μειωμένοι συντελεστές νέων)
 );
 
 CREATE TABLE IF NOT EXISTS accountant (
@@ -331,6 +333,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE companies ADD COLUMN allow_cancel INTEGER DEFAULT 0")
         if "vat_period" not in comp_cols:
             conn.execute("ALTER TABLE companies ADD COLUMN vat_period TEXT DEFAULT 'm'")
+        if "entity_type" not in comp_cols:
+            conn.execute("ALTER TABLE companies ADD COLUMN entity_type TEXT DEFAULT 'legal'")
+        if "birth_year" not in comp_cols:
+            conn.execute("ALTER TABLE companies ADD COLUMN birth_year INTEGER")
         if "rule_post_mode" not in {r["name"] for r in conn.execute("PRAGMA table_info(supplier_rules)")}:
             conn.execute("ALTER TABLE supplier_rules ADD COLUMN rule_post_mode INTEGER DEFAULT 0")
         cls_cols = {r["name"] for r in conn.execute("PRAGMA table_info(classifications)")}
@@ -383,7 +389,17 @@ def _company_row_to_dict(row: sqlite3.Row) -> dict:
         "use_accountant": bool(row["use_accountant"]),
         "allow_cancel": bool(row["allow_cancel"]),
         "vat_period": "q" if row["vat_period"] == "q" else "m",
+        "entity_type": "sole" if row["entity_type"] == "sole" else "legal",
+        "birth_year": row["birth_year"],
     }
+
+
+def birth_year(value) -> int | None:
+    try:
+        y = int(value)
+    except (TypeError, ValueError):
+        return None
+    return y if 1900 <= y <= datetime.now().year else None
 
 
 def list_companies() -> list[dict]:
@@ -396,7 +412,8 @@ def add_company(data: dict) -> int | None:
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO companies (company_name, aade_user_id, aade_subscription_key, "
-            "aade_vat_number, mydata_env, use_accountant, allow_cancel, vat_period) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "aade_vat_number, mydata_env, use_accountant, allow_cancel, vat_period, entity_type, birth_year) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 data.get("company_name", ""),
                 auth.enc(data.get("AADE_USER_ID") or ""),
@@ -406,6 +423,8 @@ def add_company(data: dict) -> int | None:
                 1 if data.get("use_accountant") else 0,
                 1 if data.get("allow_cancel") else 0,
                 "q" if data.get("vat_period") == "q" else "m",
+                "sole" if data.get("entity_type") == "sole" else "legal",
+                birth_year(data.get("birth_year")),
             ),
         )
         return cur.lastrowid
@@ -416,7 +435,7 @@ def update_company(company_id: int, data: dict) -> None:
         conn.execute(
             "UPDATE companies SET company_name = ?, aade_user_id = ?, "
             "aade_subscription_key = ?, aade_vat_number = ?, mydata_env = ?, "
-            "use_accountant = ?, allow_cancel = ?, vat_period = ? WHERE id = ?",
+            "use_accountant = ?, allow_cancel = ?, vat_period = ?, entity_type = ?, birth_year = ? WHERE id = ?",
             (
                 data.get("company_name", ""),
                 auth.enc(data.get("AADE_USER_ID") or ""),
@@ -426,6 +445,8 @@ def update_company(company_id: int, data: dict) -> None:
                 1 if data.get("use_accountant") else 0,
                 1 if data.get("allow_cancel") else 0,
                 "q" if data.get("vat_period") == "q" else "m",
+                "sole" if data.get("entity_type") == "sole" else "legal",
+                birth_year(data.get("birth_year")),
                 company_id,
             ),
         )

@@ -29,6 +29,18 @@
     </div>
   </div>
   <div>
+    <label>Μορφή</label>
+    <div class="co-seg">
+      {% for v, lbl in [('legal', '🏢 Νομικό πρόσωπο'), ('sole', '👤 Ατομική')] %}
+      <label><input type="radio" name="entity_type" value="{{ v }}" {{ 'checked' if (c.entity_type or 'legal') == v }}><span>{{ lbl }}</span></label>
+      {% endfor %}
+    </div>
+  </div>
+  <div>
+    <label for="{{ pfx }}-birth">Έτος γέννησης <small class="muted">(μόνο ατομική — φόρος νέων)</small></label>
+    <input type="number" id="{{ pfx }}-birth" name="birth_year" value="{{ c.birth_year or '' }}" min="1900" max="2100" placeholder="π.χ. 1985">
+  </div>
+  <div>
     <label for="{{ pfx }}-uid">AADE User ID</label>
     <input type="text" id="{{ pfx }}-uid" name="aade_user_id" value="{{ c.AADE_USER_ID or '' }}" autocomplete="off">
   </div>

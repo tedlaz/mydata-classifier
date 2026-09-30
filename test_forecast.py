@@ -75,13 +75,15 @@ assert A._forecast_chart([0.0] * 12, [0.0] * 12, [0.0] * 12, [0.0] * 12, None, 0
 s2 = A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=2026, fixed=[0.0] * 11 + [100.0])
 assert abs(s2["p50"] - (s["p50"] - 100)) < 0.01, (s, s2)
 
-# Προγραμματισμένα: κατανομή αναλογικά των βαρών, ακριβές άθροισμα· γνωστά ποσά → μηδενικό εύρος.
+# Προγραμματισμένα: κατανομή αναλογικά των βαρών, ακριβές άθροισμα· γνωστά ποσά → μόνο προς το χειρότερο.
 assert A._spread(10000, [1, 3]) == [2500.0, 7500.0]
 assert A._spread(100, [0, 0, 0]) == [33.33, 33.33, 33.34]
 assert A._spread(0, [5, 5]) == [0.0, 0.0] and A._spread(10, []) == []
 k_in, k_out = [100.0] * 12, [40.0] * 12
 s3 = A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=1, known_in=k_in, known_out=k_out)
-assert s3["p10"] == s3["p90"] == round(sum(cur[:3]) - sum(out[:3]) + 9 * 60, 2), s3
+plan_res = round(sum(cur[:3]) - sum(out[:3]) + 9 * (100 - 40), 2)
+assert s3["p10"] < s3["p90"] <= plan_res, (s3, plan_res)  # ποτέ καλύτερο από το πρόγραμμα, αλλά με κίνδυνο
+assert s3 == A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=1, known_in=k_in, known_out=k_out)
 
 # Σελίδα: τα πεδία νέων αγορών· «≥ 1.500» δεν δέχεται μικρότερο ποσό.
 db.init_db()
@@ -101,7 +103,7 @@ for q, err in (("", False), ("?assets_small=800&assets_large=2000", False), ("?a
                ("?planned_expense=abc", True)):
     r = c.get("/reports/forecast" + q)
     assert r.status_code == 200 and "Πρόβλεψη έτους".encode() in r.data, (q, r.status_code)
-    assert (b'class="flash error"' in r.data) == err, q
+    assert (b'class="flash error' in r.data) == err, q
 r = c.get("/reports/forecast")
 assert f"Σύνολο {y0}".encode() in r.data and f"Σύνολο {y0 - 1}".encode() in r.data
 row = r.data.decode().split(f"Σύνολο {y0}</th>")[1].split("</tr>")[0]

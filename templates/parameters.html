@@ -32,8 +32,8 @@
 </header>
 
 <nav class="pm-nav" role="tablist" aria-label="Ενότητες παραμέτρων">
-  {% for key, label in [('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί'), ('reports', 'Αναφορές & αυτοματισμοί'),
-                        ('backup', 'Αντίγραφα ασφαλείας'), ('security', 'Ασφάλεια')] %}
+  {% for key, label in [('reports', 'Αναφορές & αυτοματισμοί'), ('backup', 'Αντίγραφα ασφαλείας'), ('security', 'Ασφάλεια'),
+                        ('tax', 'Φορολογία'), ('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί')] %}
   <a class="pm-nav-item {{ 'is-active' if active_tab == key }}" href="{{ url_for('parameters', tab=key) }}"
      role="tab" id="pm-tab-{{ key }}" aria-controls="pm-{{ key }}" aria-selected="{{ 'true' if active_tab == key else 'false' }}"
      data-pm-tab="{{ key }}">{{ label }}</a>
@@ -143,6 +143,80 @@
   </form>
 </div>
 
+</section>
+
+{% macro n(v) %}{{ v|int if v == v|int else v }}{% endmacro %}
+<section class="pm-panel" id="pm-tax" role="tabpanel" aria-labelledby="pm-tab-tax" {{ 'hidden' if active_tab != 'tax' }}>
+{{ hero('🧾', 'Φορολογία εισοδήματος',
+        'Κλίμακες και συντελεστές για την εκτίμηση του φόρου κάθε χρήσης (Καθαρό κέρδος, Πρόβλεψη). Ο τύπος της επιχείρησης και το έτος γέννησης ορίζονται στις Εταιρείες.',
+        [(tax_scales|length, 'Κλίμακες'), ('Προσαρμοσμένες' if tax_custom else 'Προεπιλογές', 'Τιμές')]) }}
+
+<form id="tax-aux" method="post" action="{{ url_for('parameters_tax') }}"></form>
+<form method="post" action="{{ url_for('parameters_tax') }}">
+  <input type="hidden" name="count" value="{{ tax_scales|length }}">
+  {% for s in tax_scales %}
+  {% set i = loop.index0 %}
+  {% set nrows = s.rates|length + 1 %}
+  {% set ny = s.young|length + 1 %}
+  <div class="card pm-tax">
+    <div class="pm-tax-head">
+      <h2>Κλίμακα από το έτος</h2>
+      <input type="number" name="s{{ i }}_from_year" value="{{ s.from_year }}" min="1990" max="2100" required aria-label="Έτος ισχύος">
+      <small class="muted">ισχύει για τις χρήσεις {{ s.from_year }}{% if not loop.last %}–{{ tax_scales[i + 1].from_year - 1 }}{% else %} και μετά{% endif %}</small>
+      {% if tax_scales|length > 1 %}
+      <button type="submit" form="tax-aux" name="delete" value="{{ i }}" class="btn-ghost btn-sm"
+              data-confirm="Διαγραφή της κλίμακας από {{ s.from_year }};">Διαγραφή</button>
+      {% endif %}
+    </div>
+    <input type="hidden" name="s{{ i }}_rows" value="{{ nrows }}">
+    <input type="hidden" name="s{{ i }}_ycols" value="{{ ny }}">
+    <div class="yr-scroll">
+    <table class="yr-table pm-tax-grid">
+      <thead><tr>
+        <th>Κλιμάκιο έως (€)</th><th class="num">Ατομική %</th>
+        {% for j in range(ny) %}
+        <th class="num">Νέοι έως
+          <input type="number" name="s{{ i }}_yage_{{ j }}" value="{{ s.young[j].max_age if j < s.young|length }}" min="16" max="99"
+                 placeholder="—" aria-label="Ανώτατη ηλικία ομάδας νέων {{ j + 1 }}"> ετών %</th>
+        {% endfor %}
+      </tr></thead>
+      <tbody>
+      {% for k in range(nrows) %}
+        <tr class="{{ 'is-new' if k == nrows - 1 }}">
+          <td>{% if k < s.limits|length %}<input type="text" inputmode="decimal" name="s{{ i }}_lim_{{ k }}" value="{{ n(s.limits[k]) }}"
+                 aria-label="Όριο κλιμακίου {{ k + 1 }}">{% else %}<input type="text" inputmode="decimal" name="s{{ i }}_lim_{{ k }}"
+                 placeholder="{{ 'και πάνω' if k == nrows - 2 else 'νέο κλιμάκιο' }}" aria-label="Όριο κλιμακίου {{ k + 1 }}">{% endif %}</td>
+          <td class="num"><input type="text" inputmode="decimal" name="s{{ i }}_rate_{{ k }}" value="{{ n(s.rates[k]) if k < s.rates|length }}"
+                 aria-label="Συντελεστής κλιμακίου {{ k + 1 }}"></td>
+          {% for j in range(ny) %}
+          <td class="num"><input type="text" inputmode="decimal" name="s{{ i }}_y{{ j }}_{{ k }}"
+                 value="{{ n(s.young[j].rates[k]) if j < s.young|length and k < s.young[j].rates|length }}"
+                 aria-label="Συντελεστής νέων ομάδας {{ j + 1 }}, κλιμάκιο {{ k + 1 }}"></td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="pm-tax-rates">
+      <label>Νομικά πρόσωπα %<input type="text" inputmode="decimal" name="s{{ i }}_legal_rate" value="{{ n(s.legal_rate) }}" required></label>
+      <label>Προκαταβολή ατομικής %<input type="text" inputmode="decimal" name="s{{ i }}_prepay_sole" value="{{ n(s.prepay_sole) }}" required></label>
+      <label>Προκαταβολή νομικών προσώπων %<input type="text" inputmode="decimal" name="s{{ i }}_prepay_legal" value="{{ n(s.prepay_legal) }}" required></label>
+    </div>
+  </div>
+  {% endfor %}
+  <p class="muted small prose">Η τελευταία συμπληρωμένη γραμμή ισχύει «και πάνω» (το όριό της αγνοείται). Κενή γραμμή = νέο
+    κλιμάκιο· σβήσε τον συντελεστή για να αφαιρέσεις ένα. Στήλη νέων: συμπλήρωσε ηλικία για νέα ομάδα, σβήσε την για να
+    την αφαιρέσεις· κενός συντελεστής νέων = ο γενικός. Ηλικία = έτος χρήσης − έτος γέννησης.</p>
+  <div class="btn-row">
+    <button type="submit">Αποθήκευση</button>
+    <button type="submit" form="tax-aux" name="action" value="add" class="btn-ghost">+ Νέα κλίμακα από έτος</button>
+    {% if tax_custom %}
+    <button type="submit" form="tax-aux" name="action" value="reset" class="btn-ghost"
+            data-confirm="Επαναφορά των προεπιλεγμένων κλιμάκων; Οι αλλαγές σου χάνονται.">Επαναφορά προεπιλογών</button>
+    {% endif %}
+  </div>
+</form>
 </section>
 
 <section class="pm-panel bk" id="pm-backup" role="tabpanel" aria-labelledby="pm-tab-backup" {{ 'hidden' if active_tab != 'backup' }}>

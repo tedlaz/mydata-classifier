@@ -1,0 +1,20 @@
+{# Εκκαθάριση φόρου εισοδήματος χρήσης (tax = _tax_due). Κοινό για «Καθαρό κέρδος» (modal/PDF) και Πρόβλεψη. #}
+<dl class="yr-e3-result yr-tax">
+  <dt class="is-head">Φόρος εισοδήματος {{ year }} <small>· {{ 'ατομική, κλίμακα' if tax.sole else 'νομικό πρόσωπο' }}
+    (κλίμακα από {{ tax.regime_year }}) — <a href="{{ url_for('parameters', tab='tax') }}">κλίμακες</a></small></dt><dd></dd>
+  <dt>Φόρος επί κέρδους {{ tax.profit|el_amount }} €</dt><dd>{{ tax.tax|el_amount }} €</dd>
+  {% set w_fc = tax.withheld_forecast or 0 %}
+  <dt>− Παρακρατήσεις που έγιναν (myDATA){% if tax.withheld_span is defined %} <small>· {{ tax.withheld_span or 'κανένας ολοκληρωμένος μήνας' }}</small>{% endif %}</dt>
+  <dd>− {{ (tax.withheld - w_fc)|round(2)|el_amount }} €</dd>
+  {% if w_fc %}
+  <dt>− Παρακρατήσεις στα έσοδα της πρόβλεψης <small>· {{ tax.withheld_rate|el_amount }}% × {{ tax.forecast_income|el_amount }} €</small></dt>
+  <dd>− {{ w_fc|el_amount }} €</dd>
+  {% endif %}
+  <dt>− Προκαταβολή που πληρώθηκε με τη χρήση {{ year|int - 1 }}</dt><dd>− {{ tax.prev_prepay|el_amount }} €</dd>
+  <dt>+ Προκαταβολή χρήσης {{ year|int + 1 }} <small>({{ tax.prepay_rate }}% του φόρου − παρακρατήσεις)</small></dt>
+  <dd>+ {{ tax.prepay|el_amount }} €</dd>
+  <dt class="is-total">{{ 'Πληρωτέο' if tax.due >= 0 else 'Επιστροφή / συμψηφισμός' }}</dt>
+  <dd class="is-total">{{ tax.due|abs|el_amount }} €</dd>
+</dl>
+<p class="muted small">Εκτίμηση: χωρίς μεταφορά ζημιών, ελάχιστο τεκμαρτό εισόδημα, εισφορά αλληλεγγύης και λοιπά
+  εισοδήματα — δεν αντικαθιστά το εκκαθαριστικό.</p>

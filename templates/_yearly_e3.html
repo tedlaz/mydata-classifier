@@ -22,6 +22,8 @@
 
 <div class="modal-head">
   <h2>Καθαρό κέρδος {{ year }} · ανά χαρακτηρισμό Ε3</h2>
+  <a class="btn-ghost btn-sm yr-e3-pdf" href="{{ url_for('reports_yearly_e3', year=year, print=1) }}" target="_blank"
+     title="Εκτύπωση ή αποθήκευση ως PDF">PDF</a>
   <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
 </div>
 <p class="muted small">Άθροιση του ισχύοντος χαρακτηρισμού κάθε παραστατικού (τα πιστωτικά αφαιρούνται). Οι αγορές παγίων
@@ -57,6 +59,7 @@
   <dt class="is-total">Καθαρό κέρδος <small>(Ε3 εσόδων {{ inc_e3|el_amount }} − έξοδα χωρίς αγορές παγίων)</small></dt>
   <dd class="is-total">{{ profit_e3|el_amount }} €</dd>
 </dl>
+{% include "_tax.html" %}
 {% if (inc_e3 - inc_net)|abs >= 0.01 or (exp_e3 - exp_net)|abs >= 0.01 %}
 <p class="muted small">Το Ε3 διαφέρει από την καθαρή αξία του πίνακα όταν ο ΦΠΑ μπαίνει στο Ε3 (π.χ. κατηγορία 2.5 χωρίς
   δικαίωμα έκπτωσης) ή όταν υπάρχουν παραστατικά χωρίς χαρακτηρισμό Ε3.</p>

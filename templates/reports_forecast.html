@@ -28,14 +28,15 @@
       </div>
       <div class="db-kpi fc-kpi-res" style="--i:2">
         <small><i class="db-dot" style="background:var(--fc-res)"></i>Αποτέλεσμα έτους (πρόβλεψη)</small>
-        <b><span class="{{ 'neg' if total.result < 0 }}" data-num="{{ total.result }}">{{ total.result|el_amount }}</span><i>€</i></b>
+        <b><span class="{{ 'neg' if expected < 0 }}" data-num="{{ expected }}">{{ expected|el_amount }}</span><i>€</i></b>
+        {% if plan_result is not none and sc %}<span class="db-kpi-note">Πρόγραμμα {{ plan_result|el_amount }} € · μετά τον κίνδυνο απόκλισης</span>{% endif %}
         {% if sc %}
         {% set span = [sc.p90 - sc.p10, 1]|max %}
-        <div class="fc-range" role="img" aria-label="Χειρότερο σενάριο {{ sc.p10|el_amount }} €, αναμενόμενο {{ total.result|el_amount }} €, καλύτερο {{ sc.p90|el_amount }} €">
-          <div class="fc-range-bar"><i style="--p:{{ ((total.result - sc.p10) / span * 100)|round(1) }}%"></i></div>
+        <div class="fc-range" role="img" aria-label="Χειρότερο σενάριο {{ sc.p10|el_amount }} €, αναμενόμενο {{ expected|el_amount }} €, καλύτερο {{ sc.p90|el_amount }} €">
+          <div class="fc-range-bar"><i style="--p:{{ ((expected - sc.p10) / span * 100)|round(1) }}%"></i></div>
           <div class="fc-range-lbl">
             <span>Χειρότερο<b class="{{ 'neg' if sc.p10 < 0 }}">{{ sc.p10|el_amount }}</b></span>
-            <span>Αναμενόμενο<b class="{{ 'neg' if total.result < 0 }}">{{ total.result|el_amount }}</b></span>
+            <span>Αναμενόμενο<b class="{{ 'neg' if expected < 0 }}">{{ expected|el_amount }}</b></span>
             <span>Καλύτερο<b class="{{ 'neg' if sc.p90 < 0 }}">{{ sc.p90|el_amount }}</b></span>
           </div>
         </div>
@@ -46,48 +47,62 @@
     </div>
   </section>
 
+  {# ================= Φόρος εισοδήματος επί του αναμενόμενου αποτελέσματος ================= #}
+  <section class="card fc-tax">
+    {% include "_tax.html" %}
+  </section>
+
   {# ================= Παράμετροι: αποσβέσεις (νέες αγορές παγίων) + σταθερά έξοδα ================= #}
-  <section class="card fc-params">
-    <form method="get" class="fc-dep" id="fc-form">
-      {% for e in errors %}<p class="flash error">{{ e }}</p>{% endfor %}
-      <h2>📅 Προγραμματισμένα έως τέλος έτους</h2>
-      {% set open_months = 12 - done %}
-      <p class="fc-inputs-head">Αν ξέρεις τι θα γίνει στους {{ open_months }} ανοιχτούς μήνες, γράψε το σύνολο· μοιράζεται αναλογικά της εποχικότητας. Κενό = στατιστική πρόβλεψη.</p>
-      <div class="fc-inputs fc-inputs--2">
-        <label>Έσοδα υπόλοιπων μηνών
-          <span class="fc-money"><input type="number" name="planned_income" min="0" step="0.01" inputmode="decimal"
-            value="{{ form.planned_income }}" placeholder="πρόβλεψη {{ forecast_in|el_amount }}"><i>€</i></span>
-          <small>αντικαθιστά την πρόβλεψη εσόδων</small></label>
-        <label>Μεταβλητά έξοδα υπόλοιπων μηνών
-          <span class="fc-money"><input type="number" name="planned_expense" min="0" step="0.01" inputmode="decimal"
-            value="{{ form.planned_expense }}" placeholder="πρόβλεψη {{ forecast_var|el_amount }}"><i>€</i></span>
-          <small>χωρίς σταθερά έξοδα και αποσβέσεις</small></label>
-      </div>
-      <h2>🏗 Αποσβέσεις {{ year }}</h2>
-      {% set lim = '{:,}'.format(depr_limit).replace(',', '.') %}
-      <p class="fc-inputs-head">Εκτιμώμενες νέες αγορές παγίων έως το τέλος του έτους:</p>
+  <details class="card fc-fold" {{ 'open' if errors or form.values()|select|first }}>
+  {% set n_set = form.values()|select|list|length %}
+  <summary>⚙️ Παράμετροι πρόβλεψης
+    {% if n_set %}<span class="fc-badge" title="Έχεις ορίσει {{ n_set }} τιμή/ές">✎ {{ n_set }}</span>{% endif %}
+    <small>Προγραμματισμένα · αποσβέσεις {{ dep.total|el_amount }} € · σταθερά έξοδα {{ fixed|sum(attribute='amount')|el_amount }} €/μήνα</small></summary>
+  <form method="get" class="fc-params">
+    <div class="fc-actions fc-full">
+      <button class="btn btn-sm">Υπολογισμός</button>
+      {% if form.values()|select|first %}<a class="btn btn-sm btn-ghost" href="{{ url_for(request.endpoint, **request.view_args) }}">Καθαρισμός</a>{% endif %}
+    </div>
+    {% for e in errors %}<p class="flash error fc-full">{{ e }}</p>{% endfor %}
+    {% set lim = '{:,}'.format(depr_limit).replace(',', '.') %}
+    <div class="fc-blk fc-blk--plan">
+      <h2>📅 Προγραμματισμένα</h2>
+      <p class="fc-inputs-head">Σύνολο για τους {{ 12 - done }} ανοιχτούς μήνες, αν το ξέρεις· μοιράζεται κατά την εποχικότητα. Κενό = στατιστική πρόβλεψη.</p>
       <div class="fc-inputs">
-        <label>Σύνολο παγίων κάτω από {{ lim }} € το καθένα
-          <span class="fc-money"><input type="number" name="assets_small" min="0" step="0.01" inputmode="decimal"
-            value="{{ form.assets_small }}" placeholder="0,00" aria-describedby="fc-rule"><i>€</i></span>
+        <label>Έσοδα
+          <span class="fc-money"><input type="number" name="planned_income" min="0" step="0.01" inputmode="decimal" placeholder=" "
+            value="{{ form.planned_income }}"><i>€</i></span>
+          <small>στατιστική πρόβλεψη {{ forecast_in|el_amount }} €</small></label>
+        <label>Μεταβλητά έξοδα
+          <span class="fc-money"><input type="number" name="planned_expense" min="0" step="0.01" inputmode="decimal" placeholder=" "
+            value="{{ form.planned_expense }}"><i>€</i></span>
+          <small>στατιστική πρόβλεψη {{ forecast_var|el_amount }} € · χωρίς σταθερά και αποσβέσεις</small></label>
+      </div>
+    </div>
+    <div class="fc-blk fc-blk--dep">
+      <h2>🏗 Αποσβέσεις {{ year }}</h2>
+      <p class="fc-inputs-head">Εκτιμώμενες νέες αγορές παγίων έως το τέλος του έτους.</p>
+      <div class="fc-inputs">
+        <label>Πάγια κάτω από {{ lim }} € το καθένα
+          <span class="fc-money"><input type="number" name="assets_small" min="0" step="0.01" inputmode="decimal" placeholder=" "
+            value="{{ form.assets_small }}" aria-describedby="fc-rule"><i>€</i></span>
           <small>αποσβένονται 100% φέτος</small></label>
-        <label>Σύνολο παγίων {{ lim }} € και πάνω το καθένα
-          <span class="fc-money"><input type="number" name="assets_large" min="{{ depr_limit }}" step="0.01" inputmode="decimal"
-            value="{{ form.assets_large }}" placeholder="κενό ή ≥ {{ lim }}" aria-describedby="fc-rule"><i>€</i></span>
-          <small>αγορά τον τρέχοντα μήνα · {{ depr_rate }}% × {{ dep.months|int }}/12 φέτος</small></label>
-        <button class="btn btn-sm">Υπολογισμός</button>
+        <label>Πάγια {{ lim }} € και πάνω το καθένα
+          <span class="fc-money"><input type="number" name="assets_large" min="{{ depr_limit }}" step="0.01" inputmode="decimal" placeholder=" "
+            value="{{ form.assets_large }}" aria-describedby="fc-rule"><i>€</i></span>
+          <small>σύνολο ≥ {{ lim }} € · αγορά τον τρέχοντα μήνα · {{ depr_rate }}% × {{ dep.months|int }}/12 φέτος</small></label>
       </div>
       <ul class="fc-dep-list">
-        <li><span>Αγορές παγίων {{ year }} έως τώρα <small>{{ dep.bought|el_amount }} €</small></span><b>{{ dep.cur|el_amount }}</b></li>
-        <li><span>Αγορές ≥ {{ lim }} € προηγούμενων ετών <small>{{ dep.older_base|el_amount }} € × {{ depr_rate }}%</small></span><b>{{ dep.older|el_amount }}</b></li>
-        <li><span>Νέες αγορές κάτω από {{ lim }} € <small>{{ dep.small|el_amount }} € × 100%</small></span><b>{{ dep.small|el_amount }}</b></li>
-        <li><span>Νέες αγορές {{ lim }} € και πάνω <small>{{ dep.large|el_amount }} € × {{ depr_rate }}% × {{ dep.months|int }}/12</small></span><b>{{ dep.large_depr|el_amount }}</b></li>
-        <li class="fc-dep-total"><span>Αποσβέσεις {{ year }} <small>μπαίνουν τον Δεκέμβριο</small></span><b>{{ dep.total|el_amount }} €</b></li>
+        <li><span>Αγορές {{ year }} έως τώρα <small>{{ dep.bought|el_amount }} €</small></span><b>{{ dep.cur|el_amount }}</b></li>
+        <li><span>Αγορές ≥ {{ lim }} € προηγ. ετών <small>{{ dep.older_base|el_amount }} € × {{ depr_rate }}%</small></span><b>{{ dep.older|el_amount }}</b></li>
+        <li><span>Νέες &lt; {{ lim }} € <small>× 100%</small></span><b>{{ dep.small|el_amount }}</b></li>
+        <li><span>Νέες ≥ {{ lim }} € <small>{{ dep.large|el_amount }} € × {{ depr_rate }}% × {{ dep.months|int }}/12</small></span><b>{{ dep.large_depr|el_amount }}</b></li>
+        <li class="fc-dep-total"><span>Σύνολο <small>μπαίνουν τον Δεκέμβριο</small></span><b>{{ dep.total|el_amount }} €</b></li>
       </ul>
-      <p class="muted small" id="fc-rule">Πάγιο κάτω από {{ '{:,}'.format(depr_limit).replace(',', '.') }} € αποσβένεται 100% στη χρήση αγοράς· από {{ '{:,}'.format(depr_limit).replace(',', '.') }} € και πάνω {{ depr_rate }}% τον χρόνο.
+      <p class="muted small" id="fc-rule">Πάγιο κάτω από {{ lim }} € αποσβένεται 100% στη χρήση αγοράς· από {{ lim }} € και πάνω {{ depr_rate }}% τον χρόνο.
         Οι αγορές παγίων (2.7) δεν μετρούν ως έξοδο — μόνο η απόσβεσή τους. Οι ήδη καταχωρημένες αποσβέσεις (E3_587) δεν μετρούν ξανά.</p>
-    </form>
-    <div class="fc-fixed">
+    </div>
+    <div class="fc-blk fc-blk--fix">
       <h2>📌 Σταθερά έξοδα</h2>
       {% if fixed %}
       <ul class="fc-dep-list">
@@ -99,7 +114,8 @@
       <p class="muted small">Δεν αναγνωρίστηκαν σταθερά έξοδα (ενοίκια, ΕΦΚΑ, μισθοδοσία, ή κωδικός Ε3 σε καθέναν από τους 3 τελευταίους μήνες).</p>
       {% endif %}
     </div>
-  </section>
+  </form>
+  </details>
 
   {# ================= Γράφημα: σωρευτικά, πραγματικά → πρόβλεψη ================= #}
   <section class="card yr-chart">
@@ -116,7 +132,7 @@
     {% set c = chart %}
     <div class="yr-plot fc-plot">
       <svg viewBox="0 0 {{ c.w }} {{ c.h }}" role="img"
-           aria-label="Σωρευτικά έσοδα, έξοδα και αποτέλεσμα {{ year }}· πρόβλεψη αποτελέσματος {{ total.result|el_amount }} €{% if sc %}, εύρος {{ sc.p10|el_amount }} έως {{ sc.p90|el_amount }} €{% endif %} — αναλυτικά στον πίνακα παρακάτω">
+           aria-label="Σωρευτικά έσοδα, έξοδα και αποτέλεσμα {{ year }}· πρόβλεψη αποτελέσματος {{ expected|el_amount }} €{% if sc %}, εύρος {{ sc.p10|el_amount }} έως {{ sc.p90|el_amount }} €{% endif %} — αναλυτικά στον πίνακα παρακάτω">
         <defs>
           <clipPath id="fc-reveal"><rect class="fc-reveal" x="0" y="0" width="{{ c.w }}" height="{{ c.h }}"/></clipPath>
           <pattern id="fc-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -172,7 +188,9 @@
     <p class="muted small fc-method">
       Μέθοδος — έσοδα: {{ labels.income }} · μεταβλητά έξοδα: {{ labels.expense }} · σταθερά έξοδα: ίδια κάθε μήνα · αποσβέσεις: κατά τον κανόνα, τον Δεκέμβριο.
       {% if sc %}Σενάρια: 5.000 προσομοιώσεις όπου κάθε υπόλοιπος μήνας συμπεριφέρεται σαν έναν τυχαίο ολοκληρωμένο μήνα του {{ year }}·
-      χειρότερο/καλύτερο = 10ο/90ο εκατοστημόριο.{% endif %}
+      χειρότερο/καλύτερο = 10ο/90ο εκατοστημόριο.
+      {% if plan_result is not none %}Τα προγραμματισμένα ποσά στις προσομοιώσεις υστερούν (έσοδα) ή ξεφεύγουν (έξοδα) όσο οι ολοκληρωμένοι μήνες
+      που απείχαν από το αναμενόμενο — ποτέ προς το καλύτερο· το αναμενόμενο αποτέλεσμα είναι η διάμεσος.{% endif %}{% endif %}
     </p>
   </section>
 
@@ -223,6 +241,7 @@
 {% block scripts %}
 <script>
 (function () {
+function initChart() {
   const plot = document.querySelector('.fc-plot'), tip = plot.querySelector('.yr-tip');
   const row = (dot, label, v) => '<span>' + dot + label + '<em>' + v + ' €</em></span>';
   function show(g) {
@@ -247,7 +266,46 @@
     g.setAttribute('tabindex', '0');
     g.setAttribute('aria-label', g.dataset.month + ': αποτέλεσμα ' + g.dataset.res + ' €' + (g.dataset.fc === '1' ? ' (πρόβλεψη)' : ''));
   });
+}
+initChart();
 
+// Υπολογισμός / Καθαρισμός χωρίς reload: αλλάζουν μόνο τα κομμάτια που εξαρτώνται από τις τιμές.
+// Τα πεδία μένουν ως έχουν (ίδιες τιμές, ίδιο focus) και τα εισαγωγικά animations δεν ξαναπαίζουν.
+const wrap = document.querySelector('.yr.fc'), form = wrap.querySelector('.fc-params');
+const PARTS = ['.db-hero', '.fc-fold > summary', '.fc-actions', '.fc-blk--dep .fc-dep-list', '.yr-chart', '.yr-table-card', '.fc-tax'];
+async function load(url) {
+  const btn = form.querySelector('.fc-actions button');
+  btn.classList.add('is-loading');
+  try {
+    const r = await fetch(url);
+    if (r.redirected) { location.href = r.url; return; }  // π.χ. έληξε η σύνδεση → login
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+    if (!doc.querySelector('.yr.fc')) throw new Error('χωρίς περιεχόμενο πρόβλεψης');
+    document.documentElement.dataset.samePage = '';
+    PARTS.forEach(sel => wrap.querySelector(sel).replaceWith(doc.querySelector(sel)));
+    form.querySelectorAll(':scope > .flash').forEach(f => f.remove());
+    form.querySelector('.fc-actions').after(...doc.querySelectorAll('.fc-params > .flash'));
+    history.replaceState(null, '', url);
+    initChart();
+  } catch (e) {
+    console.error('Πρόβλεψη: αποτυχία ενημέρωσης', e);
+    form.querySelectorAll(':scope > .flash').forEach(f => f.remove());
+    const msg = Object.assign(document.createElement('p'), {textContent: 'Αποτυχία υπολογισμού: ' + e.message});
+    msg.classList.add('flash', 'error', 'fc-full');
+    form.querySelector('.fc-actions').after(msg);
+  } finally { form.querySelector('.fc-actions button').classList.remove('is-loading'); }
+}
+form.addEventListener('submit', e => {
+  e.preventDefault();
+  load(location.pathname + '?' + new URLSearchParams(new FormData(form)));
+});
+wrap.addEventListener('click', e => {
+  if (!e.target.closest('.fc-actions a')) return;
+  e.preventDefault();
+  form.querySelectorAll('input').forEach(i => { i.value = ''; });
+  form.requestSubmit();
+});
 })();
 </script>
 {% endblock %}
