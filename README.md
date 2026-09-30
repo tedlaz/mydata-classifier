@@ -35,7 +35,7 @@ uv sync
 cp .env.example .env   # όρισε το FLASK_SECRET
 uv run app.py
 ```
-Άνοιξε: http://127.0.0.1:5000
+Άνοιξε: http://127.0.0.1:5000 (για Flask debugger: `FLASK_DEBUG=1`)
 
 ### Με Docker
 

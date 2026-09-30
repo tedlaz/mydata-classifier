@@ -15,3 +15,4 @@ README.md
 .gitignore
 *.md
 mydata-*.zip
+.cache/
