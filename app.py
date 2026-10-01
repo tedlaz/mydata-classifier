@@ -3964,7 +3964,8 @@ def companies():
 
 
 def _company_tax_fields() -> dict:
-    return {"entity_type": request.form.get("entity_type", "legal"), "birth_year": request.form.get("birth_year", "").strip()}
+    sole = request.form.get("entity_type") == "sole"  # νομικό πρόσωπο: το (κρυφό) έτος γέννησης δεν κρατιέται
+    return {"entity_type": "sole" if sole else "legal", "birth_year": request.form.get("birth_year", "").strip() if sole else ""}
 
 
 def _sole_without_birth_year() -> bool:

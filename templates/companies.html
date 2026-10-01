@@ -28,7 +28,7 @@
       {% endfor %}
     </div>
   </div>
-  <div>
+  <div class="co-entity">
     <label>Μορφή</label>
     <div class="co-seg">
       {% for v, lbl in [('legal', '🏢 Νομικό πρόσωπο'), ('sole', '👤 Ατομική')] %}
@@ -36,8 +36,8 @@
       {% endfor %}
     </div>
   </div>
-  <div>
-    <label for="{{ pfx }}-birth">Έτος γέννησης <small class="muted">(μόνο ατομική — φόρος νέων)</small></label>
+  <div class="co-birth">
+    <label for="{{ pfx }}-birth">Έτος γέννησης <small class="muted">(φόρος νέων)</small></label>
     <input type="number" id="{{ pfx }}-birth" name="birth_year" value="{{ c.birth_year or '' }}" min="1900" max="2100" placeholder="π.χ. 1985">
   </div>
   <div>
@@ -49,12 +49,12 @@
     <input type="password" id="{{ pfx }}-key" name="aade_subscription_key" value="" autocomplete="new-password" data-reveal{% if c.AADE_SUBSCRIPTION_KEY %} placeholder="•••• αποθηκευμένο (κενό = δεν αλλάζει)"{% endif %}>
   </div>
 </div>
-<label class="co-switch">
+<label class="co-switch co-switch--acc">
   <input type="checkbox" name="use_accountant" value="1" {{ 'checked' if c.use_accountant }}>
   <span class="co-knob"></span>
   <span><b>👤 Χρήση credentials λογιστή</b><small>Το ΑΦΜ της εταιρείας στέλνεται ως <code>entityVatNumber</code>. Τότε τα User ID / Key είναι προαιρετικά.</small></span>
 </label>
-<label class="co-switch co-switch--danger">
+<label class="co-switch co-switch--cancel">
   <input type="checkbox" name="allow_cancel" value="1" {{ 'checked' if c.allow_cancel }}>
   <span class="co-knob"></span>
   <span><b>⚠ Επιτρέπονται ακυρώσεις &amp; απορρίψεις</b><small>Εσόδων και εξόδων. Οι ενέργειες αυτές είναι οριστικές στο myDATA.</small></span>
@@ -64,6 +64,9 @@
 {% block content %}
 <style>
 .co{--co-gap:18px}
+/* Έτος γέννησης: μόνο για ατομική· χωρίς αυτό η «Μορφή» πιάνει όλη τη γραμμή, ώστε User ID / Key να μένουν μαζί. */
+.co-fields:not(:has(input[name=entity_type][value=sole]:checked)) .co-birth{display:none}
+.co-fields:not(:has(input[name=entity_type][value=sole]:checked)) .co-entity{grid-column:1/-1}
 /* ---------- Κεφαλίδα ---------- */
 .co-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(22px,4vw,38px);color:#fff;
   background:radial-gradient(120% 140% at 0% 0%,#2a2f7a 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
@@ -97,17 +100,23 @@
 .co-card{position:relative;display:flex;flex-direction:column;gap:14px;padding:20px;border-radius:18px;background:var(--surface);
   border:1px solid var(--line);box-shadow:var(--shadow);min-width:0;
   animation:co-rise .55s var(--ease) both;animation-delay:calc(var(--i) * 70ms);
-  transition:transform .3s var(--ease),box-shadow .3s,border-color .3s}
+  transition:transform .3s var(--ease),box-shadow .3s,border-color .3s,opacity .3s,filter .3s}
 .co-card[hidden]{display:none}
 .co-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-hi);border-color:var(--accent-glow)}
 @keyframes co-rise{from{opacity:0;transform:translateY(18px) scale(.98)}}
 /* Ενεργή: περιστρεφόμενο πλαίσιο διαβάθμισης. */
 @property --co-ang{syntax:"<angle>";inherits:false;initial-value:0deg}
+/* Έντονη διάκριση: φόντο με απόχρωση, χοντρό πλαίσιο, «φωτοστέφανο», μεγαλύτερη ετικέτα· οι άλλες ξεθωριάζουν. */
 .co-card.is-active{border-color:transparent;
-  background:linear-gradient(var(--surface),var(--surface)) padding-box,
+  background:linear-gradient(160deg,var(--accent-soft),var(--surface) 65%) padding-box,
     conic-gradient(from var(--co-ang),#5b66f5,#1fbf8a,#ffd27a,#b04bff,#5b66f5) border-box;
-  border:2px solid transparent;animation:co-rise .55s var(--ease) both,co-spin 5s linear infinite;
-  box-shadow:0 18px 40px -18px rgba(74,85,232,.55)}
+  border:3px solid transparent;animation:co-rise .55s var(--ease) both,co-spin 5s linear infinite;
+  box-shadow:0 0 0 5px var(--accent-soft),0 22px 48px -18px rgba(74,85,232,.75)}
+.co-card.is-active .co-name h2{color:var(--accent-deep);font-size:1.15rem}
+.co-card.is-active .co-ribbon{font-size:.8rem;padding:6px 14px 6px 16px;box-shadow:0 6px 16px -6px var(--ok)}
+.co-grid:has(.is-active) .co-card:not(.is-active){opacity:.7;filter:saturate(.5)}
+.co-grid:has(.is-active) .co-card:not(.is-active):hover,
+.co-grid:has(.is-active) .co-card:not(.is-active):focus-within{opacity:1;filter:none}
 @keyframes co-spin{to{--co-ang:360deg}}
 .co-ribbon{position:absolute;top:14px;right:-1px;padding:4px 12px 4px 14px;border-radius:999px 0 0 999px;background:var(--ok);color:#fff;
   font-size:.7rem;font-weight:800;letter-spacing:.08em}
@@ -182,8 +191,19 @@
 .co-switch input:checked + .co-knob{background:var(--accent)}
 .co-switch input:checked + .co-knob::after{transform:translateX(18px)}
 .co-switch input:focus-visible + .co-knob{outline:2px solid var(--accent);outline-offset:2px}
-.co-switch--danger input:checked + .co-knob{background:var(--err)}
-.co-switch--danger:has(input:checked){border-color:var(--err-line);background:var(--err-soft)}
+/* Λογιστής: πορτοκαλί · ακυρώσεις: κίτρινο (τίτλος πάντα, διακόπτης και φόντο όταν είναι ενεργό). */
+:root{--co-or:#c2410c;--co-or-knob:#ea580c;--co-or-soft:#fff1e6;--co-or-line:#fcc9a5;
+    --co-ye:#8a6d00;--co-ye-knob:#e0b000;--co-ye-soft:#fff9d6;--co-ye-line:#f0dc7a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--co-or:#fdba74;--co-or-knob:#f97316;--co-or-soft:#3a2314;
+    --co-or-line:#7c3d16;--co-ye:#fde68a;--co-ye-knob:#eab308;--co-ye-soft:#332c10;--co-ye-line:#6b5a14}}
+:root[data-theme="dark"]{--co-or:#fdba74;--co-or-knob:#f97316;--co-or-soft:#3a2314;--co-or-line:#7c3d16;
+    --co-ye:#fde68a;--co-ye-knob:#eab308;--co-ye-soft:#332c10;--co-ye-line:#6b5a14}
+.co-switch.co-switch--acc b{color:var(--co-or)}
+.co-switch--acc input:checked + .co-knob{background:var(--co-or-knob)}
+.co-switch--acc:has(input:checked){border-color:var(--co-or-line);background:var(--co-or-soft)}
+.co-switch.co-switch--cancel b{color:var(--co-ye)}
+.co-switch--cancel input:checked + .co-knob{background:var(--co-ye-knob)}
+.co-switch--cancel:has(input:checked){border-color:var(--co-ye-line);background:var(--co-ye-soft)}
 .co-switch b{display:block;color:var(--ink);font-size:.9rem}
 .co-switch small{display:block;color:var(--muted);font-size:.8rem;margin-top:2px}
 .co-dialog-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
