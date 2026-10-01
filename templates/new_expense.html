@@ -37,11 +37,13 @@
 .ne-info{margin:-4px 0 16px;animation:ne-rise .3s var(--ease) both}
 #ne-form .ne-card{padding:18px 20px;border-radius:18px;margin-bottom:14px;animation:ne-rise .5s var(--ease) both;
   animation-delay:calc(var(--i, 0) * 90ms + 200ms);transition:box-shadow .3s,border-color .3s}
-#ne-form .ne-card:focus-within{border-color:var(--accent-glow);box-shadow:0 0 0 4px var(--accent-soft),var(--shadow)}
+#ne-form .ne-card{--c:var(--accent);border-left:4px solid var(--c);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--c) 7%,var(--surface)),var(--surface) 70%)}
+#ne-form .ne-card:focus-within{border-color:var(--c);box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 18%,transparent),var(--shadow)}
 #ne-form .ne-card-head{margin-bottom:12px}
 #ne-form .ne-card-head h2{display:flex;align-items:center;gap:10px;font-size:1rem;color:var(--ink)}
-.ne-no{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:var(--accent-grad);color:#fff;font-size:.85rem;
-  font-weight:800;box-shadow:0 6px 14px -6px var(--accent);transition:transform .3s var(--ease)}
+.ne-no{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:var(--c,var(--accent));color:#fff;font-size:.85rem;
+  font-weight:800;box-shadow:0 6px 14px -6px var(--c,var(--accent));transition:transform .3s var(--ease)}
 #ne-form .ne-card:focus-within .ne-no{transform:scale(1.12) rotate(-6deg)}
 #ne-form .line-item{animation:ne-rise .35s var(--ease) both;transition:border-color .2s,box-shadow .2s}
 #ne-form .line-item:hover{border-color:var(--accent-glow)}
@@ -103,7 +105,7 @@
   <input type="hidden" name="edit_mark" value="{{ edit_mark }}">
   {% if template and template.monthly_day %}<input type="hidden" name="template_id" value="{{ template.id }}">{% endif %}
 
-  <section class="card ne-card" style="--i:0">
+  <section class="card ne-card" style="--i:0;--c:#5b66f5">
     <div class="ne-card-head"><h2><span class="ne-no">1</span>Στοιχεία εγγραφής</h2></div>
     <div class="grid grid-entry">
       <div>
@@ -130,7 +132,7 @@
     </div>
   </section>
 
-  <section class="card ne-card" id="issuer_box" style="--i:1">
+  <section class="card ne-card" id="issuer_box" style="--i:1;--c:#1fbf8a">
     <div class="ne-card-head"><h2><span class="ne-no">2</span>Εκδότης &amp; πληρωμή</h2></div>
     <div class="grid grid-issuer">
       <div>
@@ -169,7 +171,7 @@
     </div>
   </section>
 
-  <section class="card ne-card" style="--i:2">
+  <section class="card ne-card" style="--i:2;--c:#f2a33a">
     <div class="ne-card-head">
       <h2><span class="ne-no">3</span>Γραμμές</h2>
       <span class="muted small" id="vat_note" hidden></span>
@@ -233,7 +235,7 @@
     </div>
   </section>
 
-  <section class="card ne-card" id="payroll_box" style="--i:3" hidden>
+  <section class="card ne-card" id="payroll_box" style="--i:3;--c:#e5577a" hidden>
     <div class="ne-card-head"><h2><span class="ne-no">4</span>Κρατήσεις μισθοδοσίας</h2>
       <span class="muted small">Δηλώνονται σε επίπεδο παραστατικού</span></div>
     <div class="grid grid-issuer">
@@ -400,12 +402,13 @@ function autoVat(el) {
   const net = parseFloat(el.querySelector('[name=line_amount]').value) || 0;
   amt.value = (Math.round(net * rate * 100) / 100).toFixed(2);
 }
-document.getElementById('payroll_box').addEventListener('input', recalc);
-document.getElementById('lines').addEventListener('input', e => {
-  if (e.target.name === 'line_amount') { autoVat(e.target.closest('.line-item')); recalc(); }
+// Delegation στο document: οι listeners επιβιώνουν όταν η φόρμα αντικαθίσταται (πρότυπα με AJAX).
+document.addEventListener('input', e => {
+  if (e.target.closest('#payroll_box')) recalc();
+  if (e.target.name === 'line_amount' && e.target.closest('#lines')) { autoVat(e.target.closest('.line-item')); recalc(); }
 });
-document.getElementById('lines').addEventListener('change', e => {
-  if (e.target.name === 'line_vat_category') { autoVat(e.target.closest('.line-item')); recalc(); }
+document.addEventListener('change', e => {
+  if (e.target.name === 'line_vat_category' && e.target.closest('#lines')) { autoVat(e.target.closest('.line-item')); recalc(); }
 });
 
 // ---- Αλυσιδωτό φιλτράρισμα Κατηγορίας/Τύπου βάσει τύπου παραστατικού ----
@@ -449,12 +452,12 @@ function filterLineType(row, clearInvalid) {
 function filterAllLines() {
   document.querySelectorAll('#lines .line-item').forEach(r => filterLineCat(r));
 }
-document.getElementById('lines').addEventListener('change', e => {
-  if (e.target.name === 'line_category') filterLineType(e.target.closest('.line-item'), true);
+document.addEventListener('change', e => {
+  if (e.target.name === 'line_category' && e.target.closest('#lines')) filterLineType(e.target.closest('.line-item'), true);
 });
 
 // ---- Χώρα εκδότη: Ελλάδα / ΕΕ / λοιπές, με ελληνικά ονόματα από τον browser ----
-const COUNTRY = document.getElementById('issuer_country');
+let COUNTRY = document.getElementById('issuer_country');
 const COUNTRY_RULES = {{ country_rules|tojson }};  // τύπος → 'gr' | 'eu' | 'third' | 'any'
 const COUNTRY_HINTS = {
   gr: 'Για τον τύπο αυτό επιτρέπεται μόνο Ελλάδα.',
@@ -506,5 +509,39 @@ function filterCountries(t) {
 
 buildCountries();
 toggleIssuer(); recalc();
+
+// Πρότυπα με AJAX: αντικαθίστανται φόρμα, πληροφορίες και chips· κεφαλίδα και animations μένουν.
+(function () {
+  let ctrl;
+  function load(url, push) {
+    const form = document.getElementById('ne-form');
+    if (ctrl) ctrl.abort();
+    ctrl = new AbortController();
+    form.style.opacity = '.5';
+    fetch(url, {signal: ctrl.signal}).then(r => r.text()).then(html => {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const nf = doc.getElementById('ne-form');
+      if (!nf) throw new Error('no form');
+      document.documentElement.dataset.samePage = '';
+      ['ne-form', 'ne-info'].forEach(id => document.getElementById(id).replaceWith(doc.getElementById(id)));
+      const tpls = document.querySelector('.ne-tpls'), ntpls = doc.querySelector('.ne-tpls');
+      if (tpls && ntpls) tpls.replaceWith(ntpls);
+      const btn = document.querySelector('.ne-hero .info-btn'), nbtn = doc.querySelector('.ne-hero .info-btn');
+      if (btn && nbtn) btn.replaceWith(nbtn);
+      document.title = doc.title;
+      if (push) history.pushState(null, '', url);
+      COUNTRY = document.getElementById('issuer_country');
+      if (window.initDates) initDates(document.getElementById('ne-form'));
+      buildCountries(); toggleIssuer(); recalc();
+    }).catch(e => { if (e.name !== 'AbortError') location.href = url; });
+  }
+  document.addEventListener('click', e => {
+    const a = e.target.closest('.ne-tpls .tpl-chip a[href]');
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    load(a.href, true);
+  });
+  addEventListener('popstate', () => load(location.href, false));
+})();
 </script>
 {% endblock %}
