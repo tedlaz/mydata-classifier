@@ -2739,6 +2739,12 @@ def _spread(total: float, weights: list[float]) -> list[float]:
     return out
 
 
+def _plan(total: float, stat: list[float], booked: list[float]) -> list[float]:
+    """Πρόγραμμα υπόλοιπων μηνών ΕΠΙΠΛΕΟΝ των ήδη καταχωρημένων ποσών (booked): κάθε μήνας = booked +
+    μερίδιο του total, αναλογικά της στατιστικής πρόβλεψης (stat)."""
+    return [round(b + r, 2) for b, r in zip(booked, _spread(total, stat))]
+
+
 def _forecast_chart(inc: list[float], out: list[float], res_m: list[float], prev_res: list[float], sc: dict | None,
                     done: int, dep: float = 0.0) -> dict:
     """Γεωμετρία SVG (viewBox 760×280): σωρευτικές γραμμές εσόδων/εξόδων/αποτελέσματος — συνεχείς
@@ -2839,11 +2845,24 @@ def reports_forecast():
     f_in, label_in = _forecast(cur_in, prev_in, done, start)
     f_var, label_var = _forecast(cur_var, prev_var, done, start)
     forecast_in, forecast_var = round(sum(f_in[done:]), 2), round(sum(f_var[done:]), 2)  # στατιστικά, για τα placeholder
-    planned_label = lambda v: f"προγραμματισμένα {format_el_amount(v)} €, αναλογικά της εποχικότητας"  # noqa: E731
+    if planned_in is not None or planned_out is not None:
+        # Χαρακτηρισμένα / ολοκληρωμένα παραστατικά των μηνών της πρόβλεψης: προστίθενται στο πρόγραμμα.
+        b_docs = {k: db.yearly_documents(cid, k, ["classified", "sent", "confirmed"], str(year)) for k in ("income", "expense")}
+        b_in_t, b_out_t = (_yearly_totals(b_docs[k], with_stock) for k in ("income", "expense"))
+        b_types = _expense_lines(b_docs["expense"])[0]
+        booked_in = [b_in_t[m + 1]["net"] for m in range(done, 12)]
+        booked_var = [b_out_t[m + 1]["net"] - b_out_t[m + 1]["assets"] - b_out_t[m + 1]["depreciation"]
+                      - sum(b_types[m].get(t, 0.0) for t in fixed) for m in range(done, 12)]
+
+    def plan(total, stat, booked):
+        b = round(sum(booked), 2)
+        label = f"προγραμματισμένα {format_el_amount(total)} €, αναλογικά της εποχικότητας"
+        return _plan(total, stat, booked), label + (f" + καταχωρημένα {format_el_amount(b)} €" if b else "")
+
     if planned_in is not None:
-        f_in[done:], label_in = _spread(planned_in, f_in[done:]), planned_label(planned_in)
+        f_in[done:], label_in = plan(planned_in, f_in[done:], booked_in)
     if planned_out is not None:
-        f_var[done:], label_var = _spread(planned_out, f_var[done:]), planned_label(planned_out)
+        f_var[done:], label_var = plan(planned_out, f_var[done:], booked_var)
     f_fixed = [round(v, 2) for v in cur_fixed[:done]] + [round(sum(fixed.values()), 2)] * (12 - done)
     dep = _depreciation(asset_lines, year, small, large, months=12 - done)  # αγορά μέσα στον τρέχοντα μήνα
     dep_m = [0.0] * 11 + [dep["total"]]  # απόσβεση: εγγραφή τέλους χρήσης
