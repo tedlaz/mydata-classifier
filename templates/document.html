@@ -33,6 +33,7 @@
 .dc-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .dc-meta span{font-size:.78rem;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.08);color:#dfe3ff}
 .dc-meta .mono{font-family:var(--font-data)}
+.dc-meta .dc-series{color:#f2c265;font-weight:800;background:rgba(242,194,101,.16)}
 .dc-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .dc-acts form{margin:0}
 
@@ -105,7 +106,7 @@
         <div class="dc-meta">
           <span class="mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</span>
           <span>{{ inv.invoice_type or "—" }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
-          <span class="mono">{{ inv.series or "0" }}/{{ inv.aa or "" }}</span>
+          <span class="mono dc-series">{{ inv.series or "0" }}/{{ inv.aa or "" }}</span>
           <span class="mono">📅 {{ '/'.join(inv.issue_date.split('-')[::-1]) if inv.issue_date else '—' }}</span>
         </div>
       </div>
@@ -182,7 +183,7 @@
       {% if status == 'confirmed' %}<span class="pill" title="Πηγή χαρακτηρισμού">{{ 'Manually (τοπικά)' if source == 'manual' else 'rest (myDATA)' }}</span>{% endif %}
     </h2>
     {% if local_action != 'create' and not is_income %}
-    <a class="btn" href="{{ url_for('classify', mark=inv.mark) }}">✏️ Αλλαγή χαρακτηρισμού</a>
+    <a class="btn" href="{{ url_for('classify', mark=inv.mark) }}">✏️ Χαρακτηρισμός</a>
     {% endif %}
   </div>
   {% if flags %}<div class="chips">{{ cls_chips(flags) }}</div>{% endif %}

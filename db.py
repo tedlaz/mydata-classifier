@@ -1022,21 +1022,22 @@ def save_local_classification(
 
 
 def unclassify(company_id: int | None, marks: list[str]) -> int:
-    """Αναιρεί τον τοπικό χαρακτηρισμό (μόνο status='classified', όχι πρόχειρα νέας εγγραφής):
-    το παραστατικό επιστρέφει στα αχαρακτήριστα. Επιστρέφει πόσα άλλαξαν."""
+    """Αναιρεί τον τοπικό χαρακτηρισμό ή τη στημένη απόρριψη/ακύρωση (μόνο status='classified',
+    όχι πρόχειρα νέας εγγραφής): το παραστατικό επιστρέφει στα αχαρακτήριστα. Επιστρέφει πόσα άλλαξαν."""
     if not company_id or not marks:
         return 0
     q = ",".join("?" * len(marks))
     with get_conn() as conn:
         ids = [r["id"] for r in conn.execute(
             f"SELECT id FROM documents WHERE company_id = ? AND mark IN ({q}) "
-            "AND status = 'classified' AND local_action = 'classify'",
+            "AND status = 'classified' AND local_action IN ('classify', 'reject', 'cancel')",
             (company_id, *marks),
         )]
         for doc_id in ids:
             conn.execute("DELETE FROM classifications WHERE document_id = ?", (doc_id,))
             conn.execute(
-                "UPDATE documents SET status = 'unclassified', cls_json = '[]', cls_post_mode = 0 "
+                "UPDATE documents SET status = 'unclassified', local_action = 'classify', "
+                "cls_json = '[]', cls_post_mode = 0 "
                 "WHERE id = ?", (doc_id,),
             )
     return len(ids)

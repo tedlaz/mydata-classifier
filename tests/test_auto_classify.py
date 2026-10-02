@@ -45,6 +45,12 @@ c.post("/unclassify", data={"marks": ["1001"]})
 assert status("1001") == "unclassified"
 assert db.get_local_classification(db.get_document(cid, "1001")["id"]) == []
 
+# 3β) Στημένη απόρριψη → επαναφορά σε αχαρακτήριστο, ξανά ως κανονικό χαρακτηρισμό.
+db.stage_action(cid, "1002", "reject")
+c.post("/unclassify", data={"marks": ["1002"]})
+row = db.get_document(cid, "1002")
+assert row["status"] == "unclassified" and row["local_action"] == "classify", row
+
 # 4) Απεσταλμένο δεν επηρεάζεται.
 db.upsert_document(cid, "expense", {"mark": "1003", "issuer_vat": "111"}, "sent")
 assert db.unclassify(cid, ["1003"]) == 0 and status("1003") == "sent"

@@ -107,6 +107,7 @@
 .ch-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .ch-meta span{font-size:.78rem;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.08);color:#dfe3ff}
 .ch-meta .mono{font-family:var(--font-data)}
+.ch-meta .ch-series{color:#f2c265;font-weight:800;background:rgba(242,194,101,.16)}
 
 .ch-mid{position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(260px,1.4fr);gap:12px;margin-top:20px}
 .ch-tot{padding:12px 16px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
@@ -204,6 +205,7 @@
         <div class="ch-meta">
           <span class="mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</span>
           <span>{{ inv.invoice_type }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
+          <span class="mono ch-series">{{ inv.series or "" }}/{{ inv.aa or "—" }}</span>
           <span class="mono">📅 {{ '/'.join(inv.issue_date.split('-')[::-1]) if inv.issue_date else '—' }}</span>
         </div>
       </div>
