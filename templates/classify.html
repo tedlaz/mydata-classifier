@@ -82,7 +82,7 @@
 {% if combos %}{% set _ = notes.append(('accent', '🔒 Εμφανίζονται μόνο οι κατηγορίες και οι τύποι Ε3 που επιτρέπει η ΑΑΔΕ για τον τύπο ' ~ inv.invoice_type ~ '.')) %}{% endif %}
 {% set attention = notes|selectattr(0, 'equalto', 'warn')|list %}
 
-<form method="post" action="{{ url_for('submit', mark=inv.mark) }}" id="cls-form" data-allowed="{{ combos|tojson|forceescape }}">
+<form method="post" action="{{ url_for('submit', mark=inv.mark) }}" id="cls-form" {% if already_classified %}data-classified {% endif %}data-allowed="{{ combos|tojson|forceescape }}">
 <style>
 /* ---------- Κεφαλίδα χαρακτηρισμού (ίδια οικογένεια με βιβλία/παραστατικό) ---------- */
 .ch-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(20px,3.5vw,30px);color:#fff;margin-bottom:18px;
@@ -358,6 +358,9 @@ function initCls() {
   const form = document.getElementById('cls-form');
   const ALLOWED = JSON.parse(form.dataset.allowed);
   const FILTER = Object.keys(ALLOWED).length > 0;
+  // Ήδη χαρακτηρισμένο: τα κουμπιά ενεργοποιούνται μόνο αν αλλάξει κάτι από την αρχική κατάσταση.
+  const snap = () => new URLSearchParams(new FormData(form)).toString();
+  let initial = null;
   const NO_VAT_RIGHT = 'category2_5';  // χωρίς δικαίωμα έκπτωσης ΦΠΑ: ο ΦΠΑ πάει στο Ε3
   const THIRD_PARTY = 'category2_9';   // για λογαριασμό τρίτων: ένα Ε3, κανένας ΦΠΑ
   const money = v => v.toLocaleString('el-GR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
@@ -479,7 +482,9 @@ function initCls() {
     fs.textContent = allOk ? '✓ Έτοιμο για αποθήκευση.'
       : '⚠ ' + bad + ' ' + (bad === 1 ? noun[0] + ' θέλει' : noun[1] + ' θέλουν') + ' προσοχή πριν την αποθήκευση.';
     fs.dataset.state = allOk ? 'ok' : 'bad';
-    form.querySelectorAll('button[type=submit]').forEach(b => { b.disabled = !allOk; });
+    const unchanged = 'classified' in form.dataset && (initial === null || snap() === initial);
+    if (unchanged && allOk) { fs.textContent = 'Καμία αλλαγή στον χαρακτηρισμό.'; fs.dataset.state = ''; }
+    form.querySelectorAll('button[type=submit]').forEach(b => { b.disabled = !allOk || unchanged; });
   }
 
   // ---- Εναλλαγή τρόπου: η ανενεργή ενότητα απενεργοποιείται (δεν υποβάλλεται) ----
@@ -620,6 +625,8 @@ function initCls() {
   // Αρχική κατάσταση (χωρίς να σβήνονται υπάρχουσες τιμές)
   form.querySelectorAll('.cls-row').forEach(r => { filterCats(r); filterTypes(r, false); });
   applyMode();
+  initial = snap();
+  recalc();
 }
 initCls();
 

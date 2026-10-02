@@ -1407,6 +1407,7 @@ def classify(mark):
         learned=len(patterns) > 1,
         rule_source=rule_source,
         has_existing=bool(inv.cls_info),
+        already_classified=row["status"] != "unclassified",
         type_desc=INVOICE_TYPE_NAMES.get(inv.invoice_type or ""),
         vat_rates=VAT_CATEGORY_RATES,
         categories=EXPENSE_CATEGORIES,
