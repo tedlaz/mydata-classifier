@@ -1,88 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Εταιρείες{% endblock %}
 
-{# Πεδία εταιρείας: ίδια για προσθήκη και διόρθωση. #}
-{% macro company_fields(c, pfx) -%}
-<div class="co-fields">
-  <div class="co-span">
-    <label for="{{ pfx }}-name">Επωνυμία</label>
-    <input type="text" id="{{ pfx }}-name" name="company_name" value="{{ c.company_name or '' }}" placeholder="π.χ. ΔΟΚΙΜΗ ΑΕ" required>
-  </div>
-  <div>
-    <label for="{{ pfx }}-vat">ΑΦΜ</label>
-    <input type="text" id="{{ pfx }}-vat" name="aade_vat_number" value="{{ c.AADE_VAT_NUMBER or '' }}" inputmode="numeric" placeholder="9 ψηφία">
-  </div>
-  <div>
-    <label>Περιβάλλον</label>
-    <div class="co-seg">
-      {% for v, lbl in [('prod', '🟢 Παραγωγή'), ('dev', '🟡 Δοκιμαστικό')] %}
-      <label><input type="radio" name="mydata_env" value="{{ v }}" {{ 'checked' if (c.MYDATA_ENV or 'prod') == v }}><span>{{ lbl }}</span></label>
-      {% endfor %}
-    </div>
-  </div>
-  <div class="co-span">
-    <label>Περίοδος ΦΠΑ</label>
-    <div class="co-seg">
-      {% for v, lbl in [('m', '📅 Μηνιαία'), ('q', '🗓 Τριμηνιαία')] %}
-      <label><input type="radio" name="vat_period" value="{{ v }}" {{ 'checked' if (c.vat_period or 'm') == v }}><span>{{ lbl }}</span></label>
-      {% endfor %}
-    </div>
-  </div>
-  <div class="co-entity">
-    <label>Μορφή</label>
-    <div class="co-seg">
-      {% for v, lbl in [('legal', '🏢 Νομικό πρόσωπο'), ('sole', '👤 Ατομική')] %}
-      <label><input type="radio" name="entity_type" value="{{ v }}" {{ 'checked' if (c.entity_type or 'legal') == v }}><span>{{ lbl }}</span></label>
-      {% endfor %}
-    </div>
-  </div>
-  <div class="co-birth">
-    <label for="{{ pfx }}-birth">Έτος γέννησης <small class="muted">(φόρος νέων)</small></label>
-    <input type="number" id="{{ pfx }}-birth" name="birth_year" value="{{ c.birth_year or '' }}" min="1900" max="2100" placeholder="π.χ. 1985">
-  </div>
-  <div>
-    <label for="{{ pfx }}-uid">AADE User ID</label>
-    <input type="text" id="{{ pfx }}-uid" name="aade_user_id" value="{{ c.AADE_USER_ID or '' }}" autocomplete="off">
-  </div>
-  <div>
-    <label for="{{ pfx }}-key">Subscription Key</label>
-    <input type="password" id="{{ pfx }}-key" name="aade_subscription_key" value="" autocomplete="new-password" data-reveal{% if c.AADE_SUBSCRIPTION_KEY %} placeholder="•••• αποθηκευμένο (κενό = δεν αλλάζει)"{% endif %}>
-  </div>
-</div>
-<label class="co-switch co-switch--acc">
-  <input type="checkbox" name="use_accountant" value="1" {{ 'checked' if c.use_accountant }}>
-  <span class="co-knob"></span>
-  <span><b>👤 Χρήση credentials λογιστή</b><small>Το ΑΦΜ της εταιρείας στέλνεται ως <code>entityVatNumber</code>. Τότε τα User ID / Key είναι προαιρετικά.</small></span>
-</label>
-{% if c.locked %}<p class="co-warn">🔐 Κλειδωμένη από τον λογιστή — μόνο αναφορές. Οι άδειες δεν αλλάζουν.</p>{% endif %}
-<label class="co-switch co-switch--acc">
-  <input type="checkbox" name="allow_send" value="1" {{ 'checked' if c.allow_send }} {{ 'disabled' if c.locked }}>
-  <span class="co-knob"></span>
-  <span><b>📤 Επιτρέπεται αποστολή στο myDATA</b><small>Χαρακτηρισμοί, νέες εγγραφές, ακυρώσεις/απορρίψεις. Χωρίς αυτό η εφαρμογή μόνο διαβάζει από την ΑΑΔΕ.</small></span>
-</label>
-<label class="co-switch co-switch--acc">
-  <input type="checkbox" name="allow_classify" value="1" {{ 'checked' if c.allow_classify }} {{ 'disabled' if c.locked }}>
-  <span class="co-knob"></span>
-  <span><b>🏷️ Επιτρέπονται χαρακτηρισμοί</b><small>Χαρακτηρισμός, μαζικός και αυτόματος χαρακτηρισμός παραστατικών εξόδων.</small></span>
-</label>
-<label class="co-switch co-switch--acc">
-  <input type="checkbox" name="allow_new" value="1" {{ 'checked' if c.allow_new }} {{ 'disabled' if c.locked }}>
-  <span class="co-knob"></span>
-  <span><b>➕ Επιτρέπεται «Νέα εγγραφή»</b><small>Αυτοτιμολογούμενα έξοδα, πρότυπα και μηνιαίες εγγραφές.</small></span>
-</label>
-<label class="co-switch co-switch--cancel">
-  <input type="checkbox" name="allow_cancel" value="1" {{ 'checked' if c.allow_cancel }} {{ 'disabled' if c.locked }}>
-  <span class="co-knob"></span>
-  <span><b>⚠ Επιτρέπονται ακυρώσεις &amp; απορρίψεις</b><small>Εσόδων και εξόδων. Οι ενέργειες αυτές είναι οριστικές στο myDATA.</small></span>
-</label>
-{%- endmacro %}
+{% from "_company_form.html" import company_fields %}
 
 {% block content %}
 <style>
 .co{--co-gap:18px}
-/* Έτος γέννησης: μόνο για ατομική· χωρίς αυτό η «Μορφή» πιάνει όλη τη γραμμή, ώστε User ID / Key να μένουν μαζί. */
-.co-fields:not(:has(input[name=entity_type][value=sole]:checked)) .co-birth{display:none}
-.co-fields:not(:has(input[name=entity_type][value=sole]:checked)) .co-entity{grid-column:1/-1}
 /* ---------- Κεφαλίδα ---------- */
 .co-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(22px,4vw,38px);color:#fff;
   background:radial-gradient(120% 140% at 0% 0%,#2a2f7a 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
@@ -108,8 +31,6 @@
 .co-search input{width:100%;padding-left:38px}
 .co-search::before{content:"🔎";position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:.9rem;opacity:.6}
 .co-hint{font-size:.85rem;color:var(--muted)}
-.co-warn{display:flex;gap:12px;align-items:center;padding:12px 16px;border-radius:12px;margin-top:18px;
-  background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);font-weight:600}
 
 /* ---------- Κάρτες ---------- */
 .co-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:var(--co-gap)}
@@ -187,47 +108,8 @@
 @keyframes co-bob{50%{transform:translateY(-10px)}}
 .co-none b{display:block;color:var(--ink);font-size:1.15rem;margin:10px 0 4px}
 
-/* ---------- Φόρμες (dialog) ---------- */
-.co-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0 6px}
-.co-fields input{width:100%}
-.co-span{grid-column:1/-1}
-.co-seg{display:flex;padding:3px;border-radius:10px;background:var(--surface-3);gap:3px}
-.co-seg label{flex:1;margin:0;cursor:pointer;text-transform:none;letter-spacing:0}
-.co-seg input{position:absolute;opacity:0;pointer-events:none}
-.co-seg span{display:block;text-align:center;padding:7px 8px;border-radius:8px;font-size:.82rem;font-weight:600;color:var(--ink-2);transition:all .25s var(--ease)}
-.co-seg input:checked + span{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
-.co-seg input:focus-visible + span{outline:2px solid var(--accent)}
-.co-switch{display:flex;gap:12px;align-items:flex-start;margin:12px 0 0;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
-  cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;transition:border-color .2s,background .2s}
-.co-switch:hover{border-color:var(--accent-glow)}
-.co-switch input{position:absolute;opacity:0;pointer-events:none}
-.co-knob{flex:none;position:relative;width:42px;height:24px;border-radius:999px;background:var(--line);transition:background .25s}
-.co-knob::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;
-  box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .3s var(--ease)}
-.co-switch input:checked + .co-knob{background:var(--accent)}
-.co-switch input:checked + .co-knob::after{transform:translateX(18px)}
-.co-switch input:focus-visible + .co-knob{outline:2px solid var(--accent);outline-offset:2px}
-/* Λογιστής: πορτοκαλί · ακυρώσεις: κίτρινο (τίτλος πάντα, διακόπτης και φόντο όταν είναι ενεργό). */
-:root{--co-or:#c2410c;--co-or-knob:#ea580c;--co-or-soft:#fff1e6;--co-or-line:#fcc9a5;
-    --co-ye:#8a6d00;--co-ye-knob:#e0b000;--co-ye-soft:#fff9d6;--co-ye-line:#f0dc7a}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--co-or:#fdba74;--co-or-knob:#f97316;--co-or-soft:#3a2314;
-    --co-or-line:#7c3d16;--co-ye:#fde68a;--co-ye-knob:#eab308;--co-ye-soft:#332c10;--co-ye-line:#6b5a14}}
-:root[data-theme="dark"]{--co-or:#fdba74;--co-or-knob:#f97316;--co-or-soft:#3a2314;--co-or-line:#7c3d16;
-    --co-ye:#fde68a;--co-ye-knob:#eab308;--co-ye-soft:#332c10;--co-ye-line:#6b5a14}
-.co-switch.co-switch--acc b{color:var(--co-or)}
-.co-switch--acc input:checked + .co-knob{background:var(--co-or-knob)}
-.co-switch--acc:has(input:checked){border-color:var(--co-or-line);background:var(--co-or-soft)}
-.co-switch.co-switch--cancel b{color:var(--co-ye)}
-.co-switch--cancel input:checked + .co-knob{background:var(--co-ye-knob)}
-.co-switch--cancel:has(input:checked){border-color:var(--co-ye-line);background:var(--co-ye-soft)}
-.co-switch b{display:block;color:var(--ink);font-size:.9rem}
-.co-switch small{display:block;color:var(--muted);font-size:.8rem;margin-top:2px}
-.co-dialog-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
-.co-share{margin-top:16px;border-top:1px solid var(--line, #8883);padding-top:12px}
-.co-share summary{cursor:pointer;font-weight:600}
-.co-share form{display:grid;gap:6px;margin-top:10px}
 
-@media (max-width:560px){ .co-fields{grid-template-columns:1fr} .co-grid{grid-template-columns:1fr} }
+@media (max-width:560px){ .co-grid{grid-template-columns:1fr} }
 @media (prefers-reduced-motion:reduce){
   .co *,.co *::before,.co *::after{animation:none!important;transition:none!important}
 }

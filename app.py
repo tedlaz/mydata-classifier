@@ -693,16 +693,37 @@ def fetch():
         db.upsert_document(cid, "expense", _invoice_to_doc(inv), "unclassified")
     for inv in classified:
         db.upsert_document(cid, "expense", _invoice_to_doc(inv), "confirmed")
+    n0 = _classify_zero_docs(cid, [inv.mark for inv in unclassified])
 
     db.set_setting("last_range", f"{df} – {dt}")
     flash(
         f"✔ Ανακτήθηκαν και αποθηκεύτηκαν {len(unclassified) + len(classified)} "
-        "παραστατικά.",
+        "παραστατικά."
+        + (f" {n0} με μηδενική αξία χαρακτηρίστηκαν τοπικά (2.5 / E3_585_016)." if n0 else ""),
         "ok",
     )
     if db.get_setting("auto_classify") == "1" and _auto_classify_candidates(cid):
         return redirect(url_for("auto_classify"))
     return redirect(url_for("invoices"))
+
+
+def _classify_zero_docs(cid: int, marks: list) -> int:
+    """Έξοδα με μηδενική αξία και ΦΠΑ: το myDATA δεν δέχεται χαρακτηρισμό, άρα χαρακτηρίζονται μόνο τοπικά
+    (όπως το «Ήδη χαρακτηρισμένο») ως 2.5 / E3_585_016. Μόνο όσα είναι ακόμα αχαρακτήριστα τοπικά."""
+    n = 0
+    for mark in marks:
+        row = db.get_document(cid, mark)
+        if not row or row["status"] != "unclassified":
+            continue
+        inv = _row_to_invoice(row)
+        if inv.invoice_type == "1.5" or abs(inv.total_net or 0) >= 0.005 or abs(inv.total_vat or 0) >= 0.005:
+            continue
+        lines = inv.lines or [InvoiceLine(line_number=1, net_value=0.0, vat_amount=0.0, vat_category=None,
+                                          has_expenses_classification=False)]
+        entries = [e for ln in lines for e in _bulk_line_entries(ln, NO_VAT_RIGHT, "E3_585_016", "none")]
+        db.save_local_classification(cid, mark, entries, manual=True)
+        n += 1
+    return n
 
 
 def _auto_classify_candidates(cid: int) -> list:
@@ -4111,7 +4132,8 @@ def companies_update(idx):
         },
     )
     flash(f"✔ Ενημερώθηκε η εταιρεία «{name}».", "ok")
-    return redirect(url_for("companies"))
+    back = request.form.get("back", "")  # modal ενεργής εταιρείας (base.html) → πίσω στη σελίδα του
+    return redirect(back if back.startswith("/") and not back.startswith(("//", "/\\")) else url_for("companies"))
 
 
 @app.route("/companies/delete/<int:idx>", methods=["POST"])
@@ -4647,7 +4669,8 @@ def inject_company():
     # self_types: τύποι που εκδίδουμε εμείς (13.x–17.x) → επιτρέπεται «Αντιγραφή».
     if request.endpoint in _PUBLIC:
         return {}  # login/setup: κλειδωμένη, τα κλειδιά των εταιρειών δεν αποκρυπτογραφούνται
-    return {"active_company": get_active_company(), "self_types": SELF_EXPENSE_TYPES, "update": _update}
+    idx, comps = get_active_index(), load_companies()
+    return {"active_company": comps[idx] if comps else None, "active_index": idx, "self_types": SELF_EXPENSE_TYPES, "update": _update}
 
 
 if __name__ == "__main__":

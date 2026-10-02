@@ -1,0 +1,75 @@
+{# Πεδία εταιρείας: ίδια για προσθήκη και διόρθωση. #}
+{% macro company_fields(c, pfx) -%}
+<div class="co-fields">
+  <div class="co-span">
+    <label for="{{ pfx }}-name">Επωνυμία</label>
+    <input type="text" id="{{ pfx }}-name" name="company_name" value="{{ c.company_name or '' }}" placeholder="π.χ. ΔΟΚΙΜΗ ΑΕ" required>
+  </div>
+  <div>
+    <label for="{{ pfx }}-vat">ΑΦΜ</label>
+    <input type="text" id="{{ pfx }}-vat" name="aade_vat_number" value="{{ c.AADE_VAT_NUMBER or '' }}" inputmode="numeric" placeholder="9 ψηφία">
+  </div>
+  <div>
+    <label>Περιβάλλον</label>
+    <div class="co-seg">
+      {% for v, lbl in [('prod', '🟢 Παραγωγή'), ('dev', '🟡 Δοκιμαστικό')] %}
+      <label><input type="radio" name="mydata_env" value="{{ v }}" {{ 'checked' if (c.MYDATA_ENV or 'prod') == v }}><span>{{ lbl }}</span></label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="co-span">
+    <label>Περίοδος ΦΠΑ</label>
+    <div class="co-seg">
+      {% for v, lbl in [('m', '📅 Μηνιαία'), ('q', '🗓 Τριμηνιαία')] %}
+      <label><input type="radio" name="vat_period" value="{{ v }}" {{ 'checked' if (c.vat_period or 'm') == v }}><span>{{ lbl }}</span></label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="co-entity">
+    <label>Μορφή</label>
+    <div class="co-seg">
+      {% for v, lbl in [('legal', '🏢 Νομικό πρόσωπο'), ('sole', '👤 Ατομική')] %}
+      <label><input type="radio" name="entity_type" value="{{ v }}" {{ 'checked' if (c.entity_type or 'legal') == v }}><span>{{ lbl }}</span></label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="co-birth">
+    <label for="{{ pfx }}-birth">Έτος γέννησης <small class="muted">(φόρος νέων)</small></label>
+    <input type="number" id="{{ pfx }}-birth" name="birth_year" value="{{ c.birth_year or '' }}" min="1900" max="2100" placeholder="π.χ. 1985">
+  </div>
+  <div>
+    <label for="{{ pfx }}-uid">AADE User ID</label>
+    <input type="text" id="{{ pfx }}-uid" name="aade_user_id" value="{{ c.AADE_USER_ID or '' }}" autocomplete="off">
+  </div>
+  <div>
+    <label for="{{ pfx }}-key">Subscription Key</label>
+    <input type="password" id="{{ pfx }}-key" name="aade_subscription_key" value="" autocomplete="new-password" data-reveal{% if c.AADE_SUBSCRIPTION_KEY %} placeholder="•••• αποθηκευμένο (κενό = δεν αλλάζει)"{% endif %}>
+  </div>
+</div>
+<label class="co-switch co-switch--acc">
+  <input type="checkbox" name="use_accountant" value="1" {{ 'checked' if c.use_accountant }}>
+  <span class="co-knob"></span>
+  <span><b>👤 Χρήση credentials λογιστή</b><small>Το ΑΦΜ της εταιρείας στέλνεται ως <code>entityVatNumber</code>. Τότε τα User ID / Key είναι προαιρετικά.</small></span>
+</label>
+{% if c.locked %}<p class="co-warn">🔐 Κλειδωμένη από τον λογιστή — μόνο αναφορές. Οι άδειες δεν αλλάζουν.</p>{% endif %}
+<label class="co-switch co-switch--acc">
+  <input type="checkbox" name="allow_send" value="1" {{ 'checked' if c.allow_send }} {{ 'disabled' if c.locked }}>
+  <span class="co-knob"></span>
+  <span><b>📤 Επιτρέπεται αποστολή στο myDATA</b><small>Χαρακτηρισμοί, νέες εγγραφές, ακυρώσεις/απορρίψεις. Χωρίς αυτό η εφαρμογή μόνο διαβάζει από την ΑΑΔΕ.</small></span>
+</label>
+<label class="co-switch co-switch--acc">
+  <input type="checkbox" name="allow_classify" value="1" {{ 'checked' if c.allow_classify }} {{ 'disabled' if c.locked }}>
+  <span class="co-knob"></span>
+  <span><b>🏷️ Επιτρέπονται χαρακτηρισμοί</b><small>Χαρακτηρισμός, μαζικός και αυτόματος χαρακτηρισμός παραστατικών εξόδων.</small></span>
+</label>
+<label class="co-switch co-switch--acc">
+  <input type="checkbox" name="allow_new" value="1" {{ 'checked' if c.allow_new }} {{ 'disabled' if c.locked }}>
+  <span class="co-knob"></span>
+  <span><b>➕ Επιτρέπεται «Νέα εγγραφή»</b><small>Αυτοτιμολογούμενα έξοδα, πρότυπα και μηνιαίες εγγραφές.</small></span>
+</label>
+<label class="co-switch co-switch--cancel">
+  <input type="checkbox" name="allow_cancel" value="1" {{ 'checked' if c.allow_cancel }} {{ 'disabled' if c.locked }}>
+  <span class="co-knob"></span>
+  <span><b>⚠ Επιτρέπονται ακυρώσεις &amp; απορρίψεις</b><small>Εσόδων και εξόδων. Οι ενέργειες αυτές είναι οριστικές στο myDATA.</small></span>
+</label>
+{%- endmacro %}

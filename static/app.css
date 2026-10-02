@@ -102,9 +102,10 @@ a{color:var(--accent)}
 .who--top.is-dev{border-color:#f2c265}
 .who small{white-space:nowrap}
 .who-badge{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;font-size:.72rem;
-  background:#f5c542;color:#1b1f33;font-family:var(--font-ui);box-shadow:0 0 0 2px rgba(245,197,66,.35)}
+  background:var(--b,#f5c542);color:#fff;font-family:var(--font-ui);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--b,#f5c542) 35%,transparent)}
 .who-badge:first-of-type{margin-left:auto}
-.who-badge--danger{background:#c6322a;color:#fff;box-shadow:0 0 0 2px rgba(198,50,42,.35)}
+.who-badge--off{background:transparent;color:var(--side-ink-hi);box-shadow:0 0 0 1px rgba(255,255,255,.25);filter:grayscale(1);opacity:.45}
 .who small{display:flex;align-items:center;gap:6px;color:var(--side-ink);font-weight:500;font-family:var(--font-data);font-size:.72rem;margin-top:3px}
 .who small::before{content:"";width:7px;height:7px;border-radius:50%;background:#4fd1a0;box-shadow:0 0 0 3px rgba(79,209,160,.2)}
 .who.is-dev small::before{background:#f2c265;box-shadow:0 0 0 3px rgba(242,194,101,.2)}
@@ -1799,3 +1800,50 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .fc-exp{font-weight:700}
 .fc-params .flash{margin:0}
 .fc-tag--plan{background:var(--ok-soft);color:var(--ok)}
+
+/* ---------- Φόρμα εταιρείας (σελίδα Εταιρείες + modal ενεργής εταιρείας στο base) ---------- */
+/* Έτος γέννησης: μόνο για ατομική· χωρίς αυτό η «Μορφή» πιάνει όλη τη γραμμή, ώστε User ID / Key να μένουν μαζί. */
+.co-fields:not(:has(input[name=entity_type][value=sole]:checked)) .co-birth{display:none}
+.co-fields:not(:has(input[name=entity_type][value=sole]:checked)) .co-entity{grid-column:1/-1}
+.co-warn{display:flex;gap:12px;align-items:center;padding:12px 16px;border-radius:12px;margin-top:18px;
+  background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);font-weight:600}
+/* ---------- Φόρμες (dialog) ---------- */
+.co-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0 6px}
+.co-fields input{width:100%}
+.co-span{grid-column:1/-1}
+.co-seg{display:flex;padding:3px;border-radius:10px;background:var(--surface-3);gap:3px}
+.co-seg label{flex:1;margin:0;cursor:pointer;text-transform:none;letter-spacing:0}
+.co-seg input{position:absolute;opacity:0;pointer-events:none}
+.co-seg span{display:block;text-align:center;padding:7px 8px;border-radius:8px;font-size:.82rem;font-weight:600;color:var(--ink-2);transition:all .25s var(--ease)}
+.co-seg input:checked + span{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.co-seg input:focus-visible + span{outline:2px solid var(--accent)}
+.co-switch{display:flex;gap:12px;align-items:flex-start;margin:12px 0 0;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+  cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400;transition:border-color .2s,background .2s}
+.co-switch:hover{border-color:var(--accent-glow)}
+.co-switch input{position:absolute;opacity:0;pointer-events:none}
+.co-knob{flex:none;position:relative;width:42px;height:24px;border-radius:999px;background:var(--line);transition:background .25s}
+.co-knob::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .3s var(--ease)}
+.co-switch input:checked + .co-knob{background:var(--accent)}
+.co-switch input:checked + .co-knob::after{transform:translateX(18px)}
+.co-switch input:focus-visible + .co-knob{outline:2px solid var(--accent);outline-offset:2px}
+/* Λογιστής: πορτοκαλί · ακυρώσεις: κίτρινο (τίτλος πάντα, διακόπτης και φόντο όταν είναι ενεργό). */
+:root{--co-or:#c2410c;--co-or-knob:#ea580c;--co-or-soft:#fff1e6;--co-or-line:#fcc9a5;
+    --co-ye:#8a6d00;--co-ye-knob:#e0b000;--co-ye-soft:#fff9d6;--co-ye-line:#f0dc7a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--co-or:#fdba74;--co-or-knob:#f97316;--co-or-soft:#3a2314;
+    --co-or-line:#7c3d16;--co-ye:#fde68a;--co-ye-knob:#eab308;--co-ye-soft:#332c10;--co-ye-line:#6b5a14}}
+:root[data-theme="dark"]{--co-or:#fdba74;--co-or-knob:#f97316;--co-or-soft:#3a2314;--co-or-line:#7c3d16;
+    --co-ye:#fde68a;--co-ye-knob:#eab308;--co-ye-soft:#332c10;--co-ye-line:#6b5a14}
+.co-switch.co-switch--acc b{color:var(--co-or)}
+.co-switch--acc input:checked + .co-knob{background:var(--co-or-knob)}
+.co-switch--acc:has(input:checked){border-color:var(--co-or-line);background:var(--co-or-soft)}
+.co-switch.co-switch--cancel b{color:var(--co-ye)}
+.co-switch--cancel input:checked + .co-knob{background:var(--co-ye-knob)}
+.co-switch--cancel:has(input:checked){border-color:var(--co-ye-line);background:var(--co-ye-soft)}
+.co-switch b{display:block;color:var(--ink);font-size:.9rem}
+.co-switch small{display:block;color:var(--muted);font-size:.8rem;margin-top:2px}
+.co-dialog-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.co-share{margin-top:16px;border-top:1px solid var(--line, #8883);padding-top:12px}
+.co-share summary{cursor:pointer;font-weight:600}
+.co-share form{display:grid;gap:6px;margin-top:10px}
+@media (max-width:560px){ .co-fields{grid-template-columns:1fr} }

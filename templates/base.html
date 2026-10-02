@@ -1,4 +1,5 @@
 {% from "_macros.html" import icon %}
+{% from "_company_form.html" import company_fields %}
 <!DOCTYPE html>
 <html lang="el">
 <head>
@@ -62,14 +63,24 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
     </a>
     {# Ενεργή εταιρεία: πάνω πάνω στο μενού, για να φαίνεται πάντα σε ποια δουλεύεις. #}
       {% if active_company %}
-      <a class="who who--top {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('companies') }}"
-         title="Αλλαγή ενεργής εταιρείας">
+      <a class="who who--top {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('companies') }}" data-co-edit
+         title="Παράμετροι εταιρείας">
         {{ active_company.company_name }}
         {# Περιβάλλον + badges (μόνο σύμβολα, εξήγηση στο title) σε μία γραμμή. #}
         <small>{{ active_company.MYDATA_ENV or 'prod' }}
-          {%- if active_company.use_accountant %}<span class="who-badge" title="Κλήσεις με τα credentials του λογιστή" aria-label="Λογιστής">👤</span>{% endif %}
-          {%- if not active_company.allow_send %}<span class="who-badge" title="Μόνο ανάγνωση — η αποστολή στο myDATA είναι απενεργοποιημένη" aria-label="Μόνο ανάγνωση">🔒</span>{% endif %}
-          {%- if active_company.allow_cancel %}<span class="who-badge who-badge--danger" title="Επιτρέπονται ακυρώσεις (εσόδων & εξόδων) και απορρίψεις παραστατικών" aria-label="Επιτρέπονται ακυρώσεις/απορρίψεις">⚠</span>{% endif %}
+          {%- if active_company.use_accountant %}<span class="who-badge" style="--b:#f08c3a" title="Κλήσεις με τα credentials του λογιστή" aria-label="Λογιστής">👤</span>{% endif %}
+          {%- if active_company.locked %}<span class="who-badge" style="--b:#f5c542" title="Κλειδωμένη από τον λογιστή — μόνο αναφορές" aria-label="Κλειδωμένη">🔐</span>{% endif %}
+          {#- Άδειες: χρωματιστό = επιτρέπεται, αχνό = όχι. #}
+          {%- for flag, ic, label, color in [
+                ('allow_classify', '🏷️', 'Χαρακτηρισμοί', '#1fbf8a'),
+                ('allow_new', '➕', 'Νέα εγγραφή', '#22b8cf'),
+                ('allow_send', '📤', 'Αποστολή στο myDATA', '#8b5cf6'),
+                ('allow_cancel', '⚠', 'Ακυρώσεις & απορρίψεις', '#c6322a')] %}
+          {%- set on = active_company[flag] %}
+          <span class="who-badge {{ 'who-badge--off' if not on }}" style="--b:{{ color }}"
+                title="{{ label }}: {{ 'επιτρέπεται' if on else 'δεν επιτρέπεται' }}"
+                aria-label="{{ label }}: {{ 'επιτρέπεται' if on else 'δεν επιτρέπεται' }}">{{ ic }}</span>
+          {%- endfor %}
         </small>
       </a>
       {% endif %}
@@ -98,8 +109,8 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
       <button type="button" class="menu-btn" data-nav-toggle aria-label="Μενού" aria-controls="sidebar">{{ icon('menu') }}</button>
       <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark">my</span><b>myDATA</b></a>
       {% if active_company %}
-      <a class="who who--bar {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('companies') }}"
-         title="Αλλαγή ενεργής εταιρείας">{{ active_company.company_name }}<small>{{ active_company.MYDATA_ENV or 'prod' }}</small></a>
+      <a class="who who--bar {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('companies') }}" data-co-edit
+         title="Παράμετροι εταιρείας">{{ active_company.company_name }}<small>{{ active_company.MYDATA_ENV or 'prod' }}</small></a>
       {% endif %}
     </header>
     <main>
@@ -120,6 +131,28 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
     </main>
   </div>
 </div>
+{% if active_company %}
+{# Παράμετροι ενεργής εταιρείας: ανοίγουν πάνω στην τρέχουσα σελίδα· η αποθήκευση γυρνά εδώ (back). #}
+<dialog id="co-edit-active" class="modal" aria-labelledby="co-edit-active-t" closedby="any">
+  <form method="post" action="{{ url_for('companies_update', idx=active_index) }}">
+    <input type="hidden" name="back" value="{{ request.full_path }}">
+    <div class="modal-head">
+      <h2 id="co-edit-active-t">✎ {{ active_company.company_name }}</h2>
+      <button type="button" class="btn-ghost btn-sm" commandfor="co-edit-active" command="close" aria-label="Κλείσιμο">✕</button>
+    </div>
+    {{ company_fields(active_company, 'ea') }}
+    <div class="co-dialog-foot">
+      <button type="button" class="btn-ghost" commandfor="co-edit-active" command="close">Άκυρο</button>
+      <button type="submit">💾 Αποθήκευση</button>
+    </div>
+  </form>
+</dialog>
+<script>
+document.querySelectorAll('[data-co-edit]').forEach(function(a){
+  a.addEventListener('click', function(e){ e.preventDefault(); document.getElementById('co-edit-active').showModal(); });
+});
+</script>
+{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>
