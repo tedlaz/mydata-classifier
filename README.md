@@ -1,5 +1,7 @@
 # myDATA Βιβλίο Εσόδων-Εξόδων & Χαρακτηρισμός
 
+![myDATA Classifier demo](docs/demo.gif)
+
 Web εφαρμογή (Python/Flask) που λειτουργεί ως **τοπικό βιβλίο εσόδων-εξόδων** πάνω
 από το **myDATA REST API** της ΑΑΔΕ (διεπαφή ERP). Φέρνει τα παραστατικά σου,
 τα αποθηκεύει μόνιμα σε τοπική βάση SQLite και σου επιτρέπει να τα χαρακτηρίσεις
@@ -195,3 +197,7 @@ git tag -a "v$version" -m "Release v$version"
 git push origin HEAD
 git push origin "v$version"
 ```
+
+## Άδεια χρήσης
+
+GPL-3.0-or-later — βλ. [LICENSE](LICENSE). © 2026 Ted Lazaros
