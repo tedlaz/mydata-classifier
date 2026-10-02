@@ -85,7 +85,7 @@
 <header class="dc-hero dc-hero--{{ 'in' if is_income else 'out' }}">
   <i class="dc-blob b1"></i><i class="dc-blob b2"></i>
   <div class="dc-nav">
-    <a class="btn btn-ghost btn-sm" href="{{ back }}">← Πίσω στο βιβλίο</a>
+    <a class="btn btn-ghost btn-sm" href="{{ back }}">← {{ 'Επιστροφή' if 'docs=' in back else 'Πίσω στο βιβλίο' }}</a>
     <div class="grp">
       <a class="btn btn-ghost btn-sm {{ 'pg-off' if not prev_mark }}" data-doc-nav="prev" {% if prev_mark %}href="{{ doc_url(prev_mark) }}"{% endif %}
          title="Προηγούμενο (←)" aria-label="Προηγούμενο παραστατικό">‹</a>

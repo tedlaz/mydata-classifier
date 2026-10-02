@@ -126,6 +126,8 @@
 @media (prefers-reduced-motion:reduce){.db *,.db{animation:none!important;transition:none!important}.db-kpi polyline{stroke-dashoffset:0}}
 :root[data-same-page] .db *{animation:none!important}
 :root[data-same-page] .db-kpi polyline{stroke-dashoffset:0}
+.db-sync{flex-direction:column;gap:0;line-height:1.25}
+.db-sync small{font-size:.72rem;font-weight:500;opacity:.75}
 </style>
 
 <div class="db yr">
@@ -144,8 +146,10 @@
       </div>
       <div class="db-quick">
         {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>{% endif %}
-        <a class="btn btn-ghost" href="{{ url_for('invoices_sync') }}">🔄 Ανάκτηση εξόδων</a>
-        <a class="btn btn-ghost" href="{{ url_for('income_sync') }}">🔄 Ανάκτηση εσόδων</a>
+        {# Δεύτερη γραμμή: πληροφοριακά το τελευταίο διάστημα ανάκτησης (δεν είναι εκκρεμότητα). #}
+        {% for label, rng, href in last_ranges %}
+        <a class="btn btn-ghost db-sync" href="{{ href }}">🔄 Ανάκτηση {{ label }}<small>{{ rng or 'καμία ανάκτηση' }}</small></a>
+        {% endfor %}
       </div>
     </div>
 

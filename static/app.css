@@ -843,6 +843,8 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .yr-total td[rowspan]{vertical-align:middle;background:var(--surface-2);border-top:2px solid var(--line)}
 .yr-total .yr-sticky{background:var(--surface)}
 .yr-total--in .yr-sticky{box-shadow:inset 4px 0 0 var(--yr-in)} .yr-total--out .yr-sticky{box-shadow:inset 4px 0 0 var(--yr-out)}
+.yr-total--diff th,.yr-total--diff td{background:var(--surface-3);border-top:2px solid var(--line)}
+.yr-total--diff .yr-sticky{box-shadow:inset 4px 0 0 var(--accent)}
 .yr-note{padding:10px 18px 14px;margin:0}
 
 @media (max-width:520px){ .yr-head{align-items:flex-start} }
@@ -882,7 +884,6 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .yr-docs-modal .yr-scroll{max-height:calc(100vh - 220px);overflow:auto;margin:10px -22px 0;border-top:1px solid var(--line)}
 .yr-docs{min-width:980px}
 .yr-docs tbody td{border-bottom:1px solid var(--line-soft);vertical-align:top}
-.yr-docs tbody tr:hover td{background:var(--surface-2)}
 .yr-docs thead th{top:0}
 .yr-docs-cp b{display:block;font-family:var(--font-ui);font-weight:600;white-space:normal;max-width:260px}
 .yr-docs-cp .vat{font-size:.76rem;color:var(--muted)}
@@ -1294,6 +1295,17 @@ button.db-kpi:hover{filter:none;box-shadow:none}
 .yr-empty .yr-month-cell{color:var(--muted);font-weight:600}
 .yr-empty-note{font-family:var(--font-ui)!important;font-size:.76rem;color:var(--muted);font-style:italic;
   background:repeating-linear-gradient(135deg,transparent 0 8px,var(--line-soft) 8px 9px)!important}
+/* Πίνακας: εναλλασσόμενοι μήνες, έντονο διαχωριστικό μήνα, απαλή γραμμή έσοδα/έξοδα */
+.yr2 .yr-table thead th{background:var(--surface-3);color:var(--ink-2);border-bottom:2px solid var(--accent)}
+.yr2 .yr-table tbody:nth-of-type(even) td,.yr2 .yr-table tbody:nth-of-type(even) th{background:var(--surface-2)}
+.yr2 .yr-table tbody tr:last-child td,.yr2 .yr-table tbody tr:last-child th,
+.yr2 .yr-table tbody td[rowspan],.yr2 .yr-table tbody th[rowspan]{border-bottom:2px solid var(--line)}
+.yr2 .yr-table tbody tr:first-child:not(:last-child) td:not([rowspan]){border-bottom:1px dashed var(--line-soft)}
+.yr2 .yr-month-cell{background:var(--surface-2);border-right:1px solid var(--line)}
+.yr2 .yr-table tbody:nth-of-type(even) .yr-month-cell{background:var(--surface-3)}
+.yr2 .yr-table tbody:hover td,.yr2 .yr-table tbody:hover th{background:var(--surface-3)}
+.yr2 .yr-table tbody:hover .yr-month-cell{color:var(--accent)}
+.yr2 .yr-docs-modal .yr-table tbody:hover td,.yr2 .yr-docs-modal .yr-table tbody:hover th{background:var(--surface)}
 .yr2 .yr-total th,.yr2 .yr-total td{padding:9px 10px}
 .yr2 .yr-note{padding:10px 16px 12px}
 @media (prefers-reduced-motion:reduce){.yr2 *,.yr2 .card{animation:none!important}}

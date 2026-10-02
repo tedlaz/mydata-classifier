@@ -200,13 +200,19 @@
         <tr class="yr-total yr-total--in">
           <th class="yr-sticky" colspan="2">Σύνολα εσόδων</th>
           <td class="num yr-net">{{ income_total.net|el_amount }}</td>
-          <td class="num" rowspan="2"><span class="yr-bal {{ 'is-neg' if balance < 0 else 'is-pos' }}">{{ balance|el_amount }}</span></td>
+          <td class="num" rowspan="3"><span class="yr-bal {{ 'is-neg' if balance < 0 else 'is-pos' }}">{{ balance|el_amount }}</span></td>
           {% for key, label in cols %}<td class="num">{{ income_total[key]|el_amount }}</td>{% endfor %}
         </tr>
         <tr class="yr-total yr-total--out">
           <th class="yr-sticky" colspan="2">Σύνολα εξόδων</th>
           <td class="num yr-net">{{ expense_total.net|el_amount }}</td>
           {% for key, label in cols %}<td class="num">{{ expense_total[key]|el_amount }}</td>{% endfor %}
+        </tr>
+        <tr class="yr-total yr-total--diff">
+          <th class="yr-sticky" colspan="2">Διαφορά (Εσ. − Εξ.)</th>
+          {% set d = (income_total.net - expense_total.net)|round(2) %}
+          <td class="num yr-net"><span class="{{ 'yneg' if d < 0 }}">{{ d|el_amount }}</span></td>
+          {% for key, label in cols %}{% set d = (income_total[key] - expense_total[key])|round(2) %}<td class="num"><span class="{{ 'yneg' if d < 0 }}">{{ d|el_amount }}</span></td>{% endfor %}
         </tr>
       </tfoot>
     </table>
@@ -298,19 +304,33 @@
 
   // ---- Modal: παραστατικά μήνα («Έσοδα»/«Έξοδα») ή ανάλυση Ε3 («Καθαρό κέρδος») ----
   const dlg = document.getElementById('yr-docs');
-  document.addEventListener('click', async e => {
-    const btn = e.target.closest('.yr [data-docs]');
-    if (!btn) return;
-    hide();
+  async function openDocs(url) {
     dlg.innerHTML = '<p class="muted">Φόρτωση…</p>';
     dlg.showModal();
     try {
-      const r = await fetch(btn.dataset.docs);
+      const r = await fetch(url);
       dlg.innerHTML = r.ok ? await r.text() : '<p class="note note--err">Σφάλμα φόρτωσης (' + r.status + ').</p>';
     } catch (_) {
       dlg.innerHTML = '<p class="note note--err">Σφάλμα σύνδεσης.</p>';
     }
+  }
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('.yr [data-docs]');
+    if (btn) { hide(); openDocs(btn.dataset.docs); }
   });
+  // Επιστροφή από παραστατικό που άνοιξε από το modal: ξανανοίγει το ίδιο modal.
+  const back = new URLSearchParams(location.search).get('docs');
+  if (back && back.startsWith('/reports/yearly/')) {
+    // Το sidebar έχει δικό του view-transition και ζωγραφίζεται πάνω από το modal όσο κρατά η μετάβαση:
+    // άνοιγμα αφού τελειώσει. Το pagereveal μπορεί να έχει ήδη συμβεί → εφεδρικό χρονόμετρο (> 0,26s της μετάβασης).
+    let opened = false;
+    const go = () => { if (!opened) { opened = true; openDocs(back); } };
+    const timer = setTimeout(go, 350);
+    addEventListener('pagereveal', e => {
+      if (e.viewTransition) { clearTimeout(timer); e.viewTransition.finished.finally(go); }
+    }, {once: true});
+    const u = new URL(location); u.searchParams.delete('docs'); history.replaceState(null, '', u);
+  }
   dlg.addEventListener('click', e => { if (e.target.closest('[data-close]')) dlg.close(); });
   dlg.addEventListener('close', () => { dlg.innerHTML = ''; });
 

@@ -29,4 +29,20 @@ for mark in ("2001", "2004"):  # 2004: χωρίς γραμμές → συμβο�
 assert db.get_document(cid, "2002")["status"] == "unclassified"
 assert db.get_document(cid, "2003")["status"] == "classified"
 assert A._classify_zero_docs(cid, ["2001"]) == 0  # δεύτερη ανάκτηση: τίποτα
+
+# Αρχείο πελάτη (κλειδωμένη, χαρακτηρισμοί κλειστοί): η ανάκτηση χαρακτηρίζει τα μηδενικά, τίποτε άλλο.
+from types import SimpleNamespace as NS  # noqa: E402
+lid = db.add_company({"company_name": "Πελάτης"})
+db.lock_company(lid)
+db.set_active_company_id(lid)
+for mark, net, vat in (("3001", 0.0, 0.0), ("3002", 50.0, 12.0)):
+    db.upsert_document(lid, "expense", {"mark": mark, "issue_date": "2026-01-10", "issuer_vat": "111", "invoice_type": "1.1",
+                                        "total_net": net, "total_vat": vat, "total_gross": net + vat}, "unclassified")
+fetched = [A._row_to_invoice(db.get_document(lid, m)) for m in ("3001", "3002")]
+A.get_client = lambda: NS(request_unclassified_expenses=lambda *a: fetched, request_classified_expenses=lambda *a: [])
+A.enrich_issuer_names = lambda *a, **k: None
+A.app.testing = True
+A.app.test_client().post("/fetch", data={"date_from": "2026-01-01", "date_to": "2026-01-31"})
+assert db.get_document(lid, "3001")["status"] == "confirmed"
+assert db.get_document(lid, "3002")["status"] == "unclassified"
 print("OK")

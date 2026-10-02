@@ -652,6 +652,11 @@ def index():
     return redirect(url_for("dashboard"))
 
 
+def _range_key(kind: str) -> str:
+    """Ρύθμιση με το τελευταίο διάστημα ανάκτησης, ανά βιβλίο και ανά (ενεργή) εταιρεία."""
+    return f"last_{'income_' if kind == 'income' else ''}range:{_active_company_id()}"
+
+
 @app.route("/fetch", methods=["POST"])
 def fetch():
     date_from = request.form.get("date_from", "")
@@ -695,7 +700,7 @@ def fetch():
         db.upsert_document(cid, "expense", _invoice_to_doc(inv), "confirmed")
     n0 = _classify_zero_docs(cid, [inv.mark for inv in unclassified])
 
-    db.set_setting("last_range", f"{df} – {dt}")
+    db.set_setting(_range_key("expense"), f"{df} – {dt}")
     flash(
         f"✔ Ανακτήθηκαν και αποθηκεύτηκαν {len(unclassified) + len(classified)} "
         "παραστατικά."
@@ -857,9 +862,7 @@ def _sync_page(kind: str):
         last_mark=str(max(marks)) if marks else None,  # όπως στην κεφαλίδα του βιβλίου
         range_date_from=request.args.get("date_from", "").strip() or today,
         range_date_to=request.args.get("date_to", "").strip() or today,
-        date_range=db.get_setting(
-            "last_income_range" if kind == "income" else "last_range"
-        ),
+        date_range=db.get_setting(_range_key(kind)),
     )
 
 
@@ -968,7 +971,7 @@ def invoices():
         view=view,
         invoices=page_items,
         counts=counts,
-        date_range=db.get_setting("last_range"),
+        date_range=db.get_setting(_range_key("expense")),
         last_mark=last_mark,
         categories=EXPENSE_CATEGORIES,
         types=EXPENSE_TYPES,
@@ -2059,7 +2062,7 @@ def income_fetch():
     for inv in classified:
         db.upsert_document(cid, "income", _income_to_doc(inv), "classified")
 
-    db.set_setting("last_income_range", f"{df} – {dt}")
+    db.set_setting(_range_key("income"), f"{df} – {dt}")
     flash(
         f"✔ Ανακτήθηκαν {len(unclassified) + len(classified)} παραστατικά εσόδων "
         f"({len(unclassified)} αχαρακτήριστα, {len(classified)} χαρακτηρισμένα)"
@@ -2154,7 +2157,7 @@ def income():
         view=view,
         invoices=page_items,
         counts=counts,
-        date_range=db.get_setting("last_income_range"),
+        date_range=db.get_setting(_range_key("income")),
         last_mark=last_mark,
         categories=INCOME_CATEGORIES,
         types=INCOME_TYPES,
@@ -3102,15 +3105,6 @@ def _spark(values: list[float], w: int = 120, h: int = 34) -> str:
     return " ".join(f"{i * step:.1f},{h - 2 - (v - lo) / span * (h - 4):.1f}" for i, v in enumerate(values))
 
 
-def _days_since_range(setting: str) -> int | None:
-    """Μέρες από το τέλος του τελευταίου διαστήματος ανάκτησης («dd/mm/yyyy – dd/mm/yyyy»)."""
-    try:
-        end = datetime.strptime((db.get_setting(setting) or "").split("–")[-1].strip(), "%d/%m/%Y").date()
-    except ValueError:
-        return None
-    return (datetime.now(ATHENS).date() - end).days
-
-
 @app.route("/dashboard")
 def dashboard():
     """Πίνακας ελέγχου: εκκρεμότητες, σύνοψη έτους, ΦΠΑ περιόδου, κορυφαίοι προμηθευτές, πρόσφατα."""
@@ -3178,13 +3172,6 @@ def dashboard():
          url_for("invoices", view="sent"), "info")
     todo(inc_st.get("unclassified", 0), "💶", "Έσοδα προς χαρακτηρισμό", "Αχαρακτήριστα παραστατικά εσόδων",
          url_for("income", view="unclassified"), "warn")
-    for setting, label, endpoint in (("last_range", "εξόδων", "invoices_sync"),
-                                     ("last_income_range", "εσόδων", "income_sync")):
-        days = _days_since_range(setting)
-        if days is None or days > 7:
-            todo("↻", "🔄", f"Ανάκτηση {label} από myDATA",
-                 "Δεν έχει γίνει ακόμα" if days is None else f"Το τελευταίο διάστημα έληξε πριν από {days} ημέρες",
-                 url_for(endpoint), "muted")
     due_monthly = [t for t in _recurring_pending(cid, today.strftime("%Y-%m")) if t["monthly_day"] <= today.day]
     todo(len(due_monthly), "🔁", "Μηνιαίες εγγραφές προς δημιουργία", ", ".join(t["name"] for t in due_monthly),
          url_for("recurring"), "accent")
@@ -3229,7 +3216,9 @@ def dashboard():
     return render_template(
         "dashboard.html", company=company, year=year, kpi=kpi, chart=_yearly_chart(rows), vat=vat,
         vat_periods=_yearly_vat_periods(rows, year, now),
-        todos=todos, segments=segments, exp_total=exp_total, done_pct=done_pct, inc_st=inc_st,
+        todos=todos, segments=segments,
+        last_ranges=(("εξόδων", db.get_setting(_range_key("expense")), url_for("invoices_sync")),
+                     ("εσόδων", db.get_setting(_range_key("income")), url_for("income_sync"))), exp_total=exp_total, done_pct=done_pct, inc_st=inc_st,
         top=top, top_max=max([t["amount"] for t in top] + [1]), recent=recent,
         type_names=INVOICE_TYPE_NAMES, today=today.strftime("%d/%m/%Y"), hour=now.hour,
     )
@@ -4164,7 +4153,7 @@ def companies_select(idx):
         return redirect(url_for("companies"))
     db.set_active_company_id(comps[idx]["id"])
     flash(f"✔ Ενεργή εταιρεία: «{comps[idx].get('company_name', '')}».", "ok")
-    return redirect(url_for("companies"))
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/supplier_lookup/<vat>")

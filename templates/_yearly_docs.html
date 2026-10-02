@@ -1,5 +1,7 @@
 {# Περιεχόμενο του modal «Αναλυτικά» της ετήσιας σύνοψης (φορτώνεται με fetch). #}
 {% set is_in = kind == 'income' %}
+{# «Επιστροφή» από το παραστατικό: η σύνοψη ξανανοίγει αυτό το modal (?docs=) #}
+{% set back = url_for('reports_yearly', year=request.args.year, unc=request.args.unc, docs=request.full_path) %}
 <div class="modal-head">
   <h2><i class="yr-dot {{ 'yr-dot--in' if is_in else 'yr-dot--out' }}"></i>{{ 'Έσοδα' if is_in else 'Έξοδα' }} · {{ label }}</h2>
   <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
@@ -21,7 +23,7 @@
     <tr class="{{ 'is-credit' if d.credit }}">
       <td>{{ d.issue_date }}</td>
       <td class="yr-docs-mark">
-        {% if is_in %}{{ d.mark }}{% else %}<a href="{{ url_for('document', mark=d.mark, back=url_for('reports_yearly', year=d.issue_date[:4])) }}">{{ d.mark }}</a>{% endif %}
+        <a href="{{ url_for('document', mark=d.mark, back=back) }}">{{ d.mark }}</a>
       </td>
       <td class="yr-docs-cp">
         <b>{{ d.counterparty_name or '—' }}</b><span class="vat">{{ d.counterparty_vat or '' }}</span>
