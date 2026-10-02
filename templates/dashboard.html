@@ -143,7 +143,7 @@
         </div>
       </div>
       <div class="db-quick">
-        <a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>
+        {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>{% endif %}
         <a class="btn btn-ghost" href="{{ url_for('invoices_sync') }}">🔄 Ανάκτηση εξόδων</a>
         <a class="btn btn-ghost" href="{{ url_for('income_sync') }}">🔄 Ανάκτηση εσόδων</a>
       </div>

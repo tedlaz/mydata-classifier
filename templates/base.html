@@ -68,6 +68,7 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
         {# Περιβάλλον + badges (μόνο σύμβολα, εξήγηση στο title) σε μία γραμμή. #}
         <small>{{ active_company.MYDATA_ENV or 'prod' }}
           {%- if active_company.use_accountant %}<span class="who-badge" title="Κλήσεις με τα credentials του λογιστή" aria-label="Λογιστής">👤</span>{% endif %}
+          {%- if not active_company.allow_send %}<span class="who-badge" title="Μόνο ανάγνωση — η αποστολή στο myDATA είναι απενεργοποιημένη" aria-label="Μόνο ανάγνωση">🔒</span>{% endif %}
           {%- if active_company.allow_cancel %}<span class="who-badge who-badge--danger" title="Επιτρέπονται ακυρώσεις (εσόδων & εξόδων) και απορρίψεις παραστατικών" aria-label="Επιτρέπονται ακυρώσεις/απορρίψεις">⚠</span>{% endif %}
         </small>
       </a>
@@ -75,7 +76,8 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
     <nav class="nav">
       {% for group, items in nav %}
         <div class="nav-group">{{ group }}</div>
-        {% for endpoint, label, ic, owns, is_sub in items %}
+        {% for endpoint, label, ic, owns, is_sub in items
+              if endpoint not in ('new_expense', 'recurring') or (active_company and active_company.allow_new) %}
           <a class="nav-link {{ 'nav-link--sub' if is_sub }} {{ 'is-active' if ep in owns }}" href="{{ url_for(endpoint) }}"
              {% if ep in owns %}aria-current="page"{% endif %}>{{ icon(ic) }}{{ label }}</a>
         {% endfor %}

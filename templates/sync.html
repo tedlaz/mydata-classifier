@@ -13,7 +13,7 @@
     '📤 Βιβλίο εσόδων' if income else '📥 Βιβλίο εξόδων',
     'Τα δικά σου παραστατικά, όπως τα διαβίβασες στο myDATA.' if income else 'Παραστατικά που σου διαβίβασαν άλλοι: χαρακτήρισε, στείλε, επιβεβαίωσε.',
     tabs, 'confirmed' if not income else 'classified', {}, date_range, last_mark, 'in' if income else 'out') %}
-  {% if not income %}<a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>{% endif %}
+  {% if not income and active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>{% endif %}
 {% endcall %}
 
 {# Κάτω από την κεφαλίδα: αντικαθίσταται με AJAX όταν αλλάζει καρτέλα του βιβλίου. #}

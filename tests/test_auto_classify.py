@@ -11,7 +11,7 @@ A.app.testing = True  # χωρίς πύλη login (βλ. _require_login)
 import db  # noqa: E402
 
 db.init_db()
-cid = db.add_company({"company_name": "Test"})
+cid = db.add_company({"company_name": "Test", "allow_send": True, "allow_classify": True, "allow_new": True})
 db.set_active_company_id(cid)
 db.save_rule(cid, "111", "E3_102_001", "category2_1", "VAT_361")
 for mark, vat in (("1001", "111"), ("1002", "999")):

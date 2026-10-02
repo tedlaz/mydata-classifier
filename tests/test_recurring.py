@@ -9,7 +9,8 @@ A.app.testing = True  # χωρίς πύλη login (βλ. _require_login)
 import db  # noqa: E402
 
 db.init_db()
-cid = db.add_company({"company_name": "Test", "AADE_VAT_NUMBER": "046949583"})
+cid = db.add_company({"company_name": "Test", "AADE_VAT_NUMBER": "046949583",
+                     "allow_send": True, "allow_classify": True, "allow_new": True})
 db.set_active_company_id(cid)
 line = {"amount": 500.0, "classification_category": "category2_4", "classification_type": "E3_585_016",
         "vat_category": "8", "vat_amount": 0.0, "vat_type": ""}

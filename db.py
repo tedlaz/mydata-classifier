@@ -133,6 +133,10 @@ CREATE TABLE IF NOT EXISTS companies (
     mydata_env             TEXT DEFAULT 'prod',
     use_accountant         INTEGER DEFAULT 0,
     allow_cancel           INTEGER DEFAULT 0,
+    allow_send             INTEGER DEFAULT 0,  -- αποστολές στο myDATA (κλειστές εξ ορισμού)
+    allow_classify         INTEGER DEFAULT 0,  -- χαρακτηρισμοί (κλειστοί εξ ορισμού)
+    allow_new              INTEGER DEFAULT 0,  -- «Νέα εγγραφή» / μηνιαίες (κλειστές εξ ορισμού)
+    locked                 INTEGER DEFAULT 0,  -- από «αρχείο πελάτη»: άδειες μόνιμα κλειστές
     vat_period             TEXT DEFAULT 'm',  -- περίοδος ΦΠΑ: 'm' = μηνιαία, 'q' = τριμηνιαία
     entity_type            TEXT DEFAULT 'legal',  -- 'sole' = ατομική, 'legal' = νομικό πρόσωπο
     birth_year             INTEGER               -- ατομική: έτος γέννησης (μειωμένοι συντελεστές νέων)
@@ -331,6 +335,9 @@ def init_db() -> None:
         comp_cols = {r["name"] for r in conn.execute("PRAGMA table_info(companies)")}
         if "allow_cancel" not in comp_cols:
             conn.execute("ALTER TABLE companies ADD COLUMN allow_cancel INTEGER DEFAULT 0")
+        for col in ("allow_send", "allow_classify", "allow_new", "locked"):  # και οι υπάρχουσες ξεκινούν κλειστές
+            if col not in comp_cols:
+                conn.execute(f"ALTER TABLE companies ADD COLUMN {col} INTEGER DEFAULT 0")
         if "vat_period" not in comp_cols:
             conn.execute("ALTER TABLE companies ADD COLUMN vat_period TEXT DEFAULT 'm'")
         if "entity_type" not in comp_cols:
@@ -388,6 +395,10 @@ def _company_row_to_dict(row: sqlite3.Row) -> dict:
         "MYDATA_ENV": row["mydata_env"] or "prod",
         "use_accountant": bool(row["use_accountant"]),
         "allow_cancel": bool(row["allow_cancel"]),
+        "allow_send": bool(row["allow_send"]),
+        "allow_classify": bool(row["allow_classify"]),
+        "allow_new": bool(row["allow_new"]),
+        "locked": bool(row["locked"]),
         "vat_period": "q" if row["vat_period"] == "q" else "m",
         "entity_type": "sole" if row["entity_type"] == "sole" else "legal",
         "birth_year": row["birth_year"],
@@ -412,8 +423,8 @@ def add_company(data: dict) -> int | None:
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO companies (company_name, aade_user_id, aade_subscription_key, "
-            "aade_vat_number, mydata_env, use_accountant, allow_cancel, vat_period, entity_type, birth_year) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "aade_vat_number, mydata_env, use_accountant, allow_cancel, allow_send, allow_classify, allow_new, vat_period, entity_type, birth_year) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 data.get("company_name", ""),
                 auth.enc(data.get("AADE_USER_ID") or ""),
@@ -422,6 +433,9 @@ def add_company(data: dict) -> int | None:
                 data.get("MYDATA_ENV", "prod"),
                 1 if data.get("use_accountant") else 0,
                 1 if data.get("allow_cancel") else 0,
+                1 if data.get("allow_send") else 0,
+                1 if data.get("allow_classify") else 0,
+                1 if data.get("allow_new") else 0,
                 "q" if data.get("vat_period") == "q" else "m",
                 "sole" if data.get("entity_type") == "sole" else "legal",
                 birth_year(data.get("birth_year")),
@@ -435,7 +449,11 @@ def update_company(company_id: int, data: dict) -> None:
         conn.execute(
             "UPDATE companies SET company_name = ?, aade_user_id = ?, "
             "aade_subscription_key = ?, aade_vat_number = ?, mydata_env = ?, "
-            "use_accountant = ?, allow_cancel = ?, vat_period = ?, entity_type = ?, birth_year = ? WHERE id = ?",
+            "use_accountant = ?, vat_period = ?, entity_type = ?, birth_year = ?, "
+            # κλειδωμένη εταιρεία (αρχείο πελάτη): οι άδειες μένουν κλειστές, ό,τι κι αν έρθει
+            "allow_cancel = CASE WHEN locked THEN 0 ELSE ? END, allow_send = CASE WHEN locked THEN 0 ELSE ? END, "
+            "allow_classify = CASE WHEN locked THEN 0 ELSE ? END, allow_new = CASE WHEN locked THEN 0 ELSE ? END "
+            "WHERE id = ?",
             (
                 data.get("company_name", ""),
                 auth.enc(data.get("AADE_USER_ID") or ""),
@@ -443,12 +461,25 @@ def update_company(company_id: int, data: dict) -> None:
                 data.get("AADE_VAT_NUMBER", ""),
                 data.get("MYDATA_ENV", "prod"),
                 1 if data.get("use_accountant") else 0,
-                1 if data.get("allow_cancel") else 0,
                 "q" if data.get("vat_period") == "q" else "m",
                 "sole" if data.get("entity_type") == "sole" else "legal",
                 birth_year(data.get("birth_year")),
+                1 if data.get("allow_cancel") else 0,
+                1 if data.get("allow_send") else 0,
+                1 if data.get("allow_classify") else 0,
+                1 if data.get("allow_new") else 0,
                 company_id,
             ),
+        )
+
+
+def lock_company(company_id: int) -> None:
+    """«Αρχείο πελάτη»: μόνο αναφορές — όλες οι άδειες κλειστές, και δεν ξανανοίγουν (βλ. update_company)."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE companies SET locked = 1, allow_cancel = 0, allow_send = 0, allow_classify = 0, allow_new = 0 "
+            "WHERE id = ?",
+            (company_id,),
         )
 
 

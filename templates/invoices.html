@@ -19,7 +19,7 @@
 {% call ledger_hero('invoices', q, '📥 Βιβλίο εξόδων', 'Παραστατικά που σου διαβίβασαν άλλοι: χαρακτήρισε, στείλε, επιβεβαίωσε.',
     [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️'), ('sent', 'Απεσταλμένα', '🚀'), ('confirmed', 'Ολοκληρωμένα', '✅')],
     'confirmed', sums, date_range, last_mark, 'out') %}
-  <a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>
+  {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>{% endif %}
 {% endcall %}
 
 <div class="card ledger-card" data-view="{{ view }}" data-lh-body>
@@ -106,9 +106,10 @@
             <div class="actions">
               {% if view == 'classified' and inv.local_action == 'create' %}
                 {# Τοπική «Νέα εγγραφή» που δεν έχει διαβιβαστεί: επεξεργασία/διαγραφή. #}
-                <a class="btn" href="{{ url_for('new_expense', edit=inv.mark) }}">Επεξεργασία</a>
+                {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense', edit=inv.mark) }}">Επεξεργασία</a>{% endif %}
                 <button type="submit" formaction="{{ url_for('draft_delete', mark=inv.mark) }}" formmethod="post" class="btn-danger"
                         data-confirm="Η τοπική εγγραφή {{ inv.mark }} θα διαγραφεί. Συνέχεια;">Διαγραφή</button>
+              {% elif not active_company.allow_classify %}
               {% elif view == 'unclassified' %}
                 <a class="btn btn-icon" href="{{ url_for('classify', mark=inv.mark) }}"
                    title="Χαρακτηρισμός" aria-label="Χαρακτηρισμός {{ inv.mark }}">{{ icon('edit') }}</a>
@@ -129,7 +130,7 @@
 
     {{ pager('invoices', q, page, total_pages) }}
 
-    {% if view == 'unclassified' %}
+    {% if view == 'unclassified' and active_company.allow_classify %}
     <div class="panel">
       <h2>Μαζικός χαρακτηρισμός επιλεγμένων (τοπικά)</h2>
       <p class="muted">
@@ -180,7 +181,12 @@
     </div>
     {% elif view == 'classified' %}
     <div class="btn-row">
+      {% if active_company.allow_send %}
       <button type="submit" class="btn-send">📤 Αποστολή στο myDATA (επιλεγμένα ή όλα)</button>
+      {% else %}
+      <button type="button" class="btn-send" disabled title="Η αποστολή στο myDATA είναι απενεργοποιημένη">🔒 Αποστολή στο myDATA</button>
+      <span class="muted">Μόνο ανάγνωση — ενεργοποίησε την αποστολή στις <a href="{{ url_for('companies') }}">Παραμέτρους εταιρείας</a>.</span>
+      {% endif %}
       <button type="submit" formaction="{{ url_for('unclassify') }}" class="btn-ghost" data-require=".sel"
               data-confirm="Οι επιλεγμένοι χαρακτηρισμοί θα διαγραφούν και τα παραστατικά θα επιστρέψουν στα αχαρακτήριστα. Οι δικές σου «Νέες εγγραφές» θα διαγραφούν. Συνέχεια;">↩ Επαναφορά σε αχαρακτήριστα</button>
     </div>

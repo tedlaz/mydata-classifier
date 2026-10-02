@@ -161,6 +161,12 @@
     const form = e.target;
     if (form.dataset.confirm && !confirm(form.dataset.confirm)) { e.preventDefault(); return; }
     if (form.method.toLowerCase() === 'get') return;
+    // Φόρμα που κατεβάζει αρχείο: η σελίδα δεν αλλάζει, άρα καμία ένδειξη φόρτωσης·
+    // μετά την υποβολή κλείνει ο διάλογος και σβήνουν τα πεδία (π.χ. κωδικοί).
+    if ('download' in form.dataset) {
+      setTimeout(() => { form.reset(); form.closest('dialog')?.close(); });
+      return;
+    }
     if (e.submitter) e.submitter.classList.add('is-loading');
     document.body.classList.add('is-busy');
   });

@@ -15,7 +15,7 @@ import threading
 import tomllib
 import unicodedata
 from datetime import date, datetime, timedelta
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
 import requests
@@ -94,6 +94,26 @@ def _require_login():
         return redirect(url_for("setup"))
     if not auth.unlocked() or session.get("auth") != auth.nonce:
         return redirect(url_for("login"))
+    return None
+
+
+# Ενέργειες που ανοίγει μόνο η αντίστοιχη ρύθμιση της εταιρείας (Παράμετροι) — κλειστές εξ ορισμού.
+# Το /send ελέγχει ανά παραστατικό (classify → allow_classify, create → allow_new).
+_GATED = {
+    "allow_classify": ({"auto_classify", "classify", "submit", "bulk_classify"},
+                       "Οι χαρακτηρισμοί είναι απενεργοποιημένοι για την εταιρεία — ενεργοποίησέ τους στις Παραμέτρους εταιρείας."),
+    "allow_new": ({"new_expense", "new_expense_submit", "expense_template_save", "expense_template_delete",
+                   "recurring", "recurring_days", "recurring_create"},
+                  "Η «Νέα εγγραφή» είναι απενεργοποιημένη για την εταιρεία — ενεργοποίησέ την στις Παραμέτρους εταιρείας."),
+}
+
+
+@app.before_request
+def _require_feature():
+    for flag, (endpoints, msg) in _GATED.items():
+        if request.endpoint in endpoints and not (get_active_company() or {}).get(flag):
+            flash(msg, "error")
+            return redirect(url_for("invoices"))
     return None
 
 
@@ -260,13 +280,22 @@ def get_active_company() -> dict | None:
     return companies[get_active_index()]
 
 
+def send_allowed() -> bool:
+    """Κάθε αποστολή στο myDATA (χαρακτηρισμοί, νέες εγγραφές, ακυρώσεις, απορρίψεις)
+    επιτρέπεται μόνο αν το έχει ενεργοποιήσει η εταιρεία· αλλιώς μόνο ανάγνωση."""
+    c = get_active_company()
+    return bool(c and c.get("allow_send"))
+
+
 def cancel_allowed() -> bool:
     """Ακυρώσεις ΚΑΙ απορρίψεις παραστατικών επιτρέπονται μόνο αν το έχει ενεργοποιήσει η
-    εταιρεία (Παράμετροι)."""
+    εταιρεία (Παράμετροι) — και είναι ενεργή η αποστολή στο myDATA."""
     c = get_active_company()
-    return bool(c and c.get("allow_cancel"))
+    return send_allowed() and bool(c.get("allow_cancel"))
 
 
+SEND_DISABLED_MSG = ("Η αποστολή στο myDATA είναι απενεργοποιημένη για την εταιρεία — "
+                     "ενεργοποίησέ την στις Παραμέτρους εταιρείας.")
 CANCEL_DISABLED_MSG = ("Οι ακυρώσεις/απορρίψεις παραστατικών είναι απενεργοποιημένες για την εταιρεία — "
                        "ενεργοποίησέ τες στις Παραμέτρους εταιρείας.")
 
@@ -1810,6 +1839,9 @@ def send():
     if not cid:
         flash("Δεν έχει οριστεί ενεργή εταιρεία.", "error")
         return redirect(url_for("invoices"))
+    if not send_allowed():
+        flash(SEND_DISABLED_MSG, "error")
+        return redirect(url_for("invoices", view="classified"))
 
     selected = set(request.form.getlist("marks"))
     rows = db.get_documents(cid, "expense", ["classified"])
@@ -1828,6 +1860,10 @@ def send():
             if action in ("reject", "cancel") and not cancel_allowed():
                 # η άδεια μπορεί να αφαιρέθηκε αφού μπήκε στην ουρά
                 failed.append(f"{mark}: {CANCEL_DISABLED_MSG}")
+                continue
+            flag = {"create": "allow_new", "reject": None, "cancel": None}.get(action, "allow_classify")
+            if flag and not get_active_company().get(flag):
+                failed.append(f"{mark}: {_GATED[flag][1]}")
                 continue
             if action == "reject":
                 result = client.reject_invoice(mark)
@@ -4023,6 +4059,9 @@ def companies_add():
             "MYDATA_ENV": env,
             "use_accountant": use_acc,
             "allow_cancel": bool(request.form.get("allow_cancel")),
+            "allow_send": bool(request.form.get("allow_send")),
+            "allow_classify": bool(request.form.get("allow_classify")),
+            "allow_new": bool(request.form.get("allow_new")),
             "vat_period": request.form.get("vat_period", "m"),
             **_company_tax_fields(),
         }
@@ -4064,6 +4103,9 @@ def companies_update(idx):
             "MYDATA_ENV": request.form.get("mydata_env", "prod"),
             "use_accountant": bool(request.form.get("use_accountant")),
             "allow_cancel": bool(request.form.get("allow_cancel")),
+            "allow_send": bool(request.form.get("allow_send")),
+            "allow_classify": bool(request.form.get("allow_classify")),
+            "allow_new": bool(request.form.get("allow_new")),
             "vat_period": request.form.get("vat_period", "m"),
             **_company_tax_fields(),
         },
@@ -4392,6 +4434,58 @@ def companies_import():
         + ".",
         "ok",
     )
+    return redirect(url_for("companies"))
+
+
+# «Αρχείο πελάτη»: ο λογιστής δίνει στον πελάτη την εταιρεία του, κρυπτογραφημένη με κωδικό,
+# για να βλέπει μόνο αναφορές. Μόνο τα κλειδιά της εταιρείας — ΠΟΤΕ του λογιστή.
+@app.route("/companies/share/<int:idx>", methods=["POST"])
+def company_share(idx):
+    comps = load_companies()
+    if not (0 <= idx < len(comps)):
+        flash("Η εταιρεία δεν βρέθηκε.", "error")
+        return redirect(url_for("companies"))
+    pw = request.form.get("password", "")
+    if len(pw) < 8 or pw != request.form.get("password2"):
+        flash("Κωδικός αρχείου: τουλάχιστον 8 χαρακτήρες, ίδιος και στις δύο θέσεις.", "error")
+        return redirect(url_for("companies"))
+    c = comps[idx]
+    company = {k: c.get(k) for k in _COMPANY_KEYS} | {"use_accountant": False}
+    if not (c.get("AADE_USER_ID") and c.get("AADE_SUBSCRIPTION_KEY")):
+        flash("Η εταιρεία δεν έχει δικά της κλειδιά ΑΑΔΕ: ο πελάτης θα συμπληρώσει τα δικά του από το myAADE.", "ok")
+    fname = re.sub(r'[\\/:*?"<>|]+', "_", c["company_name"]).strip() or "company"
+    return Response(
+        auth.seal({"company": company}, pw),
+        mimetype="application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}.my"},
+    )
+
+
+@app.route("/companies/import-share", methods=["POST"])
+def companies_import_share():
+    f = request.files.get("file")
+    if not f or not f.filename:
+        flash("Επίλεξε το αρχείο που σου έδωσε ο λογιστής.", "error")
+        return redirect(url_for("companies"))
+    try:
+        company = auth.unseal(f.read(), request.form.get("password", ""))["company"]
+        payload = {k: company.get(k) for k in _COMPANY_KEYS} | {"use_accountant": False}
+        name = (payload.get("company_name") or "").strip()
+        if not name:
+            raise ValueError
+    except (ValueError, KeyError, TypeError, AttributeError):
+        flash("Λάθος κωδικός ή μη έγκυρο αρχείο.", "error")
+        return redirect(url_for("companies"))
+    existing = {c["company_name"]: c["id"] for c in load_companies()}
+    if name in existing:
+        cid = existing[name]
+        db.update_company(cid, payload)
+    else:
+        cid = db.add_company(payload)
+    db.lock_company(cid)
+    if db.get_active_company_id() is None:
+        db.set_active_company_id(cid)
+    flash(f"✔ Εισαγωγή της «{name}» από τον λογιστή: μόνο αναφορές (κλειδωμένη).", "ok")
     return redirect(url_for("companies"))
 
 

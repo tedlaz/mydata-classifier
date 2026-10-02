@@ -112,7 +112,7 @@
       </div>
     </div>
     <div class="dc-acts">
-    {% if not is_income and status == 'confirmed' and inv.invoice_type in self_types %}
+    {% if not is_income and status == 'confirmed' and inv.invoice_type in self_types and active_company.allow_new %}
     <a class="btn btn-ghost btn-sm" href="{{ url_for('new_expense', copy=inv.mark) }}" title="Νέα εγγραφή με τα ίδια στοιχεία και χαρακτηρισμούς">📄 Αντιγραφή σε νέα εγγραφή</a>
     {% endif %}
     {% if not is_income and status == 'confirmed' and inv.issuer_vat %}
@@ -182,7 +182,7 @@
     <h2><span class="dc-ico">📋</span>Γραμμές &amp; χαρακτηρισμοί
       {% if status == 'confirmed' %}<span class="pill" title="Πηγή χαρακτηρισμού">{{ 'Manually (τοπικά)' if source == 'manual' else 'rest (myDATA)' }}</span>{% endif %}
     </h2>
-    {% if local_action != 'create' and not is_income %}
+    {% if local_action != 'create' and not is_income and active_company.allow_classify %}
     <a class="btn" href="{{ url_for('classify', mark=inv.mark) }}">✏️ Χαρακτηρισμός</a>
     {% endif %}
   </div>
@@ -298,7 +298,7 @@
   {% if local_action == 'create' and status == 'classified' %}
   {# Τοπική «Νέα εγγραφή» που ΔΕΝ έχει διαβιβαστεί: επεξεργασία ή διαγραφή. #}
   <div class="btn-row">
-    <a class="btn" href="{{ url_for('new_expense', edit=inv.mark) }}">✏️ Επεξεργασία εγγραφής</a>
+    {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense', edit=inv.mark) }}">✏️ Επεξεργασία εγγραφής</a>{% endif %}
     <form method="post" action="{{ url_for('draft_delete', mark=inv.mark) }}" class="inline-form">
       <button type="submit" class="btn-danger"
               data-confirm="Η τοπική εγγραφή {{ inv.mark }} θα διαγραφεί οριστικά. Συνέχεια;">🗑️ Διαγραφή</button>

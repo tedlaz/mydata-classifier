@@ -11,6 +11,7 @@
 import base64
 import hashlib
 import hmac
+import json
 import os
 import secrets
 
@@ -81,6 +82,24 @@ def enc(value: str) -> str:
     if not value or _dek is None or value.startswith(_PREFIX):
         return value
     return _PREFIX + _dek.encrypt(value.encode()).decode()
+
+
+def seal(obj, password: str) -> bytes:
+    """«Αρχείο πελάτη»: JSON κρυπτογραφημένο με κωδικό (scrypt + Fernet, όπως το DEK)."""
+    salt = os.urandom(16)
+    token = _kek(password, salt).encrypt(json.dumps(obj, ensure_ascii=False).encode())
+    return json.dumps({"format": "mydata-share", "v": 1, "salt": salt.hex(), "data": token.decode()}).encode()
+
+
+def unseal(raw: bytes, password: str):
+    """Αντίστροφο του seal· λάθος κωδικός ή χαλασμένο αρχείο → ValueError."""
+    try:
+        box = json.loads(raw)
+        if box.get("format") != "mydata-share":
+            raise ValueError
+        return json.loads(_kek(password, bytes.fromhex(box["salt"])).decrypt(box["data"].encode()))
+    except (InvalidToken, KeyError, TypeError, AttributeError, ValueError) as e:
+        raise ValueError("Λάθος κωδικός ή μη έγκυρο αρχείο.") from e
 
 
 def dec(value: str) -> str:

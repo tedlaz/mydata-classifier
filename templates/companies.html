@@ -54,8 +54,24 @@
   <span class="co-knob"></span>
   <span><b>👤 Χρήση credentials λογιστή</b><small>Το ΑΦΜ της εταιρείας στέλνεται ως <code>entityVatNumber</code>. Τότε τα User ID / Key είναι προαιρετικά.</small></span>
 </label>
+{% if c.locked %}<p class="co-warn">🔐 Κλειδωμένη από τον λογιστή — μόνο αναφορές. Οι άδειες δεν αλλάζουν.</p>{% endif %}
+<label class="co-switch co-switch--acc">
+  <input type="checkbox" name="allow_send" value="1" {{ 'checked' if c.allow_send }} {{ 'disabled' if c.locked }}>
+  <span class="co-knob"></span>
+  <span><b>📤 Επιτρέπεται αποστολή στο myDATA</b><small>Χαρακτηρισμοί, νέες εγγραφές, ακυρώσεις/απορρίψεις. Χωρίς αυτό η εφαρμογή μόνο διαβάζει από την ΑΑΔΕ.</small></span>
+</label>
+<label class="co-switch co-switch--acc">
+  <input type="checkbox" name="allow_classify" value="1" {{ 'checked' if c.allow_classify }} {{ 'disabled' if c.locked }}>
+  <span class="co-knob"></span>
+  <span><b>🏷️ Επιτρέπονται χαρακτηρισμοί</b><small>Χαρακτηρισμός, μαζικός και αυτόματος χαρακτηρισμός παραστατικών εξόδων.</small></span>
+</label>
+<label class="co-switch co-switch--acc">
+  <input type="checkbox" name="allow_new" value="1" {{ 'checked' if c.allow_new }} {{ 'disabled' if c.locked }}>
+  <span class="co-knob"></span>
+  <span><b>➕ Επιτρέπεται «Νέα εγγραφή»</b><small>Αυτοτιμολογούμενα έξοδα, πρότυπα και μηνιαίες εγγραφές.</small></span>
+</label>
 <label class="co-switch co-switch--cancel">
-  <input type="checkbox" name="allow_cancel" value="1" {{ 'checked' if c.allow_cancel }}>
+  <input type="checkbox" name="allow_cancel" value="1" {{ 'checked' if c.allow_cancel }} {{ 'disabled' if c.locked }}>
   <span class="co-knob"></span>
   <span><b>⚠ Επιτρέπονται ακυρώσεις &amp; απορρίψεις</b><small>Εσόδων και εξόδων. Οι ενέργειες αυτές είναι οριστικές στο myDATA.</small></span>
 </label>
@@ -207,6 +223,9 @@
 .co-switch b{display:block;color:var(--ink);font-size:.9rem}
 .co-switch small{display:block;color:var(--muted);font-size:.8rem;margin-top:2px}
 .co-dialog-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.co-share{margin-top:16px;border-top:1px solid var(--line, #8883);padding-top:12px}
+.co-share summary{cursor:pointer;font-weight:600}
+.co-share form{display:grid;gap:6px;margin-top:10px}
 
 @media (max-width:560px){ .co-fields{grid-template-columns:1fr} .co-grid{grid-template-columns:1fr} }
 @media (prefers-reduced-motion:reduce){
@@ -233,6 +252,7 @@
         <input type="file" name="file" accept=".json,application/json" required hidden data-autosubmit id="companies-import-file">
         <label for="companies-import-file" class="btn btn-ghost">📥 Εισαγωγή</label>
       </form>
+      <button type="button" class="btn-ghost" commandfor="co-share-dialog" command="show-modal">🔐 Αρχείο λογιστή</button>
     </div>
   </div>
   <div class="co-stats">
@@ -284,6 +304,10 @@
       {% if c.MYDATA_ENV == 'dev' %}<span class="co-tag co-tag--dev"><i></i>dev</span>
       {% else %}<span class="co-tag co-tag--prod"><i></i>prod</span>{% endif %}
       {% if c.use_accountant %}<span class="co-tag co-tag--acc">👤 Λογιστής</span>{% endif %}
+      {% if c.locked %}<span class="co-tag co-tag--danger">🔐 Κλειδωμένη</span>{% endif %}
+      {% if c.allow_send %}<span class="co-tag co-tag--acc">📤 Αποστολή</span>{% endif %}
+      {% if c.allow_classify %}<span class="co-tag co-tag--acc">🏷️ Χαρακτηρισμοί</span>{% endif %}
+      {% if c.allow_new %}<span class="co-tag co-tag--acc">➕ Νέα εγγραφή</span>{% endif %}
       {% if c.allow_cancel %}<span class="co-tag co-tag--danger">⚠ Ακυρώσεις</span>{% endif %}
     </div>
 
@@ -333,6 +357,20 @@
         <button type="submit">💾 Αποθήκευση</button>
       </div>
     </form>
+    {% if not c.locked %}
+    <details class="co-share">
+      <summary>🔐 Αρχείο πελάτη (μόνο αναφορές)</summary>
+      <form method="post" action="{{ url_for('company_share', idx=idx) }}" data-download>
+        <p class="muted small">Κρυπτογραφημένο αρχείο για να δει ο πελάτης τις αναφορές του στη δική του εγκατάσταση.
+          Περιέχει τα κλειδιά ΑΑΔΕ <b>της εταιρείας</b> (ποτέ του λογιστή). Δώσε τον κωδικό χωριστά, π.χ. τηλεφωνικά.</p>
+        <label for="sh-{{ idx }}-p1">Κωδικός αρχείου</label>
+        <input type="password" id="sh-{{ idx }}-p1" name="password" minlength="8" autocomplete="new-password" required>
+        <label for="sh-{{ idx }}-p2">Ξανά ο κωδικός</label>
+        <input type="password" id="sh-{{ idx }}-p2" name="password2" minlength="8" autocomplete="new-password" required>
+        <div class="btn-row"><button type="submit" class="btn-ghost">⬇ Λήψη αρχείου πελάτη</button></div>
+      </form>
+    </details>
+    {% endif %}
   </dialog>
   {% else %}
   <div class="co-none">
@@ -346,6 +384,25 @@
     <span>+</span>Νέα εταιρεία
   </button>
 </div>
+
+<dialog id="co-share-dialog" class="modal" aria-labelledby="co-share-t" closedby="any">
+  <form method="post" action="{{ url_for('companies_import_share') }}" enctype="multipart/form-data">
+    <div class="modal-head">
+      <h2 id="co-share-t">🔐 Εισαγωγή αρχείου λογιστή</h2>
+      <button type="button" class="btn-ghost btn-sm" commandfor="co-share-dialog" command="close" aria-label="Κλείσιμο">✕</button>
+    </div>
+    <p class="muted small">Το αρχείο <code>.my</code> που σου έδωσε ο λογιστής σου. Η εταιρεία μπαίνει <b>μόνο για αναφορές</b>:
+      ανάκτηση και αναφορές ναι, χαρακτηρισμοί και αποστολές όχι.</p>
+    <label for="sh-file">Αρχείο</label>
+    <input type="file" id="sh-file" name="file" accept=".my" required>
+    <label for="sh-pw">Κωδικός αρχείου</label>
+    <input type="password" id="sh-pw" name="password" autocomplete="off" required>
+    <div class="co-dialog-foot">
+      <button type="button" class="btn-ghost" commandfor="co-share-dialog" command="close">Άκυρο</button>
+      <button type="submit">📥 Εισαγωγή</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="co-add-dialog" class="modal" aria-labelledby="co-add-t" closedby="any">
   <form method="post" action="{{ url_for('companies_add') }}">
