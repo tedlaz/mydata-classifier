@@ -1,5 +1,5 @@
 """Έλεγχος προτάσεων χαρακτηρισμού ανά εταιρεία + μετάπτωσης από το παλιό κοινό σχήμα.
-Εκτέλεση: python test_rules_per_company.py"""
+Εκτέλεση: python -m tests.test_rules_per_company"""
 import os
 import sqlite3
 import tempfile

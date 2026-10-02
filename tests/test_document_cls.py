@@ -1,5 +1,5 @@
 """Έλεγχος κατανομής χαρακτηρισμών σε γραμμές / επίπεδο παραστατικού.
-Εκτέλεση: python test_document_cls.py"""
+Εκτέλεση: python -m tests.test_document_cls"""
 import os
 import tempfile
 from types import SimpleNamespace as NS

@@ -1,4 +1,4 @@
-"""Μηνιαίες εγγραφές από πρότυπα: μία ανά μήνα (python test_recurring.py)."""
+"""Μηνιαίες εγγραφές από πρότυπα: μία ανά μήνα (python -m tests.test_recurring)."""
 import os
 import tempfile
 

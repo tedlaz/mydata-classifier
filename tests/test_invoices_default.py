@@ -1,5 +1,5 @@
 """Έλεγχος: τα βιβλία εξόδων/εσόδων ανοίγουν στο πρώτο tab με εγγραφές, αλλιώς στην Ανάκτηση.
-Εκτέλεση: python test_invoices_default.py"""
+Εκτέλεση: python -m tests.test_invoices_default"""
 import os
 import re
 import tempfile

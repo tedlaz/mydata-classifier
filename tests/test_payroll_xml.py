@@ -1,4 +1,4 @@
-"""Μισθοδοσία 17.1: παρακράτηση φόρου + κρατήσεις ΕΦΚΑ στο XML (python test_payroll_xml.py)."""
+"""Μισθοδοσία 17.1: παρακράτηση φόρου + κρατήσεις ΕΦΚΑ στο XML (python -m tests.test_payroll_xml)."""
 
 import xml.etree.ElementTree as ET
 

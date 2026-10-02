@@ -1,4 +1,4 @@
-"""Αυτόματη φόρτωση συνδυασμών ΑΑΔΕ στην εκκίνηση (python test_combos_bundled.py)."""
+"""Αυτόματη φόρτωση συνδυασμών ΑΑΔΕ στην εκκίνηση (python -m tests.test_combos_bundled)."""
 import os
 import tempfile
 

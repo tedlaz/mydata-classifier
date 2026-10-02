@@ -1,5 +1,5 @@
 """Έλεγχος: CSRF, οθόνη επιβεβαίωσης αυτόματου χαρακτηρισμού, επαναφορά σε αχαρακτήριστα.
-Εκτέλεση: python test_auto_classify.py"""
+Εκτέλεση: python -m tests.test_auto_classify"""
 import os
 import tempfile
 from types import SimpleNamespace as NS

@@ -1,4 +1,4 @@
-"""Πρόβλεψη έτους: σημειακή πρόβλεψη, σενάρια, σελίδα (python test_forecast.py)."""
+"""Πρόβλεψη έτους: σημειακή πρόβλεψη, σενάρια, σελίδα (python -m tests.test_forecast)."""
 import os
 import tempfile
 

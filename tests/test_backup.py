@@ -1,4 +1,4 @@
-"""Backup / restore ολόκληρης της βάσης (python test_backup.py)."""
+"""Backup / restore ολόκληρης της βάσης (python -m tests.test_backup)."""
 import os
 import tempfile
 
