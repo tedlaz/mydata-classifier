@@ -882,6 +882,8 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .yr-docs-modal .modal-head h2{display:flex;align-items:center;font-size:1.1rem}
 .yr-e3-pdf{margin-left:auto;text-decoration:none}
 .yr-docs-modal .yr-scroll{max-height:calc(100vh - 220px);overflow:auto;margin:10px -22px 0;border-top:1px solid var(--line)}
+/* Ανάλυση Ε3: κυλά μόνο το modal (μία μπάρα) — ο πίνακας μεγαλώνει όσο χρειάζεται. */
+.yr-docs-modal .yr-scroll:has(.yr-e3){max-height:none}
 .yr-docs{min-width:980px}
 .yr-docs tbody td{border-bottom:1px solid var(--line-soft);vertical-align:top}
 .yr-docs thead th{top:0}
@@ -901,6 +903,7 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .yr-e3 tr.yr-e3-section th{padding:14px 12px 8px;background:var(--surface-2);text-align:left;font-family:var(--font-ui);
   font-size:.72rem;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);border-bottom:1px solid var(--line)}
 .yr-e3 tr.is-asset td{background:var(--yr-out-soft)}
+.yr-e3 tr.yr-e3-subhead th{padding:10px 12px 4px;text-align:left;font:700 .8rem var(--font-ui);color:var(--ink-2)}
 .yr-e3 tr.yr-e3-sum th,.yr-e3 tr.yr-e3-sum td{font-weight:700;border-top:2px solid var(--line);background:var(--surface)}
 .yr-e3 tr.yr-e3-sum th{text-align:left;font-family:var(--font-ui)}
 .yr-e3-result{display:grid;grid-template-columns:1fr auto;gap:6px 24px;margin:14px 0 0;padding:14px 16px;border-radius:12px;
@@ -1254,17 +1257,14 @@ button.db-kpi:hover{filter:none;box-shadow:none}
 .yr-pl-card{padding:16px 18px;display:flex;flex-direction:column;gap:12px}
 .yr-pl-card .yr-chart-head{margin:0}
 .yr-wf{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
-.yr-wf li{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) auto;align-items:center;gap:10px;
+.yr-wf li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;
   animation:db-rise .5s var(--ease) both;animation-delay:calc(var(--i) * 80ms + 350ms)}
 .yr-wf-l{font-size:.84rem;font-weight:600;color:var(--ink-2);line-height:1.2}
-.yr-wf-l small{display:block;font-size:.7rem;font-weight:500;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.yr-wf-bar{height:10px;border-radius:99px;background:var(--surface-3);overflow:hidden}
-.yr-wf-bar i{display:block;height:100%;width:var(--w);border-radius:inherit;transform-origin:left;
-  animation:db-fill 1.1s var(--ease) both;animation-delay:calc(var(--i) * 100ms + 500ms)}
-.yr-wf-bar .in{background:var(--yr-in)} .yr-wf-bar .out{background:var(--yr-out)}
-.yr-wf-bar .asset{background:repeating-linear-gradient(45deg,var(--yr-out) 0 3px,var(--yr-out-soft) 3px 6px)}
-.yr-wf-bar .res{background:var(--accent-grad)}
 .yr-wf b{font:700 .88rem var(--font-data);text-align:right;white-space:nowrap;min-width:92px}
+.yr-wf li.yr-wf-group{display:block;padding:10px 12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line)}
+.yr-wf-sub{padding-top:8px;border-top:1px dashed var(--line)}
+.yr-wf-sub .yr-wf-l{color:var(--ink);font-weight:800}
+.yr-wf-aside{margin-top:6px;padding-top:10px;border-top:1px dashed var(--line);opacity:.85}
 .yr-wf-res{margin-top:4px;padding:10px 12px;border-radius:12px;background:var(--accent-soft);border:1px solid var(--accent-glow)}
 .yr-wf-res .yr-wf-l{color:var(--accent-deep);font-weight:800;font-size:.92rem}
 .yr-wf-res b{font-size:1.05rem;color:var(--accent-deep)}

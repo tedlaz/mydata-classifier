@@ -2,11 +2,9 @@
 {% from "_macros.html" import vat_tiles with context %}
 {% block title %}Ετήσια σύνοψη {{ year }}{% endblock %}
 {% set balance = (income_total.net - expense_total.net)|round(2) %}
-{# Πραγματικό κέρδος: οι αγορές παγίων (2.7) κεφαλαιοποιούνται — στο αποτέλεσμα μπαίνουν μόνο οι αποσβέσεις.
-   Τα αποθέματα (2.13/2.14), αν μετρούν στα έξοδα του πίνακα (Παράμετροι → Αναφορές), δεν μετρούν στο κέρδος. #}
-{% set stock = expense_total.stock if stock_in else 0 %}
-{% set op_expense = (expense_total.net - expense_total.assets - stock)|round(2) %}
-{% set real_profit = (income_total.net - op_expense)|round(2) %}
+{# Καθαρό κέρδος από τα ποσά Ε3 (pl = _pl, ίδιο με την ανάλυση Ε3 και τον φόρο): έσοδα − κόστος πωληθέντων
+   (έναρξης + αγορές − λήξης) − έξοδα χρήσης· οι αγορές παγίων (2.7) χωριστά, στο κέρδος μόνο οι αποσβέσεις. #}
+{% set real_profit = pl.profit %}
 {% macro money(v) -%}{% if v %}<span class="{{ 'yneg' if v < 0 }}">{{ v|el_amount }}</span>{% else %}<span class="yz">–</span>{% endif %}{%- endmacro %}
 {# Καθαρή αξία με «data bar» ανάλογη του μεγαλύτερου μήνα. #}
 {% macro net(v, kind) -%}<span class="yr-dbar yr-dbar--{{ kind }}" style="--w:{{ ((v|abs) / max_net * 100)|round(1) }}%">{{ money(v) }}</span>{%- endmacro %}
@@ -109,39 +107,41 @@
     </section>
 
     {# ================= Καθαρό κέρδος (waterfall) ================= #}
-    {% set pmax = [income_total.net, expense_total.net, real_profit|abs, 1]|max %}
+    {% set has_cogs = pl.opening or pl.purchases or pl.closing %}
     <section class="card yr-pl-card">
       <div class="yr-chart-head">
         <h2>💰 Καθαρό κέρδος</h2>
         <button type="button" class="btn-ghost btn-sm" data-docs="{{ url_for('reports_yearly_e3', year=year) }}" title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">Ανάλυση Ε3 →</button>
       </div>
+      {% macro wf(label, v, i, li_cls='') -%}
+        <li class="{{ li_cls }}" style="--i:{{ i }}"><span class="yr-wf-l">{{ label }}</span><b>{{ v|el_amount }}</b></li>
+      {%- endmacro %}
       <ul class="yr-wf">
-        {% for label, v, cls, note in [
-            ('Σύνολα εσόδων', income_total.net, 'in', ''),
-            ('Σύνολα εξόδων', expense_total.net, 'out', 'όλα τα έξοδα'),
-            ('− Αγορές παγίων', expense_total.assets, 'asset', 'κατηγορία 2.7 — κεφαλαιοποιούνται'),
-            ('− Αποθέματα', stock, 'asset', 'έναρξης / λήξης 2.13 · 2.14 — για το κόστος πωληθέντων'),
-            ('= Έξοδα χρήσης', op_expense, 'out', 'εκ των οποίων αποσβέσεις ' ~ expense_total.depreciation|el_amount)]
-            if v or label != '− Αποθέματα' %}
-        <li style="--i:{{ loop.index0 }}">
-          <span class="yr-wf-l">{{ label }}{% if note %}<small>{{ note }}</small>{% endif %}</span>
-          <span class="yr-wf-bar"><i class="{{ cls }}" style="--w:{{ ((v|abs) / pmax * 100)|round(1) }}%"></i></span>
-          <b>{{ v|el_amount }}</b>
+        {{ wf('Έσοδα', pl.inc_total, 0) }}
+        {% if has_cogs %}
+        {# Κόστος πωληθέντων: οι γραμμές που το σχηματίζουν, μαζί σε ένα πλαίσιο. #}
+        <li class="yr-wf-group" style="--i:1">
+          <ul class="yr-wf">
+            {{ wf('Αποθέματα έναρξης', pl.opening_total, 1) }}
+            {{ wf('+ Αγορές αποθεμάτων', pl.purchases_total, 2) }}
+            {{ wf('− Αποθέματα λήξης', pl.closing_total, 3) }}
+            {{ wf('= Κόστος πωληθέντων', pl.cogs, 4, 'yr-wf-sub') }}
+          </ul>
         </li>
-        {% endfor %}
-        <li class="yr-wf-res {{ 'is-neg' if real_profit < 0 }}" style="--i:4">
-          <span class="yr-wf-l">Καθαρό κέρδος<small>έσοδα − έξοδα χρήσης</small></span>
-          <span class="yr-wf-bar"><i class="res" style="--w:{{ ((real_profit|abs) / pmax * 100)|round(1) }}%"></i></span>
-          <b>{{ real_profit|el_amount }}</b>
-        </li>
+        {% endif %}
+        {{ wf('Έξοδα χρήσης', pl.exp_total, 5) }}
+        {{ wf('Καθαρό κέρδος', real_profit, 6, 'yr-wf-res is-neg' if real_profit < 0 else 'yr-wf-res') }}
+        {% if pl.assets %}
+        {{ wf('Αγορές παγίων', pl.assets_total, 7, 'yr-wf-aside') }}
+        {% endif %}
       </ul>
-      {% if income_total.net > 0 %}
-      {% set margin = (real_profit / income_total.net * 100)|round|int %}
+      {% if pl.inc_total > 0 %}
+      {% set margin = (real_profit / pl.inc_total * 100)|round|int %}
       <div class="yr-margin">
         <span>Περιθώριο κέρδους</span><b class="{{ 'yneg' if margin < 0 }}">{{ margin }}%</b>
       </div>
       {% endif %}
-      {% if expense_total.assets and not expense_total.depreciation %}
+      {% if pl.assets_total and not pl.depreciation %}
       <p class="note note--warn yr-pl-warn">
         ⚠ Αγορές παγίων χωρίς <strong>καμία απόσβεση</strong> στο {{ year }} — πέρασέ τες με
         <a href="{{ url_for('new_expense') }}">Νέα εγγραφή</a> (τύπος 17.x, E3_587).

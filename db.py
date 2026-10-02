@@ -1526,7 +1526,7 @@ def yearly_documents(company_id: int | None, kind: str, statuses: list[str], yea
     """Παραστατικά ενός έτους (κατά ημ/νία έκδοσης) με όλα τα σύνολα σύνοψης, για την ετήσια σύνοψη."""
     if not company_id:
         return []
-    cols = ", ".join(("issue_date", "invoice_type", "total_net", "total_vat", "cls_json") + EXTRA_TOTALS)
+    cols = ", ".join(("issue_date", "invoice_type", "total_net", "total_vat", "cls_json", "lines_json") + EXTRA_TOTALS)
     with get_conn() as conn:
         rows = conn.execute(
             f"SELECT {cols} FROM documents WHERE company_id = ? AND kind = ? "

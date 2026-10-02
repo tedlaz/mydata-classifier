@@ -2362,12 +2362,15 @@ DEPRECIATION_TYPE = "E3_587"    # αποσβέσεις (π.χ. εγγραφή 17
 # Αποθέματα έναρξης (2.13) / λήξης (2.14): εγγραφές για το κόστος πωληθέντων, όχι έξοδα της περιόδου —
 # εκτός από τα έξοδα όλων των αναφορών (σύνοψη, πίνακας ελέγχου, OLAP, ανάλυση Ε3).
 STOCK_CATEGORIES = ("category2_13", "category2_14")
+OPENING_STOCK, CLOSING_STOCK = STOCK_CATEGORIES
+# Κόστος πωληθέντων = αποθέματα έναρξης + αγορές αποθεμάτων (2.1 εμπορεύματα / 2.2 πρώτες ύλες) − αποθέματα λήξης.
+PURCHASE_CATEGORIES = ("category2_1", "category2_2")
 
 
 # Ποιες αναφορές μετρούν τα αποθέματα στα έξοδα: ρύθμιση στις Παραμέτρους → «Αναφορές».
 # (κλειδί, τίτλος, προεπιλογή, περιγραφή)
 STOCK_REPORTS = (
-    ("yearly", "Ετήσια / Μηνιαία σύνοψη", True, "Όπως το συνοπτικό βιβλίο του myDATA. Το καθαρό κέρδος τα αφαιρεί πάντα."),
+    ("yearly", "Ετήσια / Μηνιαία σύνοψη", True, "Όπως το συνοπτικό βιβλίο του myDATA. Το καθαρό κέρδος μετρά πάντα μόνο τη μεταβολή τους (έναρξης − λήξης)."),
     ("dashboard", "Πίνακας ελέγχου", False, "Κάρτες εσόδων-εξόδων, αποτέλεσμα, γράφημα και κορυφαίοι προμηθευτές."),
     ("olap", "OLAP", False, "Όλα τα μέτρα του κύβου. Με ενεργό, εμφανίζονται ως κατηγορία Ε3 2.13 / 2.14."),
 )
@@ -2449,9 +2452,11 @@ def reports_yearly():
     ]
     _add_vat_periods(rows, year)
     total = lambda part: {c: round(sum(r[part][c] for r in rows), 2) for c in _YEARLY_COLUMNS}  # noqa: E731
+    pl = _pl(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year),
+             db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year))  # ίδιο με την ανάλυση Ε3
     # Όλες οι στήλες, πάντα — ίδιες με το συνοπτικό βιβλίο του myDATA.
     return render_template(
-        "reports_yearly.html", year=year, years=years, rows=rows, cols=YEARLY_TABLE_COLS, stock_in=stock_in("yearly"),
+        "reports_yearly.html", year=year, years=years, rows=rows, cols=YEARLY_TABLE_COLS, pl=pl,
         unc=unc, unc_count=unc_count,
         income_total=total("income"), expense_total=total("expense"),
         chart=_yearly_chart(rows), current_month=now.month if year == str(now.year) else None,
@@ -2510,12 +2515,50 @@ def _e3_breakdown(docs: list[dict]) -> list[dict]:
     return rows
 
 
+def _pl(inc_docs: list[dict], exp_docs: list[dict]) -> dict:
+    """Αποτελέσματα χρήσης από τα ποσά Ε3 — ένας υπολογισμός για το «Καθαρό κέρδος» της ετήσιας σύνοψης,
+    την ανάλυση Ε3 και τον φόρο: έσοδα − κόστος πωληθέντων (έναρξης + αγορές 2.1/2.2 − λήξης) − έξοδα χρήσης.
+    Οι αγορές παγίων (2.7) μένουν χωριστά: κεφαλαιοποιούνται, στο κέρδος μπαίνουν μόνο οι αποσβέσεις."""
+    income, expense = _e3_breakdown(inc_docs), _e3_breakdown(exp_docs)
+    of = lambda cats: [g for g in expense if g["category"] in cats]  # noqa: E731
+    total = lambda rows: round(sum(g["amount"] for g in rows), 2)  # noqa: E731
+    opening, purchases, closing = of((OPENING_STOCK,)), of(PURCHASE_CATEGORIES), of((CLOSING_STOCK,))
+    assets = of((ASSET_CATEGORY,))
+    other = [g for g in expense if g["category"] not in (*STOCK_CATEGORIES, *PURCHASE_CATEGORIES, ASSET_CATEGORY)]
+    pl = {"income": income, "opening": opening, "purchases": purchases, "closing": closing, "expense": other,
+          "assets": assets, "inc_total": total(income), "opening_total": total(opening),
+          "purchases_total": total(purchases), "closing_total": total(closing), "exp_total": total(other),
+          "assets_total": total(assets), "depreciation": total([g for g in other if g["depreciation"]])}
+    pl["cogs"] = round(pl["opening_total"] + pl["purchases_total"] - pl["closing_total"], 2)
+    pl["gross"] = round(pl["inc_total"] - pl["cogs"], 2)
+    pl["profit"] = round(pl["gross"] - pl["exp_total"], 2)
+    pl["nd_vat"] = _nondeductible_vat(exp_docs)
+    return pl
+
+
+def _nondeductible_vat(exp_docs: list[dict]) -> dict:
+    """Πληροφοριακά: ΦΠΑ εξόδων που δεν εκπίπτει (χωρίς χαρακτηρισμό ΦΠΑ 361–366, όπως στο OLAP / Φ2)
+    και πόσος από αυτόν έχει ήδη μπει στα ποσά Ε3 (in_e3) ή όχι (out_e3). Δεν αλλάζει το κέρδος."""
+    total = in_e3 = 0.0
+    for d in exp_docs:
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        nd = abs(sign * (d["total_vat"] or 0) - sum(vat_return.deductible_by_line(d).values()))
+        if nd < 0.005:
+            continue
+        cls = [e for e in json.loads(d["cls_json"] or "[]") if not (e.get("type") or "").startswith("VAT_")]
+        stock = sum(e.get("amount") or 0 for e in cls if e.get("category") in STOCK_CATEGORIES)
+        e3 = sum(e.get("amount") or 0 for e in cls) - stock
+        # ponytail: Ε3 − καθαρή μπορεί να περιέχει και άλλους φόρους (π.χ. τέλη) — όριο το nd· ακριβές ανά γραμμή αν χρειαστεί.
+        total += sign * nd
+        in_e3 += sign * min(nd, max(0.0, e3 - ((d["total_net"] or 0) - stock)))
+    return {"total": round(total, 2), "in_e3": round(in_e3, 2), "out_e3": round(total - in_e3, 2)}
+
+
 def _year_profit(cid: int | None, year: str) -> tuple[float, float]:
     """(καθαρό κέρδος Ε3, παρακρατήσεις εσόδων) μιας χρήσης — ίδιος υπολογισμός με το modal «Καθαρό κέρδος»."""
     inc = db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year)
-    exp = _e3_breakdown(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year))
-    profit = sum(g["amount"] for g in _e3_breakdown(inc)) - sum(g["amount"] for g in exp if not (g["stock"] or g["asset"]))
-    return round(profit, 2), round(sum(v["withheld"] for v in _yearly_totals(inc).values()), 2)
+    profit = _pl(inc, db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year))["profit"]
+    return profit, round(sum(v["withheld"] for v in _yearly_totals(inc).values()), 2)
 
 
 def _year_tax(cid: int | None, year: int, profit: float, withheld: float) -> dict:
@@ -2536,21 +2579,13 @@ def reports_yearly_e3():
     cid = _active_company_id()
     inc_docs = db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year)
     exp_docs = db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year)
-    income, expense = _e3_breakdown(inc_docs), _e3_breakdown(exp_docs)
-    stock = [g for g in expense if g["stock"]]  # πληροφοριακά, εκτός εξόδων και κέρδους
-    expense = [g for g in expense if not g["stock"]]
-    inc_e3 = round(sum(g["amount"] for g in income), 2)
-    exp_e3 = round(sum(g["amount"] for g in expense), 2)
-    assets = round(sum(g["amount"] for g in expense if g["asset"]), 2)
-    net = lambda docs: round(sum(v["net"] for v in _yearly_totals(docs).values()), 2)  # noqa: E731
-    profit = round(inc_e3 - (exp_e3 - assets), 2)
+    pl = _pl(inc_docs, exp_docs)
+    net = lambda docs: round(sum(v["net"] for v in _yearly_totals(docs, True).values()), 2)  # noqa: E731
     withheld = round(sum(v["withheld"] for v in _yearly_totals(inc_docs).values()), 2)
     # ?print=1: αυτόνομη σελίδα A4 για «Αποθήκευση ως PDF» από τον browser.
     return render_template(
         "yearly_e3_print.html" if request.args.get("print") else "_yearly_e3.html",
-        year=year, income=income, expense=expense, stock=stock,
-        inc_e3=inc_e3, exp_e3=exp_e3, assets=assets, profit_e3=profit,
-        tax=_year_tax(cid, int(year), profit, withheld),
+        year=year, pl=pl, tax=_year_tax(cid, int(year), pl["profit"], withheld),
         inc_net=net(inc_docs), exp_net=net(exp_docs), now_str=datetime.now().strftime("%d/%m/%Y %H:%M"),
     )
 

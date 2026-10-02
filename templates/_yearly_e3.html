@@ -1,66 +1,89 @@
-{# Περιεχόμενο του modal «Καθαρό κέρδος»: έσοδα/έξοδα του έτους ανά χαρακτηρισμό Ε3 (φορτώνεται με fetch). #}
-{% macro section(title, of_title, dot, rows, total, net) -%}
-  <tr class="yr-e3-section"><th colspan="4"><i class="yr-dot {{ dot }}"></i>{{ title }}</th></tr>
-  {% for g in rows %}
-  <tr class="{{ 'is-asset' if g.asset }}">
+{# Περιεχόμενο του modal «Καθαρό κέρδος»: αποτελέσματα χρήσης ανά χαρακτηρισμό Ε3 (φορτώνεται με fetch).
+   Έσοδα − κόστος πωληθέντων − έξοδα χρήσης· οι αγορές παγίων χωριστά. Ίδιος υπολογισμός (_pl) με την ετήσια σύνοψη. #}
+{% macro head(title, dot='', note='') -%}
+  <tr class="yr-e3-section"><th colspan="4">{% if dot %}<i class="yr-dot {{ dot }}"></i>{% endif %}{{ title }}
+    {%- if note %} <small class="muted">— {{ note }}</small>{% endif %}</th></tr>
+{%- endmacro %}
+{% macro rows(list, minus=False, cls='') -%}
+  {% for g in list %}
+  <tr class="{{ cls }}">
     <td class="yr-e3-code">{{ g.type or '—' }}</td>
     <td class="yr-e3-desc">{{ g.type_label or 'Χωρίς τύπο Ε3' }}
       <small>{{ g.category }}{% if g.category_label %} · {{ g.category_label }}{% endif %}</small>
-      {% if g.asset %}<span class="pill yr-tag yr-tag--asset">αγορά παγίου — δεν αφαιρείται από το κέρδος</span>{% endif %}
       {% if g.depreciation %}<span class="pill yr-tag">απόσβεση</span>{% endif %}
     </td>
     <td class="num">{{ g.count }}</td>
-    <td class="num yr-net">{{ g.amount|el_amount }}</td>
+    <td class="num yr-net">{{ '− ' if minus }}{{ g.amount|el_amount }}</td>
   </tr>
-  {% else %}
-  <tr><td colspan="4" class="muted yr-e3-desc">Κανένας χαρακτηρισμός Ε3.</td></tr>
   {% endfor %}
-  <tr class="yr-e3-sum"><th colspan="3">Σύνολο Ε3 {{ of_title }}
-    {% if (total - net)|abs >= 0.01 %}<small class="muted">(καθαρή αξία πίνακα {{ net|el_amount }})</small>{% endif %}</th>
-    <td class="num">{{ total|el_amount }}</td></tr>
+{%- endmacro %}
+{% macro sum(label, v, note='') -%}
+  <tr class="yr-e3-sum"><th colspan="3">{{ label }}{% if note %} <small class="muted">{{ note }}</small>{% endif %}</th>
+    <td class="num">{{ v|el_amount }}</td></tr>
 {%- endmacro %}
 
+{# Αρίθμηση ενοτήτων: χωρίς αποθέματα/αγορές αποθεμάτων δεν υπάρχει ενότητα κόστους πωληθέντων. #}
+{% set has_cogs = pl.opening or pl.purchases or pl.closing %}
+{% set n_exp = 3 if has_cogs else 2 %}
 <div class="modal-head">
   <h2>Καθαρό κέρδος {{ year }} · ανά χαρακτηρισμό Ε3</h2>
   <a class="btn-ghost btn-sm yr-e3-pdf" href="{{ url_for('reports_yearly_e3', year=year, print=1) }}" target="_blank"
      title="Εκτύπωση ή αποθήκευση ως PDF">PDF</a>
   <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
 </div>
-<p class="muted small">Άθροιση του ισχύοντος χαρακτηρισμού κάθε παραστατικού (τα πιστωτικά αφαιρούνται). Οι αγορές παγίων
-  (κατηγορία 2.7) εμφανίζονται στα έξοδα αλλά δεν αφαιρούνται από το κέρδος — αφαιρούνται μόνο οι αποσβέσεις.</p>
 <div class="yr-scroll">
 <table class="yr-table yr-e3">
   <thead>
     <tr><th>Ε3</th><th>Περιγραφή · κατηγορία</th><th class="num">Παραστατικά</th><th class="num">Ποσό</th></tr>
   </thead>
   <tbody>
-    {{ section('Έσοδα', 'εσόδων', 'yr-dot--in', income, inc_e3, inc_net) }}
-    {{ section('Έξοδα', 'εξόδων', 'yr-dot--out', expense, exp_e3, exp_net) }}
-    {% if stock %}
-    {# Αποθέματα έναρξης/λήξης: για το κόστος πωληθέντων — δεν μετρούν στα έξοδα ούτε στο κέρδος. #}
-    <tr class="yr-e3-section"><th colspan="4">Αποθέματα <small class="muted">— πληροφοριακά, εκτός εξόδων και κέρδους</small></th></tr>
-    {% for g in stock %}
-    <tr class="is-asset">
-      <td class="yr-e3-code">{{ g.type or '—' }}</td>
-      <td class="yr-e3-desc">{{ g.type_label or 'Χωρίς τύπο Ε3' }}
-        <small>{{ g.category }}{% if g.category_label %} · {{ g.category_label }}{% endif %}</small></td>
-      <td class="num">{{ g.count }}</td>
-      <td class="num yr-net">{{ g.amount|el_amount }}</td>
-    </tr>
-    {% endfor %}
+    {{ head('1. Έσοδα', 'yr-dot--in') }}
+    {{ rows(pl.income) }}
+    {% if not pl.income %}<tr><td colspan="4" class="muted yr-e3-desc">Κανένας χαρακτηρισμός Ε3.</td></tr>{% endif %}
+    {{ sum('Σύνολο εσόδων', pl.inc_total, '(καθαρή αξία πίνακα ' ~ inc_net|el_amount ~ ')' if (pl.inc_total - inc_net)|abs >= 0.01 else '') }}
+
+    {% if has_cogs %}
+    {{ head('2. Κόστος πωληθέντων', 'yr-dot--out', 'έναρξης + αγορές − λήξης') }}
+    {{ rows(pl.opening) }}
+    {{ rows(pl.purchases) }}
+    {{ rows(pl.closing, minus=True) }}
+    {{ sum('= Κόστος πωληθέντων', pl.cogs) }}
+    {% endif %}
+
+    {{ head(n_exp ~ '. Έξοδα χρήσης', 'yr-dot--out') }}
+    {{ rows(pl.expense) }}
+    {% if not pl.expense %}<tr><td colspan="4" class="muted yr-e3-desc">Κανένας χαρακτηρισμός Ε3.</td></tr>{% endif %}
+    {{ sum('Σύνολο εξόδων χρήσης', pl.exp_total) }}
+
+    {% if pl.assets or pl.nd_vat.total %}
+    {{ head((n_exp + 1) ~ '. Πληροφοριακά στοιχεία', '', 'εκτός κέρδους') }}
+    {% if pl.assets %}
+    <tr class="yr-e3-subhead"><th colspan="4">Αγορές παγίων</th></tr>
+    {{ rows(pl.assets, cls='is-asset') }}
+    {{ sum('Σύνολο αγορών παγίων', pl.assets_total) }}
+    {% endif %}
+    {% if pl.nd_vat.total %}
+    <tr class="yr-e3-subhead"><th colspan="4">ΦΠΑ μη εκπιπτόμενος</th></tr>
+    <tr><td></td><td class="yr-e3-desc" colspan="2">Στα ποσά Ε3 (ήδη στα έξοδα)</td><td class="num yr-net">{{ pl.nd_vat.in_e3|el_amount }}</td></tr>
+    <tr><td></td><td class="yr-e3-desc" colspan="2">Εκτός Ε3</td><td class="num yr-net">{{ pl.nd_vat.out_e3|el_amount }}</td></tr>
+    {{ sum('Σύνολο ΦΠΑ μη εκπιπτόμενου', pl.nd_vat.total) }}
+    {% endif %}
     {% endif %}
   </tbody>
 </table>
 </div>
 <dl class="yr-e3-result">
-  <dt>Σύνολο Ε3 εξόδων</dt><dd>{{ exp_e3|el_amount }} €</dd>
-  <dt>− Αγορές παγίων (2.7)</dt><dd>− {{ assets|el_amount }} €</dd>
-  <dt class="is-sub">= Έξοδα χωρίς αγορές παγίων</dt><dd class="is-sub">{{ (exp_e3 - assets)|round(2)|el_amount }} €</dd>
-  <dt class="is-total">Καθαρό κέρδος <small>(Ε3 εσόδων {{ inc_e3|el_amount }} − έξοδα χωρίς αγορές παγίων)</small></dt>
-  <dd class="is-total">{{ profit_e3|el_amount }} €</dd>
+  <dt>Έσοδα <small>(1)</small></dt><dd>{{ pl.inc_total|el_amount }} €</dd>
+  {% if has_cogs %}
+  <dt>− Κόστος πωληθέντων <small>(2)</small></dt><dd>− {{ pl.cogs|el_amount }} €</dd>
+  <dt class="is-sub">= Μικτό κέρδος</dt><dd class="is-sub">{{ pl.gross|el_amount }} €</dd>
+  {% endif %}
+  <dt>− Έξοδα χρήσης <small>({{ n_exp }})</small></dt><dd>− {{ pl.exp_total|el_amount }} €</dd>
+  <dt class="is-total">= Καθαρό κέρδος</dt><dd class="is-total">{{ pl.profit|el_amount }} €</dd>
 </dl>
 {% include "_tax.html" %}
-{% if (inc_e3 - inc_net)|abs >= 0.01 or (exp_e3 - exp_net)|abs >= 0.01 %}
+{% set exp_e3 = pl.opening_total + pl.purchases_total + pl.closing_total + pl.exp_total + pl.assets_total %}
+{% if (pl.inc_total - inc_net)|abs >= 0.01 or (exp_e3 - exp_net)|abs >= 0.01 %}
 <p class="muted small">Το Ε3 διαφέρει από την καθαρή αξία του πίνακα όταν ο ΦΠΑ μπαίνει στο Ε3 (π.χ. κατηγορία 2.5 χωρίς
   δικαίωμα έκπτωσης) ή όταν υπάρχουν παραστατικά χωρίς χαρακτηρισμό Ε3.</p>
 {% endif %}
