@@ -68,6 +68,9 @@ ATHENS = ZoneInfo("Europe/Athens")
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "dev-secret-change-me")
+# Τα cookies αγνοούν το port: το default «session» το πατάει κάθε άλλη τοπική εφαρμογή
+# (ή δεύτερο instance) στο 127.0.0.1 → άκυρο cookie → ξανά login.
+app.config["SESSION_COOKIE_NAME"] = "mydata_session"
 
 
 @app.before_request
