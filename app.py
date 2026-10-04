@@ -533,7 +533,7 @@ def get_client() -> MyDataClient:
                 "Ενεργοποίησε το «χρήση credentials λογιστή» και συμπλήρωσε το ΑΦΜ "
                 "της εταιρείας στη Διαχείριση εταιρειών."
             )
-        return MyDataClient(user_id, sub_key, env)
+        return MyDataClient(user_id, sub_key, env, own_vat=str(company.get("AADE_VAT_NUMBER") or ""))
     user_id = os.getenv("AADE_USER_ID")
     sub_key = os.getenv("AADE_SUBSCRIPTION_KEY")
     env = os.getenv("MYDATA_ENV", "dev")

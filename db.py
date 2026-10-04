@@ -863,6 +863,7 @@ def upsert_document(
         cls_mark = doc.get("classification_mark") or ""
         set_mark = ", classification_mark = ?" if cls_mark else ""
         params = [
+            kind,  # διορθώνει παλιές εγγραφές σε λάθος βιβλίο (π.χ. διαβίβαση από λήπτη ως έσοδο)
             doc.get("issue_date"),
             doc.get("issuer_vat"),
             doc.get("invoice_type"),
@@ -882,7 +883,7 @@ def upsert_document(
             params.append(cls_mark)
         params.append(existing["id"])
         conn.execute(
-            "UPDATE documents SET issue_date = ?, counterparty_vat = ?, "
+            "UPDATE documents SET kind = ?, issue_date = ?, counterparty_vat = ?, "
             "invoice_type = ?, series = ?, aa = ?, "
             "total_net = ?, total_vat = ?, total_gross = ?, is_self_issued = ?, "
             f"status = ?, lines_json = ?, updated_at = ?{set_cls}{set_mark} "

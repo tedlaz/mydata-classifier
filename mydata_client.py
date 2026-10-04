@@ -214,11 +214,15 @@ class MyDataClient:
         subscription_key: str,
         environment: str = "dev",
         entity_vat: str = "",
+        own_vat: str = "",
     ):
         self.base_url = PROD_URL if environment == "prod" else DEV_URL
         # Όταν καλεί λογιστής/εκπρόσωπος για λογαριασμό πελάτη, το ΑΦΜ του
         # εντολέα στέλνεται ως entityVatNumber σε κάθε κλήση.
         self.entity_vat = (entity_vat or "").strip()
+        # ΑΦΜ της εταιρείας: ξεχωρίζει στις δικές μας διαβιβάσεις όσα εκδόθηκαν από
+        # ΤΡΙΤΟΝ (διαβίβαση από λήπτη λόγω παράλειψης/απόκλισης εκδότη) → έξοδα.
+        self.own_vat = (own_vat or entity_vat or "").strip()
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -226,6 +230,11 @@ class MyDataClient:
                 "Ocp-Apim-Subscription-Key": subscription_key,
             }
         )
+
+    def _recipient_transmitted(self, inv: "ExpenseInvoice") -> bool:
+        """Διαβίβαση από Λήπτη λόγω παράλειψης/απόκλισης Εκδότη: την ανεβάσαμε εμείς,
+        αλλά εκδότης είναι ο προμηθευτής — είναι ΕΞΟΔΟ, όχι έσοδο."""
+        return bool(self.own_vat and inv.issuer_vat and inv.issuer_vat.strip() != self.own_vat)
 
     def _params(self, extra: dict | None = None) -> dict:
         """Base query params + entityVatNumber (αν υπάρχει) + ό,τι δώσει η κλήση."""
@@ -322,7 +331,9 @@ class MyDataClient:
 
             root = ET.fromstring(resp.content)
             for inv in self._parse_requested_doc(root):
-                if (inv.invoice_type or "") in SELF_EXPENSE_DOC_TYPES:
+                if (inv.invoice_type or "") in SELF_EXPENSE_DOC_TYPES or (
+                    self._recipient_transmitted(inv) and not inv.is_movement_doc
+                ):
                     self_invoices.append(inv)
             cls_map.update(self._parse_expenses_classifications(root))
             cancelled_marks |= self._parse_cancelled_invoices(root)
@@ -428,8 +439,8 @@ class MyDataClient:
             root = ET.fromstring(resp.content)
             for inv in self._parse_requested_doc(root):
                 itype = inv.invoice_type or ""
-                if itype in SELF_EXPENSE_DOC_TYPES or inv.is_movement_doc:
-                    continue  # αυτοτιμολογούμενα έξοδα / διακίνηση — όχι έσοδα
+                if itype in SELF_EXPENSE_DOC_TYPES or inv.is_movement_doc or self._recipient_transmitted(inv):
+                    continue  # αυτοτιμολογούμενα έξοδα / διακίνηση / διαβίβαση από λήπτη — όχι έσοδα
                 # Ακυρωμένο (cancelledByMark στο ίδιο το παραστατικό): κράτησέ το
                 # στα cancelled ώστε να εξαιρεθεί/αφαιρεθεί, όχι στη λίστα εσόδων.
                 if inv.is_cancelled:
