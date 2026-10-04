@@ -27,12 +27,12 @@
       <div class="yr-hero-tools">
         {# Αχαρακτήριστα: για σύγκριση με το συνοπτικό βιβλίο του myDATA (που τα μετρά όλα). #}
         <a class="yr-unc" role="switch" aria-checked="{{ 'true' if unc else 'false' }}"
-           href="{{ url_for('reports_yearly', year=year, unc=None if unc else 1) }}"
+           href="{{ url_for('reports_yearly', year=year, unc=None if unc else 1, per='q' if per_q else None) }}"
            title="{{ 'Μόνο χαρακτηρισμένα' if unc else 'Να μετρούν και τα αχαρακτήριστα παραστατικά, όπως στο βιβλίο του myDATA' }}">
           <span class="yr-unc-knob"></span>Με αχαρακτήριστα<b>{{ unc_count }}</b>
         </a>
         <nav class="yr-years" aria-label="Έτος">
-          {% for y in years %}<a href="{{ url_for('reports_yearly', year=y, unc=1 if unc else None) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
+          {% for y in years %}<a href="{{ url_for('reports_yearly', year=y, unc=1 if unc else None, per='q' if per_q else None) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
         </nav>
       </div>
     </div>
@@ -152,35 +152,44 @@
 
   {# ================= Αναλυτικός πίνακας: ένα tbody ανά μήνα ================= #}
   <section class="card yr-table-card">
+    <nav class="yr-years yr-per" aria-label="Ανάλυση πίνακα">
+      {% for v, lbl in [(None, 'Ανά μήνα'), ('q', 'Ανά τρίμηνο')] %}<a href="{{ url_for('reports_yearly', year=year, unc=1 if unc else None, per=v) }}" {% if (v == 'q') == per_q %}aria-current="page"{% endif %}>{{ lbl }}</a>{% endfor %}
+    </nav>
     <div class="yr-scroll">
     <table class="yr-table">
       <thead>
         <tr>
-          <th class="yr-sticky">Μήνας</th><th>Είδος<br>συναλλαγής</th>
+          <th class="yr-sticky">{{ 'Τρίμηνο' if per_q else 'Μήνας' }}</th><th>Είδος<br>συναλλαγής</th>
           <th class="num">Καθαρή<br>αξία</th><th class="num">Υπόλοιπο<br>Εσ. − Εξ.</th>
           {% for key, label in cols %}<th class="num">{{ label|safe }}</th>{% endfor %}
         </tr>
       </thead>
-      {% for r in rows %}
-      {% set vm, vq = r.vat_month, r.vat_quarter %}
+      {% for r in table_rows %}
+      {% set vm, vq = r.f2_month, r.f2_quarter %}{# όπως η δήλωση Φ2 #}
       {% if not ((r.income.values()|select|list) or (r.expense.values()|select|list)) %}
-      <tbody class="yr-empty {{ 'is-now' if loop.index == current_month }}" style="--i:{{ loop.index0 }}">
+      <tbody class="yr-empty {{ 'is-now' if r.now }}" style="--i:{{ loop.index0 }}">
         <tr><th class="yr-sticky yr-month-cell" scope="row">{{ r.label }}</th>
           <td colspan="{{ cols|length + 3 }}" class="yr-empty-note">χωρίς κίνηση</td></tr>
       </tbody>
       {% else %}
-      <tbody class="{{ 'is-now' if loop.index == current_month }}" style="--i:{{ loop.index0 }}" tabindex="0"
-             title="Κλικ για τον ΦΠΑ του μήνα και του τριμήνου"
-             aria-label="{{ r.label }}: διαφορά ΦΠΑ μήνα {{ vm.diff|el_amount }} €, τριμήνου {{ vq.diff|el_amount }} €"
-             data-month="{{ r.label }}" data-m-out="{{ vm.out|el_amount }}" data-m-in="{{ vm.in|el_amount }}"
+      <tbody class="{{ 'is-now' if r.now }}" style="--i:{{ loop.index0 }}" tabindex="0"
+             title="Κλικ για τον ΦΠΑ {{ 'του τριμήνου' if per_q else 'του μήνα και του τριμήνου' }}"
+             aria-label="{{ r.label }}: διαφορά ΦΠΑ {% if not per_q %}μήνα {{ vm.diff|el_amount }} €, {% endif %}τριμήνου {{ vq.diff|el_amount }} €"
+             data-month="{{ r.label }}"{% if not per_q %} data-m-out="{{ vm.out|el_amount }}" data-m-in="{{ vm.in|el_amount }}"
              data-m-diff="{{ vm.diff|el_amount }}" data-m-neg="{{ 1 if vm.diff < 0 else 0 }}"
+             data-m-nout="{{ vm.n_out|el_amount }}" data-m-nin="{{ vm.n_in|el_amount }}" data-m-ndiff="{{ vm.n_diff|el_amount }}"
+             data-m-xout="{{ vm.x_out|el_amount }}" data-m-xin="{{ vm.x_in|el_amount }}" data-m-xdiff="{{ vm.x_diff|el_amount }}"
+             data-m-tout="{{ vm.t_out|el_amount }}" data-m-tin="{{ vm.t_in|el_amount }}" data-m-tdiff="{{ vm.t_diff|el_amount }}"{% endif %}
              data-q-label="{{ vq.label }}" data-q-span="{{ vq.span }}{{ ' · έως τώρα' if vq.partial }}"
              data-q-out="{{ vq.out|el_amount }}" data-q-in="{{ vq.in|el_amount }}"
-             data-q-diff="{{ vq.diff|el_amount }}" data-q-neg="{{ 1 if vq.diff < 0 else 0 }}">
+             data-q-diff="{{ vq.diff|el_amount }}" data-q-neg="{{ 1 if vq.diff < 0 else 0 }}"
+             data-q-nout="{{ vq.n_out|el_amount }}" data-q-nin="{{ vq.n_in|el_amount }}" data-q-ndiff="{{ vq.n_diff|el_amount }}"
+             data-q-xout="{{ vq.x_out|el_amount }}" data-q-xin="{{ vq.x_in|el_amount }}" data-q-xdiff="{{ vq.x_diff|el_amount }}"
+             data-q-tout="{{ vq.t_out|el_amount }}" data-q-tin="{{ vq.t_in|el_amount }}" data-q-tdiff="{{ vq.t_diff|el_amount }}">
         <tr>
           <th class="yr-sticky yr-month-cell" rowspan="2" scope="rowgroup">{{ r.label }}</th>
-          <td><button type="button" class="yr-kind yr-kind--in" data-docs="{{ url_for('reports_yearly_docs', year=year, month=loop.index, kind='income', unc=1 if unc else None) }}"
-                      title="Αναλυτικά τα παραστατικά εσόδων του μήνα"><i class="yr-dot yr-dot--in"></i>Έσοδα</button></td>
+          <td><button type="button" class="yr-kind yr-kind--in" data-docs="{{ url_for('reports_yearly_docs', year=year, kind='income', unc=1 if unc else None, **r.docs) }}"
+                      title="Αναλυτικά τα παραστατικά εσόδων {{ 'του τριμήνου' if per_q else 'του μήνα' }}"><i class="yr-dot yr-dot--in"></i>Έσοδα</button></td>
           <td class="num yr-net">{{ net(r.income.net, 'in') }}</td>
           <td class="num" rowspan="2">
             <span class="yr-bal {{ 'is-neg' if r.balance < 0 else 'is-zero' if r.balance == 0 else 'is-pos' }}">{{ r.balance|el_amount }}</span>
@@ -188,8 +197,8 @@
           {{ amounts(r.income) }}
         </tr>
         <tr>
-          <td><button type="button" class="yr-kind yr-kind--out" data-docs="{{ url_for('reports_yearly_docs', year=year, month=loop.index, kind='expense', unc=1 if unc else None) }}"
-                      title="Αναλυτικά τα παραστατικά εξόδων του μήνα"><i class="yr-dot yr-dot--out"></i>Έξοδα</button></td>
+          <td><button type="button" class="yr-kind yr-kind--out" data-docs="{{ url_for('reports_yearly_docs', year=year, kind='expense', unc=1 if unc else None, **r.docs) }}"
+                      title="Αναλυτικά τα παραστατικά εξόδων {{ 'του τριμήνου' if per_q else 'του μήνα' }}"><i class="yr-dot yr-dot--out"></i>Έξοδα</button></td>
           <td class="num yr-net">{{ net(r.expense.net, 'out') }}</td>
           {{ amounts(r.expense) }}
         </tr>
@@ -267,16 +276,27 @@
   // ---- Popup ΦΠΑ ανά μήνα του πίνακα (ο πίνακας αλλάζει στις ανανεώσεις → delegation) ----
   let open = null;
   const vatTip = () => $('.yr-tip--vat');
-  const diff = (label, v, neg) => '<span class="yr-tip-bal' + (neg === '1' ? ' is-neg' : '') + '">' + label +
-    '<em>' + v + ' €</em></span><span class="yr-tip-sum">' + (neg === '1' ? 'πιστωτικό υπόλοιπο' : 'προς απόδοση') + '</span>';
+  // Πίνακας: Σύνολο = Εκτός ΦΠΑ + Με ΦΠΑ (βάση Φ2)· ΦΠΑ όπως η δήλωση Φ2. Τα έξοδα με «−».
+  const amt = (v, minus) => v === '0,00' ? '<i class="vt-z">–</i>'
+    : (minus ? (v[0] === '-' ? v.slice(1) : '−' + v) : v.replace('-', '−'));
+  const vrow = (kind, label, vals, minus) => '<tr class="vt-' + kind + '"><th scope="row"><i class="yr-dot yr-dot--' + kind + '"></i>' + label + '</th>' +
+    vals.map(v => '<td>' + amt(v, minus) + '</td>').join('') + '</tr>';
+  function section(title, sub, d, p, last) {
+    const g = k => d[p + k], neg = g('Neg') === '1';
+    return '<tbody><tr class="vt-sec"><th colspan="5">' + title + (sub ? ' <small>' + sub + '</small>' : '') + '</th></tr>' +
+      vrow('in', 'Έσοδα', [g('Tout'), g('Xout'), g('Nout'), g('Out')]) +
+      vrow('out', 'Έξοδα', [g('Tin'), g('Xin'), g('Nin'), g('In')], true) +
+      '<tr class="vt-bal' + (neg ? ' is-neg' : '') + '"><th scope="row">' + last + '</th>' +
+      [g('Tdiff'), g('Xdiff'), g('Ndiff'), g('Diff')].map(v => '<td>' + amt(v) + '</td>').join('') + '</tr>' +
+      '<tr class="vt-note"><td colspan="5"><span class="vt-pill' + (neg ? ' is-neg' : '') + '">' +
+      (neg ? 'Πιστωτικό υπόλοιπο ΦΠΑ' : 'ΦΠΑ προς απόδοση') + '</span></td></tr></tbody>';
+  }
   function show(tb) {
     const d = tb.dataset, card = $('.yr-table-card'), tip = vatTip(), vatCol = card.querySelector('thead th:nth-child(5)');
-    tip.innerHTML = '<b>ΦΠΑ · ' + d.month + '</b>' +
-      '<span>ΦΠΑ εκροών (έσοδα)<em>' + d.mOut + ' €</em></span>' +
-      '<span>ΦΠΑ εισροών (έξοδα)<em>− ' + d.mIn + ' €</em></span>' + diff('Διαφορά μήνα', d.mDiff, d.mNeg) +
-      '<b class="yr-tip-q">' + d.qLabel + ' <small>' + d.qSpan + '</small></b>' +
-      '<span>ΦΠΑ εκροών<em>' + d.qOut + ' €</em></span>' +
-      '<span>ΦΠΑ εισροών<em>− ' + d.qIn + ' €</em></span>' + diff('Διαφορά τριμήνου', d.qDiff, d.qNeg);
+    tip.innerHTML = '<table class="yr-vt"><thead><tr><th><span class="vt-ttl">ΦΠΑ</span></th><th>Σύνολο</th><th>Εκτός ΦΠΑ</th><th>Με ΦΠΑ</th><th>ΦΠΑ</th></tr></thead>' +
+      (d.mOut === undefined ? '' : section(d.month, '', d, 'm', 'Διαφορά μήνα')) +  // ανά τρίμηνο: μόνο το τρίμηνο
+      section(d.qLabel, d.qSpan, d, 'q', 'Διαφορά τριμήνου') + '</table>' +
+      '<p class="vt-foot">Ποσά σε € · «Με ΦΠΑ» και «ΦΠΑ» όπως η δήλωση Φ2</p>';
     tip.hidden = false;
     const c = card.getBoundingClientRect(), r = tb.getBoundingClientRect(), col = vatCol.getBoundingClientRect();
     const x = col.left + col.width / 2 - c.left;
@@ -403,7 +423,7 @@
     const a = e.target.closest('.yr-unc, .yr-years a');
     if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
     e.preventDefault();
-    const isYear = !a.classList.contains('yr-unc');
+    const isYear = !a.classList.contains('yr-unc'), isPer = !!a.closest('.yr-per');
     if (busy || (isYear && a.hasAttribute('aria-current'))) return;
     busy = true;
     if (isYear) a.parentNode.querySelectorAll('a').forEach(y => y.toggleAttribute('aria-current', y === a));  // επιλέγεται αμέσως
@@ -417,8 +437,8 @@
       hide();
       applyFresh(fresh);
       document.title = doc.title;
-      history[isYear ? 'pushState' : 'replaceState'](null, '', a.href);
-      $(isYear ? '.yr-years [aria-current]' : '.yr-unc').focus({preventScroll: true});
+      history[isYear && !isPer ? 'pushState' : 'replaceState'](null, '', a.href);
+      $(isPer ? '.yr-per [aria-current]' : isYear ? '.yr-hero .yr-years [aria-current]' : '.yr-unc').focus({preventScroll: true});
     } catch (_) {
       location.href = a.href;  // αν κάτι αποτύχει: κανονική πλοήγηση
     } finally {

@@ -2463,16 +2463,30 @@ def reports_yearly():
         for m in range(1, last + 1)
     ]
     _add_vat_periods(rows, year)
+    _add_f2_periods(rows, cid, year)
+    cur_m = now.month if year == str(now.year) else None
+    per_q = request.args.get("per") == "q"  # πίνακας ανά τρίμηνο αντί ανά μήνα
+    if per_q:
+        table_rows = []
+        for q in range(0, len(rows), 3):
+            ms = rows[q:q + 3]
+            part = lambda p: {c: round(sum(r[p][c] for r in ms), 2) for c in _YEARLY_COLUMNS}  # noqa: E731
+            table_rows.append({"label": f"{_QUARTER_NAMES[q // 3]} τρίμ. {year}", "income": part("income"),
+                               "expense": part("expense"), "balance": round(sum(r["balance"] for r in ms), 2),
+                               "vat_quarter": ms[0]["vat_quarter"], "f2_quarter": ms[0]["f2_quarter"], "docs": {"quarter": q // 3 + 1},
+                               "now": bool(cur_m) and (cur_m - 1) // 3 == q // 3})
+    else:
+        table_rows = [dict(r, docs={"month": i + 1}, now=i + 1 == cur_m) for i, r in enumerate(rows)]
     total = lambda part: {c: round(sum(r[part][c] for r in rows), 2) for c in _YEARLY_COLUMNS}  # noqa: E731
     pl = _pl(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year),
              db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year))  # ίδιο με την ανάλυση Ε3
     # Όλες οι στήλες, πάντα — ίδιες με το συνοπτικό βιβλίο του myDATA.
     return render_template(
         "reports_yearly.html", year=year, years=years, rows=rows, cols=YEARLY_TABLE_COLS, pl=pl,
-        unc=unc, unc_count=unc_count,
+        unc=unc, unc_count=unc_count, per_q=per_q, table_rows=table_rows,
         income_total=total("income"), expense_total=total("expense"),
         chart=_yearly_chart(rows), current_month=now.month if year == str(now.year) else None,
-        max_net=max([abs(r[p]["net"]) for r in rows for p in ("income", "expense")] + [1]),
+        max_net=max([abs(r[p]["net"]) for r in table_rows for p in ("income", "expense")] + [1]),
         vat_periods=_yearly_vat_periods(rows, year, now),
         spark_in=_spark([r["income"]["net"] for r in rows]), spark_out=_spark([r["expense"]["net"] for r in rows]),
     )
@@ -2483,20 +2497,27 @@ def reports_yearly_docs():
     """Τμήμα HTML για το modal της ετήσιας σύνοψης: τα παραστατικά εσόδων ή εξόδων ενός μήνα,
     με τα ίδια πρόσημα (πιστωτικά αρνητικά) και σύνολα με τη γραμμή του πίνακα."""
     kind = request.args.get("kind", "")
-    year, month = request.args.get("year", ""), request.args.get("month", "")
-    if kind not in ("income", "expense") or not (year.isdigit() and month.isdigit() and 1 <= int(month) <= 12):
+    year, month, quarter = request.args.get("year", ""), request.args.get("month", ""), request.args.get("quarter", "")
+    if quarter.isdigit() and 1 <= int(quarter) <= 4:  # ολόκληρο τρίμηνο (πίνακας ανά τρίμηνο)
+        q = int(quarter)
+        months, label = range(q * 3 - 2, q * 3 + 1), f"{_QUARTER_NAMES[q - 1]} τρίμηνο {year}"
+    elif month.isdigit() and 1 <= int(month) <= 12:
+        months, label = [int(month)], f"{_GREEK_MONTHS[int(month) - 1]} {year}"
+    else:
+        months = None
+    if kind not in ("income", "expense") or not year.isdigit() or not months:
         return "Μη έγκυρη επιλογή.", 400
     statuses = _yearly_statuses(kind, request.args.get("unc") == "1")
-    docs = db.month_documents(_active_company_id(), kind, statuses, f"{year}-{int(month):02d}")
+    docs = [d for m in months for d in db.month_documents(_active_company_id(), kind, statuses, f"{year}-{m:02d}")]
     for d in docs:
         d["credit"] = d["invoice_type"] in CREDIT_INVOICE_TYPES
-        d["t"] = _yearly_totals([d], stock_in("yearly"))[int(month)]  # ίδιος υπολογισμός με τον πίνακα (πρόσημο, πάγια, τρίτων)
+        d["t"] = _yearly_totals([d], stock_in("yearly"))[int(d["issue_date"][5:7])]  # ίδιος υπολογισμός με τον πίνακα (πρόσημο, πάγια, τρίτων)
         d["gross"] = (-1 if d["credit"] else 1) * (d["total_gross"] or 0)
     total = {c: round(sum(d["t"][c] for d in docs), 2) for c in _YEARLY_COLUMNS}
     total["gross"] = round(sum(d["gross"] for d in docs), 2)
     return render_template(
         "_yearly_docs.html", docs=docs, total=total, kind=kind, cols=YEARLY_TABLE_COLS,
-        label=f"{_GREEK_MONTHS[int(month) - 1]} {year}", type_names=INVOICE_TYPE_NAMES,
+        label=label, type_names=INVOICE_TYPE_NAMES,
     )
 
 
@@ -3089,6 +3110,35 @@ def _add_vat_periods(rows: list[dict], year: str) -> None:
             span=f"{_GREEK_MONTHS[q * 3]}–{_GREEK_MONTHS[q * 3 + len(months) - 1]}",
             partial=len(months) < 3,
         )
+
+
+def _add_f2_periods(rows: list[dict], cid, year: str) -> None:
+    """Για το popup ΦΠΑ του πίνακα: ό,τι μετρά η δήλωση Φ2 (vat_return.compute) ανά μήνα (f2_month)
+    και τρίμηνο (f2_quarter) — έσοδα μόνο οι γραμμές με ΦΠΑ, έξοδα μόνο με εκπιπτόμενο ΦΠΑ κατά τους
+    χαρακτηρισμούς ΦΠΑ. n_* = βάση (καθαρή αξία)· out = ΦΠΑ τιμολογίων (337 ± στρογγυλοποίηση 422/402)·
+    t_* = όλη η καθαρή αξία των ίδιων παραστατικών, x_* = το μέρος της εκτός ΦΠΑ (t = x + n). Οι πράξεις λήπτη
+    (364–366) βγαίνουν και από τις δύο πλευρές (ο φόρος τους συμψηφίζεται) → μετρούν στα «εκτός ΦΠΑ»."""
+    docs = {k: db.period_documents(cid, k, f"{year}-01-01", f"{year}-12-31") for k in ("income", "expense")}
+    signed = lambda ds: sum((-1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1) * (d["total_net"] or 0) for d in ds)  # noqa: E731
+
+    def f2(ms):
+        pick = lambda k: [d for d in docs[k] if int(d["issue_date"][5:7]) in ms and vat_return._sent(d)  # noqa: E731
+                          and d.get("local_action") not in ("reject", "cancel")]  # όπως το compute
+        inc, exp = pick("income"), pick("expense")
+        c = vat_return.compute(inc, exp)["codes"]
+        rc_base, rc_vat = (sum(c.get(f"{p}{i}", 0.0) for i in (4, 5, 6)) for p in ("36", "38"))
+        n_out, n_in = round(c["307"] - rc_base, 2), round(c["367"] - rc_base, 2)
+        out, inp = round(c["337"] + c["428"] - c["410"] - rc_vat, 2), round(c["387"] - rc_vat, 2)
+        t_out, t_in = round(signed(inc), 2), round(signed(exp), 2)
+        x_out, x_in = round(t_out - n_out, 2), round(t_in - n_in, 2)
+        return {"t_out": t_out, "t_in": t_in, "t_diff": round(t_out - t_in, 2), "x_out": x_out, "n_out": n_out, "out": out, "x_in": x_in, "n_in": n_in, "in": inp,
+                "x_diff": round(x_out - x_in, 2), "n_diff": round(n_out - n_in, 2), "diff": round(out - inp, 2)}
+
+    for i, r in enumerate(rows):
+        q = i // 3
+        r["f2_month"] = f2({i + 1})
+        r["f2_quarter"] = dict(f2(set(range(q * 3 + 1, min(q * 3 + 3, len(rows)) + 1))),
+                               **{k: r["vat_quarter"][k] for k in ("label", "span", "partial")})
 
 
 def _nice_step(top: float, ticks: int = 4) -> float:

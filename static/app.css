@@ -877,13 +877,40 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .yr-pl--result.is-neg th,.yr-pl--result.is-neg td.num{color:var(--err)}
 .yr-pl-warn{margin:0 18px 16px}
 /* Tooltip ΦΠΑ μήνα/τριμήνου στον πίνακα */
-.yr-tip--vat{top:0;z-index:6}
-.yr-tip .yr-tip-q{margin:12px 0 8px;padding:8px 0 6px;border-top:1px solid var(--line);border-bottom:1px solid var(--line-soft)}
-.yr-tip b small{font-weight:500;color:var(--muted);font-size:.74rem;margin-left:4px}
+.yr-tip--vat{top:0;z-index:6;min-width:0;max-width:calc(100% - 16px);padding:6px 6px 10px;border-radius:14px;overflow:hidden}
+.yr-vt{border-collapse:separate;border-spacing:0;font-size:.8rem;font-variant-numeric:tabular-nums lining-nums}
+.yr-vt th,.yr-vt td{padding:6px 12px 6px 22px;white-space:nowrap;text-align:right}
+.yr-vt th:first-child{padding-left:10px;text-align:left}
+.yr-vt td{font-family:var(--font-data);font-size:.78rem;color:var(--ink-2)}
+.yr-vt thead th{padding-top:9px;padding-bottom:9px;font-size:.64rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
+.yr-tip .yr-vt .vt-ttl{display:inline-block;padding:2px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent);letter-spacing:.08em}
+/* Στήλη «Σύνολο»: έντονη· στήλη «ΦΠΑ»: χρωματική λωρίδα */
+.yr-vt td:nth-child(2){color:var(--ink);font-weight:600}
+.yr-vt thead th:last-child,.yr-vt tbody tr:not(.vt-sec):not(.vt-note) td:last-child{background:var(--accent-soft);color:var(--accent-deep);font-weight:600}
+.yr-vt thead th:last-child{border-radius:9px 9px 0 0;color:var(--accent)}
+.yr-vt tbody tr.vt-bal td:last-child{border-radius:0 0 9px 9px}
+.yr-vt .vt-sec th{padding:14px 10px 6px;text-align:left;font-size:.84rem;font-weight:700;color:var(--ink)}
+.yr-vt tbody + tbody .vt-sec th{border-top:1px dashed var(--line);padding-top:12px}
+.yr-vt .vt-sec small{margin-left:6px;font-weight:500;font-size:.72rem;color:var(--muted)}
+.yr-vt tbody th[scope=row]{font-weight:500;color:var(--ink-2)}
+.yr-vt .vt-bal th,.yr-vt .vt-bal td{border-top:1px solid var(--line);font-weight:700;color:var(--ink)}
+.yr-vt .vt-bal td{font-size:.8rem}
+.yr-vt .vt-bal.is-neg td:last-child{color:var(--ok)}
+.yr-vt .vt-z{font-style:normal;color:var(--muted);opacity:.6}
+.yr-vt .vt-note td{padding:6px 12px 0;font-family:inherit}
+.yr-tip .yr-vt .vt-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:99px;font-size:.7rem;font-weight:600;
+  background:var(--surface-3);color:var(--ink-2)}
+.yr-tip .yr-vt .vt-pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.yr-tip .yr-vt .vt-pill.is-neg{background:var(--ok-soft);color:var(--ok)}
+.yr-tip .vt-foot{margin:8px 10px 0;font-size:.68rem;color:var(--muted)}
+@media (max-width:640px){
+  .yr-vt th,.yr-vt td{padding-left:12px;padding-right:8px}
+  .yr-vt td,.yr-vt .vt-bal td{font-size:.7rem}
+  .yr-vt tbody th[scope=row] .yr-dot{display:none}
+}
 .yr-table tbody[data-month]{outline:none;cursor:pointer}
 .yr-table tbody.is-open td,.yr-table tbody.is-open th{background:var(--accent-soft) !important}
 .yr-table tbody[data-month]:focus-visible .yr-month-cell{box-shadow:inset 3px 0 0 var(--accent)}
-.yr-tip--vat .yr-tip-bal em{color:var(--ink)} .yr-tip--vat .yr-tip-bal.is-neg em{color:var(--accent)}
 /* Ετήσια σύνοψη: «Έσοδα»/«Έξοδα» ως κουμπί → modal με τα παραστατικά του μήνα */
 .yr-table button.yr-kind{background:none;border:0;box-shadow:none;padding:3px 8px;margin:-3px -8px;border-radius:7px;
   cursor:pointer;text-decoration:underline dotted var(--muted);text-underline-offset:3px;transition:background .15s,color .15s}
@@ -1290,6 +1317,7 @@ button.db-kpi:hover{filter:none;box-shadow:none}
 
 /* Συμπαγής πίνακας */
 .yr2 .yr-table-card{padding:0}
+.yr-per{width:max-content;margin:12px 14px}
 .yr2 .yr-table{min-width:680px;font-size:.84rem}
 .yr2 .yr-table thead th{padding:10px 10px 8px;font-size:.64rem;background:var(--surface-2)}
 .yr2 .yr-table td{padding:5px 10px}
