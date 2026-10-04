@@ -251,7 +251,12 @@ body.is-busy .progress{opacity:1;animation:progress 8s cubic-bezier(.1,.8,.2,1) 
 }
 
 /* ---------- Flash ---------- */
-.flash-stack{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
+/* Μηνύματα κάτω δεξιά στην οθόνη, πάνω από το περιεχόμενο */
+.flash-stack{position:fixed;right:16px;bottom:16px;z-index:1000;width:min(440px,calc(100vw - 32px));
+  max-height:60vh;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+.flash-stack .flash{box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.flash-stack .flash.ok{background:linear-gradient(var(--ok-soft),var(--ok-soft)) var(--surface)}
+.flash-stack .flash.error{background:linear-gradient(var(--err-soft),var(--err-soft)) var(--surface)}
 .flash{display:flex;align-items:flex-start;gap:10px;padding:12px 14px 12px 16px;border-radius:var(--radius-sm);
   font-size:.9rem;border:1px solid;border-left-width:4px;animation:slide-in .4s var(--ease) both;
   transition:opacity .3s,transform .3s,margin .3s}
@@ -261,7 +266,7 @@ body.is-busy .progress{opacity:1;animation:progress 8s cubic-bezier(.1,.8,.2,1) 
 .flash-x{background:transparent;color:inherit;border:0;box-shadow:none;padding:0 4px;font-size:1.1rem;opacity:.6}
 .flash-x:hover{opacity:1;transform:none;box-shadow:none;filter:none}
 .flash.is-gone{opacity:0;transform:translateX(20px)}
-@keyframes slide-in{from{opacity:0;transform:translateY(-8px)}}
+@keyframes slide-in{from{opacity:0;transform:translateY(8px)}}
 
 /* ---------- Badges / chips ---------- */
 .pill{display:inline-flex;align-items:center;gap:5px;background:var(--surface-3);border:1px solid var(--line-soft);
@@ -734,6 +739,13 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 #ne-form .line-item{grid-template-columns:24px minmax(84px,.8fr) minmax(0,2fr) minmax(0,2fr) minmax(0,.9fr) minmax(74px,.7fr) minmax(0,1.3fr) auto}
 @media (max-width:980px){ #ne-form .line-item{grid-template-columns:24px 1fr 1fr} }
 @media (max-width:520px){ #ne-form .line-item{grid-template-columns:1fr} }
+/* Ολόκληρο το κείμενο Κατηγορίας / Τύπου Ε3 κάτω από τα select (που κόβουν το κείμενο) */
+#ne-form .sel-full{grid-column:3/8;display:grid;grid-template-columns:subgrid;margin-top:-4px;
+  font-size:.72rem;line-height:1.3;color:var(--muted);overflow-wrap:anywhere}
+#ne-form .sel-full span:empty{visibility:hidden}
+#ne-form .sel-full span:last-child{grid-column:5}  /* κάτω από τη στήλη «Χαρ. ΦΠΑ» */
+@media (max-width:980px){ #ne-form .sel-full{grid-column:2/-1;grid-template-columns:1fr} #ne-form .sel-full span:last-child{grid-column:auto} }
+@media (max-width:520px){ #ne-form .sel-full{grid-column:auto} }
 
 /* ---------- Modal (<dialog>) ---------- */
 .modal{width:min(720px,calc(100vw - 32px));max-height:calc(100vh - 48px);padding:20px 22px;border:1px solid var(--line);

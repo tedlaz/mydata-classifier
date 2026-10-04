@@ -143,11 +143,11 @@ assert "<amount>130.00</amount><vatAmount>31.20</vatAmount><vatCategory>1</vatCa
 y = build_expenses_classification_xml("400", [dict(ent[1], line_number=2)], post_per_invoice=False)
 assert "vatAmount" not in y and "<lineNumber>2</lineNumber>" in y                # ανά γραμμή: χωρίς πεδία ΦΠΑ (337)
 
-# 11) «Νέα εγγραφή» (ΑΑΔΕ, επιβεβαιωμένο στο dev): ΦΠΑ μόνο 13.1/13.2/13.31, με χαρακτηρισμό ΦΠΑ
+# 11) «Νέα εγγραφή» (ΑΑΔΕ, επιβεβαιωμένο στο dev): ΦΠΑ μόνο 13.1/13.2/13.31 (+ παράλειψη εκδότη), με χαρακτηρισμό ΦΠΑ
 #     στη γραμμή και στη σύνοψη (σφάλμα 230)· 13.3/13.4 χωρίς εκδότη (σφάλμα 205).
 from mydata_client import SELF_TYPES_NO_ISSUER, SELF_TYPES_WITH_VAT, build_self_expense_invoice_xml  # noqa: E402
 
-assert SELF_TYPES_WITH_VAT == {"13.1", "13.2", "13.31"} and SELF_TYPES_NO_ISSUER == {"13.3", "13.4"}
+assert SELF_TYPES_WITH_VAT == {"13.1", "13.2", "13.31", "1.1", "1.6", "2.1", "2.4", "5.2"} and SELF_TYPES_NO_ISSUER == {"13.3", "13.4"}
 from mydata_client import SELF_TYPES_ISSUER_OPTIONAL  # noqa: E402
 
 assert SELF_TYPES_ISSUER_OPTIONAL == {"13.1", "13.2", "13.31"}  # λιανικές: ΑΦΜ πωλητή προαιρετικό (dev ΑΑΔΕ)

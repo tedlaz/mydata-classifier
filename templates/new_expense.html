@@ -138,7 +138,12 @@
       <div>
         <label for="issuer_vat">ΑΦΜ εκδότη</label>
         <div class="input-group">
-          <input type="text" name="issuer_vat" id="issuer_vat" value="{{ draft.issuer_vat if draft else '' }}" placeholder="π.χ. 997072577 για ΕΦΚΑ">
+          <input type="text" name="issuer_vat" id="issuer_vat" value="{{ draft.issuer_vat if draft else '' }}" placeholder="π.χ. 997072577 για ΕΦΚΑ"
+                 list="suppliers_dl" autocomplete="off" oninput="showIssuerName()">
+          {# Πληκτρολόγηση μέρους ΑΦΜ ή επωνυμίας → λίστα από τον κατάλογο συναλλασσόμενων. #}
+          <datalist id="suppliers_dl">
+            {% for s in suppliers %}<option value="{{ s.vat }}">{{ s.name or '' }}</option>{% endfor %}
+          </datalist>
           <button type="button" onclick="checkVat()" class="btn-ghost btn-sm">Έλεγχος</button>
         </div>
         <div id="vat_result" class="muted small" aria-live="polite"></div>
@@ -230,6 +235,7 @@
           </select>
         </div>
         <button type="button" class="btn-x" onclick="removeLine(this)" title="Αφαίρεση γραμμής" aria-label="Αφαίρεση γραμμής">✕</button>
+        <div class="sel-full" aria-hidden="true"><span data-for="line_category"></span><span data-for="line_type"></span><span data-for="line_vat_type"></span></div>
       </div>
       {% endfor %}
     </div>
@@ -321,6 +327,12 @@ function recalc() {
   document.getElementById('t_gross_label').textContent = payroll ? 'Πληρωτέο' : 'Σύνολο';
   document.getElementById('t_gross').textContent = (net + vat - minus).toFixed(2) + ' €';
 }
+// Επωνυμία του επιλεγμένου ΑΦΜ (από τη λίστα) κάτω από το πεδίο.
+function showIssuerName() {
+  const v = document.getElementById('issuer_vat').value.trim();
+  const o = Array.from(document.getElementById('suppliers_dl').options).find(o => o.value === v);
+  document.getElementById('vat_result').textContent = o && o.text ? '✔ ' + o.text : '';
+}
 async function checkVat() {
   const afm = document.getElementById('issuer_vat').value.trim();
   const country = document.getElementById('issuer_country').value || 'GR';
@@ -385,6 +397,7 @@ function syncVatFields() {
     const vt = el.querySelector('[name=line_vat_type]');
     if (!has) { cat.value = '8'; amt.value = '0.00'; }
     cat.disabled = amt.disabled = vt.disabled = !has;
+    showFull(el);
   });
   const note = document.getElementById('vat_note');
   note.hidden = false;
@@ -448,12 +461,22 @@ function filterLineType(row, clearInvalid) {
     const stillOk = anyE3 || (!noE3 && list.includes(sel.value));
     if (!stillOk) sel.value = '';
   }
+  showFull(row);
+}
+// Το select δεν αναδιπλώνει κείμενο: ολόκληρη η επιλογή Κατηγορίας/Ε3 σε λεζάντα από κάτω.
+function showFull(row) {
+  row.querySelectorAll('.sel-full span').forEach(sp => {
+    const sel = row.querySelector(`select[name="${sp.dataset.for}"]`);
+    const o = sel.selectedOptions[0];
+    sp.textContent = o && o.value && !sel.disabled ? o.text : '';
+  });
 }
 function filterAllLines() {
   document.querySelectorAll('#lines .line-item').forEach(r => filterLineCat(r));
 }
 document.addEventListener('change', e => {
   if (e.target.name === 'line_category' && e.target.closest('#lines')) filterLineType(e.target.closest('.line-item'), true);
+  if (['line_type', 'line_vat_type'].includes(e.target.name) && e.target.closest('#lines')) showFull(e.target.closest('.line-item'));
 });
 
 // ---- Χώρα εκδότη: Ελλάδα / ΕΕ / λοιπές, με ελληνικά ονόματα από τον browser ----
@@ -508,7 +531,7 @@ function filterCountries(t) {
 }
 
 buildCountries();
-toggleIssuer(); recalc();
+toggleIssuer(); recalc(); showIssuerName();
 
 // Πρότυπα με AJAX: αντικαθίστανται φόρμα, πληροφορίες και chips· κεφαλίδα και animations μένουν.
 (function () {

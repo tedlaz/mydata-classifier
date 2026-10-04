@@ -691,6 +691,14 @@ def fetch():
     enrich_issuer_names(unclassified)
     enrich_issuer_names(classified)
 
+    # Ακυρωμένα: αφαίρεση από το τοπικό βιβλίο (μπορεί να είχαν κατέβει πριν ακυρωθούν).
+    removed = 0
+    for mark in client.last_cancelled:
+        row = db.get_document(cid, mark)
+        if row and row["kind"] == "expense":
+            db.delete_document(cid, mark)
+            removed += 1
+
     # Αποθήκευση στο μόνιμο ledger (SQLite). Το upsert ΔΕΝ χαμηλώνει την τοπική
     # πρόοδο: αχαρακτήριστα που τοπικά είναι classified/sent μένουν ως έχουν,
     # ενώ όσα το myDATA δείχνει χαρακτηρισμένα περνούν σε «Ολοκληρωμένα».
@@ -704,7 +712,8 @@ def fetch():
     flash(
         f"✔ Ανακτήθηκαν και αποθηκεύτηκαν {len(unclassified) + len(classified)} "
         "παραστατικά."
-        + (f" {n0} με μηδενική αξία χαρακτηρίστηκαν τοπικά (2.5 / E3_585_016)." if n0 else ""),
+        + (f" {n0} με μηδενική αξία χαρακτηρίστηκαν τοπικά (2.5 / E3_585_016)." if n0 else "")
+        + (f" Αφαιρέθηκαν {removed} ακυρωμένα." if removed else ""),
         "ok",
     )
     if db.get_setting("auto_classify") == "1" and _auto_classify_candidates(cid):
@@ -3418,8 +3427,8 @@ def _render_new_expense(draft: dict | None, edit_mark: str = "", copy_mark: str 
     """Η φόρμα «Νέας εγγραφής» — κενή, με draft (επεξεργασία/αντιγραφή) ή ξανά με τις
     τιμές του χρήστη μετά από σφάλμα, ώστε να μη χάνεται ό,τι συμπλήρωσε."""
     from mydata_client import (
+        NEW_ENTRY_TYPES,
         PAYMENT_METHODS,
-        SELF_EXPENSE_TYPES,
         SELF_TYPE_RULES,
         SELF_TYPES_ISSUER_OPTIONAL,
         SELF_TYPES_NO_ISSUER,
@@ -3430,11 +3439,11 @@ def _render_new_expense(draft: dict | None, edit_mark: str = "", copy_mark: str 
     # Επιτρεπόμενοι συνδυασμοί ΕΞΟΔΩΝ ανά self-expense τύπο (για αλυσιδωτό φιλτράρισμα).
     combos_all = {
         t: {k: v for k, v in db.combos_for_type(t).items() if k.startswith("category2")}
-        for t in SELF_EXPENSE_TYPES
+        for t in NEW_ENTRY_TYPES
     }
     return render_template(
         "new_expense.html",
-        self_types=SELF_EXPENSE_TYPES,
+        self_types=NEW_ENTRY_TYPES,
         categories=EXPENSE_CATEGORIES,
         types=EXPENSE_TYPES,
         vat_categories=VAT_CATEGORIES,
@@ -3446,8 +3455,9 @@ def _render_new_expense(draft: dict | None, edit_mark: str = "", copy_mark: str 
         copy_mark=copy_mark,
         template=template,
         templates=db.list_templates(_active_company_id()),
+        suppliers=db.list_suppliers(_active_company_id()),
         eu_countries=sorted(EU_COUNTRIES),
-        country_rules={t: country_rule(t) for t in SELF_EXPENSE_TYPES},
+        country_rules={t: country_rule(t) for t in NEW_ENTRY_TYPES},
         # Κανόνες ΑΑΔΕ ανά τύπο για τη φόρμα (ίδια πηγή με το mydata_client).
         with_vat=sorted(SELF_TYPES_WITH_VAT),
         no_issuer=sorted(SELF_TYPES_NO_ISSUER),
@@ -3508,7 +3518,7 @@ def draft_delete(mark):
 @app.route("/new_expense", methods=["POST"])
 def new_expense_submit():
     from mydata_client import (
-        SELF_EXPENSE_TYPES,
+        NEW_ENTRY_TYPES,
         SELF_TYPES_ISSUER_OPTIONAL,
         SELF_TYPES_NO_ISSUER,
         SELF_TYPES_WITH_VAT,
@@ -3529,7 +3539,7 @@ def new_expense_submit():
         flash("Συμπλήρωσε τη σειρά και τον Α/Α της εγγραφής.", "error")
         return again()
 
-    if invoice_type not in SELF_EXPENSE_TYPES:
+    if invoice_type not in NEW_ENTRY_TYPES:
         flash("Μη έγκυρος τύπος εγγραφής.", "error")
         return again()
 
@@ -3602,7 +3612,7 @@ def new_expense_submit():
         if any(ln["vat_amount"] for ln in lines):
             flash(
                 f"Ο τύπος {invoice_type} δεν έχει ΦΠΑ — ΦΠΑ επιτρέπεται μόνο στα "
-                "13.1, 13.2 και 13.31.",
+                "13.1, 13.2, 13.31 και στη διαβίβαση λόγω παράλειψης εκδότη.",
                 "error",
             )
             return again()
@@ -3694,7 +3704,7 @@ def new_expense_submit():
     _store_self_expense(cid, draft, origin)
     verb = "ενημερώθηκε" if edit_mark else "αποθηκεύτηκε"
     flash(
-        f"✔ Η εγγραφή {invoice_type} ({SELF_EXPENSE_TYPES[invoice_type]}) {verb} "
+        f"✔ Η εγγραφή {invoice_type} ({NEW_ENTRY_TYPES[invoice_type]}) {verb} "
         "τοπικά στα «Χαρακτηρισμένα». Μάζεψε κι άλλες και στείλ' τες μαζικά με "
         "«Αποστολή στο myDATA».",
         "ok",

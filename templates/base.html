@@ -114,13 +114,13 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
       {% endif %}
     </header>
     <main>
-      {% if update %}
-      <div class="flash-stack"><div class="flash ok" role="status"><span>Διαθέσιμη νέα έκδοση {{ update.version }} —
-        <a href="{{ update.url }}" target="_blank" rel="noopener">Λήψη</a></span><button type="button" class="flash-x" aria-label="Κλείσιμο">×</button></div></div>
-      {% endif %}
       {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
+        {% if messages or update %}
         <div class="flash-stack">
+          {% if update %}
+          <div class="flash ok" role="status"><span>Διαθέσιμη νέα έκδοση {{ update.version }} —
+            <a href="{{ update.url }}" target="_blank" rel="noopener">Λήψη</a></span><button type="button" class="flash-x" aria-label="Κλείσιμο">×</button></div>
+          {% endif %}
           {% for cat, msg in messages %}
           <div class="flash {{ cat }}" role="status"><span>{{ msg }}</span><button type="button" class="flash-x" aria-label="Κλείσιμο">×</button></div>
           {% endfor %}

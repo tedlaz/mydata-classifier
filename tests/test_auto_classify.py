@@ -20,7 +20,8 @@ for mark, vat in (("1001", "111"), ("1002", "999")):
         "total_net": 100.0, "total_vat": 24.0, "total_gross": 124.0,
         "lines": [{"line_number": 1, "net_value": 100.0, "vat_amount": 24.0, "vat_category": "1"}],
     }, "unclassified")
-A.get_client = lambda: NS(request_unclassified_expenses=lambda *a: [], request_classified_expenses=lambda *a: [])
+A.get_client = lambda: NS(request_unclassified_expenses=lambda *a: [], request_classified_expenses=lambda *a: [],
+                         last_cancelled=set())
 A.enrich_names = lambda *a, **k: None
 c = A.app.test_client()
 status = lambda m: db.get_document(cid, m)["status"]  # noqa: E731

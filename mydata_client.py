@@ -223,6 +223,7 @@ class MyDataClient:
         # ΑΦΜ της εταιρείας: ξεχωρίζει στις δικές μας διαβιβάσεις όσα εκδόθηκαν από
         # ΤΡΙΤΟΝ (διαβίβαση από λήπτη λόγω παράλειψης/απόκλισης εκδότη) → έξοδα.
         self.own_vat = (own_vat or entity_vat or "").strip()
+        self.last_cancelled: set[str] = set()
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -582,6 +583,9 @@ class MyDataClient:
             invoices.append(inv)
             seen.add(inv.mark)
 
+        # Ακυρωμένα και μέσω cancelledByMark στο ίδιο το παραστατικό (όχι μόνο cancelledInvoicesDoc).
+        cancelled_marks |= {i.mark for i in invoices if i.is_cancelled}
+        self.last_cancelled = cancelled_marks  # για αφαίρεση από το τοπικό βιβλίο (fetch)
         return invoices, cls_map, cancelled_marks
 
     def _request_info(self, endpoint: str, date_from: str, date_to: str) -> list[dict]:
@@ -890,6 +894,7 @@ class MyDataClient:
             withheld=withheld,
             deductions=deductions,
             withheld_base=withheld_base,
+            variation_type="1" if invoice_type in OMISSION_TYPES else "",
         )
         resp = self.session.post(
             self.base_url + "SendInvoices",
@@ -968,6 +973,19 @@ SELF_EXPENSE_TYPES = {
     "17.6": "Λοιπές Εγγραφές Τακτοποίησης Εξόδων - Φορολογική Βάση",
 }
 
+# Διαβίβαση από Λήπτη λόγω παράλειψης Εκδότη (invoiceVariationType = 1): ο λήπτης ανεβάζει
+# το παραστατικό του προμηθευτή — εκδότης ο προμηθευτής, αντισυμβαλλόμενος εμείς.
+# Επιτρεπτοί τύποι ΑΑΔΕ: 1.1, 1.6, 2.1, 2.4, 5.2, 8.1, 8.2 (τα 8.x δεν αφορούν έξοδα).
+OMISSION_TYPES = {
+    "1.1": "Τιμολόγιο Πώλησης — Διαβίβαση Λήπτη λόγω παράλειψης Εκδότη",
+    "1.6": "Τιμολόγιο Πώλησης / Συμπληρωματικό — Διαβίβαση Λήπτη λόγω παράλειψης Εκδότη",
+    "2.1": "Τιμολόγιο Παροχής Υπηρεσιών — Διαβίβαση Λήπτη λόγω παράλειψης Εκδότη",
+    "2.4": "Τιμολόγιο Παροχής / Συμπληρωματικό — Διαβίβαση Λήπτη λόγω παράλειψης Εκδότη",
+    "5.2": "Πιστωτικό Τιμολόγιο / Μη Συσχετιζόμενο — Διαβίβαση Λήπτη λόγω παράλειψης Εκδότη",
+}
+# Όλοι οι τύποι της φόρμας «Νέα εγγραφή».
+NEW_ENTRY_TYPES = {**SELF_EXPENSE_TYPES, **OMISSION_TYPES}
+
 # Κατηγορίες ΦΠΑ γραμμής (πεδίο vatCategory του σχήματος)
 VAT_CATEGORIES = {
     "1": "24%",
@@ -989,6 +1007,10 @@ SELF_TYPE_RULES = {
     "15": {"counterpart": True, "payment": True},  # συμβόλαιο
     "16": {"counterpart": True, "payment": False},  # ενοίκιο - error 205
     "17": {"counterpart": False, "payment": True},  # δικές μας εγγραφές - υποχρεωτικός
+    # παράλειψη εκδότη (OMISSION_TYPES): εμείς ως λήπτης-αντισυμβαλλόμενος
+    "1": {"counterpart": True, "payment": True},
+    "2": {"counterpart": True, "payment": True},
+    "5": {"counterpart": True, "payment": True},
 }
 
 
@@ -996,7 +1018,7 @@ SELF_TYPE_RULES = {
 # συνδυασμούς (μόνο αυτοί οι τύποι επιτρέπουν κατηγορίες με δικαίωμα έκπτωσης ΦΠΑ):
 # - ΦΠΑ μόνο στις λιανικές 13.1/13.2/13.31· όλοι οι άλλοι: κατηγορία 8, ΦΠΑ 0 (σφάλματα 215/218).
 # - 13.3 κοινόχρηστα & 13.4 συνδρομές: ΧΩΡΙΣ εκδότη (σφάλμα 205 «Issuer is forbidden»).
-SELF_TYPES_WITH_VAT = {"13.1", "13.2", "13.31"}
+SELF_TYPES_WITH_VAT = {"13.1", "13.2", "13.31", *OMISSION_TYPES}
 SELF_TYPES_NO_ISSUER = {"13.3", "13.4"}
 # Λιανικές: ο εκδότης (ΑΦΜ πωλητή) είναι προαιρετικός — δεκτά και με και χωρίς (dev ΑΑΔΕ).
 SELF_TYPES_ISSUER_OPTIONAL = {"13.1", "13.2", "13.31"}
@@ -1044,6 +1066,7 @@ def build_self_expense_invoice_xml(
     withheld: float = 0.0,
     deductions: float = 0.0,
     withheld_base: float | None = None,
+    variation_type: str = "",
 ) -> str:
     """
     Δημιουργεί InvoicesDoc για αυτοτιμολογούμενη εγγραφή εξόδου (π.χ. 17.1 Μισθοδοσία)
@@ -1083,6 +1106,8 @@ def build_self_expense_invoice_xml(
     ET.SubElement(header, f"{{{INV_NS}}}issueDate").text = issue_date
     ET.SubElement(header, f"{{{INV_NS}}}invoiceType").text = invoice_type
     ET.SubElement(header, f"{{{INV_NS}}}currency").text = "EUR"
+    if variation_type:  # μετά το currency κατά τη σειρά του σχήματος
+        ET.SubElement(header, f"{{{INV_NS}}}invoiceVariationType").text = variation_type
 
     total_net = 0.0
     total_vat = 0.0
