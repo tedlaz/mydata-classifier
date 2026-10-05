@@ -83,6 +83,11 @@
 .dc-sec--xml{--c:var(--muted);--c-soft:var(--surface-3);--c-line:var(--line-soft)}
 .dc-sec--xml > details > summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .dc-sec--xml > details > summary h2{margin:0}
+.xml-links{margin-left:auto;display:flex;gap:8px}
+.xml-links a{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;color:var(--accent);
+  background:var(--accent-soft);border:1px solid var(--accent-glow)}
+.xml-links a:hover{background:var(--accent);color:var(--on-accent)}
+.xml-links svg{width:20px;height:20px}
 .dc-sec--xml > details > summary::-webkit-details-marker{display:none}
 .xml-tree{--x:var(--accent);margin:12px 0 0;font-size:.86rem}
 /* Χρώμα ανά ενότητα (μόνο καθολικά tokens — τα --yr-* υπάρχουν μόνο στις αναφορές)· οι υποενότητες (π.χ. Διεύθυνση) κρατούν το χρώμα της ενότητάς τους. */
@@ -325,7 +330,15 @@
 {%- endmacro %}
 <div class="card dc-sec dc-sec--xml">
   <details>
-    <summary><h2><span class="dc-ico">🗂</span>Όλα τα στοιχεία</h2><span class="muted small">όπως τα έδωσε το myDATA</span></summary>
+    <summary><h2><span class="dc-ico">🗂</span>Όλα τα στοιχεία</h2><span class="muted small">όπως τα έδωσε το myDATA</span>
+      {% if xml_links %}
+      <span class="xml-links">
+        {% if xml_links.download %}<a href="{{ xml_links.download }}" target="_blank" rel="noopener noreferrer" title="URL λήψης παραστατικού" aria-label="URL λήψης παραστατικού">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></a>{% endif %}
+        {% if xml_links.qr %}<a href="{{ xml_links.qr }}" target="_blank" rel="noopener noreferrer" title="QR code παραστατικού" aria-label="QR code παραστατικού">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg></a>{% endif %}
+      </span>
+      {% endif %}</summary>
     {% if has_xml %}
     <p><a class="btn btn-ghost btn-sm" href="{{ url_for('document_xml', mark=inv.mark) }}">⬇ XML</a></p>
     <div class="xml-tree">{{ xml_nodes(xml_tree) }}</div>

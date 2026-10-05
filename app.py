@@ -1050,7 +1050,8 @@ def document(mark):
         categories=INCOME_CATEGORIES if is_income else EXPENSE_CATEGORIES,
         types=INCOME_TYPES if is_income else EXPENSE_TYPES,
         vat_types=VAT_TYPES,
-        xml_tree=_xml_tree(row.get("raw_xml")),
+        xml_tree=(xml_tree := _xml_tree(row.get("raw_xml"))),
+        xml_links=_xml_links(xml_tree),
         has_xml=bool(row.get("raw_xml")),
     )
 
@@ -1202,6 +1203,21 @@ def _xml_tree(xml: str | None) -> list[dict]:
     except ET.ParseError:
         return []
     return node(root)["children"]
+
+
+def _xml_links(tree: list[dict]) -> dict:
+    """URL λήψης και QR code του παραστατικού (μόνο http/https), από το δέντρο του _xml_tree."""
+    found = {}
+
+    def walk(nodes):
+        for n in nodes:
+            v = n["value"]
+            if n["tag"] in ("downloadingInvoiceUrl", "qrCodeUrl") and v.lower().startswith(("https://", "http://")):
+                found.setdefault("download" if n["tag"] == "downloadingInvoiceUrl" else "qr", v)
+            walk(n["children"])
+
+    walk(tree)
+    return found
 
 
 @app.route("/document/<mark>/xml")

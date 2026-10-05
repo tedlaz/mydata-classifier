@@ -74,6 +74,8 @@ db.upsert_document(cid, "expense", dict(doc, raw_xml=xml2), "unclassified")
 page = c.get("/document/4001").get_data(as_text=True)
 assert 'href="https://mydata.aade.gr/x?a=1&amp;b=2" target="_blank"' in page, page[-3000:]
 assert 'href="javascript' not in page
+assert 'class="xml-links"' in page and 'aria-label="URL λήψης παραστατικού"' in page
+assert 'aria-label="QR code παραστατικού"' not in page  # το QR ήταν javascript: → κανένα εικονίδιο
 
 # (στ) Παραστατικό εσόδου: στο μενού ενεργό το «Βιβλίο εσόδων», όχι των εξόδων.
 import re  # noqa: E402
