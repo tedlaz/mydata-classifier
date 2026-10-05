@@ -1,14 +1,44 @@
 {% extends "base.html" %}
+{% from "_months.html" import month_style, month_legend, month_grid %}
 {% block title %}Ανάκτηση{% endblock %}
 {% block content %}
-<div class="page-head">
-  <div>
-    <h1>Ανάκτηση</h1>
-    <p class="page-sub">Φέρε από το myDATA ή καθάρισε τοπικά τα παραστατικά ενός διαστήματος — έσοδα και έξοδα μαζί, ή μόνο το ένα βιβλίο.</p>
+<style>
+/* Κεφαλίδα στο ύφος των βιβλίων (_ledger_hero.html: .lh--in). */
+.sy-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(18px,3vw,28px);color:#fff;margin-bottom:22px;
+  background:radial-gradient(120% 140% at 0% 0%,#0f5a4a 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
+.sy-hero .blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;pointer-events:none;animation:sy-float 13s ease-in-out infinite}
+.sy-hero .b1{width:300px;height:300px;background:#1fbf8a;top:-140px;right:-40px}
+.sy-hero .b2{width:220px;height:220px;background:#5b66f5;bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
+@keyframes sy-float{50%{transform:translate(26px,-18px) scale(1.1)}}
+.sy-hero h1{position:relative;margin:0;font-size:clamp(1.7rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.02em;color:#fff}
+.sy-hero-last{position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-top:14px}
+.sy-hero-last > div{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;padding:8px 14px;border-radius:10px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-left:4px solid var(--c);font-size:.8rem;color:#aab2d4}
+.sy-hero-last b{color:#fff;font-size:.9rem}
+.sy-hero-last .mono{font-family:var(--font-data);color:#fff}
+.sy-hero-strip{position:relative;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)}
+.sy-hero-strip .sy-mgrid{margin-top:8px}
+@media (prefers-reduced-motion:reduce){ .sy-hero .blob{animation:none} }
+</style>
+<header class="sy-hero">
+  <i class="blob b1"></i><i class="blob b2"></i>
+  <h1>⇅ Ανάκτηση</h1>
+  <div class="sy-hero-last">
+    {% for label, rng, mark in last %}
+    <div style="--c:{{ '#4fd1a0' if loop.first else '#9aa2ff' }}"><b>{{ label }}</b>
+      <span>Τελευταία ανάκτηση: <span class="mono">{{ rng or '—' }}</span></span>
+      <span title="Τα MARK του myDATA είναι χρονολογικά — έχουμε δεδομένα ως εδώ">Τελευταίο MARK: <span class="mono">{{ mark or '—' }}</span></span></div>
+    {% endfor %}
   </div>
-</div>
+  {# Λωρίδα μηνών (2 έτη): κλικ σε μήνα = διάστημα της φόρμας. #}
+  <div class="sy-hero-strip sy-strip sy-strip--dark" aria-label="Παραστατικά ανά μήνα">
+    {{ month_legend(scope) }}
+    {{ month_grid(months, this_month, scope) }}
+  </div>
+</header>
 
 <div>
+{{ month_style() }}
 <style>
 .sy-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:18px;align-items:stretch}
 .sy-card{background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:22px;
@@ -25,7 +55,8 @@
 .sy-chip.is-on{background:var(--accent-grad);color:#fff}
 .sy-chip--last{background:var(--ok-soft);color:var(--ok)}
 
-/* Ροή myDATA ⇄ βιβλίο: κουκκίδες με offset-path, πιο γρήγορα όσο τρέχει μια ενέργεια. */
+/* Ροή myDATA ⇄ βιβλίο: στατική σε αναμονή· κινείται μόνο όσο τρέχει μια ενέργεια (body.is-busy).
+   Ανάκτηση: κουκκίδες προς το βιβλίο· διαγραφή: προς τα έξω· διαγραφή και ανάκτηση: και τα δύο. */
 .sy-flow{position:relative;display:grid;place-items:center;min-height:230px;overflow:hidden;
   background:radial-gradient(90% 90% at 50% 0%,var(--accent-soft),transparent 70%),var(--surface)}
 .sy-flow svg{width:100%;max-width:420px;height:auto}
@@ -33,15 +64,17 @@
 .sy-flow .t1{font-weight:800;font-size:14px}
 .sy-flow .t2{font-size:11px;fill:var(--muted)}
 .sy-flow .box{fill:var(--surface-2);stroke:var(--line);stroke-width:1.5}
-.sy-flow .ln{fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:5 6;animation:sy-dash 1.2s linear infinite}
+.sy-flow .ln{fill:none;stroke:var(--line);stroke-width:2;stroke-dasharray:5 6}
 @keyframes sy-dash{to{stroke-dashoffset:-22}}
-.sy-dot{offset-rotate:0deg;animation:sy-move 2.2s linear infinite;animation-delay:calc(var(--d) * -1s)}
+.sy-dot{offset-rotate:0deg;visibility:hidden;animation-delay:calc(var(--d) * -1s)}
 .sy-dot--in{offset-path:path("M130 78 C 190 40, 230 40, 290 78");fill:#1fbf8a}
 .sy-dot--out{offset-path:path("M290 132 C 230 170, 190 170, 130 132");fill:var(--err);opacity:.8}
 @keyframes sy-move{from{offset-distance:0%;opacity:0}15%{opacity:1}85%{opacity:1}to{offset-distance:100%;opacity:0}}
 .sy-flow .lbl{font:700 11px var(--font-data)}
-body.is-busy .sy-dot{animation-duration:.6s}
-body.is-busy .sy-flow .ln{stroke:var(--accent);animation-duration:.4s}
+body.is-busy .sy-dot{visibility:visible;animation:sy-move 1s linear infinite;animation-delay:calc(var(--d) * -.45s)}
+body.is-busy .sy-flow .ln{stroke:var(--accent);animation:sy-dash .4s linear infinite}
+body.is-busy #sy-form[data-run=delete] .sy-dot--in,
+body.is-busy #sy-form[data-run=fetch] .sy-dot--out{visibility:hidden}
 .sy-busy{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:none;align-items:center;gap:8px;padding:6px 14px;
   border-radius:999px;background:var(--accent-grad);color:#fff;font-size:.8rem;font-weight:700;white-space:nowrap}
 .sy-busy i{width:12px;height:12px;border-radius:50%;border:2px solid #fff;border-right-color:transparent;animation:sy-spin .7s linear infinite}
@@ -72,36 +105,8 @@ body.is-busy .sy-busy{display:flex}
 .sy-scope legend{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:0;margin-bottom:6px}
 
 /* Προηγούμενο και τρέχον έτος (μία σειρά ανά έτος): πλήθος παραστατικών στο τοπικό βιβλίο· κλικ = διάστημα του μήνα. */
-.sy-months{margin-top:18px;padding:16px 18px}
-.sy-months-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:6px 16px}
-.sy-legend{display:flex;gap:14px;font-size:.78rem;color:var(--muted)}
-.sy-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:var(--accent)}
-.sy-legend i.w{background:var(--warn)}
-.sy-legend i.in{background:var(--ok)}
-.sy-legend i.e{background:none;border:1px dashed var(--line)}
-/* Συμπαγές: και τα δύο έτη σε μία γραμμή (24 στενά κελιά), το έτος πριν από τον Ιανουάριό του. */
-.sy-mgrid{display:flex;gap:3px;margin-top:10px;align-items:stretch}
-.sy-yl{flex:none;display:grid;place-items:center;padding:0 4px;font:700 .72rem var(--font-data);color:var(--muted);
-  writing-mode:vertical-rl;transform:rotate(180deg)}
-.sy-mgrid > .sy-yl:not(:first-child){margin-left:6px;border-left:1px solid var(--line)}
-.sy-mo{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 1px 4px;border-radius:7px;font-weight:400;
-  background:var(--surface-2);color:var(--ink);border:1px solid var(--line-soft);box-shadow:none;min-height:0}
-.sy-mo:hover{border-color:var(--accent);box-shadow:none;filter:none}
-.sy-mo.is-on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
-.sy-mo.is-now{background:var(--accent-soft);border-color:var(--accent-glow)}
-.sy-mo.is-future{opacity:.45}
-.sy-mo.is-empty{background:none;border-style:dashed;color:var(--muted)}
-.sy-mo .mn{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0;white-space:nowrap;overflow:hidden;max-width:100%}
-.sy-mo .bar{position:relative;width:8px;height:28px;border-radius:3px;background:var(--surface-3);overflow:hidden;display:flex;flex-direction:column-reverse}
-.sy-mo .bar span{display:block;width:100%;background:var(--accent);min-height:2px}
-.sy-mo .bar span.w{background:var(--warn)}
-.sy-mo .bar span.in{background:var(--ok)}
-.sy-mo.is-empty .bar{background:none}
-.sy-mo b{font:700 .7rem var(--font-data)}
-/* Στενή οθόνη: ένα έτος ανά γραμμή (το έτος ως τίτλος, 12 κελιά από κάτω). */
-@media (max-width:900px){ .sy-mgrid{flex-wrap:wrap}
-  .sy-yl{flex-basis:100%;writing-mode:horizontal-tb;transform:none;place-items:start;padding:4px 0 0;margin-left:0!important;border:0!important}
-  .sy-mo{flex-basis:calc((100% - 33px) / 12)} }
+
+
 
 @media (max-width:900px){ .sy-grid,.sy-acts{grid-template-columns:1fr} }
 @media (prefers-reduced-motion:reduce){ .sy-grid *,.sy-acts *,.sy-card,.sy-act{animation:none!important;transition:none!important} }
@@ -156,40 +161,6 @@ body.is-busy .sy-busy{display:flex}
     </section>
   </div>
 
-  {% set mnames = ['Ιαν', 'Φεβ', 'Μάρ', 'Απρ', 'Μάι', 'Ιούν', 'Ιούλ', 'Αύγ', 'Σεπ', 'Οκτ', 'Νοέ', 'Δεκ'] %}
-  <section class="sy-card sy-months" style="--i:2">
-    <div class="sy-months-head">
-      <h2>🗓️ {{ months[0][0][:4] }} – {{ months[-1][0][:4] }}</h2>
-      <div class="sy-legend">
-        {% if scope != 'expense' %}<span><i class="in"></i>έσοδα</span>{% endif %}
-        {% if scope != 'income' %}<span><i></i>έξοδα</span>{% endif %}
-        <span><i class="w"></i>αχαρακτήριστα</span>
-        <span><i class="e"></i>κενός μήνας</span>
-      </div>
-    </div>
-    {% set ns = namespace(peak=1) %}
-    {% for ym, st in months %}{% set ns.peak = [ns.peak, st.total]|max %}{% endfor %}
-    <div class="sy-mgrid" role="group" aria-label="Παραστατικά ανά μήνα — κλικ για το διάστημα του μήνα">
-      {% for ym, st in months %}
-        {% set total = st.total %}
-        {% set m = ym[5:]|int %}
-        {% if m == 1 %}<span class="sy-yl">{{ ym[:4] }}</span>{% endif %}
-        <button type="button" data-preset="month-of" data-ym="{{ ym }}"
-                class="sy-mo {{ 'is-empty' if not total }} {{ 'is-now' if ym == this_month }} {{ 'is-future' if ym > this_month }}"
-                title="{{ mnames[m - 1] }} {{ ym[:4] }}: {% if total %}{% if scope != 'expense' %}έσοδα {{ st.income }} · {% endif %}{% if scope != 'income' %}έξοδα {{ st.expense }} · {% endif %}αχαρακτήριστα {{ st.pending }}{% else %}κανένα παραστατικό{% endif %}">
-          <span class="mn">{{ mnames[m - 1] }}</span>
-          <span class="bar" aria-hidden="true">
-            {# Από κάτω προς τα πάνω: έσοδα, έξοδα, αχαρακτήριστα. #}
-            {% for key, cls in (('income', 'in'), ('expense', ''), ('pending', 'w')) if st[key] %}
-            <span class="{{ cls }}" style="height:{{ (st[key] / ns.peak * 100)|round(1) }}%"></span>
-            {% endfor %}
-          </span>
-          <b>{{ total or '—' }}</b>
-        </button>
-      {% endfor %}
-    </div>
-  </section>
-
   <div class="sy-acts">
     <button type="submit" class="sy-act sy-act--go" style="--i:0" name="action" value="fetch">
       <span class="e">📥</span><b>Ανάκτηση</b>
@@ -226,7 +197,9 @@ body.is-busy .sy-busy{display:flex}
     var q = new URLSearchParams({scope: e.target.value, date_from: form.date_from.value, date_to: form.date_to.value});
     location.href = '?' + q;
   });
-  form.addEventListener('click', function(e){
+  // Ποια ενέργεια τρέχει: για την κατεύθυνση της ροής στο animation.
+  form.addEventListener('submit', function(e){ form.dataset.run = (e.submitter && e.submitter.value) || 'fetch'; });
+  document.addEventListener('click', function(e){
     var b = e.target.closest('[data-preset]');
     if (!b) return;
     var t = new Date(), y = t.getFullYear(), m = t.getMonth(), from = t, to = t;
@@ -246,7 +219,7 @@ body.is-busy .sy-busy{display:flex}
       }
     }
     set('date_from', from); set('date_to', to);
-    form.querySelectorAll('[data-preset]').forEach(function(x){ x.classList.toggle('is-on', x === b); });
+    document.querySelectorAll('[data-preset]').forEach(function(x){ x.classList.toggle('is-on', x === b); });
   });
 })();
 </script>

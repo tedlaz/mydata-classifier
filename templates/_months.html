@@ -1,0 +1,89 @@
+{# Λωρίδα μηνών (προηγούμενο + τρέχον έτος σε μία γραμμή): έσοδα / έξοδα / αχαρακτήριστα ανά μήνα.
+   Σελίδα Ανάκτησης: κουμπιά που ορίζουν το διάστημα (data-preset). Βιβλία: σύνδεσμοι που φιλτράρουν
+   το βιβλίο στον μήνα (book + q)· ξανά κλικ στον ίδιο μήνα = χωρίς φίλτρο. #}
+{% set _mnames = ['Ιαν', 'Φεβ', 'Μάρ', 'Απρ', 'Μάι', 'Ιούν', 'Ιούλ', 'Αύγ', 'Σεπ', 'Οκτ', 'Νοέ', 'Δεκ'] %}
+
+{% macro month_style() -%}
+<style>
+.sy-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:.78rem;color:var(--muted)}
+.sy-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:var(--accent)}
+.sy-legend i.w{background:var(--warn)}
+.sy-legend i.in{background:var(--ok)}
+.sy-legend i.e{background:none;border:1px dashed var(--line)}
+/* Συμπαγές: και τα δύο έτη σε μία γραμμή (24 στενά κελιά), το έτος πριν από τον Ιανουάριό του. */
+.sy-mgrid{display:flex;gap:3px;margin-top:10px;align-items:stretch}
+.sy-yl{flex:none;display:grid;place-items:center;padding:0 4px;font:700 .72rem var(--font-data);color:var(--muted);
+  writing-mode:vertical-rl;transform:rotate(180deg)}
+.sy-mgrid > .sy-yl:not(:first-child){margin-left:6px;border-left:1px solid var(--line)}
+.sy-mo{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 1px 4px;border-radius:7px;font-weight:400;
+  background:var(--surface-2);color:var(--ink);border:1px solid var(--line-soft);box-shadow:none;min-height:0;text-decoration:none}
+.sy-mo:hover{border-color:var(--accent);box-shadow:none;filter:none}
+.sy-mo.is-on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.sy-mo.is-now{background:var(--accent-soft);border-color:var(--accent-glow)}
+.sy-mo.is-future{opacity:.45}
+.sy-mo.is-empty{background:none;border-style:dashed;color:var(--muted)}
+.sy-mo .mn{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0;white-space:nowrap;overflow:hidden;max-width:100%}
+.sy-mo .bar{position:relative;width:8px;height:28px;border-radius:3px;background:var(--surface-3);overflow:hidden;display:flex;flex-direction:column-reverse}
+.sy-mo .bar span{display:block;width:100%;background:var(--accent);min-height:2px}
+.sy-mo .bar span.w{background:var(--warn)}
+.sy-mo .bar span.in{background:var(--ok)}
+.sy-mo.is-empty .bar{background:none}
+.sy-mo b{font:700 .7rem var(--font-data)}
+/* Στη σκούρα κεφαλίδα των βιβλίων. */
+.sy-strip--dark .sy-legend{color:#aab2d4}
+.sy-strip--dark .sy-legend i.e{border-color:rgba(255,255,255,.3)}
+.sy-strip--dark .sy-yl{color:#aab2d4}
+.sy-strip--dark .sy-mgrid > .sy-yl:not(:first-child){border-color:rgba(255,255,255,.15)}
+.sy-strip--dark .sy-mo{background:rgba(255,255,255,.06);color:#fff;border-color:rgba(255,255,255,.12)}
+.sy-strip--dark .sy-mo:hover{border-color:#9aa2ff}
+.sy-strip--dark .sy-mo.is-now{background:rgba(154,162,255,.18);border-color:rgba(154,162,255,.45)}
+.sy-strip--dark .sy-mo.is-on{border-color:#9aa2ff;box-shadow:0 0 0 2px rgba(154,162,255,.35)}
+.sy-strip--dark .sy-mo.is-empty{background:none;color:#8b93b8;border-color:rgba(255,255,255,.14)}
+.sy-strip--dark .sy-mo .bar{background:rgba(255,255,255,.1)}
+.sy-strip--dark .sy-mo.is-empty .bar{background:none}
+/* Στενή οθόνη: ένα έτος ανά γραμμή (το έτος ως τίτλος, 12 κελιά από κάτω). */
+@media (max-width:900px){ .sy-mgrid{flex-wrap:wrap}
+  .sy-yl{flex-basis:100%;writing-mode:horizontal-tb;transform:none;place-items:start;padding:4px 0 0;margin-left:0!important;border:0!important}
+  .sy-mo{flex-basis:calc((100% - 33px) / 12)} }
+</style>
+{%- endmacro %}
+
+{% macro month_legend(scope) -%}
+<div class="sy-legend">
+  {% if scope != 'expense' %}<span><i class="in"></i>έσοδα</span>{% endif %}
+  {% if scope != 'income' %}<span><i></i>έξοδα</span>{% endif %}
+  <span><i class="w"></i>αχαρακτήριστα</span>
+  <span><i class="e"></i>κενός μήνας</span>
+</div>
+{%- endmacro %}
+
+{% macro month_grid(months, this_month, scope, book=None, q=None) -%}
+{% set ns = namespace(peak=1) %}
+{% for ym, st in months %}{% set ns.peak = [ns.peak, st.total]|max %}{% endfor %}
+<div class="sy-mgrid" role="group" aria-label="Παραστατικά ανά μήνα — κλικ για {{ 'φίλτρο στον μήνα' if book else 'το διάστημα του μήνα' }}">
+  {% for ym, st in months %}
+    {% set total = st.total %}
+    {% set m = ym[5:]|int %}
+    {% if m == 1 %}<span class="sy-yl">{{ ym[:4] }}</span>{% endif %}
+    {% set cls = ['sy-mo', 'is-empty' if not total, 'is-now' if ym == this_month, 'is-future' if ym > this_month,
+                  'is-on' if book and q.f_date == ym]|select|join(' ') %}
+    {% set title = _mnames[m - 1] ~ ' ' ~ ym[:4] ~ ': ' ~ (
+        ((('έσοδα ' ~ st.income ~ ' · ') if scope != 'expense' else '') ~ (('έξοδα ' ~ st.expense ~ ' · ') if scope != 'income' else '')
+         ~ 'αχαρακτήριστα ' ~ st.pending) if total else 'κανένα παραστατικό') %}
+    {% if book %}
+    <a class="{{ cls }}" title="{{ title }}" href="{{ url_for(book, **dict(q, f_date=None if q.f_date == ym else ym, page=None)) }}">
+    {% else %}
+    <button type="button" data-preset="month-of" data-ym="{{ ym }}" class="{{ cls }}" title="{{ title }}">
+    {% endif %}
+      <span class="mn">{{ _mnames[m - 1] }}</span>
+      <span class="bar" aria-hidden="true">
+        {# Από κάτω προς τα πάνω: έσοδα, έξοδα, αχαρακτήριστα. #}
+        {% for key, c in (('income', 'in'), ('expense', ''), ('pending', 'w')) if st[key] %}
+        <span class="{{ c }}" style="height:{{ (st[key] / ns.peak * 100)|round(1) }}%"></span>
+        {% endfor %}
+      </span>
+      <b>{{ total or '—' }}</b>
+    {% if book %}</a>{% else %}</button>{% endif %}
+  {% endfor %}
+</div>
+{%- endmacro %}

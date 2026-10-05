@@ -4,9 +4,11 @@
 {{ "{:,.2f}".format(v or 0).replace(",", "X").replace(".", ",").replace("X", ".") }}
 {%- endmacro %}
 
-{% macro ledger_hero(ep, q, title, sub, tabs, done, sums, date_range, last_mark, tone) -%}
+{% from "_months.html" import month_style, month_legend, month_grid %}
+{% macro ledger_hero(ep, q, title, tabs, done, strip, tone) -%}
 {% set all = counts.values()|sum %}
 {% set pct = (counts[done] * 100 / all)|round|int if all else 0 %}
+{{ month_style() }}
 <style>
 .lh{position:relative;overflow:hidden;border-radius:20px;padding:clamp(20px,3.5vw,34px);color:#fff;margin-bottom:22px;
   background:radial-gradient(120% 140% at 0% 0%,var(--lh-a) 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
@@ -18,25 +20,23 @@
 @keyframes lh-float{50%{transform:translate(26px,-18px) scale(1.1)}}
 .lh-top{position:relative;display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end}
 .lh h1{margin:0 0 4px;font-size:clamp(1.7rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.02em;color:#fff}
-.lh-sub{margin:0;color:#c6cbe8;font-size:.92rem}
-.lh-meta{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:8px;font-size:.8rem;color:#aab2d4}
-.lh-meta .mono{color:#fff}
 .lh .btn-row{margin:0;display:flex;flex-wrap:wrap;gap:8px}
 .lh .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
 .lh .btn-ghost:hover{background:rgba(255,255,255,.16)}
 
-.lh-mid{position:relative;display:grid;grid-template-columns:1fr auto;gap:14px;margin-top:22px;align-items:stretch}
-.lh-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
+.lh-mid{position:relative;display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:16px;align-items:stretch}
+.lh-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
 @property --lh-ang{syntax:"<angle>";inherits:false;initial-value:0deg}
-.lh-tile{position:relative;display:flex;flex-direction:column;gap:2px;padding:14px 16px;border-radius:14px;text-decoration:none;color:#fff;
+/* Συμπαγείς κάρτες: αριθμός και ετικέτα σε μία γραμμή. */
+.lh-tile{position:relative;display:flex;align-items:baseline;gap:8px;padding:6px 30px 6px 14px;border-radius:10px;text-decoration:none;color:#fff;
   background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);overflow:hidden;
   animation:lh-rise .55s var(--ease) both;animation-delay:calc(var(--i) * 80ms + 120ms);
   transition:transform .3s var(--ease),background .3s,border-color .3s}
 .lh-tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c)}
 .lh-tile:hover{transform:translateY(-3px);background:rgba(255,255,255,.11)}
-.lh-tile b{font:800 1.9rem/1.1 var(--font-data)}
+.lh-tile b{font:800 1.15rem/1.2 var(--font-data)}
 .lh-tile span{font-size:.8rem;color:#c6cbe8}
-.lh-tile .e{position:absolute;right:12px;top:10px;font-size:1.3rem;opacity:.85;transition:transform .4s var(--ease)}
+.lh-tile .e{position:absolute;right:8px;top:50%;margin-top:-.55em;font-size:.95rem;line-height:1.1;opacity:.85;transition:transform .4s var(--ease)}
 .lh-tile:hover .e{transform:scale(1.2) rotate(-8deg)}
 .lh-tile.is-on{background:linear-gradient(#1b2150,#1b2150) padding-box,
   conic-gradient(from var(--lh-ang),var(--c),transparent 40%,var(--c) 80%) border-box;border:2px solid transparent;
@@ -47,22 +47,21 @@
 .lh-tile--sync{--c:#6fd3ff}
 .lh-tile--unclassified{--c:#f2c265}.lh-tile--classified{--c:#8a93ff}.lh-tile--sent{--c:#bba2ff}.lh-tile--confirmed{--c:#4fd1a0}
 
-.lh-ring{display:flex;align-items:center;gap:14px;padding:12px 18px;border-radius:14px;background:rgba(255,255,255,.06);
+.lh-ring{display:flex;align-items:center;gap:8px;padding:4px 12px;border-radius:10px;background:rgba(255,255,255,.06);
   border:1px solid rgba(255,255,255,.12);animation:lh-rise .55s var(--ease) .45s both}
-.lh-ring div{position:relative;width:78px;height:78px;flex:none}
+.lh-ring div{position:relative;width:34px;height:34px;flex:none}
 .lh-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
 .lh-ring circle{fill:none;stroke-width:8}
 .lh-ring .bg{stroke:rgba(255,255,255,.12)}
 .lh-ring .fg{stroke:url(#lh-grad);stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:calc(100 - var(--p));animation:lh-fill 1.6s var(--ease) .5s both}
 @keyframes lh-fill{from{stroke-dashoffset:100}}
-.lh-ring div b{position:absolute;inset:0;display:grid;place-items:center;font:800 1rem var(--font-data)}
-.lh-ring small{font-size:.8rem;color:#c6cbe8;max-width:110px;line-height:1.3}
+.lh-ring div b{position:absolute;inset:0;display:grid;place-items:center;font:800 .58rem var(--font-data)}
+.lh-ring small{font-size:.74rem;color:#c6cbe8;max-width:110px;line-height:1.25}
 
-.lh-sums{position:relative;display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.1);
-  font-size:.82rem;color:#aab2d4;animation:lh-rise .55s var(--ease) .6s both}
-.lh-sums[hidden]{display:none}
-.lh-sums b{font:700 .98rem var(--font-data);color:#fff;margin-left:6px}
-.lh-sums .g b{background:linear-gradient(90deg,#9aa2ff,#6ff0c4);-webkit-background-clip:text;background-clip:text;color:transparent}
+/* Λωρίδα μηνών του βιβλίου (στη θέση των παλιών συνόλων προβολής). */
+.lh-sums{position:relative;margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);
+  animation:lh-rise .55s var(--ease) .6s both}
+.lh-sums .sy-mgrid{margin-top:8px}
 
 @media (max-width:760px){ .lh-mid{grid-template-columns:1fr} .lh-tiles{grid-template-columns:repeat(2,minmax(0,1fr))} }
 @media (prefers-reduced-motion:reduce){ .lh *,.lh *::before{animation:none!important;transition:none!important} }
@@ -76,11 +75,6 @@
   <div class="lh-top">
     <div>
       <h1>{{ title }}</h1>
-      <p class="lh-sub">{{ sub }}</p>
-      <div class="lh-meta">
-        {% if date_range %}<span>Τελευταία ανάκτηση: <span class="mono">{{ date_range }}</span></span>{% endif %}
-        {% if last_mark %}<span title="Τα MARK του myDATA είναι χρονολογικά — έχουμε δεδομένα ως εδώ">Τελευταίο MARK: <span class="mono">{{ last_mark }}</span></span>{% endif %}
-      </div>
     </div>
     <div class="btn-row">{{ caller() }}</div>
   </div>
@@ -102,11 +96,10 @@
     </div>
   </div>
 
-  <div class="lh-sums" aria-label="Σύνολα προβολής" {{ 'hidden' if not total }}>
-    <span>Στην προβολή<b>{{ total }}</b></span>
-    <span>Καθαρή αξία<b>{{ money(sums.net) }} €</b></span>
-    <span>ΦΠΑ<b>{{ money(sums.vat) }} €</b></span>
-    <span class="g">Σύνολο<b>{{ money(sums.gross) }} €</b></span>
+  {% set scope = 'income' if ep == 'income' else 'expense' %}
+  <div class="lh-sums sy-strip sy-strip--dark" aria-label="Παραστατικά ανά μήνα">
+    {{ month_legend(scope) }}
+    {{ month_grid(strip.months, strip.this_month, scope, ep, q) }}
   </div>
 </header>
 
@@ -178,7 +171,7 @@
   }
 
   document.addEventListener('click', function(e){
-    var a = e.target.closest('.lh-tiles a, [data-lh-body] a');
+    var a = e.target.closest('.lh-tiles a, .lh-sums a, [data-lh-body] a');
     if (!a || !document.querySelector('[data-lh-body]') || !samePath(a.href) || a.target
         || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();

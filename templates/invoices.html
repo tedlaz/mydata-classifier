@@ -16,10 +16,9 @@
 {% block title %}Βιβλίο εξόδων{% endblock %}
 {% block content %}
 {% set q = dict(view=view, sort=sort, dir=dir, f_mark=filters.mark, f_date=filters.date, f_issuer=filters.issuer, f_type=filters.type) %}
-{% call ledger_hero('invoices', q, '📥 Βιβλίο εξόδων', 'Παραστατικά που σου διαβίβασαν άλλοι: χαρακτήρισε, στείλε, επιβεβαίωσε.',
+{% call ledger_hero('invoices', q, '📥 Βιβλίο εξόδων',
     [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️'), ('sent', 'Απεσταλμένα', '🚀'), ('confirmed', 'Ολοκληρωμένα', '✅')],
-    'confirmed', sums, date_range, last_mark, 'out') %}
-  {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>{% endif %}
+    'confirmed', strip, 'out') %}
 {% endcall %}
 
 <div class="card ledger-card" data-view="{{ view }}" data-lh-body>

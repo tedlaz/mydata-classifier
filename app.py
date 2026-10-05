@@ -879,16 +879,11 @@ def _two_years(today: date) -> list[str]:
     return [f"{y}-{m:02d}" for y in (today.year - 1, today.year) for m in range(1, 13)]
 
 
-@app.route("/sync")
-def sync():
-    """Ενιαία σελίδα ανάκτησης από το myDATA / διαγραφής διαστήματος, για έσοδα, έξοδα ή και τα δύο."""
+def _month_strip(cid: int | None, kinds) -> dict:
+    """Λωρίδα μηνών (προηγούμενο + τρέχον έτος): ανά μήνα έσοδα, έξοδα (χαρακτηρισμένα) και
+    αχαρακτήριστα των βιβλίων `kinds`. Για την Ανάκτηση και την κεφαλίδα των βιβλίων."""
     now = datetime.now(ATHENS)
-    today = now.strftime("%Y-%m-%d")
-    cid = _active_company_id()
-    scope = request.args.get("scope") if request.args.get("scope") in _SYNC_SCOPES else "both"
-    kinds = _SYNC_SCOPES[scope]
     months = _two_years(now.date())
-    # Ανά μήνα: έσοδα, έξοδα (χαρακτηρισμένα) και αχαρακτήριστα (και των δύο), χωριστά στη στήλη.
     per_month = {ym: {"income": 0, "expense": 0, "pending": 0, "total": 0} for ym in months}
     for kind in kinds:
         for ym, st in (db.month_counts(cid, kind, months[0] + "-01") if cid else {}).items():
@@ -897,6 +892,17 @@ def sync():
                 per_month[ym][kind] += sum(st.values()) - pending
                 per_month[ym]["pending"] += pending
                 per_month[ym]["total"] += sum(st.values())
+    return {"months": [(ym, per_month[ym]) for ym in months], "this_month": now.strftime("%Y-%m")}
+
+
+@app.route("/sync")
+def sync():
+    """Ενιαία σελίδα ανάκτησης από το myDATA / διαγραφής διαστήματος, για έσοδα, έξοδα ή και τα δύο."""
+    now = datetime.now(ATHENS)
+    today = now.strftime("%Y-%m-%d")
+    cid = _active_company_id()
+    scope = request.args.get("scope") if request.args.get("scope") in _SYNC_SCOPES else "both"
+    kinds = _SYNC_SCOPES[scope]
     # «Από την τελευταία ανάκτηση»: η παλαιότερη από τις τελευταίες των επιλεγμένων βιβλίων, για να μη χαθεί τίποτα.
     ranges = [r for r in (db.get_setting(_range_key(k)) for k in kinds) if r]
     end = lambda r: datetime.strptime(r.split("–")[-1].strip(), "%d/%m/%Y")  # noqa: E731
@@ -904,11 +910,15 @@ def sync():
         "sync.html",
         scope=scope,
         noun=_SYNC_NOUNS[scope],
-        months=[(ym, per_month[ym]) for ym in months],
-        this_month=now.strftime("%Y-%m"),
+        **_month_strip(cid, kinds),
         range_date_from=request.args.get("date_from", "").strip() or today,
         range_date_to=request.args.get("date_to", "").strip() or today,
         date_range=min(ranges, key=end) if ranges else None,
+        # Τελευταία ανάκτηση + τελευταίο MARK ανά βιβλίο (τα MARK του myDATA είναι χρονολογικά).
+        last=[(label, db.get_setting(_range_key(k)),
+               max((r["mark"] for r in db.get_documents(cid, k) if (r["mark"] or "").isdigit()), key=int, default=None)
+               if cid else None)
+              for k, label in (("income", "Έσοδα"), ("expense", "Έξοδα"))],
     )
 
 
@@ -943,15 +953,10 @@ def invoices():
     cid = _active_company_id()
     names = db.load_names()  # κοινός χάρτης vat→επωνυμία (μία φορά)
     buckets = {v: [] for v in _EXPENSE_VIEWS}
-    marks_int = []
     for row in db.get_documents(cid, "expense") if cid else []:
         buckets.setdefault(row["status"], []).append(_row_to_invoice(row, names))
-        m = row["mark"] or ""
-        if m.isdigit():
-            marks_int.append(int(m))
 
     counts = {v: len(buckets[v]) for v in _EXPENSE_VIEWS}
-    last_mark = str(max(marks_int)) if marks_int else None
 
     # Φιλτράρισμα (substring, case-insensitive όπου έχει νόημα).
     items = buckets.get(view, [])
@@ -996,7 +1001,6 @@ def invoices():
 
     items = sorted(items, key=sort_key, reverse=reverse)
     total = len(items)
-    sums = {k: sum(getattr(i, "total_" + k) or 0 for i in items) for k in ("net", "vat", "gross")}
     page_items, page, total_pages = paginate(items, request.args.get("page"))
     if view == "sent":
         for inv in page_items:
@@ -1008,8 +1012,6 @@ def invoices():
         view=view,
         invoices=page_items,
         counts=counts,
-        date_range=db.get_setting(_range_key("expense")),
-        last_mark=last_mark,
         categories=EXPENSE_CATEGORIES,
         types=EXPENSE_TYPES,
         vat_types=VAT_TYPES,
@@ -1021,7 +1023,7 @@ def invoices():
         page=page,
         total_pages=total_pages,
         total=total,
-        sums=sums,
+        strip=_month_strip(cid, ("expense",)),
         per_page=PER_PAGE,
         filters=filters,
     )
@@ -2265,15 +2267,10 @@ def income():
     cid = _active_company_id()
     names = db.load_names()
     buckets = {v: [] for v in _INCOME_VIEWS}
-    marks_int = []
     for row in db.get_documents(cid, "income") if cid else []:
         buckets.setdefault(row["status"], []).append(_row_to_invoice(row, names))
-        m = row["mark"] or ""
-        if m.isdigit():
-            marks_int.append(int(m))
 
     counts = {v: len(buckets[v]) for v in _INCOME_VIEWS}
-    last_mark = str(max(marks_int)) if marks_int else None
 
     items = buckets.get(view, [])
     fm = filters["mark"]
@@ -2312,7 +2309,6 @@ def income():
 
     items = sorted(items, key=sort_key, reverse=reverse)
     total = len(items)
-    sums = {k: sum(getattr(i, "total_" + k) or 0 for i in items) for k in ("net", "vat", "gross")}
     page_items, page, total_pages = paginate(items, request.args.get("page"))
 
     return render_template(
@@ -2320,8 +2316,6 @@ def income():
         view=view,
         invoices=page_items,
         counts=counts,
-        date_range=db.get_setting(_range_key("income")),
-        last_mark=last_mark,
         categories=INCOME_CATEGORIES,
         types=INCOME_TYPES,
         vat_types=VAT_TYPES,
@@ -2332,7 +2326,7 @@ def income():
         page=page,
         total_pages=total_pages,
         total=total,
-        sums=sums,
+        strip=_month_strip(cid, ("income",)),
         per_page=PER_PAGE,
         filters=filters,
     )
