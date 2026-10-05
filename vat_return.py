@@ -9,6 +9,7 @@
 """
 
 import json
+import xml.etree.ElementTree as ET
 
 from classifications import CREDIT_INVOICE_TYPES
 
@@ -25,6 +26,42 @@ OUTPUT_RATES = {
     "4": ("306", "336", 0.17),
     "9": ("309", "339", 0.03),
 }
+
+# Εκροές χωρίς ΦΠΑ που δηλώνονται στο Φ2: κατηγορία εξαίρεσης ΦΠΑ της γραμμής → κωδικός
+# (άρθρα ΚΦΠΑ ν. 5144/2024, σε παρένθεση ο ν. 2859/2000· κωδικοί κατά τις οδηγίες του εντύπου 050).
+# ponytail: μόνο οι σαφείς αντιστοιχίσεις· οι υπόλοιπες κατηγορίες (1, 2, 3, 5, 6, 9, 10, 15, 17–27, 29–31)
+# μένουν εκτός Φ2 ώσπου να επιβεβαιωθούν — προστίθενται εδώ.
+EXEMPT_CODES = {
+    "14": "342",                                # άρθρο 33 (28): ενδοκοινοτικές παραδόσεις αγαθών
+    "4": "345",                                 # άρθρο 18 (14): υπηρεσίες με τόπο άλλο κράτος-μέλος (14.2.α)
+    "8": "348", "28": "348",                    # άρθρο 29 (24): εξαγωγές, και Tax Free
+    "11": "348", "12": "348", "13": "348",      # άρθρο 32 (27): πλοία / αεροσκάφη
+    "16": "349",                                # άρθρο 45 (39α): αντίστροφη επιβάρυνση εσωτερικού
+    "7": "310",                                 # άρθρο 27 (22): απαλλαγές χωρίς δικαίωμα έκπτωσης
+}
+
+
+def _exemption(d: dict, ln: dict) -> str:
+    """Κατηγορία εξαίρεσης ΦΠΑ της γραμμής, από το XML του παραστατικού όπως το έδωσε το myDATA
+    (raw_xml)· "" αν δεν υπάρχει. Το XML διαβάζεται μία φορά ανά παραστατικό."""
+    xml = d.get("raw_xml") or ""
+    if d.get("_exempt", (None,))[0] is not xml:  # μνήμη ανά παραστατικό· ξανά αν άλλαξε το XML
+        found = {}
+        try:
+            root = ET.fromstring(xml)
+        except ET.ParseError:
+            root = None
+        for det in root.iter() if root is not None else ():
+            if det.tag.split("}")[-1] == "invoiceDetails":
+                kids = {c.tag.split("}")[-1]: (c.text or "").strip() for c in det}
+                if kids.get("vatExemptionCategory") and kids.get("lineNumber", "").isdigit():
+                    found[int(kids["lineNumber"])] = kids["vatExemptionCategory"]
+        d["_exempt"] = (xml, found)
+    return d["_exempt"][1].get(ln.get("line_number"), "")
+
+
+# Σύνολο εκροών (311): φορολογητέες (307) + εκροές χωρίς ΦΠΑ που δηλώνονται.
+_UNTAXED_OUTPUTS = ("342", "345", "348", "349", "310")
 
 # Χαρακτηρισμός ΦΠΑ εξόδου → (κωδ. βάσης, κωδ. φόρου).
 INPUT_CODES = {f"VAT_36{i}": (f"36{i}", f"38{i}") for i in range(1, 7)}
@@ -124,9 +161,12 @@ def compute(income: list[dict], expense: list[dict], prev_credit: float = 0.0, p
         sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
         for ln in json.loads(d["lines_json"] or "[]"):
             cat = str(ln.get("vat_category") or "")
-            if cat in OUTPUT_RATES:  # 0% (7) και «χωρίς ΦΠΑ» (8) μένουν εκτός
+            if cat in OUTPUT_RATES:
                 add(OUTPUT_RATES[cat][0], sign * (ln.get("net_value") or 0.0))
                 invoiced_vat += sign * (ln.get("vat_amount") or 0.0)
+            elif _exemption(d, ln) in EXEMPT_CODES:  # π.χ. 0% με εξαίρεση 16 → 349
+                add(EXEMPT_CODES[_exemption(d, ln)], sign * (ln.get("net_value") or 0.0))
+            # λοιπά 0% (7) και «χωρίς ΦΠΑ» (8) μένουν εκτός
 
     for d in filter(_sent, expense):
         if d.get("local_action") in ("reject", "cancel"):
@@ -158,7 +198,7 @@ def compute(income: list[dict], expense: list[dict], prev_credit: float = 0.0, p
     c["337"] = round(sum(c.get(k, 0.0) for k in ("331", "332", "333", "334", "335", "336", "338", "339")), 2)
     # Φ2 (Α.1058/2024): 312 = 311 − 313 − 314 − 315. Τα 314/315 αφορούν μόνο όσους δεν έχουν
     # δικαίωμα έκπτωσης για τις αποκτήσεις — εδώ πάντα μηδέν.
-    c["311"] = c["307"]
+    c["311"] = round(c["307"] + sum(c.get(k, 0.0) for k in _UNTAXED_OUTPUTS), 2)
     c["313"] = c.get("313", 0.0)
     c["312"] = round(c["311"] - c["313"], 2)
     c["367"] = round(sum(c.get(f"36{i}", 0.0) for i in range(1, 7)), 2)
@@ -195,7 +235,7 @@ def _e3(d: dict) -> list[dict]:
 def _matrix(rows: dict, cols_order: list[str], total: float) -> dict:
     """{e3: {στήλη: ποσό}} → γραμμές/στήλες για προβολή, με σύνολα και έλεγχο συμφωνίας."""
     used = [c for c in cols_order if any(abs(r.get(c, 0.0)) >= 0.005 for r in rows.values())]
-    bases = {b for b, _, _ in OUTPUT_RATES.values()} | {b for b, _ in INPUT_CODES.values()} | {OUT}
+    bases = {b for b, _, _ in OUTPUT_RATES.values()} | {b for b, _ in INPUT_CODES.values()} | set(EXEMPT_CODES.values()) | {OUT}
     base_cols = [c for c in used if c in bases]  # βάσεις (30x/36x) + εκτός = καθαρή αξία· όχι οι φόροι
     out_rows = []
     for e3 in sorted(rows, key=lambda k: (k == "", k)):
@@ -237,7 +277,10 @@ def reconcile(income: list[dict], expense: list[dict]) -> dict:
             weight = sum(abs(o.get("amount") or 0.0) for o in owners) or 1.0
             for o in owners:
                 k = abs(o.get("amount") or 0.0) / weight
-                if _sent(d) and cat in OUTPUT_RATES:
+                exempt = EXEMPT_CODES.get(_exemption(d, ln))
+                if _sent(d) and cat not in OUTPUT_RATES and exempt:
+                    add(rows, o.get("type") or "", exempt, net * k)
+                elif _sent(d) and cat in OUTPUT_RATES:
                     add(rows, o.get("type") or "", OUTPUT_RATES[cat][0], net * k)
                     # Φόρος όπως στο Φ2: βάση × συντελεστής (η στρογγυλοποίηση των τιμολογίων πάει στο 422/402).
                     add(rows, o.get("type") or "", OUTPUT_RATES[cat][1], net * k * OUTPUT_RATES[cat][2])
@@ -248,7 +291,7 @@ def reconcile(income: list[dict], expense: list[dict]) -> dict:
         if abs(diff) >= 0.005:
             add(rows, e3[0]["type"] if e3 else "", OUT, diff)
     inc_cols = [c for cat in sorted(OUTPUT_RATES, key=lambda c: OUTPUT_RATES[c][0]) for c in OUTPUT_RATES[cat][:2]]
-    inc_cols = list(dict.fromkeys(inc_cols)) + [OUT]
+    inc_cols = list(dict.fromkeys(inc_cols)) + sorted(set(EXEMPT_CODES.values())) + [OUT]
     out = {"income": _matrix(rows, inc_cols, total)}
 
     # ---- Έξοδα: χαρακτηρισμοί ΦΠΑ → 36x/38x, στον Ε3 της ίδιας γραμμής/ποσού· υπόλοιπο → εκτός ----
@@ -346,6 +389,22 @@ if __name__ == "__main__":
         {"line_number": 1, "net_value": 100.0, "vat_amount": 24.0, "vat_category": "1"},
         {"line_number": 2, "net_value": 50.0, "vat_amount": 0.0, "vat_category": "7"}]),
         "cls_json": json.dumps([{"type": "E3_561_001", "amount": 100.0, "line": 1}, {"type": "E3_561_003", "amount": 50.0, "line": 2}])}
+    # 0% με εξαίρεση 16 → 349, μέσα στο σύνολο εκροών (311) και στον κύκλο εργασιών (312).
+    s39 = {"mark": "4004", "invoice_type": "2.1", "total_net": 40.0, "lines_json": json.dumps(
+        [{"line_number": 1, "net_value": 40.0, "vat_amount": 0.0, "vat_category": "7"}]),
+        "cls_json": json.dumps([{"type": "E3_561_001", "amount": 40.0, "line": 1}]),
+        "raw_xml": '<invoice xmlns="http://www.aade.gr/myDATA/invoice/v1.0"><invoiceDetails><lineNumber>1</lineNumber>'
+                   '<netValue>40.00</netValue><vatCategory>7</vatCategory><vatExemptionCategory>16</vatExemptionCategory>'
+                   '</invoiceDetails></invoice>'}
+    r3 = compute([s39], [])["codes"]
+    assert (r3["349"], r3["311"], r3["312"], r3["337"]) == (40, 40, 40, 0), r3
+    m3 = reconcile([s39], [])["income"]
+    assert m3["ok"] and m3["totals"] == {"349": 40}, m3
+    # Ενδοκοινοτική παράδοση (14) → 342, απαλλασσόμενη χωρίς έκπτωση (7) → 310, άγνωστη (1) → εκτός.
+    xml = lambda cat: s39["raw_xml"].replace(">16<", f">{cat}<")  # noqa: E731
+    r4 = compute([dict(s39, raw_xml=xml("14")), dict(s39, mark="4005", raw_xml=xml("7")),
+                  dict(s39, mark="4006", raw_xml=xml("1"))], [])["codes"]
+    assert (r4["342"], r4["310"], r4.get("349", 0), r4["311"]) == (40, 40, 0, 80), r4
     m = reconcile([sale], [dict(rc, total_net=17.0), buy, draft])
     assert m["income"]["ok"] and m["expense"]["ok"], m
     m_inc = {r["e3"]: r["vals"] for r in m["income"]["rows"]}

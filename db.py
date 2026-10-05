@@ -1611,7 +1611,7 @@ def period_documents(company_id: int | None, kind: str, date_from: str, date_to:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT d.mark, d.issue_date, d.invoice_type, d.series, d.aa, d.counterparty_vat, d.status, "
-            "d.local_action, d.total_net, d.total_vat, d.lines_json, d.cls_json, s.name AS counterparty_name "
+            "d.local_action, d.total_net, d.total_vat, d.lines_json, d.cls_json, d.raw_xml, s.name AS counterparty_name "
             "FROM documents AS d LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
             "WHERE d.company_id = ? AND d.kind = ? AND d.issue_date BETWEEN ? AND ? "
             "ORDER BY d.issue_date, d.series, d.aa",
