@@ -157,7 +157,12 @@ CREATE TABLE IF NOT EXISTS settings (
 -- Συναλλασσόμενοι: ΚΟΙΝΟΙ για όλες τις εταιρείες (ΑΦΜ → επωνυμία).
 CREATE TABLE IF NOT EXISTS suppliers (
     vat              TEXT PRIMARY KEY,
-    name             TEXT
+    name             TEXT,
+    -- Εκδότης εκτός Ελλάδας (π.χ. ενδοκοινοτικές 14.x): η ΑΑΔΕ θέλει χώρα και διεύθυνση.
+    country          TEXT,
+    street           TEXT,
+    postal_code      TEXT,
+    city             TEXT
 );
 
 -- Προτάσεις χαρακτηρισμού ΑΝΑ ΕΤΑΙΡΕΙΑ, συναλλασσόμενο ΚΑΙ κατηγορία ΦΠΑ γραμμής: ένα
@@ -331,6 +336,15 @@ def init_db() -> None:
         for col, decl in _DOCUMENT_COLUMNS.items():
             if col not in doc_cols:
                 conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {decl}")
+        # suppliers: χώρα/διεύθυνση· συμπλήρωση από τις «Νέες εγγραφές» με εκδότη εκτός Ελλάδας.
+        if "country" not in sup_cols:
+            for col in SUPPLIER_ADDRESS:
+                conn.execute(f"ALTER TABLE suppliers ADD COLUMN {col} TEXT")
+            for r in conn.execute("SELECT draft_json FROM documents WHERE draft_json IS NOT NULL").fetchall():
+                d = json.loads(r["draft_json"])
+                if d.get("issuer_vat") and (d.get("issuer_country") or "GR") != "GR":
+                    _save_supplier_address(conn, d["issuer_vat"], d.get("issuer_name"), d["issuer_country"],
+                                           *(d.get("issuer_" + k) for k in SUPPLIER_ADDRESS[1:]))
         # companies: άδεια ακυρώσεων (επικίνδυνη ενέργεια — κλειστή εξ ορισμού).
         comp_cols = {r["name"] for r in conn.execute("PRAGMA table_info(companies)")}
         if "allow_cancel" not in comp_cols:
@@ -733,10 +747,29 @@ def get_supplier_name(vat: str | None) -> str | None:
     return row["name"] if row else None
 
 
+SUPPLIER_ADDRESS = ("country", "street", "postal_code", "city")
+
+
+def _save_supplier_address(conn, vat, name, country, street, postal_code, city) -> None:
+    conn.execute(
+        "INSERT INTO suppliers (vat, name, country, street, postal_code, city) VALUES (?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(vat) DO UPDATE SET name = COALESCE(excluded.name, name), country = excluded.country, "
+        "street = excluded.street, postal_code = excluded.postal_code, city = excluded.city",
+        (vat, name or None, country, street or None, postal_code or None, city or None),
+    )
+
+
+def save_supplier_address(vat: str, name: str | None, country: str, street: str | None,
+                          postal_code: str | None, city: str | None) -> None:
+    """Επωνυμία + χώρα/διεύθυνση συναλλασσόμενου εκτός Ελλάδας (για τις επόμενες εγγραφές)."""
+    with get_conn() as conn:
+        _save_supplier_address(conn, vat, name, country, street, postal_code, city)
+
+
 def list_suppliers(company_id: int | None = None) -> list[dict]:
     """Ολόκληρος ο κοινός κατάλογος· με company_id μόνο οι συναλλασσόμενοι της εταιρείας
     (με παραστατικά ή δική της πρόταση χαρακτηρισμού)."""
-    q = "SELECT vat, name FROM suppliers"
+    q = "SELECT vat, name, country, street, postal_code, city FROM suppliers"
     params: tuple = ()
     if company_id is not None:
         q += (

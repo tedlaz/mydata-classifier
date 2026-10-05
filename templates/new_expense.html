@@ -142,7 +142,7 @@
                  list="suppliers_dl" autocomplete="off" oninput="showIssuerName()">
           {# Πληκτρολόγηση μέρους ΑΦΜ ή επωνυμίας → λίστα από τον κατάλογο συναλλασσόμενων. #}
           <datalist id="suppliers_dl">
-            {% for s in suppliers %}<option value="{{ s.vat }}">{{ s.name or '' }}</option>{% endfor %}
+            {# Οι επιλογές χτίζονται από το script ανά τύπο (ενδοκοινοτικά: μόνο συναλλασσόμενοι ΕΕ). #}
           </datalist>
           <button type="button" onclick="checkVat()" class="btn-ghost btn-sm">Έλεγχος</button>
         </div>
@@ -172,6 +172,27 @@
             <option value="{{ code }}" {% if code == sel_pay %}selected{% endif %}>{{ code }} · {{ label }}</option>
           {% endfor %}
         </select>
+      </div>
+    </div>
+    {# Εκδότης εκτός Ελλάδας: η ΑΑΔΕ θέλει επωνυμία και διεύθυνση. #}
+    <div class="grid grid-issuer" id="foreign_box" hidden>
+      <div>
+        <label for="issuer_name">Επωνυμία εκδότη</label>
+        <input type="text" name="issuer_name" id="issuer_name" value="{{ draft.issuer_name if draft else '' }}" maxlength="200">
+      </div>
+      <div>
+        <label for="issuer_street">Οδός</label>
+        <input type="text" name="issuer_street" id="issuer_street" value="{{ draft.issuer_street if draft else '' }}" maxlength="150">
+      </div>
+      <div class="grid grid-2">
+        <div>
+          <label for="issuer_postal_code">Τ.Κ.</label>
+          <input type="text" name="issuer_postal_code" id="issuer_postal_code" value="{{ draft.issuer_postal_code if draft else '' }}" maxlength="20">
+        </div>
+        <div>
+          <label for="issuer_city">Πόλη</label>
+          <input type="text" name="issuer_city" id="issuer_city" value="{{ draft.issuer_city if draft else '' }}" maxlength="150">
+        </div>
       </div>
     </div>
   </section>
@@ -328,10 +349,26 @@ function recalc() {
   document.getElementById('t_gross').textContent = (net + vat - minus).toFixed(2) + ' €';
 }
 // Επωνυμία του επιλεγμένου ΑΦΜ (από τη λίστα) κάτω από το πεδίο.
+const SUPPLIERS = {{ suppliers|tojson }};  // [{vat, name, country, street, postal_code, city}]
+const EU = {{ eu_countries|tojson }};
+// Ενδοκοινοτικά: στη λίστα μόνο συναλλασσόμενοι με χώρα ΕΕ· αλλιώς όλοι.
+function fillSuppliers() {
+  const t = document.getElementById('invoice_type').value;
+  const dl = document.getElementById('suppliers_dl');
+  dl.replaceChildren(...SUPPLIERS.filter(s => !INTRA_EU[t] || EU.includes(s.country)).map(s =>
+    Object.assign(document.createElement('option'), {value: s.vat, text: s.name || ''})));
+}
 function showIssuerName() {
   const v = document.getElementById('issuer_vat').value.trim();
-  const o = Array.from(document.getElementById('suppliers_dl').options).find(o => o.value === v);
-  document.getElementById('vat_result').textContent = o && o.text ? '✔ ' + o.text : '';
+  const s = SUPPLIERS.find(s => s.vat === v);
+  document.getElementById('vat_result').textContent = s && s.name ? '✔ ' + s.name : '';
+  // Συναλλασσόμενος εκτός Ελλάδας: χώρα, επωνυμία και διεύθυνση από τον κατάλογο.
+  if (!s || !s.country || s.country === 'GR') return;
+  const c = document.getElementById('issuer_country');
+  if ([...c.options].some(o => o.value === s.country && !o.disabled)) c.value = s.country;
+  toggleForeign();
+  const map = {issuer_name: s.name, issuer_street: s.street, issuer_postal_code: s.postal_code, issuer_city: s.city};
+  Object.entries(map).forEach(([id, val]) => { document.getElementById(id).value = val || ''; });
 }
 async function checkVat() {
   const afm = document.getElementById('issuer_vat').value.trim();
@@ -345,6 +382,8 @@ async function checkVat() {
     const dl = await rl.json();
     if (dl.found) {
       out.textContent = '✔ Από συναλλασσόμενους: ' + dl.name;
+      const nm = document.getElementById('issuer_name');
+      if (!nm.value) nm.value = dl.name;
       out.style.color = 'var(--ok)';
       return;
     }
@@ -355,6 +394,8 @@ async function checkVat() {
     const r = await fetch(`/check_vat/${encodeURIComponent(country)}/${encodeURIComponent(afm)}`);
     const data = await r.json();
     out.textContent = data.message || 'Άγνωστη απάντηση.';
+    const nm = document.getElementById('issuer_name');
+    if (data.name && !nm.value) nm.value = data.name;
     out.style.color = data.valid ? 'var(--ok)' : 'var(--err)';
   } catch (e) {
     out.textContent = 'Σφάλμα επικοινωνίας με την εφαρμογή.';
@@ -366,6 +407,7 @@ const WITH_VAT = {{ with_vat|tojson }};      // μόνο αυτοί έχουν �
 const NO_ISSUER = {{ no_issuer|tojson }};    // χωρίς εκδότη (κοινόχρηστα/συνδρομές)
 const ISSUER_OPTIONAL = {{ issuer_optional|tojson }};  // λιανικές: ΑΦΜ πωλητή προαιρετικό
 const NO_PAYMENT = {{ no_payment|tojson }};  // οικογένειες χωρίς τρόπο πληρωμής (σφάλμα 205)
+const INTRA_EU = {{ intra_eu|tojson }};    // 14.1/14.3 → χαρακτηρισμός ΦΠΑ αυτοπαράδοσης
 const VAT_RATES = {'1': 0.24, '2': 0.13, '3': 0.06, '7': 0, '8': 0};
 const noIssuer = t => t.startsWith('17.') || NO_ISSUER.includes(t);
 function toggleIssuer() {
@@ -384,6 +426,7 @@ function toggleIssuer() {
   payroll.hidden = t !== '17.1';
   payroll.querySelectorAll('input').forEach(i => i.disabled = payroll.hidden);
   filterCountries(t);
+  fillSuppliers();
   filterAllLines();
   syncVatFields();
 }
@@ -396,6 +439,11 @@ function syncVatFields() {
     const amt = el.querySelector('[name=line_vat_amount]');
     const vt = el.querySelector('[name=line_vat_type]');
     if (!has) { cat.value = '8'; amt.value = '0.00'; }
+    // Ενδοκοινοτικά: ΦΠΑ υποχρεωτικός (όχι κατηγορία 8) με χαρακτηρισμό 364/365.
+    if (INTRA_EU[t]) {
+      if (cat.value === '8') cat.value = '1';
+      if (vt.value === 'VAT_361') vt.value = INTRA_EU[t];
+    }
     cat.disabled = amt.disabled = vt.disabled = !has;
     showFull(el);
   });
@@ -528,7 +576,18 @@ function filterCountries(t) {
   if ((rule === 'any' || rule === 'gr') && !COUNTRY.value) COUNTRY.value = 'GR';
   COUNTRY.disabled = noIssuer(t);  // 17.x: εκδότης είσαι εσύ· 13.3/13.4: χωρίς εκδότη
   document.getElementById('country_hint').textContent = COUNTRY_HINTS[rule];
+  toggleForeign();
 }
+// Εκδότης εκτός Ελλάδας: επωνυμία και διεύθυνση (υποχρεωτικά για την ΑΑΔΕ).
+function toggleForeign() {
+  const c = document.getElementById('issuer_country');
+  const on = !c.disabled && !!c.value && c.value !== 'GR';
+  const box = document.getElementById('foreign_box');
+  box.hidden = !on;
+  box.querySelectorAll('input').forEach(i => { i.disabled = !on; });
+  ['issuer_name', 'issuer_postal_code', 'issuer_city'].forEach(id => { document.getElementById(id).required = on; });
+}
+document.addEventListener('change', e => { if (e.target.id === 'issuer_country') toggleForeign(); });
 
 buildCountries();
 toggleIssuer(); recalc(); showIssuerName();

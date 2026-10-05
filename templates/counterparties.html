@@ -157,7 +157,10 @@
             {%- for w in (s.name or '?').split()[:2] %}{{ w[0]|upper }}{% endfor -%}
           </i>
           <span class="issuer" data-vat="{{ s.vat }}">{{ issuer_name({'issuer_name': s.name, 'issuer_vat': s.vat}) }}</span>
-        </div></td>
+        </div>
+        {% if s.country and s.country != 'GR' %}
+        <small class="muted">{{ s.country }} · {{ [s.street, ((s.postal_code or '') ~ ' ' ~ (s.city or ''))|trim]|select|join(', ') }}</small>
+        {% endif %}</td>
         <td data-label="Πρόταση" class="series">
           {% set pats = patterns.get(s.vat, {}) %}
           {% if pats %}

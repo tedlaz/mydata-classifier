@@ -13,6 +13,7 @@
         <option value="{{ code }}" {% if r.category == code %}selected{% endif %}>{{ label }} · {{ code }}</option>
       {% endfor %}
     </select>
+    <small class="sel-cap" aria-hidden="true"></small>
   </div>
   <div class="cls-field cls-field--type">
     <label>Τύπος Ε3</label>
@@ -22,6 +23,7 @@
         <option value="{{ code }}" {% if r.type == code %}selected{% endif %}>{{ code }} · {{ label }}</option>
       {% endfor %}
     </select>
+    <small class="sel-cap" aria-hidden="true"></small>
   </div>
   <div class="cls-field cls-field--amount">
     <label>Ποσό (€)</label>
@@ -36,6 +38,7 @@
         <option value="{{ code }}" {% if r.vat_type == code %}selected{% endif %}>{{ label }}{% if code %} · {{ code }}{% endif %}</option>
       {% endfor %}
     </select>
+    <small class="sel-cap" aria-hidden="true"></small>
   </div>
   <button type="button" class="btn-x cls-del" title="Αφαίρεση αυτού του χαρακτηρισμού" aria-label="Αφαίρεση">✕</button>
 </div>
@@ -53,6 +56,7 @@
         <option value="{{ code }}" {% if r.category == code %}selected{% endif %}>{{ label }} · {{ code }}</option>
       {% endfor %}
     </select>
+    <small class="sel-cap" aria-hidden="true"></small>
   </div>
   <div class="cls-field">
     <label>Τύπος Ε3</label>
@@ -62,6 +66,7 @@
         <option value="{{ code }}" {% if r.type == code %}selected{% endif %}>{{ code }} · {{ label }}</option>
       {% endfor %}
     </select>
+    <small class="sel-cap" aria-hidden="true"></small>
   </div>
   <div class="cls-field cls-field--amount">
     <label>Ποσό (€)</label>
@@ -325,6 +330,7 @@
             <option value="{{ code }}" {% if pi_vat.get(g.vat_category, '') == code %}selected{% endif %}>{{ label }}{% if code %} · {{ code }}{% endif %}</option>
           {% endfor %}
         </select>
+        <small class="sel-cap" aria-hidden="true"></small>
       </div>
       {% else %}
       <p class="muted small cls-novat">Χωρίς ΦΠΑ — δεν χρειάζεται χαρακτηρισμός ΦΠΑ.</p>
@@ -444,7 +450,15 @@ function initCls() {
     });
   }
 
+  // Το select δεν αναδιπλώνει κείμενο: ολόκληρη η επιλογή σε λεζάντα από κάτω (όπως στη Νέα εγγραφή).
+  function showFull() {
+    form.querySelectorAll('.sel-cap').forEach(cap => {
+      const sel = cap.previousElementSibling, o = sel.selectedOptions[0];
+      cap.textContent = o && o.value && !sel.disabled ? o.text : '';
+    });
+  }
   function recalc() {
+    showFull();
     const pi = mode() === '1';
     let ready = 0, total = 0, done = 0, target = 0;
     const lines = pi ? piGroups() : [...document.querySelectorAll('#cls-lines .cls-line')];

@@ -705,6 +705,11 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .pi-vat-row{display:flex;align-items:center;gap:10px;max-width:none;margin:6px 0 0;padding:6px 10px}
 .pi-vat-row label{white-space:nowrap;font-size:.7rem}
 .pi-vat-row select{max-width:420px;padding:6px 9px;font-size:.85rem}
+/* Ολόκληρο το κείμενο της επιλογής κάτω από τα select (που κόβουν το κείμενο) */
+.sel-cap{display:block;margin-top:3px;font-size:.72rem;line-height:1.3;color:var(--muted);overflow-wrap:anywhere}
+.sel-cap:empty{display:none}
+.pi-vat-row:has(.sel-cap:not(:empty)){flex-wrap:wrap}
+.pi-vat-row .sel-cap{flex-basis:100%;margin:0}
 @media (max-width:980px){ #cls-form .cls-row + .cls-row .cls-field label{display:block} }
 /* Ίδιες στήλες σε όλες τις κάρτες → ετικέτες μόνο στην πρώτη κάρτα (σε φαρδιές οθόνες). */
 @media (min-width:981px){

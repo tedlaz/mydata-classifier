@@ -1915,6 +1915,8 @@ def send():
                     draft.get("lines", []),
                     issuer_vat=draft.get("issuer_vat", ""),
                     issuer_country=draft.get("issuer_country", "GR"),
+                    issuer_name=draft.get("issuer_name", ""),
+                    issuer_address={k: draft.get("issuer_" + k, "") for k in ("street", "postal_code", "city")},
                     own_vat=get_own_vat(),
                     payment_method=draft.get("payment_method", "5"),
                     withheld=draft.get("withheld_amount") or 0.0,
@@ -3490,6 +3492,7 @@ def _render_new_expense(draft: dict | None, edit_mark: str = "", copy_mark: str 
         NEW_ENTRY_TYPES,
         PAYMENT_METHODS,
         SELF_TYPE_RULES,
+        SELF_TYPES_INTRA_EU,
         SELF_TYPES_ISSUER_OPTIONAL,
         SELF_TYPES_NO_ISSUER,
         SELF_TYPES_WITH_VAT,
@@ -3520,6 +3523,7 @@ def _render_new_expense(draft: dict | None, edit_mark: str = "", copy_mark: str 
         country_rules={t: country_rule(t) for t in NEW_ENTRY_TYPES},
         # Κανόνες ΑΑΔΕ ανά τύπο για τη φόρμα (ίδια πηγή με το mydata_client).
         with_vat=sorted(SELF_TYPES_WITH_VAT),
+        intra_eu=SELF_TYPES_INTRA_EU,
         no_issuer=sorted(SELF_TYPES_NO_ISSUER),
         issuer_optional=sorted(SELF_TYPES_ISSUER_OPTIONAL),
         no_payment=sorted(f for f, r in SELF_TYPE_RULES.items() if not r["payment"]),
@@ -3557,7 +3561,8 @@ def _draft_from_form() -> dict:
         "deductions_amount": num(f.get("deductions_amount", "")),
         "withheld_base": num(f.get("withheld_base", "")),
         **{k: f.get(k, "").strip() for k in
-           ("invoice_type", "issue_date", "series", "aa", "issuer_vat", "issuer_country", "payment_method")},
+           ("invoice_type", "issue_date", "series", "aa", "issuer_vat", "issuer_country", "payment_method",
+            "issuer_name", "issuer_street", "issuer_postal_code", "issuer_city")},
         "lines": lines or [None],
     }
 
@@ -3580,6 +3585,7 @@ def new_expense_submit():
     from mydata_client import (
         NEW_ENTRY_TYPES,
         SELF_TYPES_ISSUER_OPTIONAL,
+        SELF_TYPES_INTRA_EU,
         SELF_TYPES_NO_ISSUER,
         SELF_TYPES_WITH_VAT,
     )
@@ -3679,6 +3685,10 @@ def new_expense_submit():
         for ln in lines:
             ln["vat_category"] = "8"
             ln["vat_type"] = ""
+    elif invoice_type in SELF_TYPES_INTRA_EU and any(ln["vat_category"] == "8" for ln in lines):
+        flash(f"Ο τύπος {invoice_type} θέλει κατηγορία ΦΠΑ (π.χ. 24%) με τον ΦΠΑ της αυτοπαράδοσης "
+              "— όχι «Χωρίς ΦΠΑ».", "error")
+        return again()
 
     # Το δικό μας ΑΦΜ χρειάζεται πάντα: ως εκδότης στα 17.x, ως αντισυμβαλλόμενος
     # (λήπτης) στα 14.x/15.1/16.1 - error 204 "Counterpart is mandatory".
@@ -3726,6 +3736,15 @@ def new_expense_submit():
             )
             return again()
 
+    # Εκδότης εκτός Ελλάδας: η ΑΑΔΕ θέλει επωνυμία και διεύθυνση (σφάλμα 204).
+    foreign = {k: request.form.get("issuer_" + k, "").strip() for k in ("name", "street", "postal_code", "city")}
+    if issuer_vat and issuer_country != "GR":
+        if not (foreign["name"] and foreign["postal_code"] and foreign["city"]):
+            flash("Για εκδότη εκτός Ελλάδας συμπλήρωσε επωνυμία, Τ.Κ. και πόλη.", "error")
+            return again()
+    else:
+        foreign = dict.fromkeys(foreign, "")
+
     cid = _active_company_id()
     if not cid:
         flash("Δεν έχει οριστεί ενεργή εταιρεία.", "error")
@@ -3741,11 +3760,15 @@ def new_expense_submit():
         "lines": lines,
         "issuer_vat": issuer_vat,
         "issuer_country": issuer_country,
+        **{"issuer_" + k: v for k, v in foreign.items()},
         "payment_method": payment_method,
         "withheld_amount": withheld,
         "deductions_amount": deductions,
         "withheld_base": withheld_base,
     }
+    if foreign["name"]:  # ο συναλλασσόμενος κρατά χώρα και διεύθυνση για τις επόμενες εγγραφές
+        db.save_supplier_address(issuer_vat, foreign["name"], issuer_country, foreign["street"],
+                                 foreign["postal_code"], foreign["city"])
     # Μηνιαίο πρότυπο: μία εγγραφή ανά μήνα. Στην επεξεργασία κρατιέται το πρότυπο της παλιάς.
     edit_mark = request.form.get("edit_mark", "").strip()
     existing = db.get_document(cid, edit_mark) if edit_mark else None
@@ -3802,7 +3825,7 @@ def _store_self_expense(cid: int, draft: dict, origin: tuple | None = None) -> i
     doc = {
         "issue_date": draft["issue_date"],
         "issuer_vat": draft["issuer_vat"],
-        "issuer_name": None,
+        "issuer_name": draft.get("issuer_name") or None,
         "invoice_type": draft["invoice_type"],
         "series": draft["series"],
         "aa": draft["aa"],

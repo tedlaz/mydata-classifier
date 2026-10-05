@@ -147,7 +147,7 @@ assert "vatAmount" not in y and "<lineNumber>2</lineNumber>" in y               
 #     στη γραμμή και στη σύνοψη (σφάλμα 230)· 13.3/13.4 χωρίς εκδότη (σφάλμα 205).
 from mydata_client import SELF_TYPES_NO_ISSUER, SELF_TYPES_WITH_VAT, build_self_expense_invoice_xml  # noqa: E402
 
-assert SELF_TYPES_WITH_VAT == {"13.1", "13.2", "13.31", "1.1", "1.6", "2.1", "2.4", "5.2"} and SELF_TYPES_NO_ISSUER == {"13.3", "13.4"}
+assert SELF_TYPES_WITH_VAT == {"13.1", "13.2", "13.31", "1.1", "1.6", "2.1", "2.4", "5.2", "14.1", "14.3"} and SELF_TYPES_NO_ISSUER == {"13.3", "13.4"}
 from mydata_client import SELF_TYPES_ISSUER_OPTIONAL  # noqa: E402
 
 assert SELF_TYPES_ISSUER_OPTIONAL == {"13.1", "13.2", "13.31"}  # λιανικές: ΑΦΜ πωλητή προαιρετικό (dev ΑΑΔΕ)

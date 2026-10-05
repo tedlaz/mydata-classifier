@@ -868,6 +868,8 @@ class MyDataClient:
         lines: list[dict],
         issuer_vat: str = "",
         issuer_country: str = "GR",
+        issuer_name: str = "",
+        issuer_address: dict | None = None,
         own_vat: str = "",
         payment_method: str = "5",
         withheld: float = 0.0,
@@ -888,6 +890,8 @@ class MyDataClient:
             lines,
             issuer_vat="" if invoice_type in SELF_TYPES_NO_ISSUER else issuer_vat,
             issuer_country=issuer_country,
+            issuer_name=issuer_name,
+            issuer_address=issuer_address,
             counterpart_vat=own_vat if rules["counterpart"] else "",
             include_payment=rules["payment"],
             payment_method=payment_method,
@@ -1018,7 +1022,9 @@ SELF_TYPE_RULES = {
 # συνδυασμούς (μόνο αυτοί οι τύποι επιτρέπουν κατηγορίες με δικαίωμα έκπτωσης ΦΠΑ):
 # - ΦΠΑ μόνο στις λιανικές 13.1/13.2/13.31· όλοι οι άλλοι: κατηγορία 8, ΦΠΑ 0 (σφάλματα 215/218).
 # - 13.3 κοινόχρηστα & 13.4 συνδρομές: ΧΩΡΙΣ εκδότη (σφάλμα 205 «Issuer is forbidden»).
-SELF_TYPES_WITH_VAT = {"13.1", "13.2", "13.31", *OMISSION_TYPES}
+# - Ενδοκοινοτικά 14.1/14.3: κατηγορία ΦΠΑ ≠ 8 (σφάλμα 216) — ο ΦΠΑ της αυτοπαράδοσης.
+SELF_TYPES_INTRA_EU = {"14.1": "VAT_364", "14.3": "VAT_365"}  # τύπος → χαρακτηρισμός ΦΠΑ
+SELF_TYPES_WITH_VAT = {"13.1", "13.2", "13.31", *OMISSION_TYPES, *SELF_TYPES_INTRA_EU}
 SELF_TYPES_NO_ISSUER = {"13.3", "13.4"}
 # Λιανικές: ο εκδότης (ΑΦΜ πωλητή) είναι προαιρετικός — δεκτά και με και χωρίς (dev ΑΑΔΕ).
 SELF_TYPES_ISSUER_OPTIONAL = {"13.1", "13.2", "13.31"}
@@ -1060,6 +1066,8 @@ def build_self_expense_invoice_xml(
     lines: list[dict],
     issuer_vat: str = "",
     issuer_country: str = "GR",
+    issuer_name: str = "",
+    issuer_address: dict | None = None,
     counterpart_vat: str = "",
     include_payment: bool = True,
     payment_method: str = "5",
@@ -1092,6 +1100,17 @@ def build_self_expense_invoice_xml(
         ET.SubElement(issuer, f"{{{INV_NS}}}vatNumber").text = issuer_vat
         ET.SubElement(issuer, f"{{{INV_NS}}}country").text = issuer_country or "GR"
         ET.SubElement(issuer, f"{{{INV_NS}}}branch").text = "0"
+        # Εκδότης εκτός Ελλάδας: επωνυμία + διεύθυνση υποχρεωτικές (σφάλμα 204)· στην Ελλάδα απαγορεύονται.
+        if (issuer_country or "GR") != "GR":
+            if issuer_name:
+                ET.SubElement(issuer, f"{{{INV_NS}}}name").text = issuer_name
+            addr = issuer_address or {}
+            if addr.get("postal_code") or addr.get("city"):
+                a = ET.SubElement(issuer, f"{{{INV_NS}}}address")
+                if addr.get("street"):
+                    ET.SubElement(a, f"{{{INV_NS}}}street").text = addr["street"]
+                ET.SubElement(a, f"{{{INV_NS}}}postalCode").text = addr.get("postal_code", "")
+                ET.SubElement(a, f"{{{INV_NS}}}city").text = addr.get("city", "")
 
     # Αντισυμβαλλόμενος = ο ίδιος ο χρήστης (λήπτης), όπου απαιτείται (π.χ. 14.x)
     if counterpart_vat:

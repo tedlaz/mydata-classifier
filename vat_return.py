@@ -28,8 +28,8 @@ OUTPUT_RATES = {
 
 # Χαρακτηρισμός ΦΠΑ εξόδου → (κωδ. βάσης, κωδ. φόρου).
 INPUT_CODES = {f"VAT_36{i}": (f"36{i}", f"38{i}") for i in range(1, 7)}
-# Πράξεις λήπτη (αντίστροφη επιβάρυνση): ο φόρος δηλώνεται ΚΑΙ στις εκροές ΚΑΙ στις εισροές.
-# ponytail: με συντελεστή 24% (κωδ. 303/333)· αν υπάρξουν σε μειωμένο συντελεστή, χρειάζεται επιλογή.
+# Πράξεις λήπτη (αντίστροφη επιβάρυνση): ο φόρος δηλώνεται ΚΑΙ στις εκροές ΚΑΙ στις εισροές, με τον
+# συντελεστή της κατηγορίας ΦΠΑ κάθε γραμμής· 24% (303/333) όταν οι γραμμές δεν έχουν ΦΠΑ/κατηγορία.
 REVERSE_CHARGE = {"VAT_364", "VAT_365", "VAT_366"}
 REVERSE_RATE = 0.24
 # Χρεωστικό υπόλοιπο έως 30 € δεν αποδίδεται: μεταφέρεται στον κωδ. 483 της επόμενης περιόδου.
@@ -75,7 +75,8 @@ def _input_vat(d: dict) -> list[tuple[str, float, float, list | None]]:
     for e, ns in zip(vat_cls, cls_lines(vat_cls, lines)):
         amount = e.get("amount") or 0.0
         net = sum(lines[n].get("net_value") or 0.0 for n in ns or ())
-        if e["type"] in REVERSE_CHARGE:
+        rc_rate = e["type"] in REVERSE_CHARGE and not (net and any(lines[n].get("vat_amount") for n in ns))
+        if rc_rate:  # χωρίς ΦΠΑ στις γραμμές (π.χ. παραστατικό του εκδότη) → 24%
             tax = round(sign * amount * REVERSE_RATE, 2)
         elif net:  # μερίδιο του χαρακτηρισμού στον ΦΠΑ των γραμμών του
             tax = sign * sum(lines[n].get("vat_amount") or 0.0 for n in ns) * amount / net
@@ -130,10 +131,17 @@ def compute(income: list[dict], expense: list[dict], prev_credit: float = 0.0, p
     for d in filter(_sent, expense):
         if d.get("local_action") in ("reject", "cancel"):
             continue
-        for typ, base, tax in input_vat(d):  # χωρίς χαρακτηρισμό ΦΠΑ → εκτός δήλωσης
+        lines = {ln.get("line_number"): ln for ln in json.loads(d["lines_json"] or "[]")}
+        for typ, base, tax, ns in _input_vat(d):  # χωρίς χαρακτηρισμό ΦΠΑ → εκτός δήλωσης
             base_code, tax_code = INPUT_CODES[typ]
             if typ in REVERSE_CHARGE:
-                add("303", base)  # ο φόρος εκροών προκύπτει από το 303 × 24%
+                # Εκροή στη γραμμή του συντελεστή κάθε γραμμής (ο φόρος = βάση × συντελεστής).
+                net = sum(lines[n].get("net_value") or 0.0 for n in ns or ())
+                for n in (ns if net else [None]):
+                    cat = str(lines[n].get("vat_category") or "") if n is not None else ""
+                    share = base * (lines[n].get("net_value") or 0.0) / net if n is not None else base
+                    add(OUTPUT_RATES.get(cat, OUTPUT_RATES["1"])[0], share)
+                add("313", base)  # πλασματική εκροή: δεν συμμετέχει στον κύκλο εργασιών ΦΠΑ
             if not tax:  # χαρακτηρισμός ΦΠΑ χωρίς φόρο → εκτός δήλωσης
                 continue
             add(base_code, base)
@@ -148,7 +156,11 @@ def compute(income: list[dict], expense: list[dict], prev_credit: float = 0.0, p
 
     c["307"] = round(sum(c.get(k, 0.0) for k in ("301", "302", "303", "304", "305", "306", "308", "309")), 2)
     c["337"] = round(sum(c.get(k, 0.0) for k in ("331", "332", "333", "334", "335", "336", "338", "339")), 2)
-    c["311"] = c["312"] = c["307"]
+    # Φ2 (Α.1058/2024): 312 = 311 − 313 − 314 − 315. Τα 314/315 αφορούν μόνο όσους δεν έχουν
+    # δικαίωμα έκπτωσης για τις αποκτήσεις — εδώ πάντα μηδέν.
+    c["311"] = c["307"]
+    c["313"] = c.get("313", 0.0)
+    c["312"] = round(c["311"] - c["313"], 2)
     c["367"] = round(sum(c.get(f"36{i}", 0.0) for i in range(1, 7)), 2)
     c["387"] = round(sum(c.get(f"38{i}", 0.0) for i in range(1, 7)), 2)
 
@@ -199,6 +211,15 @@ if __name__ == "__main__":
     r = compute([], exp, prev_credit=10)["codes"]
     assert (r["361"], r["381"], r["362"], r["382"], r["364"], r["384"]) == (50, 12, 100, 24, 1000, 240), r
     assert (r["303"], r["333"], r["387"], r["430"]) == (1000, 240, 276, 276), r
+    assert (r["311"], r["313"], r["312"]) == (1000, 1000, 0), r  # αυτοπαράδοση: εκτός κύκλου εργασιών
+    # Ενδοκοινοτική με 13% και 24%: κάθε γραμμή στον συντελεστή της, φόρος εισροών = ΦΠΑ γραμμών.
+    rc = {"mark": "400001972149566", "invoice_type": "14.1", "total_vat": 3.53, "lines_json": json.dumps([
+        {"line_number": 1, "net_value": 5.0, "vat_amount": 0.65, "vat_category": "2"},
+        {"line_number": 2, "net_value": 12.0, "vat_amount": 2.88, "vat_category": "1"}]),
+        "cls_json": json.dumps([{"type": "VAT_364", "amount": 5.0}, {"type": "VAT_364", "amount": 12.0}])}
+    r2 = compute([], [rc])["codes"]
+    assert (r2["301"], r2["331"], r2["303"], r2["333"], r2["337"]) == (5, 0.65, 12, 2.88, 3.53), r2
+    assert (r2["364"], r2["384"], r2["313"], r2["312"], r2["511"], r2["502"]) == (17, 3.53, 17, 0, 0, 0), r2
     assert (r["470"], r["502"], r["511"]) == (36, 46, 0), r
     # Χρεωστικό έως 30 € → δεν αποδίδεται, μεταφέρεται· το 483 της επόμενης προστίθεται στο προς καταβολή.
     small = [{"mark": "10", "invoice_type": "2.1", "lines_json": json.dumps(
