@@ -260,6 +260,8 @@ _DOCUMENT_COLUMNS = {
     # Μηνιαία εγγραφή από πρότυπο: μία ανά (εταιρεία, πρότυπο, μήνας) — unique index στο init_db.
     "template_id": "INTEGER",
     "period": "TEXT",
+    # Ολόκληρο το XML του παραστατικού από το myDATA (προβολή «Όλα τα στοιχεία»).
+    "raw_xml": "TEXT",
 }
 EXTRA_TOTALS = ("total_withheld", "total_other_taxes", "total_stamp_duty", "total_fees", "total_deductions")
 # Ανά παραστατικό, ο χαρακτηρισμός ΦΠΑ κρατά κατηγορία ΦΠΑ + ποσό ΦΠΑ της ομάδας.
@@ -928,6 +930,9 @@ def upsert_document(
 
 def _set_extra_totals(conn: sqlite3.Connection, company_id: int, doc: dict) -> None:
     """Λοιπά σύνολα σύνοψης (παρακρατήσεις, τέλη κ.λπ.), όταν τα έφερε το myDATA."""
+    if doc.get("raw_xml"):  # κενό (τοπικό draft, παλιά ανάκτηση) δεν σβήνει ό,τι έχουμε
+        conn.execute("UPDATE documents SET raw_xml = ? WHERE company_id = ? AND mark = ?",
+                     (doc["raw_xml"], company_id, doc["mark"]))
     extra = doc.get("extra_totals")
     if extra:
         conn.execute(

@@ -595,6 +595,7 @@ def _invoice_to_doc(inv) -> dict:
         "cls_info": getattr(inv, "cls_info", []) or [],
         # MARK χαρακτηρισμού από το myDATA (για όσα ήταν ήδη χαρακτηρισμένα εκεί).
         "classification_mark": getattr(inv, "classification_mark", "") or "",
+        "raw_xml": getattr(inv, "raw_xml", "") or "",
     }
 
 
@@ -1049,7 +1050,166 @@ def document(mark):
         categories=INCOME_CATEGORIES if is_income else EXPENSE_CATEGORIES,
         types=INCOME_TYPES if is_income else EXPENSE_TYPES,
         vat_types=VAT_TYPES,
+        xml_tree=_xml_tree(row.get("raw_xml")),
+        has_xml=bool(row.get("raw_xml")),
     )
+
+
+# Ελληνικές ετικέτες για τα πεδία του XML του myDATA (άγνωστο πεδίο → το όνομά του ως έχει).
+XML_LABELS = {
+    "invoice": "Παραστατικό", "uid": "UID", "mark": "ΜΑΡΚ", "cancelledByMark": "Ακυρώθηκε από ΜΑΡΚ",
+    "authenticationCode": "Κωδικός αυθεντικοποίησης", "transmissionFailure": "Αδυναμία διαβίβασης",
+    "qrCodeUrl": "QR code (URL)", "issuer": "Εκδότης", "counterpart": "Λήπτης",
+    "vatNumber": "ΑΦΜ", "country": "Χώρα", "branch": "Εγκατάσταση", "name": "Επωνυμία",
+    "address": "Διεύθυνση", "street": "Οδός", "number": "Αριθμός", "postalCode": "Τ.Κ.", "city": "Πόλη",
+    "documentIdNo": "Αρ. ταυτότητας/διαβατηρίου", "supplyAccountNo": "Αρ. παροχής",
+    "countryDocumentId": "Χώρα έκδοσης εγγράφου", "invoiceHeader": "Επικεφαλίδα", "series": "Σειρά",
+    "aa": "Α/Α", "issueDate": "Ημ/νία έκδοσης", "invoiceType": "Τύπος παραστατικού",
+    "vatPaymentSuspension": "Αναστολή καταβολής ΦΠΑ", "currency": "Νόμισμα", "exchangeRate": "Ισοτιμία",
+    "correlatedInvoices": "Συσχετιζόμενα παραστατικά", "selfPricing": "Αυτοτιμολόγηση",
+    "dispatchDate": "Ημ/νία αποστολής", "dispatchTime": "Ώρα αποστολής", "vehicleNumber": "Αρ. οχήματος",
+    "movePurpose": "Σκοπός διακίνησης", "fuelInvoice": "Παραστατικό καυσίμων",
+    "specialInvoiceCategory": "Ειδική κατηγορία", "invoiceVariationType": "Τύπος απόκλισης",
+    "otherCorrelatedEntities": "Λοιπές συσχετιζόμενες οντότητες", "otherDeliveryNoteHeader": "Στοιχεία διακίνησης",
+    "isDeliveryNote": "Δελτίο αποστολής", "otherMovePurposeTitle": "Λοιπός σκοπός διακίνησης",
+    "thirdPartyCollection": "Είσπραξη για λογαριασμό τρίτων", "multipleConnectedMarks": "Συνδεδεμένα ΜΑΡΚ",
+    "tableAA": "Α/Α τραπεζιού", "totalCancelDeliveryOrders": "Ακύρωση παραγγελιών",
+    "paymentMethods": "Τρόποι πληρωμής", "paymentMethodDetails": "Πληρωμή", "type": "Τύπος",
+    "amount": "Ποσό", "paymentMethodInfo": "Πληροφορίες πληρωμής", "tipAmount": "Φιλοδώρημα",
+    "transactionId": "Αναγνωριστικό συναλλαγής", "tid": "TID", "ProvidersSignature": "Υπογραφή παρόχου",
+    "ECRToken": "ECR token", "invoiceDetails": "Γραμμή", "lineNumber": "Α/Α γραμμής",
+    "recType": "Είδος γραμμής", "TaricNo": "Κωδ. TARIC", "itemCode": "Κωδ. είδους",
+    "itemDescr": "Περιγραφή είδους", "fuelCode": "Κωδ. καυσίμου", "quantity": "Ποσότητα",
+    "measurementUnit": "Μονάδα μέτρησης", "invoiceDetailType": "Επισήμανση γραμμής",
+    "netValue": "Καθαρή αξία", "vatCategory": "Κατηγορία ΦΠΑ", "vatAmount": "Ποσό ΦΠΑ",
+    "vatExemptionCategory": "Κατηγορία εξαίρεσης ΦΠΑ", "dienergia": "ΠΟΛ 1177/2018",
+    "discountOption": "Δικαίωμα έκπτωσης", "withheldAmount": "Παρακράτηση φόρου",
+    "withheldPercentCategory": "Κατηγορία παρακράτησης", "stampDutyAmount": "Χαρτόσημο",
+    "stampDutyPercentCategory": "Κατηγορία χαρτοσήμου", "feesAmount": "Τέλη",
+    "feesPercentCategory": "Κατηγορία τελών", "otherTaxesPercentCategory": "Κατηγορία λοιπών φόρων",
+    "otherTaxesAmount": "Λοιποί φόροι", "deductionsAmount": "Κρατήσεις", "lineComments": "Σχόλια γραμμής",
+    "quantity15": "Ποσότητα 15°C", "otherMeasurementUnitQuantity": "Ποσότητα άλλης μονάδας",
+    "otherMeasurementUnitTitle": "Άλλη μονάδα μέτρησης", "notVAT195": "Εκτός άρθρου 39α",
+    "taxesTotals": "Φόροι παραστατικού", "taxes": "Φόρος", "taxType": "Τύπος φόρου",
+    "taxCategory": "Κατηγορία φόρου", "underlyingValue": "Ποσό υπολογισμού", "taxAmount": "Ποσό φόρου",
+    "id": "Α/Α", "invoiceSummary": "Σύνοψη", "totalNetValue": "Σύνολο καθαρής αξίας",
+    "totalVatAmount": "Σύνολο ΦΠΑ", "totalWithheldAmount": "Σύνολο παρακρατήσεων",
+    "totalFeesAmount": "Σύνολο τελών", "totalStampDutyAmount": "Σύνολο χαρτοσήμου",
+    "totalOtherTaxesAmount": "Σύνολο λοιπών φόρων", "totalDeductionsAmount": "Σύνολο κρατήσεων",
+    "totalGrossValue": "Συνολική αξία", "incomeClassification": "Χαρακτηρισμός εσόδων",
+    "expensesClassification": "Χαρακτηρισμός εξόδων", "classificationType": "Τύπος χαρακτηρισμού",
+    "classificationCategory": "Κατηγορία χαρακτηρισμού", "transactionMode": "Είδος συναλλαγής",
+    "vatClassification": "Χαρακτηρισμός ΦΠΑ", "otherTransportDetails": "Λοιπά στοιχεία μεταφοράς",
+    "loadingAddress": "Διεύθυνση φόρτωσης", "deliveryAddress": "Διεύθυνση παράδοσης",
+    "startShippingBranch": "Εγκατάσταση έναρξης", "completeShippingBranch": "Εγκατάσταση ολοκλήρωσης",
+    "downloadingInvoiceUrl": "URL λήψης", "invoiceUrl": "URL παραστατικού",
+}
+
+
+# Κωδικοί ΑΑΔΕ χωρίς δική τους λίστα στην εφαρμογή (για την προβολή «Όλα τα στοιχεία»).
+XML_EXTRA_CODES = {
+    "measurementUnit": {"1": "Τεμάχια", "2": "Κιλά", "3": "Λίτρα", "4": "Μέτρα", "5": "Τετραγωνικά μέτρα",
+                        "6": "Κυβικά μέτρα", "7": "Τεμάχια (λοιπές περιπτώσεις)"},
+    "transactionMode": {"1": "Απόρριψη", "2": "Απόκλιση ποσών"},
+    "movePurpose": {
+        "1": "Πώληση", "2": "Πώληση για λογαριασμό τρίτων", "3": "Δειγματισμός", "4": "Έκθεση",
+        "5": "Επιστροφή", "6": "Φύλαξη", "7": "Επεξεργασία / συναρμολόγηση", "8": "Μεταξύ εγκαταστάσεων οντότητας",
+        "9": "Αγορά", "10": "Εφοδιασμός πλοίων και αεροσκαφών", "11": "Δωρεάν διάθεση", "12": "Εγγύηση",
+        "13": "Χρησιδανεισμός", "14": "Αποθήκευση σε τρίτους", "15": "Επιστροφή από φύλαξη", "16": "Ανακύκλωση",
+        "17": "Καταστροφή άχρηστου υλικού", "18": "Διακίνηση παγίων (ενδοδιακίνηση)", "19": "Λοιπές διακινήσεις",
+    },
+    # ponytail: οι συνηθέστερες χώρες/νομίσματα· άλλος κωδικός εμφανίζεται σκέτος — προσθέστε εδώ.
+    "country": {
+        "GR": "Ελλάδα", "AT": "Αυστρία", "BE": "Βέλγιο", "BG": "Βουλγαρία", "CY": "Κύπρος", "CZ": "Τσεχία",
+        "DE": "Γερμανία", "DK": "Δανία", "EE": "Εσθονία", "ES": "Ισπανία", "FI": "Φινλανδία", "FR": "Γαλλία",
+        "HR": "Κροατία", "HU": "Ουγγαρία", "IE": "Ιρλανδία", "IT": "Ιταλία", "LT": "Λιθουανία",
+        "LU": "Λουξεμβούργο", "LV": "Λετονία", "MT": "Μάλτα", "NL": "Ολλανδία", "PL": "Πολωνία",
+        "PT": "Πορτογαλία", "RO": "Ρουμανία", "SE": "Σουηδία", "SI": "Σλοβενία", "SK": "Σλοβακία",
+        "GB": "Ηνωμένο Βασίλειο", "US": "Η.Π.Α.", "CH": "Ελβετία", "NO": "Νορβηγία", "IS": "Ισλανδία",
+        "LI": "Λιχτενστάιν", "TR": "Τουρκία", "AL": "Αλβανία", "MK": "Βόρεια Μακεδονία", "RS": "Σερβία",
+        "ME": "Μαυροβούνιο", "BA": "Βοσνία-Ερζεγοβίνη", "UA": "Ουκρανία", "RU": "Ρωσία", "IL": "Ισραήλ",
+        "AE": "Ηνωμένα Αραβικά Εμιράτα", "CN": "Κίνα", "JP": "Ιαπωνία", "KR": "Νότια Κορέα", "IN": "Ινδία",
+        "CA": "Καναδάς", "AU": "Αυστραλία", "BR": "Βραζιλία", "EG": "Αίγυπτος", "SG": "Σιγκαπούρη",
+        "HK": "Χονγκ Κονγκ",
+    },
+    "currency": {
+        "EUR": "Ευρώ", "USD": "Δολάριο ΗΠΑ", "GBP": "Λίρα Αγγλίας", "CHF": "Φράγκο Ελβετίας",
+        "JPY": "Γιεν Ιαπωνίας", "CNY": "Γιουάν Κίνας", "TRY": "Λίρα Τουρκίας", "CAD": "Δολάριο Καναδά",
+        "AUD": "Δολάριο Αυστραλίας", "SEK": "Κορώνα Σουηδίας", "DKK": "Κορώνα Δανίας",
+        "NOK": "Κορώνα Νορβηγίας", "PLN": "Ζλότι Πολωνίας", "CZK": "Κορώνα Τσεχίας",
+        "HUF": "Φιορίνι Ουγγαρίας", "RON": "Λέου Ρουμανίας", "BGN": "Λεβ Βουλγαρίας",
+        "RSD": "Δηνάριο Σερβίας", "ALL": "Λεκ Αλβανίας", "MKD": "Δηνάριο Β. Μακεδονίας",
+        "ILS": "Σέκελ Ισραήλ", "AED": "Ντιρχάμ ΗΑΕ",
+    },
+    "invoiceVariationType": {"1": "Διαβίβαση λήπτη λόγω παράλειψης εκδότη"},
+    "vatExemptionCategory": {
+        "1": "Άρθρο 3 ΚΦΠΑ (εκτός πεδίου)", "2": "Άρθρο 5 ΚΦΠΑ", "3": "Άρθρο 13 ΚΦΠΑ", "4": "Άρθρο 14 ΚΦΠΑ",
+        "5": "Άρθρο 16 ΚΦΠΑ", "6": "Άρθρο 19 ΚΦΠΑ", "7": "Άρθρο 22 ΚΦΠΑ", "8": "Άρθρο 24 ΚΦΠΑ",
+        "9": "Άρθρο 25 ΚΦΠΑ", "10": "Άρθρο 26 ΚΦΠΑ", "11": "Άρθρο 27 ΚΦΠΑ",
+        "12": "Άρθρο 27 ΚΦΠΑ (πλοία ανοικτής θαλάσσης)", "13": "Άρθρο 27.1.γ ΚΦΠΑ (πλοία ανοικτής θαλάσσης)",
+        "14": "Άρθρο 28 ΚΦΠΑ", "15": "Άρθρο 39 ΚΦΠΑ", "16": "Άρθρο 39α ΚΦΠΑ", "17": "Άρθρο 40 ΚΦΠΑ",
+        "18": "Άρθρο 41 ΚΦΠΑ", "19": "Άρθρο 47 ΚΦΠΑ", "20": "ΦΠΑ εμπεριεχόμενος", "21": "Άρθρο 43 ΚΦΠΑ",
+        "22": "Άρθρο 44 ΚΦΠΑ", "23": "Άρθρο 50 ΚΦΠΑ", "24": "Άρθρο 4 ΚΦΠΑ", "25": "ΠΟΛ 1029/1995",
+        "26": "ΠΟΛ 1167/2015", "27": "Λοιπές εξαιρέσεις ΦΠΑ", "28": "Άρθρο 24 περ. β' παρ. 1 ΚΦΠΑ",
+        "29": "Άρθρο 47β ΚΦΠΑ (OSS μη ενωσιακό)", "30": "Άρθρο 47γ ΚΦΠΑ (OSS ενωσιακό)",
+        "31": "Άρθρο 47δ ΚΦΠΑ (IOSS)",
+    },
+}
+
+
+def _xml_tree(xml: str | None) -> list[dict]:
+    """XML του παραστατικού → δέντρο [{label, value, children}] για προβολή, χωρίς namespaces.
+    Κάθε κωδικός (τύπος, κατηγορία ΦΠΑ, χαρακτηρισμοί, φόροι, πληρωμή κ.λπ.) με την περιγραφή του."""
+    import xml.etree.ElementTree as ET
+
+    from mydata_client import PAYMENT_METHODS, VAT_CATEGORIES
+
+    if not xml:
+        return []
+    codes = {
+        **XML_EXTRA_CODES,
+        "invoiceType": INVOICE_TYPE_NAMES,
+        "vatCategory": {**VAT_CATEGORY_RATES, **VAT_CATEGORIES},
+        "classificationType": {**EXPENSE_TYPES, **INCOME_TYPES, **{k: v for k, v in VAT_TYPES.items() if k}},
+        "classificationCategory": {**EXPENSE_CATEGORIES, **INCOME_CATEGORIES},
+        "taxType": TAX_TYPES,
+        "withheldPercentCategory": TAX_CATEGORIES["1"],
+        "feesPercentCategory": TAX_CATEGORIES["2"],
+        "otherTaxesPercentCategory": TAX_CATEGORIES["3"],
+        "stampDutyPercentCategory": TAX_CATEGORIES["4"],
+    }
+
+    def node(el, parent="", siblings=None):
+        tag = el.tag.split("}")[-1]
+        value = (el.text or "").strip()
+        if (tag, parent) == ("type", "paymentMethodDetails"):
+            names = PAYMENT_METHODS
+        elif tag == "taxCategory":  # η κατηγορία εξαρτάται από τον τύπο φόρου δίπλα της
+            names = TAX_CATEGORIES.get((siblings or {}).get("taxType", ""), {})
+        else:
+            names = codes.get(tag, {})
+        if value in names:
+            value = f"{value} · {names[value]}"
+        kids = {c.tag.split("}")[-1]: (c.text or "").strip() for c in el}
+        return {"label": XML_LABELS.get(tag, tag), "value": value, "children": [node(c, tag, kids) for c in el]}
+
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return []
+    return node(root)["children"]
+
+
+@app.route("/document/<mark>/xml")
+def document_xml(mark):
+    """Λήψη του XML του παραστατικού όπως το έδωσε το myDATA."""
+    cid = _active_company_id()
+    row = db.get_document(cid, mark) if cid else None
+    if not row or not row.get("raw_xml"):
+        flash("Δεν υπάρχει αποθηκευμένο XML — κάνε νέα ανάκτηση του διαστήματος.", "error")
+        return redirect(url_for("document", mark=mark))
+    return Response(row["raw_xml"], mimetype="application/xml",
+                    headers={"Content-Disposition": f'attachment; filename="{mark}.xml"'})
 
 
 def _save_as_rule(cid: int, vat: str, patterns: dict, post_mode: int = 0) -> None:

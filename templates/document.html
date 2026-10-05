@@ -79,6 +79,17 @@
 [data-same-page] .dc-steps::after{animation:none}
 @media (max-width:640px){ .dc-step small{display:none} }
 @media (prefers-reduced-motion:reduce){ .dc *,.dc *::after{animation:none!important} }
+/* Όλα τα στοιχεία (XML του myDATA) ως δέντρο */
+.dc-sec--xml{--c:var(--muted);--c-soft:var(--surface-3);--c-line:var(--line-soft)}
+.dc-sec--xml > details > summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dc-sec--xml > details > summary h2{margin:0}
+.dc-sec--xml > details > summary::-webkit-details-marker{display:none}
+.xml-tree{margin:12px 0 0;font-size:.86rem}
+.xml-tree details{margin:4px 0 4px 2px;padding-left:12px;border-left:2px solid var(--line-soft)}
+.xml-tree summary{cursor:pointer;font-weight:700;padding:2px 0}
+.xml-row{display:grid;grid-template-columns:minmax(140px,240px) minmax(0,1fr);gap:12px;padding:3px 0;border-bottom:1px dashed var(--line-soft)}
+.xml-row span{color:var(--muted)}
+.xml-row b{font-family:var(--font-data);font-weight:600;overflow-wrap:anywhere}
 </style>
 
 <div class="dc" data-doc>
@@ -285,6 +296,30 @@
   </div>
 </div>
 {% endif %}
+
+{# Ολόκληρο το παραστατικό όπως το έδωσε το myDATA (ό,τι κι αν χρησιμοποιεί η εφαρμογή). #}
+{% macro xml_nodes(nodes) -%}
+  {% for n in nodes %}
+    {% if n.children %}
+    <details open><summary>{{ n.label }}</summary>{{ xml_nodes(n.children) }}</details>
+    {% else %}
+    <div class="xml-row"><span>{{ n.label }}</span><b>{{ n.value or '—' }}</b></div>
+    {% endif %}
+  {% endfor %}
+{%- endmacro %}
+<div class="card dc-sec dc-sec--xml">
+  <details>
+    <summary><h2><span class="dc-ico">🗂</span>Όλα τα στοιχεία</h2><span class="muted small">όπως τα έδωσε το myDATA</span></summary>
+    {% if has_xml %}
+    <p><a class="btn btn-ghost btn-sm" href="{{ url_for('document_xml', mark=inv.mark) }}">⬇ XML</a></p>
+    <div class="xml-tree">{{ xml_nodes(xml_tree) }}</div>
+    {% elif local_action == 'create' and status == 'classified' %}
+    <p class="muted small">Δεν έχει διαβιβαστεί ακόμη στο myDATA.</p>
+    {% else %}
+    <p class="muted small">Κάνε νέα «Ανάκτηση» του διαστήματος για να εμφανιστούν όλα τα στοιχεία του παραστατικού.</p>
+    {% endif %}
+  </details>
+</div>
 
 {% if is_income and can_cancel %}
 <div class="card card-danger">

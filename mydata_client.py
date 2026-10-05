@@ -100,6 +100,16 @@ def _line_taxes(det: ET.Element) -> list[dict]:
     ]
 
 
+def _invoice_xml(el: ET.Element) -> str:
+    """Ένα <invoice> ως κείμενο XML με τα προθέματα του myDATA (όχι ns0/ns1)."""
+    ET.register_namespace("ecls", NS["ecls"])  # υπερισχύει κάθε προηγούμενης δήλωσης αυτών των URI
+    ET.register_namespace("icls", NS["icls"])
+    try:
+        return ET.tostring(el, encoding="unicode", default_namespace=NS["inv"])
+    except ValueError:  # στοιχείο χωρίς namespace: όπως είναι
+        return ET.tostring(el, encoding="unicode")
+
+
 def _local(tag: str) -> str:
     """Επιστρέφει το local name ενός tag (χωρίς namespace)."""
     return tag.split("}")[-1]
@@ -178,6 +188,8 @@ class ExpenseInvoice:
     # Λοιπά σύνολα σύνοψης: {total_withheld, total_other_taxes, total_stamp_duty, total_fees,
     # total_deductions} (ονόματα στηλών του db).
     extra_totals: dict = field(default_factory=dict)
+    # Ολόκληρο το <invoice> όπως το έδωσε το myDATA (για προβολή «Όλα τα στοιχεία»).
+    raw_xml: str = ""
 
     @property
     def is_cancelled(self) -> bool:
@@ -826,6 +838,7 @@ class MyDataClient:
                     income_classifications=income_entries or [dict(e, line=None) for e in summary_income],
                     cancelled_by_mark=cancelled_by,
                     extra_totals=extra_totals,
+                    raw_xml=_invoice_xml(inv),
                 )
             )
         return result
