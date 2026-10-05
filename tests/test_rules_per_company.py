@@ -64,7 +64,10 @@ assert [s["vat"] for s in db.list_suppliers(1)] == ["111"]
 assert sorted(s["vat"] for s in db.list_suppliers(2)) == ["111", "222"]
 assert len(db.list_suppliers()) == 3  # εξαγωγή: όλος ο κοινός κατάλογος
 
-# 5) Διαγραφή συναλλασσόμενου → φεύγουν οι προτάσεις όλων των εταιρειών.
-db.delete_supplier("111")
-assert "111" not in db.load_rules(1) and "111" not in db.load_rules(2)
+# 5) Συναλλασσόμενος με κινήσεις δεν διαγράφεται· χωρίς κινήσεις διαγράφεται μαζί με τις προτάσεις όλων των εταιρειών.
+assert db.delete_supplier("111") is False and "111" in db.load_rules(1)
+for company in (1, 2):
+    db.save_rule(company, "333", "E3_585_016", "category2_4")
+assert db.delete_supplier("333") is True
+assert "333" not in db.load_rules(1) and "333" not in db.load_rules(2)
 print("OK")

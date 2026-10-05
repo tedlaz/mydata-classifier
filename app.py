@@ -4506,16 +4506,20 @@ def accountant():
 # ------------------------------------------------------------------ #
 # Συναλλασσόμενοι — πελάτες & προμηθευτές (κοινοί για όλες τις εταιρείες)
 # ------------------------------------------------------------------ #
+def _filter_suppliers(items: list[dict], q: str) -> list[dict]:
+    """Φίλτρο: substring σε ΑΦΜ ή επωνυμία (χωρίς διάκριση πεζών/κεφαλαίων και τόνων)."""
+    def fold(s: str) -> str:
+        return "".join(c for c in unicodedata.normalize("NFD", s.casefold()) if not unicodedata.combining(c))
+
+    return [s for s in items if fold(q) in fold(f"{s['vat']} {s['name'] or ''}")]
+
+
 @app.route("/suppliers")
 def suppliers():
     """Κατάλογος συναλλασσόμενων (πελάτες & προμηθευτές), με σελιδοποίηση."""
     all_suppliers = db.list_suppliers(_active_company_id() or 0)  # μόνο της ενεργής εταιρείας
-    # Φίλτρο: substring σε ΑΦΜ ή επωνυμία (χωρίς διάκριση πεζών/κεφαλαίων και τόνων).
-    def fold(s: str) -> str:
-        return "".join(c for c in unicodedata.normalize("NFD", s.casefold()) if not unicodedata.combining(c))
-
     q = request.args.get("q", "").strip()
-    items = [s for s in all_suppliers if fold(q) in fold(f"{s['vat']} {s['name'] or ''}")]
+    items = _filter_suppliers(all_suppliers, q)
     page_items, page, total_pages = paginate(items, request.args.get("page"))
     cid = _active_company_id()
     patterns, rules = db.load_rule_patterns(cid), load_rules()
@@ -4527,6 +4531,8 @@ def suppliers():
         suppliers=page_items,
         suppliers_total=len(all_suppliers),
         with_rule=sum(1 for s in all_suppliers if s["vat"] in patterns or s["vat"] in rules),
+        shown_with_rule=sum(1 for s in items if s["vat"] in patterns or s["vat"] in rules),
+        with_docs=db.vats_with_documents(),
         filtered_total=len(items),
         q=q,
         page=page,
@@ -4547,6 +4553,21 @@ def suppliers_rules_from_latest():
         _save_as_rule(cid, vat, pats, _doc_post_mode(row))
     flash(f"✔ Ορίστηκαν προτάσεις για {len(latest)} συναλλασσόμενους από την τελευταία ολοκληρωμένη εγγραφή τους.", "ok")
     return redirect(url_for("suppliers", q=request.form.get("q") or None))
+
+
+@app.route("/suppliers/rules-delete", methods=["POST"])
+def suppliers_rules_delete():
+    """Διαγραφή προτάσεων χαρακτηρισμού στην ενεργή εταιρεία: ενός συναλλασσόμενου (vat) ή όλων
+    όσων φαίνονται με την τρέχουσα αναζήτηση (q). Μετά ξαναγίνονται από την τελευταία εγγραφή
+    («Αντιγραφή χαρακτηρισμών») ή μαθαίνονται από τον επόμενο χαρακτηρισμό."""
+    cid = _active_company_id()
+    vat = request.form.get("vat", "").strip()
+    q = request.form.get("q", "").strip()
+    vats = [vat] if vat else [s["vat"] for s in _filter_suppliers(db.list_suppliers(cid or 0), q)]
+    n = db.delete_rules(cid, vats)
+    flash(f"✔ Διαγράφηκαν οι προτάσεις χαρακτηρισμού {'του ' + vat if vat else f'{n} συναλλασσόμενων'}." if n
+          else "Δεν υπήρχαν προτάσεις για διαγραφή.", "ok")
+    return redirect(_safe_back(request.form.get("back")) or url_for("suppliers", q=q or None))
 
 
 @app.route("/suppliers/<vat>/rules", methods=["GET", "POST"])
@@ -4631,9 +4652,11 @@ def suppliers_rename():
 
 @app.route("/suppliers/delete/<vat>", methods=["POST"])
 def suppliers_delete(vat):
-    db.delete_supplier(vat)
-    flash(f"✔ Διαγράφηκε ο συναλλασσόμενος {vat}.", "ok")
-    return redirect(url_for("suppliers"))
+    if db.delete_supplier(vat):
+        flash(f"✔ Διαγράφηκε ο συναλλασσόμενος {vat}.", "ok")
+    else:
+        flash(f"Ο συναλλασσόμενος {vat} έχει κινήσεις (παραστατικά) και δεν διαγράφεται.", "error")
+    return redirect(_safe_back(request.form.get("back")) or url_for("suppliers"))
 
 
 @app.route("/suppliers/import", methods=["POST"])

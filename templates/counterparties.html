@@ -74,6 +74,13 @@
                 data-confirm="Θα οριστούν προτάσεις χαρακτηρισμού για {{ latest|length }} συναλλασσόμενους από την τελευταία ολοκληρωμένη εγγραφή τους. Συνέχεια;">💡 Αντιγραφή χαρακτηρισμών ({{ latest|length }})</button>
       </form>
       {% endif %}
+      {% if shown_with_rule %}
+      <form method="post" action="{{ url_for('suppliers_rules_delete') }}" class="inline-form">
+        <input type="hidden" name="q" value="{{ q }}">
+        <button type="submit" class="btn-ghost" title="Σβήνει τις προτάσεις χαρακτηρισμού{{ ' όσων φαίνονται με την αναζήτηση' if q }} — μετά ξαναγίνονται από την τελευταία εγγραφή"
+                data-confirm="Θα διαγραφούν οι προτάσεις χαρακτηρισμού {{ shown_with_rule }} συναλλασσόμενων{{ ' (αναζήτηση «' ~ q ~ '»)' if q }} της ενεργής εταιρείας. Μετά μπορείς να τις ξαναπάρεις από την τελευταία εγγραφή με «Αντιγραφή χαρακτηρισμών». Συνέχεια;">🧹 Διαγραφή προτάσεων ({{ shown_with_rule }})</button>
+      </form>
+      {% endif %}
       <button type="button" commandfor="sup-dialog" command="show-modal">+ Προσθήκη / Εισαγωγή–Εξαγωγή</button>
     </div>
   </div>
@@ -183,9 +190,23 @@
           <div class="actions">
             <a class="btn btn-ghost" href="{{ url_for('supplier_rules', vat=s.vat, back=request.full_path) }}"
                title="Αλλαγή προτάσεων χαρακτηρισμού (ανά κατηγορία ΦΠΑ)">Προτάσεις</a>
+            {% if patterns.get(s.vat) or rules.get(s.vat) %}
+            <form method="post" action="{{ url_for('suppliers_rules_delete') }}" class="inline-form">
+              <input type="hidden" name="vat" value="{{ s.vat }}">
+              <input type="hidden" name="back" value="{{ request.full_path }}">
+              <button type="submit" class="btn-ghost" title="Σβήνει τις προτάσεις — μετά ξαναγίνονται από την τελευταία εγγραφή"
+                      aria-label="Διαγραφή προτάσεων {{ s.vat }}"
+                      data-confirm="Θα διαγραφούν οι προτάσεις χαρακτηρισμού του {{ s.vat }}. Μετά μπορείς να τις ξαναπάρεις από την τελευταία εγγραφή. Συνέχεια;">🧹</button>
+            </form>
+            {% endif %}
+            {% if s.vat in with_docs %}
+            <span title="Έχει κινήσεις (παραστατικά) — δεν διαγράφεται"><button type="button" class="btn-danger" disabled>Διαγραφή</button></span>
+            {% else %}
             <form method="post" action="{{ url_for('suppliers_delete', vat=s.vat) }}" class="inline-form">
+              <input type="hidden" name="back" value="{{ request.full_path }}">
               <button type="submit" class="btn-danger" data-confirm="Διαγραφή του συναλλασσόμενου {{ s.vat }};">Διαγραφή</button>
             </form>
+            {% endif %}
           </div>
         </td>
       </tr>

@@ -670,6 +670,23 @@ def replace_rule_patterns(company_id: int | None, vat: str | None, patterns: dic
     save_rule_patterns(company_id, vat, patterns)
 
 
+def delete_rules(company_id: int | None, vats) -> int:
+    """Σβήνει ΟΛΕΣ τις προτάσεις (και τη βασική) των ΑΦΜ στην εταιρεία· επιστρέφει πόσοι είχαν."""
+    vats = list(vats)
+    if not company_id or not vats:
+        return 0
+    with get_conn() as conn:
+        had = conn.execute(
+            f"SELECT COUNT(DISTINCT vat) FROM supplier_rules WHERE company_id = ? AND vat IN ({','.join('?' * len(vats))})",
+            (company_id, *vats),
+        ).fetchone()[0]
+        conn.execute(
+            f"DELETE FROM supplier_rules WHERE company_id = ? AND vat IN ({','.join('?' * len(vats))})",
+            (company_id, *vats),
+        )
+    return had
+
+
 def get_rule_post_mode(company_id: int | None, vat: str | None) -> int:
     """Τρόπος χαρακτηρισμού της πρότασης: 0 = ανά γραμμή, 1 = συγκεντρωτικά (postPerInvoice)."""
     if not company_id or not vat:
@@ -794,10 +811,21 @@ def upsert_supplier(vat: str, name: str | None) -> None:
         )
 
 
-def delete_supplier(vat: str) -> None:
+def vats_with_documents() -> set[str]:
+    """ΑΦΜ με παραστατικά σε οποιαδήποτε εταιρεία (ο κατάλογος συναλλασσόμενων είναι κοινός)."""
     with get_conn() as conn:
+        rows = conn.execute("SELECT DISTINCT counterparty_vat FROM documents WHERE counterparty_vat IS NOT NULL").fetchall()
+    return {r[0] for r in rows}
+
+
+def delete_supplier(vat: str) -> bool:
+    """Διαγραφή συναλλασσόμενου — μόνο αν δεν έχει κινήσεις (παραστατικά) σε καμία εταιρεία."""
+    with get_conn() as conn:
+        if conn.execute("SELECT 1 FROM documents WHERE counterparty_vat = ? LIMIT 1", (vat,)).fetchone():
+            return False
         conn.execute("DELETE FROM suppliers WHERE vat = ?", (vat,))
         conn.execute("DELETE FROM supplier_rules WHERE vat = ?", (vat,))
+    return True
 
 
 def import_suppliers_txt(text: str) -> int:
