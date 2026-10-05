@@ -1610,6 +1610,12 @@ def _line_classification_rows(
     return groups
 
 
+def _safe_back(value: str | None) -> str:
+    """Διεύθυνση επιστροφής μόνο εντός εφαρμογής (όχι //host)· αλλιώς κενό."""
+    value = (value or "").strip()
+    return value if value.startswith("/") and not value.startswith(("//", "/\\")) else ""
+
+
 @app.route("/classify/<mark>")
 def classify(mark):
     cid = _active_company_id()
@@ -1661,9 +1667,11 @@ def classify(mark):
         post_mode = int(bool(rule_mode and pi_allowed))
     empty = {"category": "", "type": "", "amount": None}
     uncl, uncl_prev, uncl_next = _unclassified_around(inv)
+    back = _safe_back(request.args.get("back"))
     return render_template(
         "classify.html",
         inv=inv,
+        back=back,
         uncl_total=len(uncl),
         uncl_pos=next((i + 1 for i, r in enumerate(uncl) if r["mark"] == inv.mark), None),
         uncl_prev=uncl_prev and uncl_prev["mark"],
@@ -1702,6 +1710,8 @@ def submit(mark):
         flash("Το παραστατικό δεν βρέθηκε.", "error")
         return redirect(url_for("invoices"))
     inv = _row_to_invoice(row)
+    back = _safe_back(request.form.get("back"))
+    was_unclassified = row["status"] == "unclassified"
     manual = request.form.get("action") == "manual"
 
     # Συγκεντρωτικά (ανά παραστατικό): μία συγκεντρωτική γραμμή ανά κατηγορία ΦΠΑ,
@@ -1709,7 +1719,7 @@ def submit(mark):
     if request.form.get("post_mode") == "1":
         if inv.invoice_type == "1.5" or not inv.lines:
             flash("Ο χαρακτηρισμός ανά παραστατικό δεν επιτρέπεται για αυτό το παραστατικό.", "error")
-            return redirect(url_for("classify", mark=mark))
+            return redirect(url_for("classify", mark=mark, back=back or None))
         e3: dict[str, list] = {}
         for grp, ccat, ctype, amount in zip(
             request.form.getlist("pi_group"),
@@ -1725,7 +1735,7 @@ def submit(mark):
                 )
             except ValueError:
                 flash(f"Μη έγκυρο ποσό «{amount}».", "error")
-                return redirect(url_for("classify", mark=mark))
+                return redirect(url_for("classify", mark=mark, back=back or None))
         # Τα ποσά ΦΠΑ τα υπολογίζει ο server από τις γραμμές — η φόρμα δίνει μόνο τον τύπο.
         vat_choice = {
             g["vat_category"]: request.form.get(f"pi_vat_type_{g['vat_category']}", "")
@@ -1735,13 +1745,13 @@ def submit(mark):
         errors = _per_invoice_errors(inv, e3, vat_choice)
         if errors:
             flash("⚠ Ο συγκεντρωτικός χαρακτηρισμός δεν είναι σωστός: " + " · ".join(errors) + ".", "error")
-            return redirect(url_for("classify", mark=mark))
+            return redirect(url_for("classify", mark=mark, back=back or None))
         entries = _per_invoice_entries(inv, e3, vat_choice)
         db.save_local_classification(cid, mark, entries, manual=manual, post_mode=1)
         _learn(inv, entries, post_mode=1)
         first = next(r for rs in e3.values() for r in rs)
         save_rule(inv.issuer_vat, first["type"], first["category"], next(iter(vat_choice.values()), ""))
-        return _classified_redirect(manual, inv)
+        return _saved_redirect(back, manual, inv, was_unclassified)
 
     # Γραμμές χαρακτηρισμού ΑΝΑ ΓΡΑΜΜΗ παραστατικού (parallel λίστες από τη φόρμα):
     # κάθε γραμμή = αριθμός γραμμής παραστατικού + κατηγορία + τύπος E3 + ποσό
@@ -1762,7 +1772,7 @@ def submit(mark):
             amt = round(float(amount), 2)
         except ValueError:
             flash(f"Μη έγκυρο ποσό «{amount}».", "error")
-            return redirect(url_for("classify", mark=mark))
+            return redirect(url_for("classify", mark=mark, back=back or None))
         try:
             line_no = int(lno)
         except TypeError:
@@ -1792,7 +1802,7 @@ def submit(mark):
 
     if not classifications:
         flash("Δεν συμπληρώθηκε καμία γραμμή χαρακτηρισμού.", "error")
-        return redirect(url_for("classify", mark=mark))
+        return redirect(url_for("classify", mark=mark, back=back or None))
 
     # Έλεγχος κάλυψης ΑΝΑ ΓΡΑΜΜΗ: το myDATA απαιτεί χαρακτηρισμό ΚΑΘΕ γραμμής του
     # αρχικού παραστατικού, με άθροισμα E3 στο εύρος [καθαρή, μικτή] της γραμμής -
@@ -1841,7 +1851,7 @@ def submit(mark):
                 "θα τον απέρριπτε (303/304/306): " + " · ".join(errors) + ".",
                 "error",
             )
-            return redirect(url_for("classify", mark=mark))
+            return redirect(url_for("classify", mark=mark, back=back or None))
 
     # «Χειροκίνητο»: το παραστατικό είναι ήδη χαρακτηρισμένο στην πύλη myDATA - το
     # καταγράφουμε ΜΟΝΟ τοπικά (→ «Ολοκληρωμένα», tag Manually), χωρίς αποστολή.
@@ -1851,7 +1861,7 @@ def submit(mark):
     # αποθήκευση κανόνα ανά συναλλασσόμενο από την πρώτη γραμμή χαρακτηρισμού
     if rule_from:
         save_rule(inv.issuer_vat, rule_from[0], rule_from[1], rule_from[2])
-    return _classified_redirect(manual, inv)
+    return _saved_redirect(back, manual, inv, was_unclassified)
 
 
 def _unclassified_around(inv):
@@ -1862,6 +1872,22 @@ def _unclassified_around(inv):
     prev = next((r for r in reversed(rest) if key(r) < here), None)
     nxt = next((r for r in rest if key(r) > here), None)
     return rest, prev, nxt
+
+
+def _saved_redirect(back: str, manual: bool, inv, was_unclassified: bool = False):
+    """Μετά την αποθήκευση. Με back (η λίστα από όπου ήρθε, με ταξινόμηση/φίλτρα/σελίδα):
+    χαρακτηρισμός αχαρακτήριστου → επόμενο αχαρακτήριστο (κρατώντας το back), και στο τέλος η λίστα·
+    διόρθωση → κατευθείαν η λίστα. Χωρίς back: η συνηθισμένη ροή."""
+    if not back:
+        return _classified_redirect(manual, inv)
+    if was_unclassified:
+        rest, _, nxt = _unclassified_around(inv)
+        nxt = nxt or (rest[0] if rest else None)
+        if nxt:
+            flash(f"✔ Ο χαρακτηρισμός του {inv.mark} αποθηκεύτηκε. Επόμενο προς χαρακτηρισμό ({len(rest)} απομένουν).", "ok")
+            return redirect(url_for("classify", mark=nxt["mark"], back=back))
+    flash(f"✔ Ο χαρακτηρισμός του {inv.mark} αποθηκεύτηκε.", "ok")
+    return redirect(back)
 
 
 def _classified_redirect(manual: bool, inv):
@@ -3935,7 +3961,7 @@ def new_expense_submit():
         "«Αποστολή στο myDATA».",
         "ok",
     )
-    return redirect(url_for("invoices", view="classified"))
+    return redirect(_safe_back(request.form.get("back")) or url_for("invoices", view="classified"))
 
 
 def _store_self_expense(cid: int, draft: dict, origin: tuple | None = None) -> int | None:

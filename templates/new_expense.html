@@ -103,6 +103,9 @@
 
 <form method="post" action="{{ url_for('new_expense_submit') }}" id="ne-form">
   <input type="hidden" name="edit_mark" value="{{ edit_mark }}">
+  {# Επιστροφή στη λίστα από όπου άνοιξε η επεξεργασία (με ταξινόμηση/φίλτρα)· ελέγχεται στον server. #}
+  {% set back_url = request.args.get('back') or request.form.get('back') %}
+  {% if back_url %}<input type="hidden" name="back" value="{{ back_url }}">{% endif %}
   {% if template and template.monthly_day %}<input type="hidden" name="template_id" value="{{ template.id }}">{% endif %}
 
   <section class="card ne-card" style="--i:0;--c:#5b66f5">

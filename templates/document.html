@@ -213,7 +213,7 @@
       {% if status == 'confirmed' %}<span class="pill" title="Πηγή χαρακτηρισμού">{{ 'Manually (τοπικά)' if source == 'manual' else 'rest (myDATA)' }}</span>{% endif %}
     </h2>
     {% if local_action != 'create' and not is_income and active_company.allow_classify %}
-    <a class="btn" href="{{ url_for('classify', mark=inv.mark) }}">✏️ Χαρακτηρισμός</a>
+    <a class="btn" href="{{ url_for('classify', mark=inv.mark, back=back) }}">✏️ Χαρακτηρισμός</a>
     {% endif %}
   </div>
   {% if flags %}<div class="chips">{{ cls_chips(flags) }}</div>{% endif %}
@@ -365,7 +365,7 @@
   {% if local_action == 'create' and status == 'classified' %}
   {# Τοπική «Νέα εγγραφή» που ΔΕΝ έχει διαβιβαστεί: επεξεργασία ή διαγραφή. #}
   <div class="btn-row">
-    {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense', edit=inv.mark) }}">✏️ Επεξεργασία εγγραφής</a>{% endif %}
+    {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense', edit=inv.mark, back=back) }}">✏️ Επεξεργασία εγγραφής</a>{% endif %}
     <form method="post" action="{{ url_for('draft_delete', mark=inv.mark) }}" class="inline-form">
       <button type="submit" class="btn-danger"
               data-confirm="Η τοπική εγγραφή {{ inv.mark }} θα διαγραφεί οριστικά. Συνέχεια;">🗑️ Διαγραφή</button>

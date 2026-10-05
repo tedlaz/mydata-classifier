@@ -88,6 +88,7 @@
 {% set attention = notes|selectattr(0, 'equalto', 'warn')|list %}
 
 <form method="post" action="{{ url_for('submit', mark=inv.mark) }}" id="cls-form" {% if already_classified %}data-classified {% endif %}data-allowed="{{ combos|tojson|forceescape }}">
+{% if back %}<input type="hidden" name="back" value="{{ back }}">{% endif %}
 <style>
 /* ---------- Κεφαλίδα χαρακτηρισμού (ίδια οικογένεια με βιβλία/παραστατικό) ---------- */
 .ch-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(20px,3.5vw,30px);color:#fff;margin-bottom:18px;
@@ -185,13 +186,16 @@
       <defs><linearGradient id="ch-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9aa2ff"/><stop offset="1" stop-color="#4fd1a0"/></linearGradient></defs>
     </svg>
     <div class="ch-nav">
-      <a class="btn btn-ghost btn-sm" href="{{ url_for('document', mark=inv.mark) }}">← Παραστατικό</a>
+      <span class="grp">
+        {% if back %}<a class="btn btn-ghost btn-sm" href="{{ back }}">{{ '← Βιβλίο εξόδων' if back.startswith('/invoices') else '← Επιστροφή' }}</a>{% endif %}
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('document', mark=inv.mark) }}">{{ 'Παραστατικό' if back else '← Παραστατικό' }}</a>
+      </span>
       <div class="grp">
         {% if uncl_total %}
-        <a class="btn btn-ghost btn-sm {{ 'pg-off' if not uncl_prev }}" data-cls-nav {% if uncl_prev %}href="{{ url_for('classify', mark=uncl_prev) }}"{% endif %}
+        <a class="btn btn-ghost btn-sm {{ 'pg-off' if not uncl_prev }}" data-cls-nav {% if uncl_prev %}href="{{ url_for('classify', mark=uncl_prev, back=back or None) }}"{% endif %}
            title="Προηγούμενο αχαρακτήριστο" aria-label="Προηγούμενο αχαρακτήριστο">‹</a>
         <span class="ch-pos">{% if uncl_pos %}{{ uncl_pos }} από {{ uncl_total }}{% else %}{{ uncl_total }}{% endif %} αχαρακτήριστα</span>
-        <a class="btn btn-ghost btn-sm {{ 'pg-off' if not uncl_next }}" data-cls-nav {% if uncl_next %}href="{{ url_for('classify', mark=uncl_next) }}"{% endif %}
+        <a class="btn btn-ghost btn-sm {{ 'pg-off' if not uncl_next }}" data-cls-nav {% if uncl_next %}href="{{ url_for('classify', mark=uncl_next, back=back or None) }}"{% endif %}
            title="Επόμενο αχαρακτήριστο (παράλειψη)" aria-label="Επόμενο αχαρακτήριστο">›</a>
         {% endif %}
         <button type="button" class="btn-ghost btn-sm info-btn {{ 'has-attention' if attention }}"
@@ -344,7 +348,7 @@
   <div class="cls-footer">
     <div class="cls-footer-status" id="footer-status" aria-live="polite"></div>
     <div class="btn-row">
-      <a class="btn btn-ghost" href="{{ url_for('document', mark=inv.mark) }}">Άκυρο</a>
+      <a class="btn btn-ghost" href="{{ back or url_for('document', mark=inv.mark) }}">Άκυρο</a>
       <button type="submit" name="action" value="manual" class="btn-ghost"
               title="Το παραστατικό είναι ήδη χαρακτηρισμένο στην πύλη myDATA — καταγραφή μόνο τοπικά, χωρίς αποστολή"
               data-confirm="Το παραστατικό είναι ΗΔΗ χαρακτηρισμένο στο myDATA (π.χ. χειροκίνητα στην πύλη). Θα καταγραφεί ΜΟΝΟ τοπικά στα «Ολοκληρωμένα», χωρίς αποστολή. Συνέχεια;">

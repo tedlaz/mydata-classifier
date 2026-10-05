@@ -47,7 +47,11 @@ assert len(docs()) == 2
 
 # 5) Επεξεργασία κρατά το πρότυπο· διαγραφή ελευθερώνει τον μήνα.
 mark = next(x["mark"] for x in docs() if x["period"] == "2026-03")
-c.post("/new_expense", data=dict(form, issue_date="2026-03-15", template_id="", edit_mark=mark, line_amount="620"))
+back = "/invoices?view=classified&sort=name&dir=desc"
+page = c.get("/new_expense", query_string={"edit": mark, "back": back}).get_data(as_text=True).replace("&amp;", "&")
+assert f'name="back" value="{back}"' in page  # η επεξεργασία κρατά τη λίστα (ταξινόμηση) για την επιστροφή
+r = c.post("/new_expense", data=dict(form, issue_date="2026-03-15", template_id="", edit_mark=mark, line_amount="620", back=back))
+assert r.headers["Location"].endswith(back), r.headers["Location"]
 (m3,) = [x for x in docs() if x["period"] == "2026-03"]
 assert m3["total_net"] == 620.0 and m3["issue_date"] == "2026-03-15"
 c.post(f"/draft/{m3['mark']}/delete")

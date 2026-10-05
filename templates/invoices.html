@@ -105,16 +105,16 @@
             <div class="actions">
               {% if view == 'classified' and inv.local_action == 'create' %}
                 {# Τοπική «Νέα εγγραφή» που δεν έχει διαβιβαστεί: επεξεργασία/διαγραφή. #}
-                {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense', edit=inv.mark) }}">Επεξεργασία</a>{% endif %}
+                {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense', edit=inv.mark, back=request.full_path) }}">Επεξεργασία</a>{% endif %}
                 <button type="submit" formaction="{{ url_for('draft_delete', mark=inv.mark) }}" formmethod="post" class="btn-danger"
                         data-confirm="Η τοπική εγγραφή {{ inv.mark }} θα διαγραφεί. Συνέχεια;">Διαγραφή</button>
               {% elif not active_company.allow_classify %}
               {% elif view == 'unclassified' %}
-                <a class="btn btn-icon" href="{{ url_for('classify', mark=inv.mark) }}"
+                <a class="btn btn-icon" href="{{ url_for('classify', mark=inv.mark, back=request.full_path) }}"
                    title="Χαρακτηρισμός" aria-label="Χαρακτηρισμός {{ inv.mark }}">{{ icon('edit') }}</a>
               {% elif view in ('classified', 'sent') %}
                 {# Αλλαγή χαρακτηρισμού → ξαναμπαίνει στα «Χαρακτηρισμένα» για νέα αποστολή. #}
-                <a class="btn btn-ghost btn-icon" href="{{ url_for('classify', mark=inv.mark) }}"
+                <a class="btn btn-ghost btn-icon" href="{{ url_for('classify', mark=inv.mark, back=request.full_path) }}"
                    title="Διόρθωση χαρακτηρισμού — ο νέος υπερισχύει του προηγούμενου"
                    aria-label="Διόρθωση χαρακτηρισμού {{ inv.mark }}">{{ icon('edit') }}</a>
               {% endif %}
