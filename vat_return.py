@@ -184,6 +184,121 @@ def compute(income: list[dict], expense: list[dict], prev_credit: float = 0.0, p
     return {"codes": c, "invoiced_vat": invoiced_vat}
 
 
+OUT, ND = "out", "nd"  # στήλες «Εκτός Φ2» και «ΦΠΑ μη εκπιπτόμενος» του πίνακα συμφωνίας
+
+
+def _e3(d: dict) -> list[dict]:
+    """Χαρακτηρισμοί Ε3 (όχι ΦΠΑ, όχι σημάδια απόρριψης/απόκλισης χωρίς τύπο)."""
+    return [e for e in json.loads(d["cls_json"] or "[]") if e.get("type") and not e["type"].startswith("VAT_")]
+
+
+def _matrix(rows: dict, cols_order: list[str], total: float) -> dict:
+    """{e3: {στήλη: ποσό}} → γραμμές/στήλες για προβολή, με σύνολα και έλεγχο συμφωνίας."""
+    used = [c for c in cols_order if any(abs(r.get(c, 0.0)) >= 0.005 for r in rows.values())]
+    bases = {b for b, _, _ in OUTPUT_RATES.values()} | {b for b, _ in INPUT_CODES.values()} | {OUT}
+    base_cols = [c for c in used if c in bases]  # βάσεις (30x/36x) + εκτός = καθαρή αξία· όχι οι φόροι
+    out_rows = []
+    for e3 in sorted(rows, key=lambda k: (k == "", k)):
+        vals = {c: round(rows[e3].get(c, 0.0), 2) for c in used}
+        out_rows.append({"e3": e3, "vals": vals, "net": round(sum(vals[c] for c in base_cols), 2)})
+    totals = {c: round(sum(r["vals"][c] for r in out_rows), 2) for c in used}
+    net = round(sum(r["net"] for r in out_rows), 2)
+    return {"cols": used, "rows": out_rows, "totals": totals, "net": net, "total": round(total, 2),
+            "ok": abs(net - total) < 0.015}
+
+
+def reconcile(income: list[dict], expense: list[dict]) -> dict:
+    """Συμφωνία Φ2 ως πίνακας: γραμμές οι λογαριασμοί Ε3, στήλες οι κωδικοί του Φ2 (βάση/φόρος) που
+    γεμίζουν, «Εκτός Φ2» και (έξοδα) «ΦΠΑ μη εκπιπτόμενος». Ίδιοι κανόνες με το compute· ανά γραμμή
+    Ε3: βάσεις + εκτός = καθαρή αξία, και το σύνολο = καθαρή αξία της περιόδου. Ε3 «» = αχαρακτήριστα."""
+    def add(rows, e3, col, v):
+        rows.setdefault(e3, {})
+        rows[e3][col] = rows[e3].get(col, 0.0) + v
+
+    # ---- Έσοδα: κάθε χαρακτηρισμός Ε3 → οι γραμμές του → κατηγορία ΦΠΑ → 30x/33x ή εκτός ----
+    rows, total = {}, 0.0
+    for d in income:
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        net_doc = sign * (d["total_net"] or 0.0)
+        total += net_doc
+        lines = {ln.get("line_number"): ln for ln in json.loads(d["lines_json"] or "[]")}
+        e3 = _e3(d)
+        if not lines:
+            add(rows, e3[0]["type"] if e3 else "", OUT, net_doc)
+            continue
+        # Κάθε γραμμή μοιράζεται στους Ε3 που την καλύπτουν (χωρίς Ε3 → «»).
+        share = {n: [] for n in lines}
+        for e, ns in zip(e3, cls_lines(e3, lines)):
+            for n in ns or lines:
+                share[n].append(e)
+        for n, ln in lines.items():
+            cat, net = str(ln.get("vat_category") or ""), sign * (ln.get("net_value") or 0.0)
+            owners = share[n] or [{"type": "", "amount": 1.0}]
+            weight = sum(abs(o.get("amount") or 0.0) for o in owners) or 1.0
+            for o in owners:
+                k = abs(o.get("amount") or 0.0) / weight
+                if _sent(d) and cat in OUTPUT_RATES:
+                    add(rows, o.get("type") or "", OUTPUT_RATES[cat][0], net * k)
+                    # Φόρος όπως στο Φ2: βάση × συντελεστής (η στρογγυλοποίηση των τιμολογίων πάει στο 422/402).
+                    add(rows, o.get("type") or "", OUTPUT_RATES[cat][1], net * k * OUTPUT_RATES[cat][2])
+                else:
+                    add(rows, o.get("type") or "", OUT, net * k)
+        # Γραμμές που δεν αθροίζουν στη σύνοψη (στρογγυλοποιήσεις): στο εκτός, για να συμφωνεί.
+        diff = net_doc - sign * sum(ln.get("net_value") or 0.0 for ln in lines.values())
+        if abs(diff) >= 0.005:
+            add(rows, e3[0]["type"] if e3 else "", OUT, diff)
+    inc_cols = [c for cat in sorted(OUTPUT_RATES, key=lambda c: OUTPUT_RATES[c][0]) for c in OUTPUT_RATES[cat][:2]]
+    inc_cols = list(dict.fromkeys(inc_cols)) + [OUT]
+    out = {"income": _matrix(rows, inc_cols, total)}
+
+    # ---- Έξοδα: χαρακτηρισμοί ΦΠΑ → 36x/38x, στον Ε3 της ίδιας γραμμής/ποσού· υπόλοιπο → εκτός ----
+    rows, total = {}, 0.0
+    for d in expense:
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        net_doc = sign * (d["total_net"] or 0.0)
+        total += net_doc
+        e3 = _e3(d)
+        owners = e3 or [{"type": "", "amount": 1.0}]
+        # Καθαρή αξία ανά Ε3: κατά το ποσό του (κλιμάκωση όταν τα Ε3 αθροίζουν σε μικτή, π.χ. 2.5).
+        weight = sum(sign * (o.get("amount") or 0.0) for o in owners)
+        nets = ([net_doc * sign * (o.get("amount") or 0.0) / weight for o in owners] if weight
+                else [net_doc / len(owners)] * len(owners))  # Ε3 με μηδενικά ποσά: ισόποσα
+        left = list(nets)
+        taxed = 0.0
+        if _sent(d) and d.get("local_action") not in ("reject", "cancel"):
+            vat_entries = [e for e in json.loads(d["cls_json"] or "[]") if (e.get("type") or "").startswith("VAT_")]
+            free = list(range(len(owners)))
+            for (typ, base, tax, _), ve in zip(_input_vat(d), vat_entries):
+                if not tax:  # χωρίς φόρο → εκτός δήλωσης (όπως στο compute)
+                    continue
+                # Ίδια γραμμή και ποσό → αυτός ο Ε3· αλλιώς αναλογικά στους Ε3 που απομένουν.
+                pair = next((i for i in free if owners[i].get("line") == ve.get("line")
+                             and abs((owners[i].get("amount") or 0.0) - (ve.get("amount") or 0.0)) < 0.01), None)
+                targets = [pair] if pair is not None else (free or list(range(len(owners))))
+                if pair is not None:
+                    free.remove(pair)
+                w = sum(abs(left[i]) for i in targets) or len(targets)
+                for i in targets:
+                    k = (abs(left[i]) / w) if sum(abs(left[j]) for j in targets) else 1 / len(targets)
+                    add(rows, owners[i].get("type") or "", INPUT_CODES[typ][0], base * k)
+                    add(rows, owners[i].get("type") or "", INPUT_CODES[typ][1], tax * k)
+                    left[i] -= base * k
+                taxed += tax
+            nd = sign * (d["total_vat"] or 0.0) - taxed  # ΦΠΑ του παραστατικού που δεν εκπίπτει
+        else:
+            nd = 0.0  # μη διαβιβασμένα / απορριφθέντα: εκτός Φ2 συνολικά
+        for i, o in enumerate(owners):
+            add(rows, o.get("type") or "", OUT, left[i])
+        if abs(nd) >= 0.005:
+            w = sum(abs(x) for x in left) or sum(abs(x) for x in nets) or 1.0
+            src = left if sum(abs(x) for x in left) else nets
+            for i, o in enumerate(owners):
+                add(rows, o.get("type") or "", ND, nd * abs(src[i]) / w)
+    exp_cols = [c for t in sorted(INPUT_CODES) for c in INPUT_CODES[t]] + [OUT, ND]
+    out["expense"] = _matrix(rows, exp_cols, total)
+    return out
+
+
 if __name__ == "__main__":
     # Αύγουστος 2026 (KOSTAS): δύο τιμολόγια 24% — ίδια ποσά με το docs/2026-08.FPA.pdf.
     inc = [{"mark": "1", "invoice_type": "2.1", "lines_json": json.dumps([
@@ -220,6 +335,25 @@ if __name__ == "__main__":
     r2 = compute([], [rc])["codes"]
     assert (r2["301"], r2["331"], r2["303"], r2["333"], r2["337"]) == (5, 0.65, 12, 2.88, 3.53), r2
     assert (r2["364"], r2["384"], r2["313"], r2["312"], r2["511"], r2["502"]) == (17, 3.53, 17, 0, 0, 0), r2
+    # Συμφωνία (πίνακας Ε3 × κωδικοί Φ2): γραμμές = καθαρή αξία, σύνολο = περίοδος, ποσά = compute.
+    buy = {"mark": "4002", "invoice_type": "1.1", "total_net": 80.0, "total_vat": 19.2, "lines_json": json.dumps(
+        [{"line_number": 1, "net_value": 50.0, "vat_amount": 12.0, "vat_category": "1"},
+         {"line_number": 2, "net_value": 30.0, "vat_amount": 7.2, "vat_category": "1"}]),
+        "cls_json": json.dumps([{"type": "E3_102_001", "amount": 50.0, "line": 1}, {"type": "VAT_361", "amount": 50.0, "line": 1},
+                                {"type": "E3_585_016", "amount": 30.0, "line": 2}])}
+    draft = dict(buy, mark="NEW-1", total_net=8.0, total_vat=0.0)
+    sale = {"mark": "4003", "invoice_type": "2.1", "total_net": 150.0, "lines_json": json.dumps([
+        {"line_number": 1, "net_value": 100.0, "vat_amount": 24.0, "vat_category": "1"},
+        {"line_number": 2, "net_value": 50.0, "vat_amount": 0.0, "vat_category": "7"}]),
+        "cls_json": json.dumps([{"type": "E3_561_001", "amount": 100.0, "line": 1}, {"type": "E3_561_003", "amount": 50.0, "line": 2}])}
+    m = reconcile([sale], [dict(rc, total_net=17.0), buy, draft])
+    assert m["income"]["ok"] and m["expense"]["ok"], m
+    m_inc = {r["e3"]: r["vals"] for r in m["income"]["rows"]}
+    assert m_inc == {"E3_561_001": {"303": 100, "333": 24, "out": 0}, "E3_561_003": {"303": 0, "333": 0, "out": 50}}, m_inc
+    m_exp = {r["e3"]: r["vals"] for r in m["expense"]["rows"]}
+    assert m_exp["E3_102_001"]["361"] == 50 and m_exp["E3_102_001"]["381"] == 12 and m_exp["E3_102_001"]["out"] == 5, m_exp
+    assert m_exp["E3_585_016"]["361"] == 0 and m_exp["E3_585_016"]["out"] == 33 and m_exp["E3_585_016"]["nd"] == 7.2, m_exp
+    assert m["expense"]["totals"]["364"] == 17 and m["expense"]["totals"]["384"] == 3.53 and m["expense"]["net"] == 105, m["expense"]
     assert (r["470"], r["502"], r["511"]) == (36, 46, 0), r
     # Χρεωστικό έως 30 € → δεν αποδίδεται, μεταφέρεται· το 483 της επόμενης προστίθεται στο προς καταβολή.
     small = [{"mark": "10", "invoice_type": "2.1", "lines_json": json.dumps(

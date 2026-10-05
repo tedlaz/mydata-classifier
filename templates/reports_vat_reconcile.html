@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Συμφωνία Φ2{% endblock %}
+{% set is_q = period[0] == 'q' %}
+{% set pn = period[1:]|int %}
+{% set period_label = (quarters[pn - 1] ~ ' τρίμηνο') if is_q else months[pn - 1] %}
+{% set d_from = date_from[8:10] ~ '/' ~ date_from[5:7] ~ '/' ~ date_from[2:4] %}
+{% set d_to = date_to[8:10] ~ '/' ~ date_to[5:7] ~ '/' ~ date_to[2:4] %}
+{# Τίτλοι στηλών: κωδικός του Φ2 + τι είναι. #}
+{% set col_names = {
+  '301': 'Εκροές 13%', '302': 'Εκροές 6%', '303': 'Εκροές 24%', '304': 'Εκροές 9%', '305': 'Εκροές 4%', '306': 'Εκροές 17%', '309': 'Εκροές 3%',
+  '331': 'ΦΠΑ 13%', '332': 'ΦΠΑ 6%', '333': 'ΦΠΑ 24%', '334': 'ΦΠΑ 9%', '335': 'ΦΠΑ 4%', '336': 'ΦΠΑ 17%', '339': 'ΦΠΑ 3%',
+  '361': 'Αγορές εσωτερικού', '362': 'Πάγια', '363': 'Εισαγωγές', '364': 'Ενδοκ. αποκτήσεις', '365': 'Ενδοκ. υπηρεσίες', '366': 'Πράξεις λήπτη',
+  '381': 'ΦΠΑ αγορών', '382': 'ΦΠΑ παγίων', '383': 'ΦΠΑ εισαγωγών', '384': 'ΦΠΑ ενδοκ. αποκτ.', '385': 'ΦΠΑ ενδοκ. υπηρ.', '386': 'ΦΠΑ πράξ. λήπτη',
+  'out': 'Εκτός Φ2', 'nd': 'ΦΠΑ μη εκπιπτόμενος'} %}
+{% block content %}
+<style>
+.rc-card{margin-bottom:18px}
+.rc-card h2{display:flex;align-items:center;gap:8px;margin:0 0 4px}
+.rc-scroll{overflow-x:auto;margin-top:10px}
+.rc-t{width:100%;border-collapse:collapse;font-size:.84rem}
+.rc-t th,.rc-t td{padding:6px 8px;border-bottom:1px solid var(--line-soft);white-space:nowrap}
+.rc-t thead th{vertical-align:bottom;text-align:right;font-weight:700;background:var(--surface-2)}
+.rc-t thead th b{display:block;font:800 .9rem var(--font-data);color:var(--accent)}
+.rc-t thead th small{display:block;font-size:.68rem;font-weight:600;color:var(--muted);white-space:normal;min-width:70px}
+.rc-t thead th:first-child,.rc-t td:first-child{text-align:left;position:sticky;left:0;background:var(--surface);z-index:1}
+.rc-t thead th:first-child{background:var(--surface-2)}
+.rc-t td{text-align:right;font-family:var(--font-data)}
+.rc-t td.zero{color:var(--muted);opacity:.5}
+.rc-t td:first-child{font-family:var(--font-ui);white-space:normal;min-width:220px}
+.rc-t td:first-child code{font:700 .8rem var(--font-data)}
+.rc-t td:first-child small{display:block;color:var(--muted);font-size:.74rem}
+.rc-t .c-out{background:color-mix(in srgb,var(--warn-soft) 70%,transparent)}
+.rc-t .c-nd{background:color-mix(in srgb,var(--err-soft) 70%,transparent)}
+.rc-t .c-net{font-weight:800;border-left:2px solid var(--line)}
+.rc-t tfoot td{font-weight:800;border-top:2px solid var(--line);border-bottom:0}
+.rc-t tfoot tr.rc-chk td{font-weight:600;font-size:.8rem;border-top:0}
+.rc-ok{color:var(--ok);font-weight:800}
+.rc-bad{color:var(--err);font-weight:800}
+.rc-note{color:var(--muted);font-size:.8rem;margin:10px 0 0}
+</style>
+
+<div class="yr-head">
+  <div>
+    <a class="back back--inline" href="{{ url_for('reports_vat', year=year, period=period) }}">← Δήλωση ΦΠΑ</a>
+    <h1>Συμφωνία Φ2 <span class="yr-year">{{ period_label }} {{ year }}</span></h1>
+    <p class="page-sub">Γραμμές: λογαριασμοί Ε3 · στήλες: κωδικοί του Φ2 · {{ d_from }} – {{ d_to }}.
+      Ανά γραμμή, οι βάσεις (30x / 36x) + «Εκτός Φ2» = καθαρή αξία.</p>
+  </div>
+  <nav class="yr-years" aria-label="Έτος">
+    {% for y in years %}<a href="{{ url_for('reports_vat_reconcile', year=y, period=period) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
+  </nav>
+</div>
+
+<section class="card f2-bar">
+  <nav class="yr-years f2-periods" aria-label="Περίοδος">
+    {% for p in (quarters if is_q else months) %}{% set pv = ('q' if is_q else 'm') ~ loop.index %}
+    <a href="{{ url_for('reports_vat_reconcile', year=year, period=pv) }}" {% if pv == period %}aria-current="page"{% endif %}>{{ p ~ ' τρίμηνο' if is_q else p }}</a>{% endfor %}
+  </nav>
+</section>
+
+{% macro matrix(m, noun) -%}
+{% if m.rows %}
+<div class="rc-scroll">
+<table class="rc-t">
+  <thead><tr>
+    <th>Λογαριασμός Ε3</th>
+    {% for c in m.cols %}<th class="c-{{ c }}">{% if c not in ('out', 'nd') %}<b>{{ c }}</b>{% endif %}<small>{{ col_names.get(c, c) }}</small></th>{% endfor %}
+    <th class="c-net"><small>Καθαρή αξία</small></th>
+  </tr></thead>
+  <tbody>
+    {% for r in m.rows %}
+    <tr>
+      <td>{% if r.e3 %}<code>{{ r.e3 }}</code><small>{{ accounts.get(r.e3, '') }}</small>{% else %}<small>— χωρίς λογαριασμό Ε3 (αχαρακτήριστα / μόνο ΦΠΑ / απορριφθέντα)</small>{% endif %}</td>
+      {% for c in m.cols %}{% set v = r.vals[c] %}<td class="c-{{ c }} {{ 'zero' if not v }}">{{ v|el_amount if v else '—' }}</td>{% endfor %}
+      <td class="c-net">{{ r.net|el_amount }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr><td>Σύνολο</td>{% for c in m.cols %}<td class="c-{{ c }}">{{ m.totals[c]|el_amount }}</td>{% endfor %}<td class="c-net">{{ m.net|el_amount }}</td></tr>
+    <tr class="rc-chk"><td colspan="{{ m.cols|length + 1 }}">Σύνολο {{ noun }} περιόδου (καθαρή αξία βιβλίου)</td>
+      <td class="c-net">{{ m.total|el_amount }}<br>{% if m.ok %}<span class="rc-ok">✔ Συμφωνεί</span>{% else %}<span class="rc-bad">✖ {{ (m.total - m.net)|el_amount }}</span>{% endif %}</td></tr>
+  </tfoot>
+</table>
+</div>
+{% else %}<p class="rc-note">Κανένα παραστατικό {{ noun }} στην περίοδο.</p>{% endif %}
+{%- endmacro %}
+
+<section class="card rc-card">
+  <h2>📤 Έσοδα → εκροές</h2>
+  {{ matrix(r.income, 'εσόδων') }}
+  <p class="rc-note">Ο ΦΠΑ εκροών υπολογίζεται όπως στο Φ2 (βάση × συντελεστής)· η διαφορά στρογγυλοποίησης από τα τιμολόγια μπαίνει στο 422 / 402.
+    Εκτός Φ2: 0%, χωρίς ΦΠΑ, χωρίς κατηγορία ΦΠΑ.</p>
+</section>
+
+<section class="card rc-card">
+  <h2>📥 Έξοδα → εισροές</h2>
+  {{ matrix(r.expense, 'εξόδων') }}
+  <p class="rc-note">Εκτός Φ2: λογαριασμοί χωρίς χαρακτηρισμό ΦΠΑ, αχαρακτήριστα, απορριφθέντα / ακυρωμένα, μη διαβιβασμένες εγγραφές.
+    «ΦΠΑ μη εκπιπτόμενος»: ο ΦΠΑ των παραστατικών που δεν μπαίνει στις εισροές. Οι πράξεις λήπτη (364–366) μπαίνουν και στις εκροές και στο 313.</p>
+</section>
+{% endblock %}

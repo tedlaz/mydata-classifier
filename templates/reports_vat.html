@@ -21,6 +21,7 @@
     <nav class="yr-years" aria-label="Έτος">
       {% for y in years %}<a href="{{ url_for('reports_vat', year=y, period=period) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
     </nav>
+    <a class="btn btn-ghost" href="{{ url_for('reports_vat_reconcile', year=year, period=period) }}">🔎 Συμφωνία</a>
     <button type="button" class="btn-ghost" onclick="print()">🖨 Εκτύπωση</button>
   </div>
 </div>

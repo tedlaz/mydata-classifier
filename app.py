@@ -3219,12 +3219,9 @@ def reports_forecast():
         chart=_forecast_chart(f_in, f_op, res_m, prev_res, sc, done, dep["total"]),
     )
 
-@app.route("/reports/vat")
-def reports_vat():
-    """Δήλωση ΦΠΑ (Φ2) για μήνα (period=m1…m12) ή τρίμηνο (q1…q4) ενός έτους, ανάλογα με την
-    περίοδο ΦΠΑ της εταιρείας (vat_period). Το 401 υπολογίζεται αυτόματα από την προηγούμενη
-    περίοδο· τιμή στο prev_credit υπερισχύει (κενό = αυτόματα)."""
-    cid = _active_company_id()
+def _vat_period_args(cid):
+    """Έτος/περίοδος ΦΠΑ από το URL (προεπιλογή: η περίοδος που δηλώνεται τώρα) — κοινό για τη
+    Δήλωση ΦΠΑ και τη Συμφωνία Φ2."""
     kind = (get_active_company() or {}).get("vat_period") or "m"
     now = datetime.now(ATHENS)
     years = sorted(set(db.document_years(cid)) | {str(now.year)}, reverse=True)
@@ -3233,11 +3230,35 @@ def reports_vat():
     period = request.args.get("period", "")
     if not (len(period) >= 2 and period[0] == kind and period[1:].isdigit()
             and 1 <= int(period[1:]) <= (12 if kind == "m" else 4)):
-        # Προεπιλογή: η προηγούμενη περίοδος (αυτή που δηλώνεται τώρα).
         due_y, due_n = _vat_due_period(kind, now)
         period = f"{kind}{due_n}"
         if "year" not in request.args:
             year = str(due_y)
+    return years, year, period, kind
+
+
+@app.route("/reports/vat/reconcile")
+def reports_vat_reconcile():
+    """Συμφωνία Φ2: από ποιους λογαριασμούς γεμίζει το έντυπο και τι μένει εκτός, ανά βιβλίο."""
+    cid = _active_company_id()
+    years, year, period, kind = _vat_period_args(cid)
+    date_from, date_to = _vat_bounds(int(year), kind, int(period[1:]))
+    return render_template(
+        "reports_vat_reconcile.html", years=years, year=year, period=period,
+        date_from=date_from, date_to=date_to, months=_GREEK_MONTHS, quarters=_QUARTER_NAMES,
+        r=vat_return.reconcile(db.period_documents(cid, "income", date_from, date_to),
+                               db.period_documents(cid, "expense", date_from, date_to)),
+        accounts={**EXPENSE_TYPES, **INCOME_TYPES, **{k: v for k, v in VAT_TYPES.items() if k}},
+    )
+
+
+@app.route("/reports/vat")
+def reports_vat():
+    """Δήλωση ΦΠΑ (Φ2) για μήνα (period=m1…m12) ή τρίμηνο (q1…q4) ενός έτους, ανάλογα με την
+    περίοδο ΦΠΑ της εταιρείας (vat_period). Το 401 υπολογίζεται αυτόματα από την προηγούμενη
+    περίοδο· τιμή στο prev_credit υπερισχύει (κενό = αυτόματα)."""
+    cid = _active_company_id()
+    years, year, period, kind = _vat_period_args(cid)
     n, y = int(period[1:]), int(year)
     date_from, date_to = _vat_bounds(y, kind, n)
     auto_credit, auto_debit = _vat_auto_carry(cid, y, kind, n)
