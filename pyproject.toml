@@ -1,6 +1,6 @@
 [project]
 name = "mydata-classifier"
-version = "2.4.0"
+version = "2.5.0"
 description = "Easy classify AADE expenses"
 readme = "README.md"
 license = "GPL-3.0-or-later"
