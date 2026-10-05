@@ -84,9 +84,20 @@
 .dc-sec--xml > details > summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .dc-sec--xml > details > summary h2{margin:0}
 .dc-sec--xml > details > summary::-webkit-details-marker{display:none}
-.xml-tree{margin:12px 0 0;font-size:.86rem}
-.xml-tree details{margin:4px 0 4px 2px;padding-left:12px;border-left:2px solid var(--line-soft)}
-.xml-tree summary{cursor:pointer;font-weight:700;padding:2px 0}
+.xml-tree{--x:var(--accent);margin:12px 0 0;font-size:.86rem}
+/* Χρώμα ανά ενότητα (μόνο καθολικά tokens — τα --yr-* υπάρχουν μόνο στις αναφορές)· οι υποενότητες (π.χ. Διεύθυνση) κρατούν το χρώμα της ενότητάς τους. */
+.xml-g[data-tag=issuer],.xml-g[data-tag=counterpart]{--x:var(--info)}
+.xml-g[data-tag=invoiceHeader]{--x:var(--accent)}
+.xml-g[data-tag=paymentMethods]{--x:var(--co-ye)}
+.xml-g[data-tag=invoiceDetails]{--x:var(--ok)}
+.xml-g[data-tag=taxesTotals]{--x:var(--warn)}
+.xml-g[data-tag=invoiceSummary]{--x:var(--accent-deep)}
+.xml-g[data-tag$=Classification]{--x:var(--co-or)}
+.xml-tree details{margin:4px 0 4px 2px;padding-left:12px;border-left:3px solid var(--x)}
+.xml-tree > details{margin:10px 0;padding:6px 12px;border-radius:0 10px 10px 0;background:color-mix(in srgb,var(--x) 7%,transparent)}
+.xml-tree summary{cursor:pointer;font-weight:700;padding:2px 0;color:var(--x)}
+/* Γραμμές: πιο έντονο φόντο· το κενό ανάμεσά τους αρκεί για να ξεχωρίζουν. */
+.xml-tree > .xml-g[data-tag=invoiceDetails]{background:var(--ok-soft)}
 .xml-row{display:grid;grid-template-columns:minmax(140px,240px) minmax(0,1fr);gap:12px;padding:3px 0;border-bottom:1px dashed var(--line-soft)}
 .xml-row span{color:var(--muted)}
 .xml-row b{font-family:var(--font-data);font-weight:600;overflow-wrap:anywhere}
@@ -301,7 +312,7 @@
 {% macro xml_nodes(nodes) -%}
   {% for n in nodes %}
     {% if n.children %}
-    <details open><summary>{{ n.label }}</summary>{{ xml_nodes(n.children) }}</details>
+    <details open class="xml-g" data-tag="{{ n.tag }}"><summary>{{ n.label }}</summary>{{ xml_nodes(n.children) }}</details>
     {% else %}
     {# URL (μόνο http/https) → σύνδεσμος σε νέα καρτέλα. #}
     <div class="xml-row"><span>{{ n.label }}</span><b>

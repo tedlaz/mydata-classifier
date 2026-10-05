@@ -1191,7 +1191,11 @@ def _xml_tree(xml: str | None) -> list[dict]:
         if value in names:
             value = f"{value} · {names[value]}"
         kids = {c.tag.split("}")[-1]: (c.text or "").strip() for c in el}
-        return {"label": XML_LABELS.get(tag, tag), "value": value, "children": [node(c, tag, kids) for c in el]}
+        label = XML_LABELS.get(tag, tag)
+        if tag == "invoiceDetails" and kids.get("lineNumber"):  # «Γραμμή 1», «Γραμμή 2», …
+            label = f"{label} {kids['lineNumber']}"
+        return {"tag": tag, "label": label, "value": value,
+                "children": [node(c, tag, kids) for c in el]}
 
     try:
         root = ET.fromstring(xml)

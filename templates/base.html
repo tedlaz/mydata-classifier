@@ -29,6 +29,8 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
 <body>
 <div class="progress"></div>
 {% set ep = request.endpoint %}
+{# Παραστατικό εσόδου: ενεργό το «Βιβλίο εσόδων» (η σελίδα document είναι κοινή με τα έξοδα). #}
+{% if ep == 'document' and is_income %}{% set ep = 'income' %}{% endif %}
 {% set nav = [
   ('Επισκόπηση', [
     ('dashboard', 'Πίνακας ελέγχου', 'home', ['dashboard'], False),

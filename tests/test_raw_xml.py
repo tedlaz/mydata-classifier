@@ -45,7 +45,7 @@ def walk(nodes):
 
 
 walk(tree)
-assert flat["ΑΦΜ"] == "123456789" and flat["Σχόλια γραμμής"] == "Δοκιμή" and flat["fooBar"] == "x", flat
+assert "Γραμμή 1" in flat and flat["ΑΦΜ"] == "123456789" and flat["Σχόλια γραμμής"] == "Δοκιμή" and flat["fooBar"] == "x", flat
 assert flat["Κατηγορία ΦΠΑ"].startswith("1 · 24") and flat["Τύπος"].startswith("3 · Μετρητά"), flat
 cls = ('<invoice><expensesClassification><classificationType>E3_585_016</classificationType>'
        '<classificationCategory>category2_4</classificationCategory></expensesClassification>'
@@ -74,4 +74,12 @@ db.upsert_document(cid, "expense", dict(doc, raw_xml=xml2), "unclassified")
 page = c.get("/document/4001").get_data(as_text=True)
 assert 'href="https://mydata.aade.gr/x?a=1&amp;b=2" target="_blank"' in page, page[-3000:]
 assert 'href="javascript' not in page
+
+# (στ) Παραστατικό εσόδου: στο μενού ενεργό το «Βιβλίο εσόδων», όχι των εξόδων.
+import re  # noqa: E402
+
+db.upsert_document(cid, "income", dict(doc, mark="5001"), "classified")
+page = c.get("/document/5001").get_data(as_text=True)
+active = re.findall(r'class="nav-link[^"]*is-active"[^>]*>.*?</a>', page, re.S)
+assert len(active) == 1 and "Βιβλίο εσόδων" in active[0], active
 print("ok")
