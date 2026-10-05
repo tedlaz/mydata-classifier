@@ -87,13 +87,6 @@
 
   <div class="lh-mid">
     <nav class="lh-tiles" aria-label="Κατάσταση παραστατικών">
-      {# Πρώτη καρτέλα: Ανάκτηση / Διαγραφή του ίδιου βιβλίου (ξεχωριστό route, ίδια κεφαλίδα). #}
-      {% set sync_ep = ep ~ '_sync' %}
-      <a class="lh-tile lh-tile--sync {{ 'is-on' if request.endpoint == sync_ep }}" style="--i:0"
-         href="{{ url_for(sync_ep) }}" {% if request.endpoint == sync_ep %}aria-current="page"{% endif %}>
-        <span class="e" aria-hidden="true">⟳</span>
-        <b aria-hidden="true">⇅</b><span>Ανάκτηση / Διαγραφή</span>
-      </a>
       {% for v, label, emoji in tabs %}
       <a class="lh-tile lh-tile--{{ v }} {{ 'is-on' if q.view == v }}" style="--i:{{ loop.index }}"
          href="{{ url_for(ep, **dict(q, view=v, sort=None, dir=None)) }}" {% if q.view == v %}aria-current="page"{% endif %}>

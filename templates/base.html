@@ -36,8 +36,9 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
     ('dashboard', 'Πίνακας ελέγχου', 'home', ['dashboard'], False),
   ]),
   ('Βιβλία', [
-    ('income', 'Βιβλίο εσόδων', 'in', ['income', 'income_sync'], False),
-    ('invoices', 'Βιβλίο εξόδων', 'out', ['invoices', 'invoices_sync', 'document', 'classify'], False),
+    ('sync', 'Ανάκτηση', 'sync', ['sync'], False),
+    ('income', 'Βιβλίο εσόδων', 'in', ['income'], False),
+    ('invoices', 'Βιβλίο εξόδων', 'out', ['invoices', 'document', 'classify'], False),
     ('new_expense', 'Νέα εγγραφή', 'plus', ['new_expense'], True),
     ('recurring', 'Μηνιαίες εγγραφές', 'calendar', ['recurring'], True),
   ]),

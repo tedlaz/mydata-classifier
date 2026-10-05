@@ -1,23 +1,14 @@
 {% extends "base.html" %}
-{% from "_ledger_hero.html" import ledger_hero with context %}
-{% block title %}Ανάκτηση {{ 'εσόδων' if kind == 'income' else 'εξόδων' }}{% endblock %}
+{% block title %}Ανάκτηση{% endblock %}
 {% block content %}
-{% set income = kind == 'income' %}
-{% set book = 'income' if income else 'invoices' %}
-{% set noun = 'εσόδων' if income else 'εξόδων' %}
-{% set tabs = [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️')] if income else
-   [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️'), ('sent', 'Απεσταλμένα', '🚀'), ('confirmed', 'Ολοκληρωμένα', '✅')] %}
+<div class="page-head">
+  <div>
+    <h1>Ανάκτηση</h1>
+    <p class="page-sub">Φέρε από το myDATA ή καθάρισε τοπικά τα παραστατικά ενός διαστήματος — έσοδα και έξοδα μαζί, ή μόνο το ένα βιβλίο.</p>
+  </div>
+</div>
 
-{# Ίδια κεφαλίδα με το βιβλίο: η Ανάκτηση είναι η πρώτη καρτέλα του. #}
-{% call ledger_hero(book, {'view': ''},
-    '📤 Βιβλίο εσόδων' if income else '📥 Βιβλίο εξόδων',
-    'Τα δικά σου παραστατικά, όπως τα διαβίβασες στο myDATA.' if income else 'Παραστατικά που σου διαβίβασαν άλλοι: χαρακτήρισε, στείλε, επιβεβαίωσε.',
-    tabs, 'confirmed' if not income else 'classified', {}, date_range, last_mark, 'in' if income else 'out') %}
-  {% if not income and active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense') }}">+ Νέα εγγραφή</a>{% endif %}
-{% endcall %}
-
-{# Κάτω από την κεφαλίδα: αντικαθίσταται με AJAX όταν αλλάζει καρτέλα του βιβλίου. #}
-<div data-lh-body>
+<div>
 <style>
 .sy-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:18px;align-items:stretch}
 .sy-card{background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:22px;
@@ -58,7 +49,7 @@ body.is-busy .sy-flow .ln{stroke:var(--accent);animation-duration:.4s}
 body.is-busy .sy-busy{display:flex}
 
 /* Ενέργειες ως μεγάλες κάρτες-κουμπιά. */
-.sy-acts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:18px}
+.sy-acts{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:18px}
 .sy-act{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:6px;text-align:left;padding:20px;border-radius:18px;
   background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:var(--shadow);font-weight:400;overflow:hidden;
   animation:sy-rise .55s var(--ease) both;animation-delay:calc(var(--i) * 90ms + 400ms)}
@@ -77,35 +68,46 @@ body.is-busy .sy-busy{display:flex}
 .sy-act.is-loading{pointer-events:none}
 .sy-act.is-loading .e{animation:sy-spin 1s linear infinite}
 .sy-note{margin-top:16px}
+.sy-scope{margin-top:16px}
+.sy-scope legend{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:0;margin-bottom:6px}
 
-/* Τελευταίοι 12 μήνες: πλήθος παραστατικών στο τοπικό βιβλίο· κλικ = διάστημα του μήνα. */
-.sy-months{margin-top:18px}
+/* Προηγούμενο και τρέχον έτος (μία σειρά ανά έτος): πλήθος παραστατικών στο τοπικό βιβλίο· κλικ = διάστημα του μήνα. */
+.sy-months{margin-top:18px;padding:16px 18px}
 .sy-months-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:6px 16px}
 .sy-legend{display:flex;gap:14px;font-size:.78rem;color:var(--muted)}
 .sy-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:var(--accent)}
 .sy-legend i.w{background:var(--warn)}
+.sy-legend i.in{background:var(--ok)}
 .sy-legend i.e{background:none;border:1px dashed var(--line)}
-.sy-mgrid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:8px;margin-top:14px}
-.sy-mo{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 4px 8px;border-radius:12px;font-weight:400;
-  background:var(--surface-2);color:var(--ink);border:1px solid var(--line-soft);box-shadow:none}
+/* Συμπαγές: και τα δύο έτη σε μία γραμμή (24 στενά κελιά), το έτος πριν από τον Ιανουάριό του. */
+.sy-mgrid{display:flex;gap:3px;margin-top:10px;align-items:stretch}
+.sy-yl{flex:none;display:grid;place-items:center;padding:0 4px;font:700 .72rem var(--font-data);color:var(--muted);
+  writing-mode:vertical-rl;transform:rotate(180deg)}
+.sy-mgrid > .sy-yl:not(:first-child){margin-left:6px;border-left:1px solid var(--line)}
+.sy-mo{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 1px 4px;border-radius:7px;font-weight:400;
+  background:var(--surface-2);color:var(--ink);border:1px solid var(--line-soft);box-shadow:none;min-height:0}
 .sy-mo:hover{border-color:var(--accent);box-shadow:none;filter:none}
-.sy-mo.is-on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.sy-mo.is-now{background:var(--accent-soft)}
+.sy-mo.is-on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.sy-mo.is-now{background:var(--accent-soft);border-color:var(--accent-glow)}
+.sy-mo.is-future{opacity:.45}
 .sy-mo.is-empty{background:none;border-style:dashed;color:var(--muted)}
-.sy-mo .mn{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-.sy-mo .yr{font:600 .66rem var(--font-data);color:var(--muted);min-height:1em}
-.sy-mo .bar{position:relative;width:16px;height:54px;border-radius:5px;background:var(--surface-3);overflow:hidden;display:flex;flex-direction:column-reverse}
-.sy-mo .bar span{display:block;width:100%;background:var(--accent)}
-.sy-mo .bar span.w{background:var(--warn);min-height:3px}
+.sy-mo .mn{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0;white-space:nowrap;overflow:hidden;max-width:100%}
+.sy-mo .bar{position:relative;width:8px;height:28px;border-radius:3px;background:var(--surface-3);overflow:hidden;display:flex;flex-direction:column-reverse}
+.sy-mo .bar span{display:block;width:100%;background:var(--accent);min-height:2px}
+.sy-mo .bar span.w{background:var(--warn)}
+.sy-mo .bar span.in{background:var(--ok)}
 .sy-mo.is-empty .bar{background:none}
-.sy-mo b{font:700 .9rem var(--font-data)}
-@media (max-width:700px){ .sy-mgrid{grid-template-columns:repeat(6,minmax(0,1fr))} }
+.sy-mo b{font:700 .7rem var(--font-data)}
+/* Στενή οθόνη: ένα έτος ανά γραμμή (το έτος ως τίτλος, 12 κελιά από κάτω). */
+@media (max-width:900px){ .sy-mgrid{flex-wrap:wrap}
+  .sy-yl{flex-basis:100%;writing-mode:horizontal-tb;transform:none;place-items:start;padding:4px 0 0;margin-left:0!important;border:0!important}
+  .sy-mo{flex-basis:calc((100% - 33px) / 12)} }
 
 @media (max-width:900px){ .sy-grid,.sy-acts{grid-template-columns:1fr} }
 @media (prefers-reduced-motion:reduce){ .sy-grid *,.sy-acts *,.sy-card,.sy-act{animation:none!important;transition:none!important} }
 </style>
 
-<form method="post" action="{{ url_for('income_fetch' if income else 'fetch') }}" id="sy-form">
+<form method="post" action="{{ url_for('sync_run') }}" id="sy-form">
   <div class="sy-grid">
     <section class="sy-card" style="--i:0">
       <h2>📅 Διάστημα</h2>
@@ -114,6 +116,14 @@ body.is-busy .sy-busy{display:flex}
         <div><label for="date_from">Από</label><input type="date" id="date_from" name="date_from" value="{{ range_date_from }}" required></div>
         <span class="sy-dash">→</span>
         <div><label for="date_to">Έως</label><input type="date" id="date_to" name="date_to" value="{{ range_date_to }}" required></div>
+      </div>
+      <div class="sy-scope">
+        <legend>Βιβλία</legend>
+        <fieldset class="seg" aria-label="Βιβλία">
+          {% for v, label in (('both', 'Έσοδα & Έξοδα'), ('income', 'Έσοδα μόνο'), ('expense', 'Έξοδα μόνο')) %}
+          <label><input type="radio" name="scope" value="{{ v }}" {{ 'checked' if scope == v }}> {{ label }}</label>
+          {% endfor %}
+        </fieldset>
       </div>
       <div class="sy-presets" role="group" aria-label="Έτοιμα διαστήματα">
         {% if date_range %}<button type="button" class="sy-chip sy-chip--last" data-preset="since" data-last="{{ date_range }}"
@@ -138,7 +148,7 @@ body.is-busy .sy-busy{display:flex}
         <text class="t1" x="70" y="124" text-anchor="middle">myDATA</text><text class="t2" x="70" y="140" text-anchor="middle">ΑΑΔΕ</text>
         <rect class="box" x="290" y="55" width="120" height="100" rx="16"/>
         <text x="350" y="98" text-anchor="middle" style="font-size:30px">🗄️</text>
-        <text class="t1" x="350" y="124" text-anchor="middle">Βιβλίο</text><text class="t2" x="350" y="140" text-anchor="middle">{{ noun }}</text>
+        <text class="t1" x="350" y="124" text-anchor="middle">{{ "Βιβλία" if scope == "both" else "Βιβλίο" }}</text><text class="t2" x="350" y="140" text-anchor="middle">{{ noun }}</text>
         {% for d in [0, 0.55, 1.1, 1.65] %}<circle class="sy-dot sy-dot--in" r="5" style="--d:{{ d }}"/>{% endfor %}
         {% for d in [0.3, 1.4] %}<circle class="sy-dot sy-dot--out" r="4" style="--d:{{ d }}"/>{% endfor %}
       </svg>
@@ -147,32 +157,32 @@ body.is-busy .sy-busy{display:flex}
   </div>
 
   {% set mnames = ['Ιαν', 'Φεβ', 'Μάρ', 'Απρ', 'Μάι', 'Ιούν', 'Ιούλ', 'Αύγ', 'Σεπ', 'Οκτ', 'Νοέ', 'Δεκ'] %}
-  {% set labels = {} %}
-  {% for key, label, _ in tabs %}{% set _ = labels.update({key: label}) %}{% endfor %}
   <section class="sy-card sy-months" style="--i:2">
     <div class="sy-months-head">
-      <h2>🗓️ Τελευταίοι 12 μήνες</h2>
+      <h2>🗓️ {{ months[0][0][:4] }} – {{ months[-1][0][:4] }}</h2>
       <div class="sy-legend">
-        <span><i></i>παραστατικά στο βιβλίο</span>
-        {% if not income %}<span><i class="w"></i>αχαρακτήριστα</span>{% endif %}
+        {% if scope != 'expense' %}<span><i class="in"></i>έσοδα</span>{% endif %}
+        {% if scope != 'income' %}<span><i></i>έξοδα</span>{% endif %}
+        <span><i class="w"></i>αχαρακτήριστα</span>
         <span><i class="e"></i>κενός μήνας</span>
       </div>
     </div>
     {% set ns = namespace(peak=1) %}
-    {% for ym, st in months %}{% set ns.peak = [ns.peak, st.values()|sum]|max %}{% endfor %}
+    {% for ym, st in months %}{% set ns.peak = [ns.peak, st.total]|max %}{% endfor %}
     <div class="sy-mgrid" role="group" aria-label="Παραστατικά ανά μήνα — κλικ για το διάστημα του μήνα">
       {% for ym, st in months %}
-        {% set total = st.values()|sum %}
-        {% set pending = 0 if income else st.get('unclassified', 0) %}
+        {% set total = st.total %}
         {% set m = ym[5:]|int %}
+        {% if m == 1 %}<span class="sy-yl">{{ ym[:4] }}</span>{% endif %}
         <button type="button" data-preset="month-of" data-ym="{{ ym }}"
-                class="sy-mo {{ 'is-empty' if not total }} {{ 'is-now' if loop.last }}"
-                title="{{ mnames[m - 1] }} {{ ym[:4] }}: {% if total %}{% for key, n in st.items() %}{{ labels.get(key, key) }} {{ n }}{{ ' · ' if not loop.last }}{% endfor %}{% else %}κανένα παραστατικό{% endif %}">
+                class="sy-mo {{ 'is-empty' if not total }} {{ 'is-now' if ym == this_month }} {{ 'is-future' if ym > this_month }}"
+                title="{{ mnames[m - 1] }} {{ ym[:4] }}: {% if total %}{% if scope != 'expense' %}έσοδα {{ st.income }} · {% endif %}{% if scope != 'income' %}έξοδα {{ st.expense }} · {% endif %}αχαρακτήριστα {{ st.pending }}{% else %}κανένα παραστατικό{% endif %}">
           <span class="mn">{{ mnames[m - 1] }}</span>
-          <span class="yr">{{ ym[:4] if loop.first or m == 1 }}</span>
           <span class="bar" aria-hidden="true">
-            {% if total %}<span style="height:{{ ((total - pending) / ns.peak * 100)|round(1) }}%"></span>{% endif %}
-            {% if pending %}<span class="w" style="height:{{ (pending / ns.peak * 100)|round(1) }}%"></span>{% endif %}
+            {# Από κάτω προς τα πάνω: έσοδα, έξοδα, αχαρακτήριστα. #}
+            {% for key, cls in (('income', 'in'), ('expense', ''), ('pending', 'w')) if st[key] %}
+            <span class="{{ cls }}" style="height:{{ (st[key] / ns.peak * 100)|round(1) }}%"></span>
+            {% endfor %}
           </span>
           <b>{{ total or '—' }}</b>
         </button>
@@ -181,17 +191,17 @@ body.is-busy .sy-busy{display:flex}
   </section>
 
   <div class="sy-acts">
-    <button type="submit" class="sy-act sy-act--go" style="--i:0">
-      <span class="e">📥</span><b>Ανάκτηση {{ noun }}</b>
-      <small>Φέρνει από το myDATA τα παραστατικά του διαστήματος. Όσα υπάρχουν ήδη ενημερώνονται, χωρίς διπλότυπα.</small>
+    <button type="submit" class="sy-act sy-act--go" style="--i:0" name="action" value="fetch">
+      <span class="e">📥</span><b>Ανάκτηση</b>
+      <small>Φέρνει από το myDATA τα παραστατικά {{ noun }} του διαστήματος. Όσα υπάρχουν ήδη ενημερώνονται, χωρίς διπλότυπα.</small>
     </button>
-    <button type="submit" class="sy-act sy-act--del" style="--i:1" formaction="{{ url_for('delete_documents_range') }}" name="kind" value="{{ kind }}"
-            data-confirm="Θα διαγραφούν οριστικά τα παραστατικά {{ noun }} της ενεργής εταιρείας για το επιλεγμένο διάστημα. Συνέχεια;">
+    <button type="submit" class="sy-act sy-act--del" style="--i:1" name="action" value="delete"
+            data-confirm="Θα διαγραφούν οριστικά τα τοπικά παραστατικά {{ noun }} της ενεργής εταιρείας για το επιλεγμένο διάστημα. Συνέχεια;">
       <span class="e">🗑️</span><b>Διαγραφή</b>
       <small>Αφαιρεί <strong>μόνο από το τοπικό βιβλίο</strong> τα παραστατικά του διαστήματος και τους τοπικούς χαρακτηρισμούς τους. Στο myDATA δεν αλλάζει τίποτα.</small>
     </button>
-    <button type="submit" class="sy-act sy-act--re" style="--i:2" formaction="{{ url_for('delete_documents_range') }}" name="refetch" value="{{ kind }}"
-            data-confirm="Θα διαγραφούν τα τοπικά παραστατικά {{ noun }} του διαστήματος και θα ξαναφορτωθούν από το myDATA. Ό,τι υπάρχει μόνο τοπικά (χαρακτηρισμοί που δεν έχουν σταλεί{{ ', νέες εγγραφές που δεν έχουν διαβιβαστεί' if not income }}) θα χαθεί. Συνέχεια;">
+    <button type="submit" class="sy-act sy-act--re" style="--i:2" name="action" value="refetch"
+            data-confirm="Θα διαγραφούν τα τοπικά παραστατικά {{ noun }} του διαστήματος και θα ξαναφορτωθούν από το myDATA. Ό,τι υπάρχει μόνο τοπικά (χαρακτηρισμοί που δεν έχουν σταλεί{{ ', νέες εγγραφές που δεν έχουν διαβιβαστεί' if scope != 'income' }}) θα χαθεί. Συνέχεια;">
       <span class="e">♻️</span><b>Διαγραφή και ανάκτηση</b>
       <small>«Καθαρή» επαναφόρτωση: πρώτα διαγράφει τα τοπικά και μετά τα ξαναφέρνει όπως είναι στο myDATA (π.χ. μετά από αλλαγές στην πύλη).</small>
     </button>
@@ -200,7 +210,7 @@ body.is-busy .sy-busy{display:flex}
 
 <p class="note note--warn sy-note">
   ⚠ Με τη διαγραφή χάνονται οριστικά ό,τι υπήρχε <strong>μόνο τοπικά</strong>: χαρακτηρισμοί που δεν έχουν σταλεί
-  {%- if not income %} και «Νέες εγγραφές» που δεν έχουν διαβιβαστεί{% endif %}.
+  {%- if scope != 'income' %} και «Νέες εγγραφές» που δεν έχουν διαβιβαστεί{% endif %}.
 </p>
 
 <script>
@@ -211,6 +221,11 @@ body.is-busy .sy-busy{display:flex}
     var el = form.querySelector('input[name=' + name + ']');
     if (el._flatpickr) el._flatpickr.setDate(d, true); else el.value = iso(d);
   }
+  form.addEventListener('change', function(e){
+    if (e.target.name !== 'scope') return;
+    var q = new URLSearchParams({scope: e.target.value, date_from: form.date_from.value, date_to: form.date_to.value});
+    location.href = '?' + q;
+  });
   form.addEventListener('click', function(e){
     var b = e.target.closest('[data-preset]');
     if (!b) return;

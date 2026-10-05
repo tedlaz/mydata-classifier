@@ -28,13 +28,13 @@ status = lambda m: db.get_document(cid, m)["status"]  # noqa: E731
 fetch = {"date_from": "2026-01-01", "date_to": "2026-01-31"}
 
 # 1) CSRF: ξένο Origin → 403, ίδιο/κανένα → περνά.
-assert c.post("/fetch", data=fetch, headers={"Origin": "http://evil.com"}).status_code == 403
-assert c.post("/fetch", data=fetch, headers={"Origin": "http://localhost"}).status_code == 302
+assert c.post("/sync", data=dict(fetch, scope="expense"), headers={"Origin": "http://evil.com"}).status_code == 403
+assert c.post("/sync", data=dict(fetch, scope="expense"), headers={"Origin": "http://localhost"}).status_code == 302
 
 # 2) Ρύθμιση ανενεργή → /invoices· ενεργή → οθόνη επιβεβαίωσης μόνο με όσα έχουν πρόταση.
-assert c.post("/fetch", data=fetch).location.endswith("/invoices")
+assert c.post("/sync", data=dict(fetch, scope="expense")).location.endswith("/invoices")
 c.post("/parameters/automation", data={"auto_classify": "1"})
-assert c.post("/fetch", data=fetch).location.endswith("/invoices/auto-classify")
+assert c.post("/sync", data=dict(fetch, scope="expense")).location.endswith("/invoices/auto-classify")
 page = c.get("/invoices/auto-classify").get_data(as_text=True)
 assert "1001" in page and "1002" not in page
 assert status("1001") == "unclassified"  # τίποτα πριν την επιβεβαίωση

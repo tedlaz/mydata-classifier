@@ -529,6 +529,9 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .flatpickr-months .flatpickr-month,.flatpickr-current-month .flatpickr-monthDropdown-months,
 .flatpickr-current-month input.cur-year,span.flatpickr-weekday,.flatpickr-day{color:var(--ink);fill:var(--ink)}
 .flatpickr-current-month .flatpickr-monthDropdown-months{background:var(--surface)}
+/* Η λίστα μηνών είναι native: το flatpickr δίνει διάφανο φόντο στις επιλογές, οπότε στο σκούρο θέμα
+   έβγαινε ανοιχτό κείμενο σε ανοιχτό φόντο. Ρητά χρώματα από το θέμα. */
+.flatpickr-current-month .flatpickr-monthDropdown-months .flatpickr-monthDropdown-month{background-color:var(--surface);color:var(--ink)}
 .flatpickr-months .flatpickr-prev-month,.flatpickr-months .flatpickr-next-month{color:var(--ink);fill:var(--ink)}
 .flatpickr-months .flatpickr-prev-month:hover svg,.flatpickr-months .flatpickr-next-month:hover svg{fill:var(--accent)}
 .flatpickr-day:hover,.flatpickr-day:focus{background:var(--accent-soft);border-color:var(--accent-soft)}

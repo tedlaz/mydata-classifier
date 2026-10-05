@@ -43,7 +43,7 @@ A.get_client = lambda: NS(request_unclassified_expenses=lambda *a: fetched, requ
                          last_cancelled=set())
 A.enrich_issuer_names = lambda *a, **k: None
 A.app.testing = True
-A.app.test_client().post("/fetch", data={"date_from": "2026-01-01", "date_to": "2026-01-31"})
+A.app.test_client().post("/sync", data={"date_from": "2026-01-01", "date_to": "2026-01-31", "scope": "expense"})
 assert db.get_document(lid, "3001")["status"] == "confirmed"
 assert db.get_document(lid, "3002")["status"] == "unclassified"
 print("OK")

@@ -32,7 +32,7 @@ def active_tab(url):
 
 # 1) Καμία εγγραφή → Ανάκτηση / Διαγραφή.
 r = c.get("/invoices")
-assert r.status_code == 302 and r.location.endswith("/invoices/sync")
+assert r.status_code == 302 and r.location.endswith("/sync?scope=expense")
 
 # 2) Μόνο απεσταλμένα → tab sent.
 add("2001", "sent")
@@ -47,7 +47,7 @@ assert active_tab("/invoices?view=confirmed") == "confirmed"
 
 # 5) Βιβλίο εσόδων: ίδιος κανόνας.
 r = c.get("/income")
-assert r.status_code == 302 and r.location.endswith("/income/sync")
+assert r.status_code == 302 and r.location.endswith("/sync?scope=income")
 add("3001", "classified", "income")
 assert active_tab("/income") == "classified"
 add("3002", "unclassified", "income")

@@ -661,36 +661,37 @@ def _range_key(kind: str) -> str:
     return f"last_{'income_' if kind == 'income' else ''}range:{_active_company_id()}"
 
 
-@app.route("/fetch", methods=["POST"])
-def fetch():
+def _fetch_dates(scope: str):
+    """Ημερομηνίες της φόρμας ανάκτησης (yyyy-mm-dd → dd/MM/yyyy) + ενεργή εταιρεία.
+    Επιστρέφει (df, dt, cid, None) ή (…, redirect) όταν κάτι λείπει."""
     date_from = request.form.get("date_from", "")
     date_to = request.form.get("date_to", "")
+    back = redirect(url_for("sync", scope=scope, date_from=date_from, date_to=date_to))
     try:
-        # HTML date input δίνει yyyy-mm-dd → μετατροπή σε dd/MM/yyyy
-        df = date.fromisoformat(date_from).strftime("%d/%m/%Y")
-        dt = date.fromisoformat(date_to).strftime("%d/%m/%Y")
+        start, end = date.fromisoformat(date_from), date.fromisoformat(date_to)
     except ValueError:
         flash("Μη έγκυρες ημερομηνίες.", "error")
-        return redirect(url_for("invoices_sync", date_from=date_from, date_to=date_to))
-
+        return None, None, None, back
+    if start > end:
+        flash("Η ημερομηνία «Από» πρέπει να προηγείται της «Έως».", "error")
+        return None, None, None, back
+    df, dt = start.strftime("%d/%m/%Y"), end.strftime("%d/%m/%Y")
     cid = _active_company_id()
     if not cid:
-        flash(
-            "Δεν έχει οριστεί ενεργή εταιρεία. Πρόσθεσε μία στη σελίδα «Εταιρείες».",
-            "error",
-        )
-        return redirect(url_for("companies"))
+        flash("Δεν έχει οριστεί ενεργή εταιρεία. Πρόσθεσε μία στη σελίδα «Εταιρείες».", "error")
+        return None, None, None, redirect(url_for("companies"))
+    return df, dt, cid, None
 
-    try:
-        client = get_client()
-        unclassified = client.request_unclassified_expenses(df, dt)
-        classified = client.request_classified_expenses(df, dt)
-    except MyDataError as e:
-        flash(str(e), "error")
-        return redirect(url_for("invoices_sync", date_from=date_from, date_to=date_to))
-    except Exception as e:  # noqa: BLE001 — network κ.λπ., δεν θέλουμε 500 στο route
-        flash(f"Σφάλμα επικοινωνίας: {e}", "error")
-        return redirect(url_for("invoices_sync", date_from=date_from, date_to=date_to))
+
+def _fetch_error(e: Exception) -> str:
+    return str(e) if isinstance(e, MyDataError) else f"Σφάλμα επικοινωνίας: {e}"
+
+
+def _fetch_expense_range(cid: int, df: str, dt: str) -> str:
+    """Ανάκτηση εξόδων διαστήματος στο τοπικό βιβλίο· επιστρέφει το μήνυμα επιτυχίας (σφάλματα ανεβαίνουν)."""
+    client = get_client()
+    unclassified = client.request_unclassified_expenses(df, dt)
+    classified = client.request_classified_expenses(df, dt)
 
     enrich_issuer_names(unclassified)
     enrich_issuer_names(classified)
@@ -713,16 +714,81 @@ def fetch():
     n0 = _classify_zero_docs(cid, [inv.mark for inv in unclassified])
 
     db.set_setting(_range_key("expense"), f"{df} – {dt}")
-    flash(
+    return (
         f"✔ Ανακτήθηκαν και αποθηκεύτηκαν {len(unclassified) + len(classified)} "
         "παραστατικά."
         + (f" {n0} με μηδενική αξία χαρακτηρίστηκαν τοπικά (2.5 / E3_585_016)." if n0 else "")
-        + (f" Αφαιρέθηκαν {removed} ακυρωμένα." if removed else ""),
-        "ok",
+        + (f" Αφαιρέθηκαν {removed} ακυρωμένα." if removed else "")
     )
-    if db.get_setting("auto_classify") == "1" and _auto_classify_candidates(cid):
-        return redirect(url_for("auto_classify"))
-    return redirect(url_for("invoices"))
+
+
+def _fetch_income_range(cid: int, df: str, dt: str) -> str:
+    """Ανάκτηση εσόδων διαστήματος στο τοπικό βιβλίο· επιστρέφει το μήνυμα επιτυχίας (σφάλματα ανεβαίνουν)."""
+    unclassified, classified, cancelled_marks = get_client().request_income(df, dt)
+
+    # Επωνυμίες πελατών: ίδια τεχνική & ίδιος κοινός πίνακας (suppliers) με τους
+    # προμηθευτές — εκμάθηση + cache + VIES/GSIS για άγνωστα ΑΦΜ.
+    enrich_counterpart_names(unclassified)
+    enrich_counterpart_names(classified)
+
+    # Ακυρωμένα: αφαίρεση από το τοπικό βιβλίο (μπορεί να είχαν κατέβει πριν ακυρωθούν).
+    removed = 0
+    for mark in cancelled_marks:
+        if db.get_document(cid, mark):
+            db.delete_document(cid, mark)
+            removed += 1
+
+    for inv in unclassified:
+        db.upsert_document(cid, "income", _income_to_doc(inv), "unclassified")
+    for inv in classified:
+        db.upsert_document(cid, "income", _income_to_doc(inv), "classified")
+
+    db.set_setting(_range_key("income"), f"{df} – {dt}")
+    return (
+        f"✔ Ανακτήθηκαν {len(unclassified) + len(classified)} παραστατικά εσόδων "
+        f"({len(unclassified)} αχαρακτήριστα, {len(classified)} χαρακτηρισμένα)"
+        + (f" · αφαιρέθηκαν {removed} ακυρωμένα." if removed else ".")
+    )
+
+
+# Σελίδα «Ανάκτηση»: ποια βιβλία (σειρά: πρώτα έσοδα, μετά έξοδα — όπως στο μενού).
+_SYNC_SCOPES = {"both": ("income", "expense"), "income": ("income",), "expense": ("expense",)}
+_SYNC_NOUNS = {"both": "εσόδων & εξόδων", "income": "εσόδων", "expense": "εξόδων"}
+
+
+@app.route("/sync", methods=["POST"])
+def sync_run():
+    """Ανάκτηση / Διαγραφή / Διαγραφή και ανάκτηση για έσοδα, έξοδα ή και τα δύο. Κάθε βιβλίο
+    ανεξάρτητα: αποτυχία του ενός δεν σταματά το άλλο."""
+    scope = request.form.get("scope") if request.form.get("scope") in _SYNC_SCOPES else "both"
+    action = request.form.get("action") if request.form.get("action") in ("fetch", "delete", "refetch") else "fetch"
+    df, dt, cid, bad = _fetch_dates(scope)
+    if bad:
+        return bad
+    ok = 0
+    for kind in _SYNC_SCOPES[scope]:
+        label = "Έσοδα" if kind == "income" else "Έξοδα"
+        prefix = f"{label}: " if scope == "both" else ""
+        if action in ("delete", "refetch"):
+            n = db.delete_documents_range(cid, kind, request.form["date_from"], request.form["date_to"])
+            flash(f"{prefix}Διαγράφηκαν {n} παραστατικά {_SYNC_NOUNS[kind]} για το διάστημα {df} – {dt}.", "ok")
+            if action == "delete":
+                ok += 1
+                continue
+        try:
+            run = _fetch_income_range if kind == "income" else _fetch_expense_range
+            flash(prefix + run(cid, df, dt), "ok")
+            ok += 1
+        except Exception as e:  # noqa: BLE001 — network κ.λπ., δεν θέλουμε 500 στο route
+            flash(prefix + _fetch_error(e), "error")
+    if not ok:
+        return redirect(url_for("sync", scope=scope, date_from=request.form["date_from"],
+                                date_to=request.form["date_to"]))
+    if action != "delete" and "expense" in _SYNC_SCOPES[scope]:
+        if db.get_setting("auto_classify") == "1" and _auto_classify_candidates(cid):
+            return redirect(url_for("auto_classify"))
+    return redirect(url_for({"income": "income", "expense": "invoices"}.get(scope, "sync"),
+                            **({"scope": scope} if scope == "both" else {})))
 
 
 def _classify_zero_docs(cid: int, marks: list) -> int:
@@ -769,49 +835,6 @@ def auto_classify():
     )
 
 
-@app.route("/documents/delete-range", methods=["POST"])
-def delete_documents_range():
-    # «Διαγραφή και ανάκτηση»: το κουμπί στέλνει refetch=<kind> αντί για kind.
-    refetch = request.form.get("refetch", "")
-    kind = request.form.get("kind", "") or refetch
-    destination = "income" if kind == "income" else "invoices"
-    sync_page = f"{destination}_sync"  # σφάλματα: πίσω στη φόρμα, με τις ημερομηνίες
-    if kind not in ("expense", "income"):
-        flash("Μη έγκυρο είδος βιβλίου.", "error")
-        return redirect(url_for("invoices_sync"))
-
-    date_from = request.form.get("date_from", "")
-    date_to = request.form.get("date_to", "")
-    try:
-        start = date.fromisoformat(date_from)
-        end = date.fromisoformat(date_to)
-    except ValueError:
-        flash("Μη έγκυρες ημερομηνίες.", "error")
-        return redirect(url_for(sync_page, date_from=date_from, date_to=date_to))
-    if start > end:
-        flash("Η ημερομηνία «Από» πρέπει να προηγείται της «Έως».", "error")
-        return redirect(url_for(sync_page, date_from=date_from, date_to=date_to))
-
-    cid = _active_company_id()
-    if not cid:
-        flash(
-            "Δεν έχει οριστεί ενεργή εταιρεία. Πρόσθεσε μία στη σελίδα «Εταιρείες».",
-            "error",
-        )
-        return redirect(url_for("companies"))
-
-    deleted = db.delete_documents_range(cid, kind, date_from, date_to)
-    book = "εσόδων" if kind == "income" else "εξόδων"
-    flash(
-        f"Διαγράφηκαν {deleted} παραστατικά {book} για το διάστημα "
-        f"{start.strftime('%d/%m/%Y')} – {end.strftime('%d/%m/%Y')}.",
-        "ok",
-    )
-    if refetch:  # ίδια ανάκτηση με το κουμπί «Ανάκτηση» (ίδιες ημερομηνίες από τη φόρμα)
-        return income_fetch() if kind == "income" else fetch()
-    return redirect(url_for(destination))
-
-
 # Καρτέλες κατάστασης του βιβλίου εξόδων (σειρά ροής).
 _EXPENSE_VIEWS = ("unclassified", "classified", "sent", "confirmed")
 
@@ -851,42 +874,43 @@ def page_numbers(page: int, total: int, edge: int = 2, around: int = 1) -> list:
 
 
 
-def _last_months(today: date, n: int = 12) -> list[str]:
-    """Οι τελευταίοι n μήνες έως και τον τρέχοντα, ως "yyyy-mm" (παλαιότερος πρώτος)."""
-    idx = today.year * 12 + today.month - 1
-    return [f"{y}-{m + 1:02d}" for y, m in (divmod(i, 12) for i in range(idx - n + 1, idx + 1))]
+def _two_years(today: date) -> list[str]:
+    """Όλοι οι μήνες του προηγούμενου και του τρέχοντος έτους, ως "yyyy-mm" (Ιαν προηγ. έτους πρώτος)."""
+    return [f"{y}-{m:02d}" for y in (today.year - 1, today.year) for m in range(1, 13)]
 
 
-def _sync_page(kind: str):
-    """Χωριστή σελίδα ανάκτησης από το myDATA / διαγραφής διαστήματος, ανά βιβλίο."""
+@app.route("/sync")
+def sync():
+    """Ενιαία σελίδα ανάκτησης από το myDATA / διαγραφής διαστήματος, για έσοδα, έξοδα ή και τα δύο."""
     now = datetime.now(ATHENS)
     today = now.strftime("%Y-%m-%d")
     cid = _active_company_id()
-    views = _INCOME_VIEWS if kind == "income" else _EXPENSE_VIEWS
-    by_status = db.count_by_status(cid, kind) if cid else {}
-    months = _last_months(now.date())
-    by_month = db.month_counts(cid, kind, months[0] + "-01") if cid else {}
-    marks = [int(r["mark"]) for r in (db.get_documents(cid, kind) if cid else []) if (r["mark"] or "").isdigit()]
+    scope = request.args.get("scope") if request.args.get("scope") in _SYNC_SCOPES else "both"
+    kinds = _SYNC_SCOPES[scope]
+    months = _two_years(now.date())
+    # Ανά μήνα: έσοδα, έξοδα (χαρακτηρισμένα) και αχαρακτήριστα (και των δύο), χωριστά στη στήλη.
+    per_month = {ym: {"income": 0, "expense": 0, "pending": 0, "total": 0} for ym in months}
+    for kind in kinds:
+        for ym, st in (db.month_counts(cid, kind, months[0] + "-01") if cid else {}).items():
+            if ym in per_month:
+                pending = st.get("unclassified", 0)
+                per_month[ym][kind] += sum(st.values()) - pending
+                per_month[ym]["pending"] += pending
+                per_month[ym]["total"] += sum(st.values())
+    # «Από την τελευταία ανάκτηση»: η παλαιότερη από τις τελευταίες των επιλεγμένων βιβλίων, για να μη χαθεί τίποτα.
+    ranges = [r for r in (db.get_setting(_range_key(k)) for k in kinds) if r]
+    end = lambda r: datetime.strptime(r.split("–")[-1].strip(), "%d/%m/%Y")  # noqa: E731
     return render_template(
         "sync.html",
-        kind=kind,
-        counts={v: by_status.get(v, 0) for v in views},
-        months=[(ym, by_month.get(ym, {})) for ym in months],
-        last_mark=str(max(marks)) if marks else None,  # όπως στην κεφαλίδα του βιβλίου
+        scope=scope,
+        noun=_SYNC_NOUNS[scope],
+        months=[(ym, per_month[ym]) for ym in months],
+        this_month=now.strftime("%Y-%m"),
         range_date_from=request.args.get("date_from", "").strip() or today,
         range_date_to=request.args.get("date_to", "").strip() or today,
-        date_range=db.get_setting(_range_key(kind)),
+        date_range=min(ranges, key=end) if ranges else None,
     )
 
-
-@app.route("/invoices/sync")
-def invoices_sync():
-    return _sync_page("expense")
-
-
-@app.route("/income/sync")
-def income_sync():
-    return _sync_page("income")
 
 @app.route("/invoices")
 def invoices():
@@ -897,7 +921,7 @@ def invoices():
         by_status = db.count_by_status(cid, "expense") if cid else {}
         view = next((v for v in _EXPENSE_VIEWS if by_status.get(v)), None)
         if view is None:
-            return redirect(url_for("invoices_sync"))
+            return redirect(url_for("sync", scope="expense"))
     sort = request.args.get("sort", "date")
     direction = request.args.get("dir", "desc" if view in ("classified", "confirmed") else "asc")
     reverse = direction == "desc"
@@ -2211,61 +2235,6 @@ def refresh():
 _INCOME_VIEWS = ("unclassified", "classified")
 
 
-@app.route("/income/fetch", methods=["POST"])
-def income_fetch():
-    date_from = request.form.get("date_from", "")
-    date_to = request.form.get("date_to", "")
-    try:
-        df = date.fromisoformat(date_from).strftime("%d/%m/%Y")
-        dt = date.fromisoformat(date_to).strftime("%d/%m/%Y")
-    except ValueError:
-        flash("Μη έγκυρες ημερομηνίες.", "error")
-        return redirect(url_for("income_sync", date_from=date_from, date_to=date_to))
-
-    cid = _active_company_id()
-    if not cid:
-        flash(
-            "Δεν έχει οριστεί ενεργή εταιρεία. Πρόσθεσε μία στη σελίδα «Εταιρείες».",
-            "error",
-        )
-        return redirect(url_for("companies"))
-
-    try:
-        unclassified, classified, cancelled_marks = get_client().request_income(df, dt)
-    except MyDataError as e:
-        flash(str(e), "error")
-        return redirect(url_for("income_sync", date_from=date_from, date_to=date_to))
-    except Exception as e:  # noqa: BLE001 — network κ.λπ.
-        flash(f"Σφάλμα επικοινωνίας: {e}", "error")
-        return redirect(url_for("income_sync", date_from=date_from, date_to=date_to))
-
-    # Επωνυμίες πελατών: ίδια τεχνική & ίδιος κοινός πίνακας (suppliers) με τους
-    # προμηθευτές — εκμάθηση + cache + VIES/GSIS για άγνωστα ΑΦΜ.
-    enrich_counterpart_names(unclassified)
-    enrich_counterpart_names(classified)
-
-    # Ακυρωμένα: αφαίρεση από το τοπικό βιβλίο (μπορεί να είχαν κατέβει πριν ακυρωθούν).
-    removed = 0
-    for mark in cancelled_marks:
-        if db.get_document(cid, mark):
-            db.delete_document(cid, mark)
-            removed += 1
-
-    for inv in unclassified:
-        db.upsert_document(cid, "income", _income_to_doc(inv), "unclassified")
-    for inv in classified:
-        db.upsert_document(cid, "income", _income_to_doc(inv), "classified")
-
-    db.set_setting(_range_key("income"), f"{df} – {dt}")
-    flash(
-        f"✔ Ανακτήθηκαν {len(unclassified) + len(classified)} παραστατικά εσόδων "
-        f"({len(unclassified)} αχαρακτήριστα, {len(classified)} χαρακτηρισμένα)"
-        + (f" · αφαιρέθηκαν {removed} ακυρωμένα." if removed else "."),
-        "ok",
-    )
-    return redirect(url_for("income"))
-
-
 @app.route("/income")
 def income():
     view = request.args.get("view")
@@ -2275,7 +2244,7 @@ def income():
         by_status = db.count_by_status(cid, "income") if cid else {}
         view = next((v for v in _INCOME_VIEWS if by_status.get(v)), None)
         if view is None:
-            return redirect(url_for("income_sync"))
+            return redirect(url_for("sync", scope="income"))
     sort = request.args.get("sort", "date")
     direction = request.args.get("dir", "desc" if view == "classified" else "asc")
     reverse = direction == "desc"
@@ -3502,8 +3471,8 @@ def dashboard():
         "dashboard.html", company=company, year=year, kpi=kpi, chart=_yearly_chart(rows), vat=vat,
         vat_periods=_yearly_vat_periods(rows, year, now),
         todos=todos, segments=segments,
-        last_ranges=(("εξόδων", db.get_setting(_range_key("expense")), url_for("invoices_sync")),
-                     ("εσόδων", db.get_setting(_range_key("income")), url_for("income_sync"))), exp_total=exp_total, done_pct=done_pct, inc_st=inc_st,
+        last_ranges=(("εξόδων", db.get_setting(_range_key("expense")), url_for("sync", scope="expense")),
+                     ("εσόδων", db.get_setting(_range_key("income")), url_for("sync", scope="income"))), exp_total=exp_total, done_pct=done_pct, inc_st=inc_st,
         top=top, top_max=max([t["amount"] for t in top] + [1]),
         top_in=top_in, top_in_max=max([t["amount"] for t in top_in] + [1]), recent=recent,
         type_names=INVOICE_TYPE_NAMES, today=today.strftime("%d/%m/%Y"), hour=now.hour,
