@@ -107,6 +107,8 @@
 .db-top-row b{font-family:var(--font-data);white-space:nowrap}
 .db-top .db-meter span{background:linear-gradient(90deg,var(--yr-out),#f5a37f);animation-delay:calc(var(--i) * 90ms + 500ms)}
 .db-top small{color:var(--muted);font-size:.74rem}
+.db-top.in .db-meter span{background:linear-gradient(90deg,var(--yr-in),#4fd1a0)}
+.db-stack{display:flex;flex-direction:column;gap:var(--db-gap);min-width:0}
 
 /* ---------- Πρόσφατα ---------- */
 .db-feed{list-style:none;margin:0;padding:0;position:relative}
@@ -312,20 +314,36 @@
       {% else %}<p class="db-empty">Δεν υπάρχουν παραστατικά για το {{ year }}.</p>{% endif %}
     </section>
 
-    <section class="card db-card" style="--i:5">
-      <div class="card-head"><h2>🏆 Κορυφαίοι προμηθευτές {{ year }}</h2></div>
-      {% if top %}
-      <ol class="db-top">
-        {% for t in top %}
-        <li style="--i:{{ loop.index0 }}">
-          <div class="db-top-row"><span title="{{ t.vat }}">{{ t.name }}</span><b>{{ t.amount|el_amount }} €</b></div>
-          <div class="db-meter"><span style="width:{{ [t.amount / top_max * 100, 0]|max }}%"></span></div>
-          <small>{{ t.n }} παραστατικ{{ 'ό' if t.n == 1 else 'ά' }}</small>
-        </li>
-        {% endfor %}
-      </ol>
-      {% else %}<p class="db-empty">Δεν υπάρχουν έξοδα για το {{ year }}.</p>{% endif %}
-    </section>
+    <div class="db-stack">
+      <section class="card db-card" style="--i:5">
+        <div class="card-head"><h2>🤝 Κορυφαίοι πελάτες {{ year }}</h2></div>
+        {% if top_in %}
+        <ol class="db-top in">
+          {% for t in top_in %}
+          <li style="--i:{{ loop.index0 }}">
+            <div class="db-top-row"><span title="{{ t.vat }}">{{ t.name }}</span><b>{{ t.amount|el_amount }} €</b></div>
+            <div class="db-meter"><span style="width:{{ [t.amount / top_in_max * 100, 0]|max }}%"></span></div>
+            <small>{{ t.n }} παραστατικ{{ 'ό' if t.n == 1 else 'ά' }}</small>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}<p class="db-empty">Δεν υπάρχουν έσοδα από πελάτες για το {{ year }}.</p>{% endif %}
+      </section>
+      <section class="card db-card" style="--i:6">
+        <div class="card-head"><h2>🏆 Κορυφαίοι προμηθευτές {{ year }}</h2></div>
+        {% if top %}
+        <ol class="db-top">
+          {% for t in top %}
+          <li style="--i:{{ loop.index0 }}">
+            <div class="db-top-row"><span title="{{ t.vat }}">{{ t.name }}</span><b>{{ t.amount|el_amount }} €</b></div>
+            <div class="db-meter"><span style="width:{{ [t.amount / top_max * 100, 0]|max }}%"></span></div>
+            <small>{{ t.n }} παραστατικ{{ 'ό' if t.n == 1 else 'ά' }}</small>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}<p class="db-empty">Δεν υπάρχουν έξοδα για το {{ year }}.</p>{% endif %}
+      </section>
+    </div>
   </div>
 </div>
 {% endblock %}

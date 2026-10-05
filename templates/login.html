@@ -30,10 +30,10 @@ if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme:
     <input type="text" id="username" name="username" autocomplete="username" required autofocus>
     <label for="password">Κωδικός</label>
     <input type="password" id="password" name="password" autocomplete="{{ 'new-password' if setup else 'current-password' }}"
-           {% if setup %}minlength="8"{% endif %} required>
+           required>
     {% if setup %}
     <label for="password2">Επανάληψη κωδικού</label>
-    <input type="password" id="password2" name="password2" autocomplete="new-password" minlength="8" required>
+    <input type="password" id="password2" name="password2" autocomplete="new-password" required>
     {% endif %}
     <div class="btn-row"><button type="submit">{{ 'Δημιουργία' if setup else 'Είσοδος' }}</button></div>
   </form>

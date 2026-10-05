@@ -33,18 +33,16 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
   ('Επισκόπηση', [
     ('dashboard', 'Πίνακας ελέγχου', 'home', ['dashboard'], False),
   ]),
-  ('Έσοδα', [
+  ('Βιβλία', [
     ('income', 'Βιβλίο εσόδων', 'in', ['income', 'income_sync'], False),
-  ]),
-  ('Έξοδα', [
     ('invoices', 'Βιβλίο εξόδων', 'out', ['invoices', 'invoices_sync', 'document', 'classify'], False),
     ('new_expense', 'Νέα εγγραφή', 'plus', ['new_expense'], True),
-    ('recurring', 'Μηνιαίες εγγραφές', 'calendar', ['recurring'], False),
+    ('recurring', 'Μηνιαίες εγγραφές', 'calendar', ['recurring'], True),
   ]),
   ('Αναλύσεις', [
-    ('reports', 'OLAP', 'chart', ['reports'], False),
     ('reports_yearly', 'Ετήσια/Μηνιαία', 'calendar', ['reports_yearly'], False),
     ('reports_vat', 'Δήλωση ΦΠΑ (Φ2)', 'receipt', ['reports_vat'], False),
+    ('reports', 'OLAP', 'chart', ['reports'], False),
     ('reports_forecast', 'Πρόβλεψη έτους', 'chart', ['reports_forecast'], False),
   ]),
   ('Κατάλογοι', [

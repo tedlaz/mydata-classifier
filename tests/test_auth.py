@@ -25,7 +25,7 @@ assert raw() == ("u1", "SECRETKEY")
 # 1) Χωρίς χρήστη → /setup· κακός κωδικός απορρίπτεται.
 assert c.get("/").headers["Location"].endswith("/setup")
 assert c.get("/setup").status_code == 200
-c.post("/setup", data={"username": "ted", "password": "short", "password2": "short"})
+c.post("/setup", data={"username": "ted", "password": "", "password2": ""})
 assert db.get_auth() is None
 
 # 2) Setup → κρυπτογράφηση των υπαρχόντων κλειδιών, είσοδος.

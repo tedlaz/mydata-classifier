@@ -127,8 +127,8 @@ def setup():
     if request.method == "POST":
         user = request.form.get("username", "").strip()
         pw = request.form.get("password", "")
-        if not user or len(pw) < 8 or pw != request.form.get("password2"):
-            flash("Όνομα χρήστη υποχρεωτικό· κωδικός τουλάχιστον 8 χαρακτήρων, ίδιος και στις δύο θέσεις.", "error")
+        if not user or not pw or pw != request.form.get("password2"):
+            flash("Όνομα χρήστη υποχρεωτικό· κωδικός υποχρεωτικός, ίδιος και στις δύο θέσεις.", "error")
         else:
             db.save_auth(auth.create(user, pw))
             db.encrypt_credentials()
@@ -169,8 +169,8 @@ def change_password():
         flash("Λάθος τρέχων κωδικός.", "error")
         return back
     session["auth"] = auth.nonce  # το unlock ανανεώνει το nonce
-    if not user or len(pw) < 8 or pw != request.form.get("password2"):
-        flash("Όνομα χρήστη υποχρεωτικό· νέος κωδικός τουλάχιστον 8 χαρακτήρων, ίδιος και στις δύο θέσεις.", "error")
+    if not user or not pw or pw != request.form.get("password2"):
+        flash("Όνομα χρήστη υποχρεωτικό· νέος κωδικός υποχρεωτικός, ίδιος και στις δύο θέσεις.", "error")
         return back
     db.save_auth(auth.rewrap(user, pw))
     flash("✔ Άλλαξε ο κωδικός.", "ok")
@@ -2383,7 +2383,7 @@ PURCHASE_CATEGORIES = ("category2_1", "category2_2")
 # (κλειδί, τίτλος, προεπιλογή, περιγραφή)
 STOCK_REPORTS = (
     ("yearly", "Ετήσια / Μηνιαία σύνοψη", True, "Όπως το συνοπτικό βιβλίο του myDATA. Το καθαρό κέρδος μετρά πάντα μόνο τη μεταβολή τους (έναρξης − λήξης)."),
-    ("dashboard", "Πίνακας ελέγχου", False, "Κάρτες εσόδων-εξόδων, αποτέλεσμα, γράφημα και κορυφαίοι προμηθευτές."),
+    ("dashboard", "Πίνακας ελέγχου", False, "Κάρτες εσόδων-εξόδων, αποτέλεσμα, γράφημα, κορυφαίοι προμηθευτές και πελάτες."),
     ("olap", "OLAP", False, "Όλα τα μέτρα του κύβου. Με ενεργό, εμφανίζονται ως κατηγορία Ε3 2.13 / 2.14."),
 )
 
@@ -3204,7 +3204,7 @@ def _spark(values: list[float], w: int = 120, h: int = 34) -> str:
 
 @app.route("/dashboard")
 def dashboard():
-    """Πίνακας ελέγχου: εκκρεμότητες, σύνοψη έτους, ΦΠΑ περιόδου, κορυφαίοι προμηθευτές, πρόσφατα."""
+    """Πίνακας ελέγχου: εκκρεμότητες, σύνοψη έτους, ΦΠΑ περιόδου, κορυφαίοι προμηθευτές/πελάτες, πρόσφατα."""
     import calendar
 
     company = get_active_company()
@@ -3291,22 +3291,28 @@ def dashboard():
         acc += pct
     done_pct = round(exp_st.get("confirmed", 0) / exp_total * 100) if exp_total else 0
 
-    # Κορυφαίοι προμηθευτές έτους + πρόσφατη κίνηση.
+    # Κορυφαίοι προμηθευτές/πελάτες έτους + πρόσφατη κίνηση.
     exp_docs = db.period_documents(cid, "expense", f"{year}-01-01", f"{year}-12-31")
     inc_docs = db.period_documents(cid, "income", f"{year}-01-01", f"{year}-12-31")
-    top: dict = {}
-    for d in exp_docs:
-        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
-        net = (d["total_net"] or 0) - (0 if with_stock else _stock_amount(d["cls_json"]))
-        if not net:  # μόνο αποθέματα: δεν είναι αγορά από τον συναλλασσόμενο
-            continue
-        t = top.setdefault(d["counterparty_vat"], {"name": d["counterparty_name"] or d["counterparty_vat"] or "—",
-                                                   "vat": d["counterparty_vat"], "amount": 0.0, "n": 0})
-        t["amount"] += sign * net
-        t["n"] += 1
-    top = sorted(top.values(), key=lambda t: -t["amount"])[:5]
+
+    def top_of(docs, stock):
+        top: dict = {}
+        for d in docs:
+            sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+            net = (d["total_net"] or 0) - (_stock_amount(d["cls_json"]) if stock else 0)
+            if not net:  # μόνο αποθέματα: δεν είναι αγορά από τον συναλλασσόμενο
+                continue
+            t = top.setdefault(d["counterparty_vat"], {"name": d["counterparty_name"] or d["counterparty_vat"] or "—",
+                                                       "vat": d["counterparty_vat"], "amount": 0.0, "n": 0})
+            t["amount"] += sign * net
+            t["n"] += 1
+        return sorted(top.values(), key=lambda t: -t["amount"])[:5]
+
+    top = top_of(exp_docs, not with_stock)
+    # Λιανική (χωρίς ΑΦΜ) δεν είναι πελάτης.
+    top_in = top_of([d for d in inc_docs if d["counterparty_vat"]], False)
     recent = sorted([dict(d, kind="expense") for d in exp_docs] + [dict(d, kind="income") for d in inc_docs],
-                    key=lambda d: (d["issue_date"] or "", d["mark"] or ""), reverse=True)[:7]
+                    key=lambda d: (d["issue_date"] or "", d["mark"] or ""), reverse=True)[:12]
     for d in recent:
         d["credit"] = d["invoice_type"] in CREDIT_INVOICE_TYPES
 
@@ -3316,7 +3322,8 @@ def dashboard():
         todos=todos, segments=segments,
         last_ranges=(("εξόδων", db.get_setting(_range_key("expense")), url_for("invoices_sync")),
                      ("εσόδων", db.get_setting(_range_key("income")), url_for("income_sync"))), exp_total=exp_total, done_pct=done_pct, inc_st=inc_st,
-        top=top, top_max=max([t["amount"] for t in top] + [1]), recent=recent,
+        top=top, top_max=max([t["amount"] for t in top] + [1]),
+        top_in=top_in, top_in_max=max([t["amount"] for t in top_in] + [1]), recent=recent,
         type_names=INVOICE_TYPE_NAMES, today=today.strftime("%d/%m/%Y"), hour=now.hour,
     )
 

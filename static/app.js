@@ -48,7 +48,8 @@
     if (!btn) return;
     const box = btn.closest('.issuer'), b = box.querySelector('.issuer-name');
     const old = b.textContent.trim() === '—' ? '' : b.textContent.trim();
-    const input = Object.assign(document.createElement('input'), {
+    // Πολλές γραμμές, για να φαίνονται ολόκληρες οι μεγάλες επωνυμίες.
+    const input = Object.assign(document.createElement('textarea'), {
       className: 'name-input', value: old, maxLength: 200, placeholder: 'Επωνυμία',
     });
     input.setAttribute('aria-label', 'Επωνυμία για ΑΦΜ ' + box.dataset.vat);
@@ -64,7 +65,7 @@
     };
     async function save() {
       if (busy || !input.isConnected) return;
-      const name = input.value.trim();
+      const name = input.value.replace(/\s+/g, ' ').trim();
       if (!name || name === old) return close();
       busy = true;
       input.disabled = true;

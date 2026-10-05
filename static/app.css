@@ -590,7 +590,8 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 @media (hover:none){ .name-edit{opacity:.8} }
 .issuer .issuer-name{display:inline}
 .issuer .vat{display:block}
-.name-input{padding:5px 8px;font-size:.88rem;font-weight:600;min-width:220px}
+.name-input{display:block;width:100%;padding:5px 8px;font-size:.88rem;font-weight:600;min-width:min(320px,70vw);
+  min-height:4.2em;field-sizing:content;resize:vertical;line-height:1.35;font-family:inherit}
 .name-input.is-error{border-color:var(--err);box-shadow:0 0 0 4px var(--err-soft)}
 .issuer-name.is-saved{animation:saved 1.6s var(--ease)}
 @keyframes saved{0%,40%{background:var(--ok-soft);color:var(--ok);box-shadow:0 0 0 4px var(--ok-soft);border-radius:4px}}
