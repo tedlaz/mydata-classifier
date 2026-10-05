@@ -303,7 +303,12 @@
     {% if n.children %}
     <details open><summary>{{ n.label }}</summary>{{ xml_nodes(n.children) }}</details>
     {% else %}
-    <div class="xml-row"><span>{{ n.label }}</span><b>{{ n.value or '—' }}</b></div>
+    {# URL (μόνο http/https) → σύνδεσμος σε νέα καρτέλα. #}
+    <div class="xml-row"><span>{{ n.label }}</span><b>
+      {%- if n.value[:8]|lower == 'https://' or n.value[:7]|lower == 'http://' -%}
+      <a href="{{ n.value }}" target="_blank" rel="noopener noreferrer">{{ n.value }}</a>
+      {%- else %}{{ n.value or '—' }}{% endif -%}
+    </b></div>
     {% endif %}
   {% endfor %}
 {%- endmacro %}

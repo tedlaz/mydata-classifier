@@ -66,4 +66,12 @@ page = c.get("/document/4001").get_data(as_text=True)
 assert "Όλα τα στοιχεία" in page and "Σχόλια γραμμής" in page
 r = c.get("/document/4001/xml")
 assert r.status_code == 200 and "attachment" in r.headers["Content-Disposition"] and r.get_data(as_text=True) == inv.raw_xml
+
+# (ε) URL στο XML → σύνδεσμος· άλλο σχήμα (javascript:) όχι.
+xml2 = inv.raw_xml.replace("</invoice>", "<downloadingInvoiceUrl>https://mydata.aade.gr/x?a=1&amp;b=2</downloadingInvoiceUrl>"
+                           "<qrCodeUrl>javascript:alert(1)</qrCodeUrl></invoice>")
+db.upsert_document(cid, "expense", dict(doc, raw_xml=xml2), "unclassified")
+page = c.get("/document/4001").get_data(as_text=True)
+assert 'href="https://mydata.aade.gr/x?a=1&amp;b=2" target="_blank"' in page, page[-3000:]
+assert 'href="javascript' not in page
 print("ok")
