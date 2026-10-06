@@ -1917,6 +1917,7 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .co-switch b{display:block;color:var(--ink);font-size:.9rem}
 .co-switch small{display:block;color:var(--muted);font-size:.8rem;margin-top:2px}
 .co-dialog-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.co-export-list{max-height:45vh;overflow-y:auto;padding-left:22px}
 .co-share{margin-top:16px;border-top:1px solid var(--line, #8883);padding-top:12px}
 .co-share summary{cursor:pointer;font-weight:600}
 .co-share form{display:grid;gap:6px;margin-top:10px}

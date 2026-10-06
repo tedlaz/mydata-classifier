@@ -128,7 +128,7 @@
     </div>
     <div class="btn-row">
       <button type="button" commandfor="co-add-dialog" command="show-modal">+ Νέα εταιρεία</button>
-      <a href="{{ url_for('companies_export') }}" class="btn btn-ghost" download>📤 Εξαγωγή</a>
+      <button type="button" class="btn-ghost" commandfor="co-export-dialog" command="show-modal">📤 Εξαγωγή</button>
       <form method="post" action="{{ url_for('companies_import') }}" enctype="multipart/form-data" class="inline-form"
             data-confirm="Εισαγωγή εταιρειών &amp; λογιστή από το επιλεγμένο companies.json; Οι υπάρχουσες (ίδια επωνυμία) θα ενημερωθούν.">
         <input type="file" name="file" accept=".json,application/json" required hidden data-autosubmit id="companies-import-file">
@@ -285,6 +285,45 @@
     </div>
   </form>
 </dialog>
+
+<dialog id="co-export-dialog" class="modal" aria-labelledby="co-export-t" closedby="any">
+  {# GET + download: το αρχείο κατεβαίνει, η σελίδα μένει ως έχει. #}
+  <form method="get" action="{{ url_for('companies_export') }}" data-export>
+    <input type="hidden" name="sel" value="1">
+    <div class="modal-head">
+      <h2 id="co-export-t">📤 Εξαγωγή εταιρειών</h2>
+      <button type="button" class="btn-ghost btn-sm" commandfor="co-export-dialog" command="close" aria-label="Κλείσιμο">✕</button>
+    </div>
+    <p class="muted small">Δημιουργεί <code>companies.json</code> με τα credentials των επιλεγμένων εταιρειών.</p>
+    <label class="check"><input type="checkbox" checked data-export-all> <b>Όλες οι εταιρείες</b></label>
+    <div class="co-export-list">
+      {% for c in companies %}
+      <label class="check"><input type="checkbox" name="c" value="{{ loop.index0 }}" checked data-export-co>
+        {{ c.company_name }}{% if c.AADE_VAT_NUMBER %} <span class="muted small">· {{ c.AADE_VAT_NUMBER }}</span>{% endif %}</label>
+      {% endfor %}
+    </div>
+    <hr>
+    <label class="check"><input type="checkbox" name="acc" value="1" checked> Credentials λογιστή</label>
+    <div class="co-dialog-foot">
+      <button type="button" class="btn-ghost" commandfor="co-export-dialog" command="close">Άκυρο</button>
+      <button type="submit">📤 Εξαγωγή</button>
+    </div>
+  </form>
+</dialog>
+<script>
+// Εξαγωγή: «Όλες» ⇄ επιμέρους εταιρείες· κλείσιμο του διαλόγου μετά τη λήψη.
+(function(){
+  var f = document.querySelector('[data-export]'), all = f.querySelector('[data-export-all]'),
+      cos = Array.from(f.querySelectorAll('[data-export-co]')), btn = f.querySelector('[type=submit]');
+  function sync(){
+    var n = cos.filter(function(c){ return c.checked; }).length;
+    all.checked = n === cos.length; all.indeterminate = n > 0 && n < cos.length; btn.disabled = !n;
+  }
+  all.addEventListener('change', function(){ cos.forEach(function(c){ c.checked = all.checked; }); sync(); });
+  cos.forEach(function(c){ c.addEventListener('change', sync); });
+  f.addEventListener('submit', function(){ setTimeout(function(){ f.closest('dialog').close(); }); });
+})();
+</script>
 
 <dialog id="co-add-dialog" class="modal" aria-labelledby="co-add-t" closedby="any">
   <form method="post" action="{{ url_for('companies_add') }}">

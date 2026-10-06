@@ -11,7 +11,7 @@
 import json
 import xml.etree.ElementTree as ET
 
-from classifications import CREDIT_INVOICE_TYPES
+from classifications import CREDIT_INVOICE_TYPES, EU_COUNTRIES
 
 # Κατηγορία ΦΠΑ myDATA → (κωδ. βάσης, κωδ. φόρου, συντελεστής).
 # ponytail: οι νησιωτικοί 4% (κατηγ. 6 και 10) πάνε και οι δύο στο 305· το 308 (4% ηπειρωτική)
@@ -29,35 +29,59 @@ OUTPUT_RATES = {
 
 # Εκροές χωρίς ΦΠΑ που δηλώνονται στο Φ2: κατηγορία εξαίρεσης ΦΠΑ της γραμμής → κωδικός
 # (άρθρα ΚΦΠΑ ν. 5144/2024, σε παρένθεση ο ν. 2859/2000· κωδικοί κατά τις οδηγίες του εντύπου 050).
-# ponytail: μόνο οι σαφείς αντιστοιχίσεις· οι υπόλοιπες κατηγορίες (1, 2, 3, 5, 6, 9, 10, 15, 17–27, 29–31)
-# μένουν εκτός Φ2 ώσπου να επιβεβαιωθούν — προστίθενται εδώ.
+# 349 = λοιπές εκροές χωρίς ΦΠΑ με δικαίωμα έκπτωσης, 310 = απαλλασσόμενες χωρίς δικαίωμα (ΠΟΛ.1082/2015).
+# ponytail: μόνο οι σαφείς αντιστοιχίσεις· οι υπόλοιπες κατηγορίες μένουν εκτός Φ2 — εκτός πεδίου ή
+# ειδικά καθεστώτα (1, 2, 5, 6, 15, 17, 18), καθεστώτα περιθωρίου / χρυσός / ακίνητα (19, 20, 22–24) και
+# OSS/IOSS (29–31) ώσπου να επιβεβαιωθούν από λογιστή — προστίθενται εδώ.
 EXEMPT_CODES = {
     "14": "342",                                # άρθρο 33 (28): ενδοκοινοτικές παραδόσεις αγαθών
-    "4": "345",                                 # άρθρο 18 (14): υπηρεσίες με τόπο άλλο κράτος-μέλος (14.2.α)
+    "4": "345",                                 # άρθρο 18 (14): υπηρεσίες με τόπο άλλο κράτος-μέλος (14.2.α)· τρίτη χώρα → 349 (_exempt_code)
     "8": "348", "28": "348",                    # άρθρο 29 (24): εξαγωγές, και Tax Free
     "11": "348", "12": "348", "13": "348",      # άρθρο 32 (27): πλοία / αεροσκάφη
+    "3": "349",                                 # άρθρο 13: τόπος παράδοσης αγαθών εκτός Ελλάδας
+    "9": "349", "10": "349", "25": "349",       # άρθρα 30, 31 (25, 26), ΠΟΛ.1029/1995: duty free, αποθήκες
     "16": "349",                                # άρθρο 45 (39α): αντίστροφη επιβάρυνση εσωτερικού
+    "26": "349",                                # ΠΟΛ.1167/2015: ειδική βεβαίωση απαλλαγής εξαγωγέων
+    "27": "349",                                # λοιπές εξαιρέσεις ΦΠΑ
     "7": "310",                                 # άρθρο 27 (22): απαλλαγές χωρίς δικαίωμα έκπτωσης
+    "21": "310",                                # άρθρο 51 (44): βιομηχανοποιημένα καπνά
 }
 
 
-def _exemption(d: dict, ln: dict) -> str:
-    """Κατηγορία εξαίρεσης ΦΠΑ της γραμμής, από το XML του παραστατικού όπως το έδωσε το myDATA
-    (raw_xml)· "" αν δεν υπάρχει. Το XML διαβάζεται μία φορά ανά παραστατικό."""
+def _parse_exempt(d: dict) -> tuple:
+    """(xml, {γραμμή: κατηγορία εξαίρεσης ΦΠΑ}, χώρα αντισυμβαλλόμενου) από το XML του παραστατικού όπως
+    το έδωσε το myDATA (raw_xml). Το XML διαβάζεται μία φορά ανά παραστατικό."""
     xml = d.get("raw_xml") or ""
     if d.get("_exempt", (None,))[0] is not xml:  # μνήμη ανά παραστατικό· ξανά αν άλλαξε το XML
-        found = {}
+        found, country = {}, ""
         try:
             root = ET.fromstring(xml)
         except ET.ParseError:
             root = None
         for det in root.iter() if root is not None else ():
-            if det.tag.split("}")[-1] == "invoiceDetails":
+            tag = det.tag.split("}")[-1]
+            if tag in ("invoiceDetails", "counterpart"):
                 kids = {c.tag.split("}")[-1]: (c.text or "").strip() for c in det}
-                if kids.get("vatExemptionCategory") and kids.get("lineNumber", "").isdigit():
+                if tag == "counterpart":
+                    country = kids.get("country", "")
+                elif kids.get("vatExemptionCategory") and kids.get("lineNumber", "").isdigit():
                     found[int(kids["lineNumber"])] = kids["vatExemptionCategory"]
-        d["_exempt"] = (xml, found)
-    return d["_exempt"][1].get(ln.get("line_number"), "")
+        d["_exempt"] = (xml, found, country)
+    return d["_exempt"]
+
+
+def _exemption(d: dict, ln: dict) -> str:
+    """Κατηγορία εξαίρεσης ΦΠΑ της γραμμής· "" αν δεν υπάρχει."""
+    return _parse_exempt(d)[1].get(ln.get("line_number"), "")
+
+
+def _exempt_code(d: dict, ln: dict) -> str:
+    """Κωδικός Φ2 της γραμμής χωρίς ΦΠΑ (EXEMPT_CODES)· "" = εκτός Φ2. Υπηρεσίες εκτός Ελλάδας (4) σε
+    αντισυμβαλλόμενο τρίτης χώρας → 349 (το 345 είναι μόνο για άλλο κράτος-μέλος)."""
+    cat, country = _exemption(d, ln), _parse_exempt(d)[2]
+    if cat == "4" and country and country != "GR" and country not in EU_COUNTRIES:
+        return "349"
+    return EXEMPT_CODES.get(cat, "")
 
 
 # Σύνολο εκροών (311): φορολογητέες (307) + εκροές χωρίς ΦΠΑ που δηλώνονται.
@@ -164,8 +188,8 @@ def compute(income: list[dict], expense: list[dict], prev_credit: float = 0.0, p
             if cat in OUTPUT_RATES:
                 add(OUTPUT_RATES[cat][0], sign * (ln.get("net_value") or 0.0))
                 invoiced_vat += sign * (ln.get("vat_amount") or 0.0)
-            elif _exemption(d, ln) in EXEMPT_CODES:  # π.χ. 0% με εξαίρεση 16 → 349
-                add(EXEMPT_CODES[_exemption(d, ln)], sign * (ln.get("net_value") or 0.0))
+            elif _exempt_code(d, ln):  # π.χ. 0% με εξαίρεση 16 → 349
+                add(_exempt_code(d, ln), sign * (ln.get("net_value") or 0.0))
             # λοιπά 0% (7) και «χωρίς ΦΠΑ» (8) μένουν εκτός
 
     for d in filter(_sent, expense):
@@ -277,7 +301,7 @@ def reconcile(income: list[dict], expense: list[dict]) -> dict:
             weight = sum(abs(o.get("amount") or 0.0) for o in owners) or 1.0
             for o in owners:
                 k = abs(o.get("amount") or 0.0) / weight
-                exempt = EXEMPT_CODES.get(_exemption(d, ln))
+                exempt = _exempt_code(d, ln)
                 if _sent(d) and cat not in OUTPUT_RATES and exempt:
                     add(rows, o.get("type") or "", exempt, net * k)
                 elif _sent(d) and cat in OUTPUT_RATES:
@@ -400,11 +424,17 @@ if __name__ == "__main__":
     assert (r3["349"], r3["311"], r3["312"], r3["337"]) == (40, 40, 40, 0), r3
     m3 = reconcile([s39], [])["income"]
     assert m3["ok"] and m3["totals"] == {"349": 40}, m3
-    # Ενδοκοινοτική παράδοση (14) → 342, απαλλασσόμενη χωρίς έκπτωση (7) → 310, άγνωστη (1) → εκτός.
+    # Ενδοκοινοτική παράδοση (14) → 342, απαλλασσόμενη χωρίς έκπτωση (7) → 310, εκτός πεδίου (1) → εκτός.
     xml = lambda cat: s39["raw_xml"].replace(">16<", f">{cat}<")  # noqa: E731
     r4 = compute([dict(s39, raw_xml=xml("14")), dict(s39, mark="4005", raw_xml=xml("7")),
-                  dict(s39, mark="4006", raw_xml=xml("1"))], [])["codes"]
-    assert (r4["342"], r4["310"], r4.get("349", 0), r4["311"]) == (40, 40, 0, 80), r4
+                  dict(s39, mark="4006", raw_xml=xml("1")), dict(s39, mark="4007", raw_xml=xml("27"))], [])["codes"]
+    assert (r4["342"], r4["310"], r4["349"], r4["311"]) == (40, 40, 40, 120), r4  # λοιπές (27) → 349
+    # Υπηρεσίες εκτός Ελλάδας (4): κράτος-μέλος (ή άγνωστη χώρα) → 345, τρίτη χώρα → 349.
+    cp = lambda cc: xml("4").replace("<invoiceDetails>", f"<counterpart><country>{cc}</country></counterpart><invoiceDetails>")  # noqa: E731
+    r5 = compute([dict(s39, raw_xml=cp("DE")), dict(s39, mark="4008", raw_xml=cp("US")),
+                  dict(s39, mark="4009", raw_xml=xml("4"))], [])["codes"]
+    assert (r5["345"], r5["349"]) == (80, 40), r5
+    assert reconcile([dict(s39, raw_xml=cp("US"))], [])["income"]["totals"] == {"349": 40}
     m = reconcile([sale], [dict(rc, total_net=17.0), buy, draft])
     assert m["income"]["ok"] and m["expense"]["ok"], m
     m_inc = {r["e3"]: r["vals"] for r in m["income"]["rows"]}

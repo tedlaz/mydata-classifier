@@ -4747,12 +4747,19 @@ _COMPANY_KEYS = (
 
 @app.route("/companies/export")
 def companies_export():
+    """Χωρίς παραμέτρους: όλα. Από τον διάλογο (sel=1): μόνο οι επιλεγμένες εταιρείες (c=δείκτης)
+    και ο λογιστής μόνο με acc=1."""
     comps = load_companies()
+    active = get_active_index()
+    picked = range(len(comps))
+    if request.args.get("sel"):
+        picked = sorted({int(i) for i in request.args.getlist("c") if i.isdigit() and int(i) < len(comps)})
     payload = {
-        "active": get_active_index(),
-        "companies": [{k: c.get(k) for k in _COMPANY_KEYS} for c in comps],
-        "accountant": get_accountant(),
+        "active": picked.index(active) if active in picked else 0,
+        "companies": [{k: comps[i].get(k) for k in _COMPANY_KEYS} for i in picked],
     }
+    if not request.args.get("sel") or request.args.get("acc"):
+        payload["accountant"] = get_accountant()
     body = json.dumps(payload, ensure_ascii=False, indent=2)
     return Response(
         body,

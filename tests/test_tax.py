@@ -76,9 +76,11 @@ assert "Φόρος εισοδήματος" in html and A.format_el_amount(A._yea
 fc = c.get("/reports/forecast").data.decode()
 assert "Φόρος εισοδήματος" in fc
 done = A.datetime.now(A.ATHENS).month - 1
-if done:  # παρακράτηση 2% και στα έσοδα της πρόβλεψης (μέσος όρος 40.000 / done ανά υπόλοιπο μήνα)
-    future = round(0.02 * 40000 / done * (12 - done), 2)
-    assert f"2,00% × {A.format_el_amount(round(40000 / done * (12 - done), 2))} €" in fc
+if done:  # παρακράτηση 2% και στα έσοδα της πρόβλεψης (μέσος όρος 40.000 / done ανά υπόλοιπο μήνα,
+    # στρογγυλοποιημένος ανά μήνα όπως στον πίνακα — π.χ. Οκτώβριος: 4.444,44 × 3 = 13.333,32)
+    f_income = round(round(40000 / done, 2) * (12 - done), 2)
+    future = round(0.02 * f_income, 2)
+    assert f"2,00% × {A.format_el_amount(f_income)} €" in fc
     assert f"− {A.format_el_amount(future)} €" in fc and "− 800,00 €" in fc, future  # χωριστές γραμμές
 db.update_company(co["id"], dict(co, entity_type="legal"))  # νομικό πρόσωπο: χωρίς παρακράτηση στην πρόβλεψη
 assert "στα έσοδα της πρόβλεψης" not in c.get("/reports/forecast").data.decode()
