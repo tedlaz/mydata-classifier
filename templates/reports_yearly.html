@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import vat_tiles with context %}
-{% block title %}Ετήσια σύνοψη {{ year }}{% endblock %}
+{% block title %}Συνοπτικό βιβλίο {{ year }}{% endblock %}
 {% set balance = (income_total.net - expense_total.net)|round(2) %}
 {# Καθαρό κέρδος από τα ποσά Ε3 (pl = _pl, ίδιο με την ανάλυση Ε3 και τον φόρο): έσοδα − κόστος πωληθέντων
    (έναρξης + αγορές − λήξης) − έξοδα χρήσης· οι αγορές παγίων (2.7) χωριστά, στο κέρδος μόνο οι αποσβέσεις. #}
@@ -21,7 +21,7 @@
     <div class="db-hero-in">
       <div>
         <a class="yr-hero-back" href="{{ url_for('reports') }}">← Αναφορές</a>
-        <h1>Ετήσια σύνοψη <span class="yr-hero-year">{{ year }}</span></h1>
+        <h1>Συνοπτικό βιβλίο <span class="yr-hero-year">{{ year }}</span></h1>
         <p class="db-hi">Ανά μήνα, όπως η «Σύνοψη» της πύλης myDATA{{ ' · μαζί με τα αχαρακτήριστα' if unc }}</p>
       </div>
       <div class="yr-hero-tools">
