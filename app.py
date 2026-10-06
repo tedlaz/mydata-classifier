@@ -1260,6 +1260,26 @@ def document_xml(mark):
                     headers={"Content-Disposition": f'attachment; filename="{mark}.xml"'})
 
 
+@app.route("/document/<mark>/pdf")
+def document_pdf(mark):
+    """Το URL λήψης του παραστατικού: αν είναι PDF, προβολή στον browser (ο πάροχος το στέλνει
+    συνήθως ως attachment)· αλλιώς ανακατεύθυνση στο αρχικό URL."""
+    cid = _active_company_id()
+    row = db.get_document(cid, mark) if cid else None
+    url = _xml_links(_xml_tree(row.get("raw_xml"))).get("download") if row else None
+    if not url:
+        return redirect(url_for("document", mark=mark))
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+    except requests.RequestException:
+        return redirect(url)
+    if not r.content.startswith(b"%PDF"):
+        return redirect(url)
+    return Response(r.content, mimetype="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{mark}.pdf"'})
+
+
 def _save_as_rule(cid: int, vat: str, patterns: dict, post_mode: int = 0) -> None:
     """Προτάσεις ανά κατηγορία ΦΠΑ + βασική (η πρώτη) + τρόπος για τον προμηθευτή."""
     db.save_rule_patterns(cid, vat, patterns)

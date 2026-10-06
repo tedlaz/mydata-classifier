@@ -336,7 +336,7 @@
     <summary><h2><span class="dc-ico">🗂</span>Όλα τα στοιχεία</h2><span class="muted small">όπως τα έδωσε το myDATA</span>
       {% if xml_links %}
       <span class="xml-links">
-        {% if xml_links.download %}<a href="{{ xml_links.download }}" target="_blank" rel="noopener noreferrer" title="URL λήψης παραστατικού" aria-label="URL λήψης παραστατικού">
+        {% if xml_links.download %}<a href="{{ url_for('document_pdf', mark=inv.mark) }}" target="_blank" rel="noopener" title="URL λήψης παραστατικού" aria-label="URL λήψης παραστατικού">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></a>{% endif %}
         {% if xml_links.qr %}<a href="{{ xml_links.qr }}" target="_blank" rel="noopener noreferrer" title="QR code παραστατικού" aria-label="QR code παραστατικού">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg></a>{% endif %}
