@@ -116,6 +116,21 @@ a{color:var(--accent)}
 .theme-toggle .i-moon,[data-theme-now="dark"] .theme-toggle .i-sun{display:none}
 [data-theme-now="dark"] .theme-toggle .i-moon{display:inline}
 
+/* Μαζεμένο μενού (desktop): μόνο εικονίδια, το κείμενο στο title. */
+.sidebar .brand-mark{cursor:pointer}
+.who-ini{display:none}
+@media (min-width:1024px){
+  [data-nav-mini] .sidebar{width:72px}
+  [data-nav-mini] .brand{padding-left:4px;padding-right:0}
+  [data-nav-mini] .brand > span:last-child,[data-nav-mini] .nav-group{display:none}
+  [data-nav-mini] .who--top{display:grid;place-items:center;width:44px;height:44px;padding:0;font-size:0}
+  [data-nav-mini] .who--top small{display:none}
+  [data-nav-mini] .who-ini{display:block;font-size:.85rem;font-weight:800}
+  [data-nav-mini] .nav-link,[data-nav-mini] .theme-toggle{font-size:0;gap:0;justify-content:center}
+  [data-nav-mini] .nav-link--sub{margin-left:0} [data-nav-mini] .nav-link--sub::after{display:none}
+  [data-nav-mini] .nav-link:hover{transform:none}
+}
+
 .topbar{display:none}
 .content{flex:1;min-width:0}
 main{max-width:1240px;margin:0 auto;padding:30px clamp(14px,3vw,36px) 70px}

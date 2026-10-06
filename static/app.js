@@ -18,6 +18,15 @@
     syncTheme();
   });
 
+  // ---- Μενού: μάζεμα/ξεδίπλωμα (desktop) με κλικ στο εικονίδιο της εφαρμογής ----
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.sidebar [data-nav-mini]') || matchMedia('(max-width:1023px)').matches) return;
+    e.preventDefault();
+    const mini = !('navMini' in root.dataset);
+    if (mini) root.dataset.navMini = ''; else delete root.dataset.navMini;
+    try { mini ? localStorage.setItem('navMini', '1') : localStorage.removeItem('navMini'); } catch (_) {}
+  });
+
   // ---- Ημερομηνίες: εμφάνιση dd/mm/yyyy, υποβολή ISO (yyyy-mm-dd) όπως πριν ----
   // Καλείται ξανά για περιεχόμενο που φορτώνεται με AJAX (καρτέλες βιβλίων).
   window.initDates = root => {
