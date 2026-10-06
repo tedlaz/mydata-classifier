@@ -20,11 +20,13 @@
         <small><i class="db-dot" style="background:var(--yr-in)"></i>Έσοδα έτους (πρόβλεψη)</small>
         <b><span data-num="{{ total.income }}">{{ total.income|el_amount }}</span><i>€</i></b>
         <span class="db-kpi-note">Έως τώρα {{ ytd.income|el_amount }} €{% if has_prev %} · {{ prev_year }}: {{ prev_in_total|el_amount }} €{% endif %}</span>
+        {% if sc %}<span class="db-kpi-note">Εύρος σεναρίων {{ sc['in'].p10|el_amount }} – {{ sc['in'].p90|el_amount }} €</span>{% endif %}
       </div>
       <div class="db-kpi" style="--i:1">
         <small><i class="db-dot" style="background:var(--yr-out)"></i>Σύνολο εξόδων (πρόβλεψη)</small>
         <b><span data-num="{{ total.expense }}">{{ total.expense|el_amount }}</span><i>€</i></b>
         <span class="db-kpi-note">Λειτουργικά {{ total.op|el_amount }} € (σταθερά {{ total.fixed|el_amount }} €) · αποσβέσεις {{ total.dep|el_amount }} €</span>
+        {% if sc %}<span class="db-kpi-note">Εύρος σεναρίων {{ sc['out'].p10|el_amount }} – {{ sc['out'].p90|el_amount }} €</span>{% endif %}
       </div>
       <div class="db-kpi fc-kpi-res" style="--i:2">
         <small><i class="db-dot" style="background:var(--fc-res)"></i>Αποτέλεσμα έτους (πρόβλεψη)</small>
@@ -177,7 +179,9 @@
         <g class="yr-col fc-col" data-month="{{ m.label }} {{ year }}" data-in="{{ m.in|el_amount }}" data-out="{{ m.out|el_amount }}"
            data-res="{{ m.res|el_amount }}" data-neg="{{ 1 if m.res < 0 else 0 }}" data-fc="{{ 1 if m.forecast else 0 }}"
            data-prev="{{ m.prev|el_amount if has_prev else '' }}" data-dep="{{ m.dep|el_amount if m.dep else '' }}"
-           data-lo="{{ m.lo|el_amount if m.lo is not none else '' }}" data-hi="{{ m.hi|el_amount if m.hi is not none else '' }}">
+           data-lo="{{ m.lo|el_amount if m.lo is not none else '' }}" data-hi="{{ m.hi|el_amount if m.hi is not none else '' }}"
+           data-in-lo="{{ m.in_lo|el_amount if m.in_lo is not none else '' }}" data-in-hi="{{ m.in_hi|el_amount if m.in_hi is not none else '' }}"
+           data-out-lo="{{ m.out_lo|el_amount if m.out_lo is not none else '' }}" data-out-hi="{{ m.out_hi|el_amount if m.out_hi is not none else '' }}">
           <rect class="yr-hit" x="{{ m.x }}" y="{{ c.top }}" width="{{ m.w }}" height="{{ c.base - c.top }}" rx="6"/>
           <line class="fc-cross" x1="{{ m.cx }}" x2="{{ m.cx }}" y1="{{ c.top }}" y2="{{ c.base }}"/>
         </g>
@@ -247,8 +251,11 @@ function initChart() {
   function show(g) {
     const d = g.dataset, box = plot.getBoundingClientRect(), r = g.querySelector('.yr-hit').getBoundingClientRect();
     tip.innerHTML = '<b>' + d.month + ' <small>' + (d.fc === '1' ? 'πρόβλεψη' : 'πραγματικό') + ' · σωρευτικά</small></b>' +
-      row('<i class="yr-dot yr-dot--in"></i>', 'Έσοδα', d.in) + row('<i class="yr-dot yr-dot--out"></i>', 'Λειτουργικά έξοδα', d.out) +
+      row('<i class="yr-dot yr-dot--in"></i>', 'Έσοδα', d.in) +
+      (d.inLo ? '<span class="yr-tip-sum">Εύρος εσόδων ' + d.inLo + ' – ' + d.inHi + ' €</span>' : '') +
+      row('<i class="yr-dot yr-dot--out"></i>', 'Λειτουργικά έξοδα', d.out) +
       (d.dep ? row('', 'Αποσβέσεις', '− ' + d.dep) : '') +
+      (d.outLo ? '<span class="yr-tip-sum">Εύρος εξόδων ' + d.outLo + ' – ' + d.outHi + ' €' + (d.dep ? ' (με αποσβέσεις)' : '') + '</span>' : '') +
       '<span class="yr-tip-bal' + (d.neg === '1' ? ' is-neg' : '') + '">Αποτέλεσμα<em>' + d.res + ' €</em></span>' +
       (d.lo ? '<span class="yr-tip-sum">Εύρος ' + d.lo + ' – ' + d.hi + ' €</span>' : '') +
       (d.prev ? '<span class="yr-tip-sum">Πέρσι ίδιο διάστημα ' + d.prev + ' €</span>' : '');

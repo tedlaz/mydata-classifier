@@ -39,11 +39,19 @@ s = A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=2026)
 assert s["p10"] <= s["p50"] <= s["p90"] and s["p10"] < s["p90"], s
 assert len(s["lo"]) == len(s["hi"]) == 9 and all(lo <= hi for lo, hi in zip(s["lo"], s["hi"]))
 assert s == A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=2026)
+# Εύρος εσόδων / εξόδων: από τα έως τώρα και πάνω, 9 μήνες σωρευτικά.
+assert s["in"]["lo"][0] >= sum(cur[:3]) and s["out"]["lo"][0] >= sum(out[:3]), s
+assert s["in"]["p10"] <= s["in"]["p50"] <= s["in"]["p90"] and s["out"]["p10"] <= s["out"]["p90"]
+assert len(s["in"]["hi"]) == len(s["out"]["hi"]) == 9
 assert A._scenarios(cur, out, prev, prev, 1, seed=1) is None
 assert A._scenarios(late, late, prev, prev, 4, seed=1, start=3) is None  # 1 μήνας με κίνηση
 # Τρέχων μήνας με καταχωρημένα 10.000: κανένα σενάριο κάτω από αυτά.
 sb = A._scenarios(cur[:3] + [10000.0] + [0.0] * 8, out, prev, [60.0] * 12, 3, seed=2026)
 assert sb["lo"][0] >= 360 - 170 + 10000 - 60 * 12, sb
+# Περσινός μήνας ≈ 0, φετινός μεγάλος: η ζώνη μένει στην τάξη των πραγματικών ποσών (όχι ×λόγος).
+spiky = A._scenarios([100.0, 100.0, 16000.0] + [0.0] * 9, out, [1000.0, 1000.0, 1.0] + [1000.0] * 9,
+                     [60.0] * 12, 3, seed=1)
+assert spiky["p90"] < 16200 + 9 * 16000, spiky
 
 # Σταθερά έξοδα: ΕΦΚΑ σε κάθε μήνα → σταθερό, flat· τα πάγια/αποσβέσεις δεν μπαίνουν στις ροές.
 def doc(date, cls, itype="1.1"):

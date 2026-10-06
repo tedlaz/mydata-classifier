@@ -2880,12 +2880,13 @@ def _forecast(cur: list[float], prev: list[float], done: int, start: int = 0) ->
 
 def _scenarios(cur_in, cur_out, prev_in, prev_out, done: int, seed: int, start: int = 0, fixed: list[float] | None = None,
                known_in: list[float] | None = None, known_out: list[float] | None = None, runs: int = 5000) -> dict | None:
-    """Bootstrap: κάθε υπόλοιπος μήνας παίρνει τον «συντελεστή» ενός τυχαίου ολοκληρωμένου μήνα
+    """Bootstrap: κάθε υπόλοιπος μήνας παίρνει την απόκλιση (πραγματικό − αναμενόμενο) ενός τυχαίου ολοκληρωμένου μήνα
     (ίδιου για έσοδα/έξοδα — κρατά τη συσχέτιση). fixed = ντετερμινιστικές εκροές ανά μήνα (σταθερά
     έξοδα, κόστος παγίων) που αφαιρούνται χωρίς τύχη· known_in / known_out = προγραμματισμένα ποσά
     ανά μήνα: πιάνονται ή χάνονται, ποτέ δεν ξεπερνιούνται — ο μήνας k απέχει από το αναμενόμενο
     όσο ο ολοκληρωμένος μήνας k, αλλά μόνο προς το χειρότερο (έσοδα ≤, έξοδα ≥ πρόγραμμα). Επιστρέφει P10/P50/P90 του αποτελέσματος
-    έτους και τα σωρευτικά P10/P90 ανά μήνα (μόνο οι μήνες ≥ done)· None αν < 2 μήνες.
+    έτους και τα σωρευτικά P10/P90 ανά μήνα (μόνο οι μήνες ≥ done), το ίδιο για έσοδα (in) και έξοδα (out)·
+    None αν < 2 μήνες.
     ponytail: με λίγους μήνες το εύρος υποεκτιμάται — ιστορικό περισσότερων ετών αν χρειαστεί."""
     if done - start < 2:
         return None
@@ -2893,40 +2894,45 @@ def _scenarios(cur_in, cur_out, prev_in, prev_out, done: int, seed: int, start: 
     rng = random.Random(seed)
     base = sum(cur_in[:done]) - sum(cur_out[:done]) - sum(fixed[:done])
 
-    def sampler(cur, prev):
-        prev_same = sum(prev[start:done])
-        if prev_same <= 0:  # χωρίς ιστορικό: το ποσό ενός ολοκληρωμένου μήνα
-            return lambda m, k: cur[k]
-        ratio = sum(cur[start:done]) / prev_same
-        return lambda m, k: prev[m] * (cur[k] / prev[k] if prev[k] > 0 else ratio)
-
-    def factors(cur, prev):  # μήνας k: πραγματικό / αναμενόμενο (ίδια λογική με τον sampler)
+    def residuals(cur, prev):  # (αναμενόμενο μήνα m, {k: πραγματικό − αναμενόμενο})
+        # Διαφορά, όχι λόγος: περσινός μήνας ≈ 0 με φετινό μεγάλο δεν βγάζει συντελεστή ×60.
         prev_same = sum(prev[start:done])
         ratio = sum(cur[start:done]) / prev_same if prev_same > 0 else 0
         mean = sum(cur[start:done]) / (done - start)
-        exp = lambda k: prev[k] * ratio if prev_same > 0 else mean  # noqa: E731
-        return {k: cur[k] / exp(k) if exp(k) > 0 else 1.0 for k in range(start, done)}
+        exp = lambda m: prev[m] * ratio if prev_same > 0 else mean  # noqa: E731
+        return exp, {k: cur[k] - exp(k) for k in range(start, done)}
 
-    s_in, s_out = sampler(cur_in, prev_in), sampler(cur_out, prev_out)
+    (e_in, r_in), (e_out, r_out) = residuals(cur_in, prev_in), residuals(cur_out, prev_out)
+    s_in = lambda m, k: max(e_in(m) + r_in[k], 0.0)  # noqa: E731
+    s_out = lambda m, k: max(e_out(m) + r_out[k], 0.0)  # noqa: E731
     if known_in:
-        f_in = factors(cur_in, prev_in)
-        s_in = lambda m, k: known_in[m] * min(f_in[k], 1.0)  # noqa: E731
+        s_in = lambda m, k: max(known_in[m] + min(r_in[k], 0.0), 0.0)  # noqa: E731
     if known_out:
-        f_out = factors(cur_out, prev_out)
-        s_out = lambda m, k: known_out[m] * max(f_out[k], 1.0)  # noqa: E731
-    paths = []
+        s_out = lambda m, k: known_out[m] + max(r_out[k], 0.0)  # noqa: E731
+    paths, in_paths, out_paths = [], [], []
     for _ in range(runs):
-        acc, path = base, []
+        a_in, a_out = sum(cur_in[:done]), sum(cur_out[:done]) + sum(fixed[:done])
+        path, p_in, p_out = [], [], []
         for m in range(done, 12):
             k = rng.randrange(start, done)
-            acc += max(s_in(m, k), cur_in[m]) - max(s_out(m, k), cur_out[m]) - fixed[m]  # ≥ ήδη καταχωρημένα
-            path.append(acc)
+            a_in += max(s_in(m, k), cur_in[m])  # ≥ ήδη καταχωρημένα
+            a_out += max(s_out(m, k), cur_out[m]) + fixed[m]
+            path.append(a_in - a_out)
+            p_in.append(a_in)
+            p_out.append(a_out)
         paths.append(path)
+        in_paths.append(p_in)
+        out_paths.append(p_out)
     q = lambda xs: statistics.quantiles(xs, n=10)  # noqa: E731
-    per_month = [q([p[i] for p in paths]) for i in range(12 - done)]
-    final = per_month[-1]
-    return {"p10": round(final[0], 2), "p50": round(final[4], 2), "p90": round(final[8], 2),
-            "lo": [round(m[0], 2) for m in per_month], "hi": [round(m[8], 2) for m in per_month]}
+
+    def band(ps):  # σωρευτικά P10/P90 ανά μήνα + τελικά P10/P50/P90
+        per_month = [q([p[i] for p in ps]) for i in range(12 - done)]
+        final = per_month[-1]
+        return {"p10": round(final[0], 2), "p50": round(final[4], 2), "p90": round(final[8], 2),
+                "lo": [round(m[0], 2) for m in per_month], "hi": [round(m[8], 2) for m in per_month]}
+
+    # in / out: εύρος σωρευτικών εσόδων / εξόδων (έξοδα με τα fixed, δηλ. σταθερά + αποσβέσεις)
+    return band(paths) | {"in": band(in_paths), "out": band(out_paths)}
 
 
 _FIXED_E3 = ("E3_585_014", "E3_585_007", "E3_581_")  # ενοίκια, ΕΦΚΑ αυτοαπασχολούμενων, μισθοδοσία
@@ -3102,13 +3108,16 @@ def _forecast_chart(inc: list[float], out: list[float], res_m: list[float], prev
     ends = sorted([{"key": "in", "label": "Έσοδα", "v": ci[-1]}, {"key": "out", "label": "Έξοδα", "v": co[-1]},
                    {"key": "res", "label": "Αποτέλεσμα", "v": res[-1]}], key=lambda e: y(e["v"]))
     last = -99
+    band = lambda b, i, k: b[k][i - done] if b and i >= done else None  # noqa: E731
     for e in ends:
         e["y"], e["ly"] = y(e["v"]), max(y(e["v"]), last + 15)
         last = e["ly"]
     months = [{"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(left + slot * i, 1), "w": round(slot, 1),
                "in": round(ci[i], 2), "out": round(co[i], 2), "res": round(res[i], 2), "prev": round(pr[i], 2),
                "forecast": i >= done, "dep": dep if i == 11 else 0,
-               "lo": sc["lo"][i - done] if sc and i >= done else None, "hi": sc["hi"][i - done] if sc and i >= done else None}
+               "lo": band(sc, i, "lo"), "hi": band(sc, i, "hi"),
+               "in_lo": band(sc and sc["in"], i, "lo"), "in_hi": band(sc and sc["in"], i, "hi"),
+               "out_lo": band(sc and sc["out"], i, "lo"), "out_hi": band(sc and sc["out"], i, "hi")}
               for i in range(12)]
     ticks = [{"v": lo + step * k, "y": y(lo + step * k)} for k in range(int(round((hi - lo) / step)) + 1)]
     return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "zero": y(0),
