@@ -153,8 +153,10 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
   </form>
 </dialog>
 <script>
-document.querySelectorAll('[data-co-edit]').forEach(function(a){
-  a.addEventListener('click', function(e){ e.preventDefault(); document.getElementById('co-edit-active').showModal(); });
+// Delegation: τα [data-co-edit] και ο διάλογος αντικαθίστανται όταν αλλάζει εταιρεία με ajax (companies.html).
+document.addEventListener('click', function(e){
+  var a = e.target.closest('[data-co-edit]'), d = document.getElementById('co-edit-active');
+  if (a && d) { e.preventDefault(); d.showModal(); }
 });
 </script>
 {% endif %}

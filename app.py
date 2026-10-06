@@ -4359,9 +4359,12 @@ def parameters_automation():
 
 @app.route("/companies")
 def companies():
+    comps = load_companies()
     return render_template(
         "companies.html",
-        companies=load_companies(),
+        companies=comps,
+        # Σειρά εμφάνισης στο rack: αλφαβητικά. Οι διαδρομές (select/update/delete) μένουν με τη θέση στη λίστα.
+        order=sorted(range(len(comps)), key=lambda i: _fold(comps[i].get("company_name") or "")),
         active=get_active_index(),
         stats=db.company_stats(),
         acc=get_accountant(),
@@ -4492,7 +4495,7 @@ def companies_select(idx):
         return redirect(url_for("companies"))
     db.set_active_company_id(comps[idx]["id"])
     flash(f"✔ Ενεργή εταιρεία: «{comps[idx].get('company_name', '')}».", "ok")
-    return redirect(url_for("dashboard"))
+    return redirect(url_for("companies"))
 
 
 @app.route("/supplier_lookup/<vat>")
@@ -4548,12 +4551,14 @@ def accountant():
 # ------------------------------------------------------------------ #
 # Συναλλασσόμενοι — πελάτες & προμηθευτές (κοινοί για όλες τις εταιρείες)
 # ------------------------------------------------------------------ #
+def _fold(s: str) -> str:
+    """Για σύγκριση/ταξινόμηση χωρίς διάκριση πεζών/κεφαλαίων και τόνων («Άλφα» = «αλφα»)."""
+    return "".join(c for c in unicodedata.normalize("NFD", s.casefold()) if not unicodedata.combining(c))
+
+
 def _filter_suppliers(items: list[dict], q: str) -> list[dict]:
     """Φίλτρο: substring σε ΑΦΜ ή επωνυμία (χωρίς διάκριση πεζών/κεφαλαίων και τόνων)."""
-    def fold(s: str) -> str:
-        return "".join(c for c in unicodedata.normalize("NFD", s.casefold()) if not unicodedata.combining(c))
-
-    return [s for s in items if fold(q) in fold(f"{s['vat']} {s['name'] or ''}")]
+    return [s for s in items if _fold(q) in _fold(f"{s['vat']} {s['name'] or ''}")]
 
 
 @app.route("/suppliers")

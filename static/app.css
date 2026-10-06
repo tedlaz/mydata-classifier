@@ -1225,10 +1225,9 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 }
 
 /* Ίδια σελίδα (data-same-page, ορίζεται στο base.html): τα εισαγωγικά animations των κεφαλίδων δεν ξαναπαίζουν. */
-[data-same-page] :is(.co-stat,.co-card,.co-add,.co-ring .fg,.lh-tile,.lh-ring,.lh-ring .fg,.lh-sums,
+[data-same-page] :is(.co-card,.co-add,.co-meter .needle,.lh-tile,.lh-ring,.lh-ring .fg,.lh-sums,
   .cp-tile,.cp-ring,.cp-ring .fg,.cp-search,.ne-tot,.ne-hero .tpl-chip,.sy-card,.sy-act){animation:none}
 [data-same-page] #ne-form .ne-card{animation:none}
-[data-same-page] .co-card.is-active{animation:co-spin 5s linear infinite}
 [data-same-page] .lh-tile.is-on{animation:lh-spin 4s linear infinite}
 
 /* =====================================================================
