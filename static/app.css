@@ -1248,10 +1248,7 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .db-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:99px;font-size:.78rem;
   background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.14);color:#dfe3fb}
 .db-chip.is-dev{background:rgba(242,194,101,.18);border-color:rgba(242,194,101,.4);color:#ffe2a6}
-.db-quick{display:flex;flex-wrap:wrap;gap:8px}
 @media (max-width:560px){.db-kpis{grid-template-columns:1fr 1fr}.db-kpi b{font-size:1.15rem}.db-kpi-note{display:none!important}}
-.db-quick .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
-.db-quick .btn-ghost:hover{background:rgba(255,255,255,.16)}
 .db-kpis{position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:26px}
 .db-kpi{position:relative;overflow:hidden;padding:15px 16px 12px;border-radius:15px;background:rgba(255,255,255,.07);
   border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(6px);
