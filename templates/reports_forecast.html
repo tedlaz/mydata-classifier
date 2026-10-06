@@ -60,7 +60,7 @@
   <summary>⚙️ Παράμετροι πρόβλεψης
     {% if n_set %}<span class="fc-badge" title="Έχεις ορίσει {{ n_set }} τιμή/ές">✎ {{ n_set }}</span>{% endif %}
     <small>Προγραμματισμένα · αποσβέσεις {{ dep.total|el_amount }} € · σταθερά έξοδα {{ fixed|sum(attribute='amount')|el_amount }} €/μήνα</small></summary>
-  <form method="get" class="fc-params">
+  <form method="get" class="fc-params" id="fc-form">
     <div class="fc-actions fc-full">
       <button class="btn btn-sm">Υπολογισμός</button>
       {% if form.values()|select|first %}<a class="btn btn-sm btn-ghost" href="{{ url_for(request.endpoint, **request.view_args) }}">Καθαρισμός</a>{% endif %}
@@ -127,7 +127,7 @@
         <li><i class="yr-dot yr-dot--in"></i>Έσοδα</li>
         <li><i class="yr-dot yr-dot--out"></i>Λειτουργικά έξοδα</li>
         <li><i class="yr-dot fc-dot--res"></i>Αποτέλεσμα</li>
-        {% if sc %}<li><i class="yr-dot fc-dot--fan"></i>Εύρος σεναρίων (10%–90%)</li>{% endif %}
+        {% if sc %}<li><i class="yr-dot fc-dot--fan fc-fan--in"></i><i class="yr-dot fc-dot--fan fc-fan--out"></i><i class="yr-dot fc-dot--fan fc-fan--res"></i>Εύρος σεναρίων (10%–90%)</li>{% endif %}
         {% if has_prev %}<li><i class="fc-dash"></i>Αποτέλεσμα {{ prev_year }}</li>{% endif %}
       </ul>
     </div>
@@ -158,7 +158,7 @@
         <g clip-path="url(#fc-reveal)">
           <path class="fc-area fc-area--in" d="{{ c.in.area }}"/>
           <path class="fc-area fc-area--out" d="{{ c.out.area }}"/>
-          {% if c.fan %}<path class="fc-fan" d="{{ c.fan }}"/>{% endif %}
+          {% for key, d in c.fans.items() %}<path class="fc-fan fc-fan--{{ key }}" d="{{ d }}"/>{% endfor %}
           {% if has_prev %}<path class="fc-prev" d="{{ c.prev }}"/>{% endif %}
           {% for key in ('in', 'out', 'res') %}
           {% if c[key].actual %}<path class="fc-line fc-line--{{ key }}" d="{{ c[key].actual }}"/>{% endif %}
@@ -179,7 +179,7 @@
         <g class="yr-col fc-col" data-month="{{ m.label }} {{ year }}" data-in="{{ m.in|el_amount }}" data-out="{{ m.out|el_amount }}"
            data-res="{{ m.res|el_amount }}" data-neg="{{ 1 if m.res < 0 else 0 }}" data-fc="{{ 1 if m.forecast else 0 }}"
            data-prev="{{ m.prev|el_amount if has_prev else '' }}" data-dep="{{ m.dep|el_amount if m.dep else '' }}"
-           data-lo="{{ m.lo|el_amount if m.lo is not none else '' }}" data-hi="{{ m.hi|el_amount if m.hi is not none else '' }}"
+           data-lo="{{ m.res_lo|el_amount if m.res_lo is not none else '' }}" data-hi="{{ m.res_hi|el_amount if m.res_hi is not none else '' }}"
            data-in-lo="{{ m.in_lo|el_amount if m.in_lo is not none else '' }}" data-in-hi="{{ m.in_hi|el_amount if m.in_hi is not none else '' }}"
            data-out-lo="{{ m.out_lo|el_amount if m.out_lo is not none else '' }}" data-out-hi="{{ m.out_hi|el_amount if m.out_hi is not none else '' }}">
           <rect class="yr-hit" x="{{ m.x }}" y="{{ c.top }}" width="{{ m.w }}" height="{{ c.base - c.top }}" rx="6"/>
@@ -189,6 +189,17 @@
       </svg>
       <div class="yr-tip" role="status" hidden></div>
     </div>
+    {% if sc %}
+    <div class="fc-vol">
+      {% for key, label, cls in (('vol_in', 'Μεταβλητότητα εσόδων', 'in'), ('vol_out', 'Μεταβλητότητα εξόδων', 'out')) %}
+      <label class="fc-vol--{{ cls }}">{{ label }}
+        <input type="range" form="fc-form" name="{{ key }}" min="0" max="200" step="10" value="{{ vol[key] }}" list="fc-vol-ticks">
+        <output>{{ vol[key] }}%</output></label>
+      {% endfor %}
+      <datalist id="fc-vol-ticks"><option value="0"></option><option value="100"></option><option value="200"></option></datalist>
+      <small class="muted">100% = όσο απείχαν οι ολοκληρωμένοι μήνες από το αναμενόμενο · 0% = χωρίς αβεβαιότητα</small>
+    </div>
+    {% endif %}
     <p class="muted small fc-method">
       Μέθοδος — έσοδα: {{ labels.income }} · μεταβλητά έξοδα: {{ labels.expense }} · σταθερά έξοδα: ίδια κάθε μήνα · αποσβέσεις: κατά τον κανόνα, τον Δεκέμβριο.
       {% if sc %}Σενάρια: 5.000 προσομοιώσεις όπου κάθε υπόλοιπος μήνας συμπεριφέρεται σαν έναν τυχαίο ολοκληρωμένο μήνα του {{ year }}·
@@ -255,7 +266,7 @@ function initChart() {
       (d.inLo ? '<span class="yr-tip-sum">Εύρος εσόδων ' + d.inLo + ' – ' + d.inHi + ' €</span>' : '') +
       row('<i class="yr-dot yr-dot--out"></i>', 'Λειτουργικά έξοδα', d.out) +
       (d.dep ? row('', 'Αποσβέσεις', '− ' + d.dep) : '') +
-      (d.outLo ? '<span class="yr-tip-sum">Εύρος εξόδων ' + d.outLo + ' – ' + d.outHi + ' €' + (d.dep ? ' (με αποσβέσεις)' : '') + '</span>' : '') +
+      (d.outLo ? '<span class="yr-tip-sum">Εύρος εξόδων ' + d.outLo + ' – ' + d.outHi + ' €</span>' : '') +
       '<span class="yr-tip-bal' + (d.neg === '1' ? ' is-neg' : '') + '">Αποτέλεσμα<em>' + d.res + ' €</em></span>' +
       (d.lo ? '<span class="yr-tip-sum">Εύρος ' + d.lo + ' – ' + d.hi + ' €</span>' : '') +
       (d.prev ? '<span class="yr-tip-sum">Πέρσι ίδιο διάστημα ' + d.prev + ' €</span>' : '');
@@ -313,6 +324,9 @@ wrap.addEventListener('click', e => {
   form.querySelectorAll('input').forEach(i => { i.value = ''; });
   form.requestSubmit();
 });
+// Sliders μεταβλητότητας (στο γράφημα, form="fc-form"): ζωντανή ένδειξη %, νέος υπολογισμός όταν αφεθούν.
+wrap.addEventListener('input', e => { if (e.target.matches('.fc-vol input')) e.target.nextElementSibling.value = e.target.value + '%'; });
+wrap.addEventListener('change', e => { if (e.target.matches('.fc-vol input')) form.requestSubmit(); });
 })();
 </script>
 {% endblock %}

@@ -2879,14 +2879,15 @@ def _forecast(cur: list[float], prev: list[float], done: int, start: int = 0) ->
 
 
 def _scenarios(cur_in, cur_out, prev_in, prev_out, done: int, seed: int, start: int = 0, fixed: list[float] | None = None,
-               known_in: list[float] | None = None, known_out: list[float] | None = None, runs: int = 5000) -> dict | None:
+               known_in: list[float] | None = None, known_out: list[float] | None = None, runs: int = 5000,
+               vol_in: float = 1.0, vol_out: float = 1.0) -> dict | None:
     """Bootstrap: κάθε υπόλοιπος μήνας παίρνει την απόκλιση (πραγματικό − αναμενόμενο) ενός τυχαίου ολοκληρωμένου μήνα
     (ίδιου για έσοδα/έξοδα — κρατά τη συσχέτιση). fixed = ντετερμινιστικές εκροές ανά μήνα (σταθερά
     έξοδα, κόστος παγίων) που αφαιρούνται χωρίς τύχη· known_in / known_out = προγραμματισμένα ποσά
     ανά μήνα: πιάνονται ή χάνονται, ποτέ δεν ξεπερνιούνται — ο μήνας k απέχει από το αναμενόμενο
     όσο ο ολοκληρωμένος μήνας k, αλλά μόνο προς το χειρότερο (έσοδα ≤, έξοδα ≥ πρόγραμμα). Επιστρέφει P10/P50/P90 του αποτελέσματος
     έτους και τα σωρευτικά P10/P90 ανά μήνα (μόνο οι μήνες ≥ done), το ίδιο για έσοδα (in) και έξοδα (out)·
-    None αν < 2 μήνες.
+    vol_in / vol_out = πολλαπλασιαστής των αποκλίσεων (0 = χωρίς αβεβαιότητα, 2 = διπλάσια)· None αν < 2 μήνες.
     ponytail: με λίγους μήνες το εύρος υποεκτιμάται — ιστορικό περισσότερων ετών αν χρειαστεί."""
     if done - start < 2:
         return None
@@ -2894,15 +2895,15 @@ def _scenarios(cur_in, cur_out, prev_in, prev_out, done: int, seed: int, start: 
     rng = random.Random(seed)
     base = sum(cur_in[:done]) - sum(cur_out[:done]) - sum(fixed[:done])
 
-    def residuals(cur, prev):  # (αναμενόμενο μήνα m, {k: πραγματικό − αναμενόμενο})
+    def residuals(cur, prev, vol):  # (αναμενόμενο μήνα m, {k: (πραγματικό − αναμενόμενο) × vol})
         # Διαφορά, όχι λόγος: περσινός μήνας ≈ 0 με φετινό μεγάλο δεν βγάζει συντελεστή ×60.
         prev_same = sum(prev[start:done])
         ratio = sum(cur[start:done]) / prev_same if prev_same > 0 else 0
         mean = sum(cur[start:done]) / (done - start)
         exp = lambda m: prev[m] * ratio if prev_same > 0 else mean  # noqa: E731
-        return exp, {k: cur[k] - exp(k) for k in range(start, done)}
+        return exp, {k: (cur[k] - exp(k)) * vol for k in range(start, done)}
 
-    (e_in, r_in), (e_out, r_out) = residuals(cur_in, prev_in), residuals(cur_out, prev_out)
+    (e_in, r_in), (e_out, r_out) = residuals(cur_in, prev_in, vol_in), residuals(cur_out, prev_out, vol_out)
     s_in = lambda m, k: max(e_in(m) + r_in[k], 0.0)  # noqa: E731
     s_out = lambda m, k: max(e_out(m) + r_out[k], 0.0)  # noqa: E731
     if known_in:
@@ -3084,7 +3085,12 @@ def _forecast_chart(inc: list[float], out: list[float], res_m: list[float], prev
     W, H, left, right, top, bottom = 760, 280, 58, 118, 16, 30
     base = H - bottom
     ci, co, res, pr = (list(accumulate(v)) for v in (inc, out, res_m, prev_res))
-    values = ci + co + res + pr + (sc["lo"] + sc["hi"] if sc else []) + [0]
+    bands = {}  # key → (εύρος σεναρίων, σωρευτική γραμμή)
+    if sc:
+        # Η γραμμή εξόδων δεν έχει τις αποσβέσεις (μπαίνουν στο αποτέλεσμα τον Δεκέμβριο): ούτε το εύρος της.
+        out_b = {k: sc["out"][k][:-1] + [round(sc["out"][k][-1] - dep, 2)] for k in ("lo", "hi")}
+        bands = {"in": (sc["in"], ci), "out": (out_b, co), "res": (sc, res)}
+    values = ci + co + res + pr + [v for b, _ in bands.values() for v in b["lo"] + b["hi"]] + [0]
     step = _nice_step(max(values) - min(min(values), 0))
     lo, hi = step * (min(values) // step), step * -(-max(values) // step)
     hi = hi if hi > lo else lo + step
@@ -3099,30 +3105,28 @@ def _forecast_chart(inc: list[float], out: list[float], res_m: list[float], prev
         return {"actual": "M" + pts(vals, actual) if done > 1 else "", "future": "M" + pts(vals, future),
                 "area": f"M{x(0)},{y(max(lo, 0))} L" + pts(vals, range(12)) + f" L{x(11)},{y(max(lo, 0))}Z"}
 
-    fan = ""
-    if sc:
-        start = res[done - 1]
-        fan = ("M" + f"{x(split)},{y(start)} " + " ".join(f"{x(done + i)},{y(v)}" for i, v in enumerate(sc["hi"]))
-               + " L" + " ".join(f"{x(done + i)},{y(v)}" for i, v in reversed(list(enumerate(sc["lo"])))) + "Z")
+    def fan(b, cum):  # βεντάλια από το τελευταίο πραγματικό σημείο: πάνω όριο → πίσω από το κάτω
+        return ("M" + f"{x(split)},{y(cum[done - 1])} " + " ".join(f"{x(done + i)},{y(v)}" for i, v in enumerate(b["hi"]))
+                + " L" + " ".join(f"{x(done + i)},{y(v)}" for i, v in reversed(list(enumerate(b["lo"])))) + "Z")
+
+    fans = {key: fan(b, cum) for key, (b, cum) in bands.items()}
     # Ετικέτες τέλους: ελάχιστη απόσταση 15px ώστε να μη συγκρούονται.
     ends = sorted([{"key": "in", "label": "Έσοδα", "v": ci[-1]}, {"key": "out", "label": "Έξοδα", "v": co[-1]},
                    {"key": "res", "label": "Αποτέλεσμα", "v": res[-1]}], key=lambda e: y(e["v"]))
     last = -99
-    band = lambda b, i, k: b[k][i - done] if b and i >= done else None  # noqa: E731
     for e in ends:
         e["y"], e["ly"] = y(e["v"]), max(y(e["v"]), last + 15)
         last = e["ly"]
     months = [{"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(left + slot * i, 1), "w": round(slot, 1),
                "in": round(ci[i], 2), "out": round(co[i], 2), "res": round(res[i], 2), "prev": round(pr[i], 2),
                "forecast": i >= done, "dep": dep if i == 11 else 0,
-               "lo": band(sc, i, "lo"), "hi": band(sc, i, "hi"),
-               "in_lo": band(sc and sc["in"], i, "lo"), "in_hi": band(sc and sc["in"], i, "hi"),
-               "out_lo": band(sc and sc["out"], i, "lo"), "out_hi": band(sc and sc["out"], i, "hi")}
+               **{f"{key}_{k}": bands[key][0][k][i - done] if key in bands and i >= done else None
+                  for key in ("in", "out", "res") for k in ("lo", "hi")}}
               for i in range(12)]
     ticks = [{"v": lo + step * k, "y": y(lo + step * k)} for k in range(int(round((hi - lo) / step)) + 1)]
     return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "zero": y(0),
             "split_x": round(left + slot * done, 1), "done": done, "months": months, "ticks": ticks, "ends": ends,
-            "in": line(ci), "out": line(co), "res": line(res), "prev": "M" + pts(pr, range(12)), "fan": fan,
+            "in": line(ci), "out": line(co), "res": line(res), "prev": "M" + pts(pr, range(12)), "fans": fans,
             "end_x": x(11)}
 
 
@@ -3149,6 +3153,7 @@ def reports_forecast():
         large = 0.0
     planned_in = amount("planned_income", "προγραμματισμένα έσοδα")
     planned_out = amount("planned_expense", "προγραμματισμένα έξοδα")
+    vol = {k: min(max(request.args.get(k, 100, type=int), 0), 200) for k in ("vol_in", "vol_out")}  # μεταβλητότητα %
 
     past = sorted(int(y) for y in db.document_years(cid) if y.isdigit() and int(y) < year)
     years = sorted({year, year - 1, *past})
@@ -3203,7 +3208,8 @@ def reports_forecast():
     res_m = [round(i - o - d, 2) for i, o, d in zip(f_in, f_op, dep_m)]
     sc = _scenarios(cur_in, cur_var, prev_in, prev_var, done, seed=year, start=start,
                     fixed=[a + b for a, b in zip(f_fixed, dep_m)],
-                    known_in=f_in if planned_in is not None else None, known_out=f_var if planned_out is not None else None)
+                    known_in=f_in if planned_in is not None else None, known_out=f_var if planned_out is not None else None,
+                    vol_in=vol["vol_in"] / 100, vol_out=vol["vol_out"] / 100)
     rows = [{"label": f"{_GREEK_MONTHS[m]} {year}", "income": f_in[m], "fixed": f_fixed[m], "variable": f_var[m],
              "dep": dep_m[m], "expense": round(f_op[m] + dep_m[m], 2), "balance": res_m[m], "forecast": m >= done,
              "planned": m >= done and (planned_in is not None or planned_out is not None)}
@@ -3246,7 +3252,7 @@ def reports_forecast():
         has_prev=any(prev_in) or any(prev_op), prev_in_total=tot(prev_in), errors=errors,
         fixed=[{"label": EXPENSE_TYPES.get(t, t), "code": t, "amount": v} for t, v in fixed.items()],
         dep=dep, form={k: request.args.get(k, "") for k in ("assets_small", "assets_large", "planned_income", "planned_expense")},
-        forecast_in=forecast_in, forecast_var=forecast_var,
+        forecast_in=forecast_in, forecast_var=forecast_var, vol=vol,
         depr_limit=_DEPR_FULL_LIMIT, depr_rate=round(_DEPR_RATE * 100),
         chart=_forecast_chart(f_in, f_op, res_m, prev_res, sc, done, dep["total"]),
     )

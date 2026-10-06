@@ -43,6 +43,11 @@ assert s == A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=2026)
 assert s["in"]["lo"][0] >= sum(cur[:3]) and s["out"]["lo"][0] >= sum(out[:3]), s
 assert s["in"]["p10"] <= s["in"]["p50"] <= s["in"]["p90"] and s["out"]["p10"] <= s["out"]["p90"]
 assert len(s["in"]["hi"]) == len(s["out"]["hi"]) == 9
+# Μεταβλητότητα: 0 → χωρίς εύρος· 2 → φαρδύτερο εύρος· ανεξάρτητα για έσοδα / έξοδα.
+s0 = A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=2026, vol_in=0, vol_out=0)
+assert s0["in"]["p10"] == s0["in"]["p90"] and s0["out"]["p10"] == s0["out"]["p90"], s0
+s2x = A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=2026, vol_in=2)
+assert s2x["in"]["p90"] - s2x["in"]["p10"] > s["in"]["p90"] - s["in"]["p10"] and s2x["out"] == s["out"]
 assert A._scenarios(cur, out, prev, prev, 1, seed=1) is None
 assert A._scenarios(late, late, prev, prev, 4, seed=1, start=3) is None  # 1 μήνας με κίνηση
 # Τρέχων μήνας με καταχωρημένα 10.000: κανένα σενάριο κάτω από αυτά.
@@ -82,9 +87,11 @@ assert A._depreciation({}, 2026, large=6000, months=4)["total"] == 400.0  # αγ
 
 # Γράφημα: 12 στήλες, βεντάλια μόνο με σενάρια, κόστος παγίων στον Δεκέμβριο.
 ch = A._forecast_chart(cur[:3] + [120.0] * 9, out[:3] + [60.0] * 9, [40.0] * 12, [40.0] * 12, s, 3, dep=500)
-assert len(ch["months"]) == 12 and ch["fan"] and ch["months"][3]["forecast"] and not ch["months"][2]["forecast"]
+assert len(ch["months"]) == 12 and set(ch["fans"]) == {"in", "out", "res"}
+assert ch["months"][3]["forecast"] and not ch["months"][2]["forecast"] and ch["months"][2]["in_lo"] is None
 assert ch["months"][11]["dep"] == 500 and ch["months"][10]["dep"] == 0
-assert A._forecast_chart([0.0] * 12, [0.0] * 12, [0.0] * 12, [0.0] * 12, None, 0)["fan"] == ""
+assert ch["months"][11]["out_hi"] == round(s["out"]["hi"][-1] - 500, 2)  # εύρος εξόδων χωρίς αποσβέσεις, όπως η γραμμή
+assert A._forecast_chart([0.0] * 12, [0.0] * 12, [0.0] * 12, [0.0] * 12, None, 0)["fans"] == {}
 
 # Σενάρια: οι σταθερές εκροές μετατοπίζουν όλη την κατανομή.
 s2 = A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=2026, fixed=[0.0] * 11 + [100.0])
@@ -117,7 +124,7 @@ c = A.app.test_client()
 for q, err in (("", False), ("?assets_small=800&assets_large=2000", False), ("?assets_small=1.200,50", False),
                ("?assets_large=1000", True), ("?assets_small=abc", True), ("?assets_large=nan", True),
                ("?planned_income=10000&planned_expense=0", False), ("?planned_income=-5", True),
-               ("?planned_expense=abc", True)):
+               ("?planned_expense=abc", True), ("?vol_in=0&vol_out=200", False), ("?vol_in=abc&vol_out=999", False)):
     r = c.get("/reports/forecast" + q)
     assert r.status_code == 200 and "Πρόβλεψη έτους".encode() in r.data, (q, r.status_code)
     assert (b'class="flash error' in r.data) == err, q
