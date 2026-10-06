@@ -1791,7 +1791,7 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .fc-vol label{display:flex;align-items:center;gap:8px}
 .fc-vol input{width:160px} .fc-vol output{min-width:3.2em;font-variant-numeric:tabular-nums}
 .fc-vol--in input{accent-color:var(--yr-in)} .fc-vol--out input{accent-color:var(--yr-out)}
-.fc-vol small{flex-basis:100%;font-weight:400}
+.fc-vol small{flex-basis:100%;font-weight:400;margin-bottom:6px}
 .fc-dash{display:inline-block;width:16px;margin-right:7px;border-top:2px dotted var(--muted);vertical-align:3px}
 .fc-zone{fill:url(#fc-hatch);opacity:.5}
 .fc-hatch-fg{fill:var(--line)}

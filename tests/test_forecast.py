@@ -133,6 +133,14 @@ assert f"Σύνολο {y0}".encode() in r.data and f"Σύνολο {y0 - 1}".enco
 row = r.data.decode().split(f"Σύνολο {y0}</th>")[1].split("</tr>")[0]
 cells = A.re.findall(r">([\d.,-]+)<", row)  # έσοδα, σταθερά, μεταβλητά, αποσβέσεις, σύνολο εξόδων, αποτέλεσμα
 assert cells == ["1.000,00", "0,00", "300,00", "400,00", "700,00", "300,00"], cells  # πάγιο 2.000 → 20%
+# Μετατόπιση: +20% έσοδα / −50% έξοδα αλλάζουν την πρόβλεψη (KPI έσοδα, έξοδα)· άκυρο → 0.
+for i, kind in enumerate(("income", "expense")):  # περσινός Δεκέμβριος: πάντα μήνας πρόβλεψης
+    db.upsert_document(tcid, kind, {"mark": f"N{i}", "issue_date": f"{y0}-12-15", "invoice_type": "1.1",
+                                    "total_net": 800, "total_vat": 0, "total_gross": 800, "cls_info": []}, "classified")
+kpis = lambda q: [float(v) for v in A.re.findall(r'data-num="([-\d.]+)"', c.get("/reports/forecast" + q).data.decode())[:2]]  # noqa: E731
+(i0, e0), (i1, e1) = kpis(""), kpis("?shift_in=20&shift_out=-50")
+assert i1 > i0 and e1 < e0, (i0, e0, i1, e1)
+assert kpis("?shift_in=abc&shift_out=999")[0] == i0 and kpis("?shift_in=-999")[0] < i0
 with A.app.test_request_context("/?assets_small=1.200,50&assets_large=nan"):
     assert A._amount_arg("assets_small") == 1200.5 and A._amount_arg("x") is None
     try:

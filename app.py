@@ -2880,14 +2880,15 @@ def _forecast(cur: list[float], prev: list[float], done: int, start: int = 0) ->
 
 def _scenarios(cur_in, cur_out, prev_in, prev_out, done: int, seed: int, start: int = 0, fixed: list[float] | None = None,
                known_in: list[float] | None = None, known_out: list[float] | None = None, runs: int = 5000,
-               vol_in: float = 1.0, vol_out: float = 1.0) -> dict | None:
+               vol_in: float = 1.0, vol_out: float = 1.0, shift_in: float = 1.0, shift_out: float = 1.0) -> dict | None:
     """Bootstrap: κάθε υπόλοιπος μήνας παίρνει την απόκλιση (πραγματικό − αναμενόμενο) ενός τυχαίου ολοκληρωμένου μήνα
     (ίδιου για έσοδα/έξοδα — κρατά τη συσχέτιση). fixed = ντετερμινιστικές εκροές ανά μήνα (σταθερά
     έξοδα, κόστος παγίων) που αφαιρούνται χωρίς τύχη· known_in / known_out = προγραμματισμένα ποσά
     ανά μήνα: πιάνονται ή χάνονται, ποτέ δεν ξεπερνιούνται — ο μήνας k απέχει από το αναμενόμενο
     όσο ο ολοκληρωμένος μήνας k, αλλά μόνο προς το χειρότερο (έσοδα ≤, έξοδα ≥ πρόγραμμα). Επιστρέφει P10/P50/P90 του αποτελέσματος
     έτους και τα σωρευτικά P10/P90 ανά μήνα (μόνο οι μήνες ≥ done), το ίδιο για έσοδα (in) και έξοδα (out)·
-    vol_in / vol_out = πολλαπλασιαστής των αποκλίσεων (0 = χωρίς αβεβαιότητα, 2 = διπλάσια)· None αν < 2 μήνες.
+    vol_in / vol_out = πολλαπλασιαστής των αποκλίσεων (0 = χωρίς αβεβαιότητα, 2 = διπλάσια)· shift_in / shift_out =
+    πολλαπλασιαστής του αναμενόμενου (τα known_* έρχονται ήδη μετατοπισμένα)· None αν < 2 μήνες.
     ponytail: με λίγους μήνες το εύρος υποεκτιμάται — ιστορικό περισσότερων ετών αν χρειαστεί."""
     if done - start < 2:
         return None
@@ -2904,8 +2905,8 @@ def _scenarios(cur_in, cur_out, prev_in, prev_out, done: int, seed: int, start: 
         return exp, {k: (cur[k] - exp(k)) * vol for k in range(start, done)}
 
     (e_in, r_in), (e_out, r_out) = residuals(cur_in, prev_in, vol_in), residuals(cur_out, prev_out, vol_out)
-    s_in = lambda m, k: max(e_in(m) + r_in[k], 0.0)  # noqa: E731
-    s_out = lambda m, k: max(e_out(m) + r_out[k], 0.0)  # noqa: E731
+    s_in = lambda m, k: max(e_in(m) * shift_in + r_in[k], 0.0)  # noqa: E731
+    s_out = lambda m, k: max(e_out(m) * shift_out + r_out[k], 0.0)  # noqa: E731
     if known_in:
         s_in = lambda m, k: max(known_in[m] + min(r_in[k], 0.0), 0.0)  # noqa: E731
     if known_out:
@@ -3154,6 +3155,7 @@ def reports_forecast():
     planned_in = amount("planned_income", "προγραμματισμένα έσοδα")
     planned_out = amount("planned_expense", "προγραμματισμένα έξοδα")
     vol = {k: min(max(request.args.get(k, 100, type=int), 0), 200) for k in ("vol_in", "vol_out")}  # μεταβλητότητα %
+    shift = {k: min(max(request.args.get(k, 0, type=int), -50), 50) for k in ("shift_in", "shift_out")}  # μετατόπιση %
 
     past = sorted(int(y) for y in db.document_years(cid) if y.isdigit() and int(y) < year)
     years = sorted({year, year - 1, *past})
@@ -3201,6 +3203,10 @@ def reports_forecast():
     if planned_out is not None:
         f_var[done:], label_var = plan(planned_out, f_var[done:], booked_var)
     f_fixed = [round(v, 2) for v in cur_fixed[:done]] + [round(sum(fixed.values()), 2)] * (12 - done)
+    # Μετατόπιση «τι θα γίνει αν» (sliders): ±% στους μήνες πρόβλεψης, ποτέ κάτω από τα ήδη καταχωρημένα.
+    k_in, k_out = 1 + shift["shift_in"] / 100, 1 + shift["shift_out"] / 100
+    for f, cur, k in ((f_in, cur_in, k_in), (f_var, cur_var, k_out), (f_fixed, cur_fixed, k_out)):
+        f[done:] = [round(max(v * k, c), 2) for v, c in zip(f[done:], cur[done:])]
     dep = _depreciation(asset_lines, year, small, large, months=12 - done)  # αγορά μέσα στον τρέχοντα μήνα
     dep_m = [0.0] * 11 + [dep["total"]]  # απόσβεση: εγγραφή τέλους χρήσης
 
@@ -3209,7 +3215,7 @@ def reports_forecast():
     sc = _scenarios(cur_in, cur_var, prev_in, prev_var, done, seed=year, start=start,
                     fixed=[a + b for a, b in zip(f_fixed, dep_m)],
                     known_in=f_in if planned_in is not None else None, known_out=f_var if planned_out is not None else None,
-                    vol_in=vol["vol_in"] / 100, vol_out=vol["vol_out"] / 100)
+                    vol_in=vol["vol_in"] / 100, vol_out=vol["vol_out"] / 100, shift_in=k_in, shift_out=k_out)
     rows = [{"label": f"{_GREEK_MONTHS[m]} {year}", "income": f_in[m], "fixed": f_fixed[m], "variable": f_var[m],
              "dep": dep_m[m], "expense": round(f_op[m] + dep_m[m], 2), "balance": res_m[m], "forecast": m >= done,
              "planned": m >= done and (planned_in is not None or planned_out is not None)}
@@ -3252,7 +3258,7 @@ def reports_forecast():
         has_prev=any(prev_in) or any(prev_op), prev_in_total=tot(prev_in), errors=errors,
         fixed=[{"label": EXPENSE_TYPES.get(t, t), "code": t, "amount": v} for t, v in fixed.items()],
         dep=dep, form={k: request.args.get(k, "") for k in ("assets_small", "assets_large", "planned_income", "planned_expense")},
-        forecast_in=forecast_in, forecast_var=forecast_var, vol=vol,
+        forecast_in=forecast_in, forecast_var=forecast_var, vol=vol, shift=shift,
         depr_limit=_DEPR_FULL_LIMIT, depr_rate=round(_DEPR_RATE * 100),
         chart=_forecast_chart(f_in, f_op, res_m, prev_res, sc, done, dep["total"]),
     )

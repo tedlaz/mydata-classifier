@@ -189,17 +189,24 @@
       </svg>
       <div class="yr-tip" role="status" hidden></div>
     </div>
-    {% if sc %}
     <div class="fc-vol">
+      {% for key, label, cls in (('shift_in', 'Έσοδα', 'in'), ('shift_out', 'Έξοδα', 'out')) %}
+      <label class="fc-vol--{{ cls }}">{{ label }}
+        <input type="range" form="fc-form" name="{{ key }}" min="-50" max="50" step="5" value="{{ shift[key] }}" list="fc-shift-ticks" data-sign>
+        <output>{{ '%+d'|format(shift[key]) if shift[key] else 0 }}%</output></label>
+      {% endfor %}
+      <small class="muted">Τι θα γίνει αν: ± στα έσοδα / λειτουργικά έξοδα των μηνών πρόβλεψης (όχι κάτω από τα ήδη καταχωρημένα) — αλλάζει την πρόβλεψη.</small>
+      {% if sc %}
       {% for key, label, cls in (('vol_in', 'Μεταβλητότητα εσόδων', 'in'), ('vol_out', 'Μεταβλητότητα εξόδων', 'out')) %}
       <label class="fc-vol--{{ cls }}">{{ label }}
         <input type="range" form="fc-form" name="{{ key }}" min="0" max="200" step="10" value="{{ vol[key] }}" list="fc-vol-ticks">
         <output>{{ vol[key] }}%</output></label>
       {% endfor %}
+      <small class="muted">Πλάτος του εύρους: 100% = όσο απείχαν οι ολοκληρωμένοι μήνες από το αναμενόμενο · 0% = χωρίς αβεβαιότητα — δεν αλλάζει την πρόβλεψη.</small>
+      {% endif %}
       <datalist id="fc-vol-ticks"><option value="0"></option><option value="100"></option><option value="200"></option></datalist>
-      <small class="muted">100% = όσο απείχαν οι ολοκληρωμένοι μήνες από το αναμενόμενο · 0% = χωρίς αβεβαιότητα</small>
+      <datalist id="fc-shift-ticks"><option value="-50"></option><option value="0"></option><option value="50"></option></datalist>
     </div>
-    {% endif %}
     <p class="muted small fc-method">
       Μέθοδος — έσοδα: {{ labels.income }} · μεταβλητά έξοδα: {{ labels.expense }} · σταθερά έξοδα: ίδια κάθε μήνα · αποσβέσεις: κατά τον κανόνα, τον Δεκέμβριο.
       {% if sc %}Σενάρια: 5.000 προσομοιώσεις όπου κάθε υπόλοιπος μήνας συμπεριφέρεται σαν έναν τυχαίο ολοκληρωμένο μήνα του {{ year }}·
@@ -324,8 +331,11 @@ wrap.addEventListener('click', e => {
   form.querySelectorAll('input').forEach(i => { i.value = ''; });
   form.requestSubmit();
 });
-// Sliders μεταβλητότητας (στο γράφημα, form="fc-form"): ζωντανή ένδειξη %, νέος υπολογισμός όταν αφεθούν.
-wrap.addEventListener('input', e => { if (e.target.matches('.fc-vol input')) e.target.nextElementSibling.value = e.target.value + '%'; });
+// Sliders μετατόπισης / μεταβλητότητας (στο γράφημα, form="fc-form"): ζωντανή ένδειξη %, νέος υπολογισμός όταν αφεθούν.
+wrap.addEventListener('input', e => {
+  const r = e.target;
+  if (r.matches('.fc-vol input')) r.nextElementSibling.value = (r.hasAttribute('data-sign') && r.value > 0 ? '+' : '') + r.value + '%';
+});
 wrap.addEventListener('change', e => { if (e.target.matches('.fc-vol input')) form.requestSubmit(); });
 })();
 </script>
