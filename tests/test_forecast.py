@@ -90,7 +90,7 @@ ch = A._forecast_chart(cur[:3] + [120.0] * 9, out[:3] + [60.0] * 9, [40.0] * 12,
 assert len(ch["months"]) == 12 and set(ch["fans"]) == {"in", "out", "res"}
 assert ch["months"][3]["forecast"] and not ch["months"][2]["forecast"] and ch["months"][2]["in_lo"] is None
 assert ch["months"][11]["dep"] == 500 and ch["months"][10]["dep"] == 0
-assert ch["months"][11]["out_hi"] == round(s["out"]["hi"][-1] - 500, 2)  # εύρος εξόδων χωρίς αποσβέσεις, όπως η γραμμή
+assert ch["months"][11]["out_hi"] == s["out"]["hi"][-1]  # εύρος συνόλου εξόδων (με αποσβέσεις), όπως η γραμμή
 assert A._forecast_chart([0.0] * 12, [0.0] * 12, [0.0] * 12, [0.0] * 12, None, 0)["fans"] == {}
 
 # Σενάρια: οι σταθερές εκροές μετατοπίζουν όλη την κατανομή.

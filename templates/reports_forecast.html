@@ -125,7 +125,7 @@
       <h2>📈 Σωρευτική πορεία {{ year }}</h2>
       <ul class="yr-legend">
         <li><i class="yr-dot yr-dot--in"></i>Έσοδα</li>
-        <li><i class="yr-dot yr-dot--out"></i>Λειτουργικά έξοδα</li>
+        <li><i class="yr-dot yr-dot--out"></i>Σύνολο εξόδων</li>
         <li><i class="yr-dot fc-dot--res"></i>Αποτέλεσμα</li>
         {% if sc %}<li><i class="yr-dot fc-dot--fan fc-fan--in"></i><i class="yr-dot fc-dot--fan fc-fan--out"></i><i class="yr-dot fc-dot--fan fc-fan--res"></i>Εύρος σεναρίων (10%–90%)</li>{% endif %}
         {% if has_prev %}<li><i class="fc-dash"></i>Αποτέλεσμα {{ prev_year }}</li>{% endif %}
@@ -271,8 +271,8 @@ function initChart() {
     tip.innerHTML = '<b>' + d.month + ' <small>' + (d.fc === '1' ? 'πρόβλεψη' : 'πραγματικό') + ' · σωρευτικά</small></b>' +
       row('<i class="yr-dot yr-dot--in"></i>', 'Έσοδα', d.in) +
       (d.inLo ? '<span class="yr-tip-sum">Εύρος εσόδων ' + d.inLo + ' – ' + d.inHi + ' €</span>' : '') +
-      row('<i class="yr-dot yr-dot--out"></i>', 'Λειτουργικά έξοδα', d.out) +
-      (d.dep ? row('', 'Αποσβέσεις', '− ' + d.dep) : '') +
+      row('<i class="yr-dot yr-dot--out"></i>', 'Σύνολο εξόδων', d.out) +
+      (d.dep ? row('', 'εκ των οποίων αποσβέσεις', d.dep) : '') +
       (d.outLo ? '<span class="yr-tip-sum">Εύρος εξόδων ' + d.outLo + ' – ' + d.outHi + ' €</span>' : '') +
       '<span class="yr-tip-bal' + (d.neg === '1' ? ' is-neg' : '') + '">Αποτέλεσμα<em>' + d.res + ' €</em></span>' +
       (d.lo ? '<span class="yr-tip-sum">Εύρος ' + d.lo + ' – ' + d.hi + ' €</span>' : '') +

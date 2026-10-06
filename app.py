@@ -3080,7 +3080,7 @@ def _forecast_chart(inc: list[float], out: list[float], res_m: list[float], prev
                     done: int, dep: float = 0.0) -> dict:
     """Γεωμετρία SVG (viewBox 760×280): σωρευτικές γραμμές εσόδων/εξόδων/αποτελέσματος — συνεχείς
     στους πραγματικούς μήνες, διακεκομμένες στην πρόβλεψη — με βεντάλια P10–P90 και περσινή αναφορά.
-    res_m = αποτέλεσμα ανά μήνα (με το κόστος παγίων dep τον Δεκέμβριο)."""
+    out = σύνολο εξόδων ανά μήνα και res_m = αποτέλεσμα ανά μήνα, και τα δύο με τις αποσβέσεις dep τον Δεκέμβριο."""
     from itertools import accumulate
 
     W, H, left, right, top, bottom = 760, 280, 58, 118, 16, 30
@@ -3088,9 +3088,7 @@ def _forecast_chart(inc: list[float], out: list[float], res_m: list[float], prev
     ci, co, res, pr = (list(accumulate(v)) for v in (inc, out, res_m, prev_res))
     bands = {}  # key → (εύρος σεναρίων, σωρευτική γραμμή)
     if sc:
-        # Η γραμμή εξόδων δεν έχει τις αποσβέσεις (μπαίνουν στο αποτέλεσμα τον Δεκέμβριο): ούτε το εύρος της.
-        out_b = {k: sc["out"][k][:-1] + [round(sc["out"][k][-1] - dep, 2)] for k in ("lo", "hi")}
-        bands = {"in": (sc["in"], ci), "out": (out_b, co), "res": (sc, res)}
+        bands = {"in": (sc["in"], ci), "out": (sc["out"], co), "res": (sc, res)}
     values = ci + co + res + pr + [v for b, _ in bands.values() for v in b["lo"] + b["hi"]] + [0]
     step = _nice_step(max(values) - min(min(values), 0))
     lo, hi = step * (min(values) // step), step * -(-max(values) // step)
@@ -3260,7 +3258,7 @@ def reports_forecast():
         dep=dep, form={k: request.args.get(k, "") for k in ("assets_small", "assets_large", "planned_income", "planned_expense")},
         forecast_in=forecast_in, forecast_var=forecast_var, vol=vol, shift=shift,
         depr_limit=_DEPR_FULL_LIMIT, depr_rate=round(_DEPR_RATE * 100),
-        chart=_forecast_chart(f_in, f_op, res_m, prev_res, sc, done, dep["total"]),
+        chart=_forecast_chart(f_in, [o + d for o, d in zip(f_op, dep_m)], res_m, prev_res, sc, done, dep["total"]),
     )
 
 def _vat_period_args(cid):
