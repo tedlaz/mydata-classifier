@@ -140,7 +140,8 @@ for i, kind in enumerate(("income", "expense")):  # περσινός Δεκέμ�
 kpis = lambda q: [float(v) for v in A.re.findall(r'data-num="([-\d.]+)"', c.get("/reports/forecast" + q).data.decode())[:2]]  # noqa: E731
 (i0, e0), (i1, e1) = kpis(""), kpis("?shift_in=20&shift_out=-50")
 assert i1 > i0 and e1 < e0, (i0, e0, i1, e1)
-assert kpis("?shift_in=abc&shift_out=999")[0] == i0 and kpis("?shift_in=-999")[0] < i0
+assert kpis("?shift_in=abc")[0] == i0 and kpis("?shift_in=-999")[0] < i0  # −999 → −100%: μόνο τα καταχωρημένα
+assert kpis("?shift_in=999")[0] == kpis("?shift_in=100")[0] > kpis("?shift_in=50")[0]  # όριο +100%
 with A.app.test_request_context("/?assets_small=1.200,50&assets_large=nan"):
     assert A._amount_arg("assets_small") == 1200.5 and A._amount_arg("x") is None
     try:

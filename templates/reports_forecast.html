@@ -192,7 +192,7 @@
     <div class="fc-vol">
       {% for key, label, cls in (('shift_in', 'Έσοδα', 'in'), ('shift_out', 'Έξοδα', 'out')) %}
       <label class="fc-vol--{{ cls }}">{{ label }}
-        <input type="range" form="fc-form" name="{{ key }}" min="-50" max="50" step="5" value="{{ shift[key] }}" list="fc-shift-ticks" data-sign>
+        <input type="range" form="fc-form" name="{{ key }}" min="-100" max="100" step="5" value="{{ shift[key] }}" list="fc-shift-ticks" data-sign>
         <output>{{ '%+d'|format(shift[key]) if shift[key] else 0 }}%</output></label>
       {% endfor %}
       <small class="muted">Τι θα γίνει αν: ± στα έσοδα / λειτουργικά έξοδα των μηνών πρόβλεψης (όχι κάτω από τα ήδη καταχωρημένα) — αλλάζει την πρόβλεψη.</small>
@@ -205,7 +205,7 @@
       <small class="muted">Πλάτος του εύρους: 100% = όσο απείχαν οι ολοκληρωμένοι μήνες από το αναμενόμενο · 0% = χωρίς αβεβαιότητα — δεν αλλάζει την πρόβλεψη.</small>
       {% endif %}
       <datalist id="fc-vol-ticks"><option value="0"></option><option value="100"></option><option value="200"></option></datalist>
-      <datalist id="fc-shift-ticks"><option value="-50"></option><option value="0"></option><option value="50"></option></datalist>
+      <datalist id="fc-shift-ticks"><option value="-100"></option><option value="0"></option><option value="100"></option></datalist>
     </div>
     <p class="muted small fc-method">
       Μέθοδος — έσοδα: {{ labels.income }} · μεταβλητά έξοδα: {{ labels.expense }} · σταθερά έξοδα: ίδια κάθε μήνα · αποσβέσεις: κατά τον κανόνα, τον Δεκέμβριο.

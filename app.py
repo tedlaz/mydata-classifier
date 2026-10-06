@@ -3155,7 +3155,7 @@ def reports_forecast():
     planned_in = amount("planned_income", "προγραμματισμένα έσοδα")
     planned_out = amount("planned_expense", "προγραμματισμένα έξοδα")
     vol = {k: min(max(request.args.get(k, 100, type=int), 0), 200) for k in ("vol_in", "vol_out")}  # μεταβλητότητα %
-    shift = {k: min(max(request.args.get(k, 0, type=int), -50), 50) for k in ("shift_in", "shift_out")}  # μετατόπιση %
+    shift = {k: min(max(request.args.get(k, 0, type=int), -100), 100) for k in ("shift_in", "shift_out")}  # μετατόπιση %
 
     past = sorted(int(y) for y in db.document_years(cid) if y.isdigit() and int(y) < year)
     years = sorted({year, year - 1, *past})
