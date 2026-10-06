@@ -2874,6 +2874,7 @@ def _forecast(cur: list[float], prev: list[float], done: int, start: int = 0) ->
         rest, label = [actual / n] * (12 - done), "μέσος όρος ολοκληρωμένων μηνών"
     else:
         rest, label = prev[done:], "περσινά ποσά (δεν υπάρχει ακόμα ολοκληρωμένος μήνας με κίνηση)"
+    rest = [max(r, c) for r, c in zip(rest, cur[done:])]  # ήδη καταχωρημένα: η πρόβλεψη δεν πέφτει κάτω απ' αυτά
     return [round(v, 2) for v in cur[:done] + rest], label
 
 
@@ -2918,7 +2919,7 @@ def _scenarios(cur_in, cur_out, prev_in, prev_out, done: int, seed: int, start: 
         acc, path = base, []
         for m in range(done, 12):
             k = rng.randrange(start, done)
-            acc += s_in(m, k) - s_out(m, k) - fixed[m]
+            acc += max(s_in(m, k), cur_in[m]) - max(s_out(m, k), cur_out[m]) - fixed[m]  # ≥ ήδη καταχωρημένα
             path.append(acc)
         paths.append(path)
     q = lambda xs: statistics.quantiles(xs, n=10)  # noqa: E731

@@ -29,6 +29,10 @@ f, _ = A._forecast(late, [0.0] * 12, 4, start=2)
 assert f[4:] == [100.0] * 8, f
 assert len(A._forecast([0.0] * 12, prev, 5, start=5)[0]) == 12  # χωρίς κίνηση: τα περσινά
 
+# 5) Τρέχων μήνας με καταχωρημένα πάνω από τη στατιστική: η πρόβλεψη δεν πέφτει κάτω από αυτά.
+f, _ = A._forecast(cur[:3] + [500.0] + [0.0] * 8, prev, 3)
+assert f[3] == 500.0 and f[4:6] == [120.0] * 2, f
+
 # Σενάρια: P10 ≤ P50 ≤ P90, ντετερμινιστικά με ίδιο seed, κανένα με < 2 μήνες.
 out = [50.0, 80.0, 40.0] + [0.0] * 9
 s = A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=2026)
@@ -37,6 +41,9 @@ assert len(s["lo"]) == len(s["hi"]) == 9 and all(lo <= hi for lo, hi in zip(s["l
 assert s == A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=2026)
 assert A._scenarios(cur, out, prev, prev, 1, seed=1) is None
 assert A._scenarios(late, late, prev, prev, 4, seed=1, start=3) is None  # 1 μήνας με κίνηση
+# Τρέχων μήνας με καταχωρημένα 10.000: κανένα σενάριο κάτω από αυτά.
+sb = A._scenarios(cur[:3] + [10000.0] + [0.0] * 8, out, prev, [60.0] * 12, 3, seed=2026)
+assert sb["lo"][0] >= 360 - 170 + 10000 - 60 * 12, sb
 
 # Σταθερά έξοδα: ΕΦΚΑ σε κάθε μήνα → σταθερό, flat· τα πάγια/αποσβέσεις δεν μπαίνουν στις ροές.
 def doc(date, cls, itype="1.1"):
