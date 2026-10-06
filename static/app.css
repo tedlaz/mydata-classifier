@@ -861,6 +861,7 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .yr-total th{font-family:var(--font-ui);text-align:left;font-size:.84rem}
 .yr-total--in th,.yr-total--in td{background:var(--yr-in-soft);border-top:2px solid var(--yr-in)}
 .yr-total--out th,.yr-total--out td{background:var(--yr-out-soft)}
+.yr-table .yr-row--out td,.yr-table .yr-row--out button.yr-kind:not(:hover):not(:focus-visible),.yr-total--out th,.yr-total--out td{color:var(--err)}
 .yr-total td[rowspan]{vertical-align:middle;background:var(--surface-2);border-top:2px solid var(--line)}
 .yr-total .yr-sticky{background:var(--surface)}
 .yr-total--in .yr-sticky{box-shadow:inset 4px 0 0 var(--yr-in)} .yr-total--out .yr-sticky{box-shadow:inset 4px 0 0 var(--yr-out)}

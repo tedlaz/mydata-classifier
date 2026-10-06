@@ -196,7 +196,7 @@
           </td>
           {{ amounts(r.income) }}
         </tr>
-        <tr>
+        <tr class="yr-row--out">
           <td><button type="button" class="yr-kind yr-kind--out" data-docs="{{ url_for('reports_yearly_docs', year=year, kind='expense', unc=1 if unc else None, **r.docs) }}"
                       title="Αναλυτικά τα παραστατικά εξόδων {{ 'του τριμήνου' if per_q else 'του μήνα' }}"><i class="yr-dot yr-dot--out"></i>Έξοδα</button></td>
           <td class="num yr-net">{{ net(r.expense.net, 'out') }}</td>
