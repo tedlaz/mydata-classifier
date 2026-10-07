@@ -844,6 +844,8 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .yr-tip{position:absolute;top:4px;transform:translateX(-50%);width:max-content;min-width:260px;padding:12px 14px;border-radius:10px;pointer-events:none;
   background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow-hi);font-size:.8rem;z-index:3}
 .yr-tip b{display:block;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--line-soft);font-size:.86rem}
+.yr-tip-2{display:grid;grid-template-columns:auto auto;gap:0 22px}
+.yr-tip .yr-tip-sec{margin:0 0 4px;padding-bottom:2px;border-bottom:none;font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .yr-tip span{display:flex;align-items:center;gap:0;padding:3px 0;color:var(--ink-2);white-space:nowrap}
 .yr-tip em{margin-left:auto;padding-left:24px;white-space:nowrap;font-style:normal;font-family:var(--font-data);font-weight:600;color:var(--ink)}
 .yr-tip-bal{margin-top:6px;padding-top:8px !important;border-top:1px solid var(--line-soft);font-weight:700;color:var(--ink) !important}
@@ -1597,6 +1599,7 @@ button.db-kpi:hover{filter:none;box-shadow:none}
 /* Ανανέωση AJAX της ετήσιας σύνοψης: τα νέα κομμάτια χωρίς εισαγωγικά animations, οι μπάρες «μεταμορφώνονται» */
 .yr-unc.is-busy{cursor:progress}
 .yr2.is-live .yr-cols *,.yr2.is-live .yr-table-card,.yr2.is-live .yr-table-card *,.yr2.is-live .yr-pl-card{animation:none!important}
+.yr2.is-live .fc-area,.yr2.is-live .fc-end text{opacity:1}
 .yr2 .yr-bar{transition:d .5s var(--ease),opacity .15s}
 @media (prefers-reduced-motion:reduce){.yr2 .yr-bar{transition:none}}
 /* Δήλωση ΦΠΑ: ανανέωση AJAX — τα νέα κομμάτια χωρίς εισαγωγικό animation, απαλό «σβήσιμο» όσο φορτώνει */

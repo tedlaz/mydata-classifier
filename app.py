@@ -2673,12 +2673,21 @@ def reports_yearly():
     total = lambda part: {c: round(sum(r[part][c] for r in rows), 2) for c in _YEARLY_COLUMNS}  # noqa: E731
     pl = _pl(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year),
              db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year))  # ίδιο με την ανάλυση Ε3
+    # Διάγραμμα: σωρευτική πορεία όπως στην πρόβλεψη (υπόλοιπο εσ. − εξ.), με το περσινό ίδιο διάστημα.
+    prev_y = str(int(year) - 1)
+    prev_t = {k: _yearly_totals(db.yearly_documents(cid, k, _yearly_statuses(k, unc), prev_y), stock_in("yearly"))
+              for k in ("income", "expense")}
+    prev_bal = [prev_t["income"][m]["net"] - prev_t["expense"][m]["net"] for m in range(1, 13)]
+    has_prev = any(prev_t[k][m]["net"] for k in prev_t for m in range(1, 13))
+    cum = _forecast_chart([r["income"]["net"] for r in rows], [r["expense"]["net"] for r in rows],
+                          [r["balance"] for r in rows], prev_bal, None, len(rows), res_label="Υπόλοιπο")
     # Όλες οι στήλες, πάντα — ίδιες με το συνοπτικό βιβλίο του myDATA.
     return render_template(
         "reports_yearly.html", year=year, years=years, rows=rows, cols=YEARLY_TABLE_COLS, pl=pl,
         unc=unc, unc_count=unc_count, per_q=per_q, table_rows=table_rows,
         income_total=total("income"), expense_total=total("expense"),
-        chart=_yearly_chart(rows), current_month=now.month if year == str(now.year) else None,
+        chart=_yearly_chart(rows), cum=cum, has_prev=has_prev, prev_year=prev_y,
+        current_month=now.month if year == str(now.year) else None,
         max_net=max([abs(r[p]["net"]) for r in table_rows for p in ("income", "expense")] + [1]),
         vat_periods=_yearly_vat_periods(rows, year, now),
         spark_in=_spark([r["income"]["net"] for r in rows]), spark_out=_spark([r["expense"]["net"] for r in rows]),
@@ -3077,15 +3086,17 @@ def _plan(total: float, stat: list[float], booked: list[float]) -> list[float]:
 
 
 def _forecast_chart(inc: list[float], out: list[float], res_m: list[float], prev_res: list[float], sc: dict | None,
-                    done: int, dep: float = 0.0) -> dict:
+                    done: int, dep: float = 0.0, res_label: str = "Αποτέλεσμα") -> dict:
     """Γεωμετρία SVG (viewBox 760×280): σωρευτικές γραμμές εσόδων/εξόδων/αποτελέσματος — συνεχείς
     στους πραγματικούς μήνες, διακεκομμένες στην πρόβλεψη — με βεντάλια P10–P90 και περσινή αναφορά.
-    out = σύνολο εξόδων ανά μήνα και res_m = αποτέλεσμα ανά μήνα, και τα δύο με τις αποσβέσεις dep τον Δεκέμβριο."""
+    out = σύνολο εξόδων ανά μήνα και res_m = αποτέλεσμα ανά μήνα, και τα δύο με τις αποσβέσεις dep τον Δεκέμβριο.
+    Μήνες = len(inc) (≤ 12· π.χ. συνοπτικό βιβλίο τρέχοντος έτους έως τον τρέχοντα μήνα)."""
     from itertools import accumulate
 
     W, H, left, right, top, bottom = 760, 280, 58, 118, 16, 30
     base = H - bottom
-    ci, co, res, pr = (list(accumulate(v)) for v in (inc, out, res_m, prev_res))
+    n = len(inc)
+    ci, co, res, pr = (list(accumulate(v)) for v in (inc, out, res_m, prev_res[:n]))
     bands = {}  # key → (εύρος σεναρίων, σωρευτική γραμμή)
     if sc:
         bands = {"in": (sc["in"], ci), "out": (sc["out"], co), "res": (sc, res)}
@@ -3093,16 +3104,16 @@ def _forecast_chart(inc: list[float], out: list[float], res_m: list[float], prev
     step = _nice_step(max(values) - min(min(values), 0))
     lo, hi = step * (min(values) // step), step * -(-max(values) // step)
     hi = hi if hi > lo else lo + step
-    slot = (W - left - right) / 12
+    slot = (W - left - right) / n
     x = lambda i: round(left + slot * (i + 0.5), 1)  # noqa: E731
     y = lambda v: round(base - (v - lo) / (hi - lo) * (base - top), 1)  # noqa: E731
     pts = lambda vals, idx: " ".join(f"{x(i)},{y(vals[i])}" for i in idx)  # noqa: E731
     split = max(done - 1, 0)
-    actual, future = range(done), range(split, 12)
+    actual, future = range(done), range(split, n)
 
     def line(vals):
         return {"actual": "M" + pts(vals, actual) if done > 1 else "", "future": "M" + pts(vals, future),
-                "area": f"M{x(0)},{y(max(lo, 0))} L" + pts(vals, range(12)) + f" L{x(11)},{y(max(lo, 0))}Z"}
+                "area": f"M{x(0)},{y(max(lo, 0))} L" + pts(vals, range(n)) + f" L{x(n - 1)},{y(max(lo, 0))}Z"}
 
     def fan(b, cum):  # βεντάλια από το τελευταίο πραγματικό σημείο: πάνω όριο → πίσω από το κάτω
         return ("M" + f"{x(split)},{y(cum[done - 1])} " + " ".join(f"{x(done + i)},{y(v)}" for i, v in enumerate(b["hi"]))
@@ -3111,22 +3122,22 @@ def _forecast_chart(inc: list[float], out: list[float], res_m: list[float], prev
     fans = {key: fan(b, cum) for key, (b, cum) in bands.items()}
     # Ετικέτες τέλους: ελάχιστη απόσταση 15px ώστε να μη συγκρούονται.
     ends = sorted([{"key": "in", "label": "Έσοδα", "v": ci[-1]}, {"key": "out", "label": "Έξοδα", "v": co[-1]},
-                   {"key": "res", "label": "Αποτέλεσμα", "v": res[-1]}], key=lambda e: y(e["v"]))
+                   {"key": "res", "label": res_label, "v": res[-1]}], key=lambda e: y(e["v"]))
     last = -99
     for e in ends:
         e["y"], e["ly"] = y(e["v"]), max(y(e["v"]), last + 15)
         last = e["ly"]
     months = [{"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(left + slot * i, 1), "w": round(slot, 1),
                "in": round(ci[i], 2), "out": round(co[i], 2), "res": round(res[i], 2), "prev": round(pr[i], 2),
-               "forecast": i >= done, "dep": dep if i == 11 else 0,
+               "forecast": i >= done, "dep": dep if i == n - 1 else 0,
                **{f"{key}_{k}": bands[key][0][k][i - done] if key in bands and i >= done else None
                   for key in ("in", "out", "res") for k in ("lo", "hi")}}
-              for i in range(12)]
+              for i in range(n)]
     ticks = [{"v": lo + step * k, "y": y(lo + step * k)} for k in range(int(round((hi - lo) / step)) + 1)]
     return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "zero": y(0),
             "split_x": round(left + slot * done, 1), "done": done, "months": months, "ticks": ticks, "ends": ends,
-            "in": line(ci), "out": line(co), "res": line(res), "prev": "M" + pts(pr, range(12)), "fans": fans,
-            "end_x": x(11)}
+            "in": line(ci), "out": line(co), "res": line(res), "prev": "M" + pts(pr, range(n)), "fans": fans,
+            "end_x": x(n - 1)}
 
 
 @app.route("/reports/forecast")

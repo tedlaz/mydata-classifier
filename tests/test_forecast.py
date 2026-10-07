@@ -92,6 +92,10 @@ assert ch["months"][3]["forecast"] and not ch["months"][2]["forecast"] and ch["m
 assert ch["months"][11]["dep"] == 500 and ch["months"][10]["dep"] == 0
 assert ch["months"][11]["out_hi"] == s["out"]["hi"][-1]  # εύρος συνόλου εξόδων (με αποσβέσεις), όπως η γραμμή
 assert A._forecast_chart([0.0] * 12, [0.0] * 12, [0.0] * 12, [0.0] * 12, None, 0)["fans"] == {}
+# Λιγότεροι μήνες (συνοπτικό βιβλίο τρέχοντος έτους): στήλες = μήνες, τέλος γραμμών στον τελευταίο.
+ch3 = A._forecast_chart([100.0, 50.0, 20.0], [30.0] * 3, [70.0, 20.0, -10.0], [10.0] * 12, None, 3, res_label="Υπόλοιπο")
+assert len(ch3["months"]) == 3 and ch3["end_x"] == ch3["months"][-1]["cx"] and ch3["months"][2]["prev"] == 30.0
+assert [e["label"] for e in ch3["ends"] if e["key"] == "res"] == ["Υπόλοιπο"] and ch3["months"][2]["res"] == 80.0
 
 # Σενάρια: οι σταθερές εκροές μετατοπίζουν όλη την κατανομή.
 s2 = A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=2026, fixed=[0.0] * 11 + [100.0])

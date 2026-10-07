@@ -67,37 +67,49 @@
 
   <div class="yr-cols">
     {# ================= Διάγραμμα + ΦΠΑ τριμήνων ================= #}
-    <section class="card yr-chart">
+    <section class="card yr-chart fc">
       <div class="yr-chart-head">
-        <h2>📊 Καθαρή αξία ανά μήνα</h2>
+        <h2>📈 Σωρευτική πορεία {{ year }}</h2>
         <ul class="yr-legend">
           <li><i class="yr-dot yr-dot--in"></i>Έσοδα</li>
-          <li><i class="yr-dot yr-dot--out"></i>Έξοδα{% if chart.has_assets %} χωρίς πάγια{% endif %}</li>
-          {% if chart.has_assets %}<li><i class="yr-dot yr-dot--asset"></i>Αγορές παγίων</li>{% endif %}
+          <li><i class="yr-dot yr-dot--out"></i>Σύνολο εξόδων</li>
+          <li><i class="yr-dot fc-dot--res"></i>Υπόλοιπο</li>
+          {% if has_prev %}<li><i class="fc-dash"></i>Υπόλοιπο {{ prev_year }}</li>{% endif %}
         </ul>
       </div>
-      <div class="yr-plot">
-        <svg viewBox="0 0 {{ chart.w }} {{ chart.h }}" role="img"
-             aria-label="Μπάρες καθαρής αξίας εσόδων και εξόδων ανά μήνα {{ year }}, με τις αγορές παγίων ξεχωριστά πάνω στα έξοδα — αναλυτικά στον πίνακα παρακάτω">
-          <defs>
-            {# Διαγράμμιση 45° για τις αγορές παγίων: ξεχωρίζουν και χωρίς χρώμα (CVD / εκτύπωση). #}
-            <pattern id="yr-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <rect class="yr-hatch-bg" width="6" height="6"/><rect class="yr-hatch-fg" width="2.5" height="6"/>
-            </pattern>
-          </defs>
-          {% for t in chart.ticks %}
-          <line class="yr-grid {{ 'yr-grid--base' if loop.first }}" x1="{{ chart.left }}" x2="{{ chart.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
-          <text class="yr-tick" x="{{ chart.left - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ '{:,.0f}'.format(t.v).replace(',', '.') }}</text>
+      {% set c = cum %}
+      <div class="yr-plot fc-plot">
+        <svg viewBox="0 0 {{ c.w }} {{ c.h }}" role="img"
+             aria-label="Σωρευτικά έσοδα, έξοδα και υπόλοιπο {{ year }}: έσοδα {{ income_total.net|el_amount }} €, έξοδα {{ expense_total.net|el_amount }} €, υπόλοιπο {{ balance|el_amount }} € — αναλυτικά στον πίνακα παρακάτω">
+          <defs><clipPath id="fc-reveal"><rect class="fc-reveal" x="0" y="0" width="{{ c.w }}" height="{{ c.h }}"/></clipPath></defs>
+          {% for t in c.ticks %}
+          <line class="yr-grid {{ 'yr-grid--base' if t.v == 0 }}" x1="{{ c.left }}" x2="{{ c.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
+          <text class="yr-tick" x="{{ c.left - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ '{:,.0f}'.format(t.v).replace(',', '.') }}</text>
           {% endfor %}
-          {% for m in chart.months %}
-          <g class="yr-col" style="--i:{{ loop.index0 }}" data-month="{{ m.full }}" data-in="{{ m.income|el_amount }}" data-out="{{ m.expense|el_amount }}"
-             data-op="{{ m.op|el_amount }}" data-assets="{{ m.assets|el_amount if m.assets else '' }}"
-             data-profit="{{ m.profit|el_amount }}" data-neg="{{ 1 if m.profit < 0 else 0 }}">
-            <rect class="yr-hit" x="{{ m.x }}" y="{{ chart.top }}" width="{{ m.w }}" height="{{ chart.base - chart.top }}" rx="6"/>
-            {% if m.income_path %}<path class="yr-bar yr-bar--in" d="{{ m.income_path }}"/>{% endif %}
-            {% if m.op_path %}<path class="yr-bar yr-bar--out" d="{{ m.op_path }}"/>{% endif %}
-            {% if m.asset_path %}<path class="yr-bar yr-bar--asset" d="{{ m.asset_path }}"/>{% endif %}
-            <text class="yr-month {{ 'is-now' if loop.index == current_month }}" x="{{ m.cx }}" y="{{ chart.h - 9 }}" text-anchor="middle">{{ m.label }}</text>
+          {% for m in c.months %}
+          <text class="yr-month {{ 'is-now' if loop.index == current_month }}" x="{{ m.cx }}" y="{{ c.h - 9 }}" text-anchor="middle">{{ m.label }}</text>
+          {% endfor %}
+          <g clip-path="url(#fc-reveal)">
+            <path class="fc-area fc-area--in" d="{{ c.in.area }}"/>
+            <path class="fc-area fc-area--out" d="{{ c.out.area }}"/>
+            {% if has_prev %}<path class="fc-prev" d="{{ c.prev }}"/>{% endif %}
+            {% for key in ('in', 'out', 'res') %}<path class="fc-line fc-line--{{ key }}" d="{{ c[key].actual or c[key].future }}"/>{% endfor %}
+          </g>
+          {% for e in c.ends %}
+          <g class="fc-end fc-end--{{ e.key }}" style="--i:{{ loop.index0 }}">
+            <circle cx="{{ c.end_x }}" cy="{{ e.y }}" r="4.5"/>
+            <text x="{{ c.end_x + 12 }}" y="{{ e.ly + 4 }}"><tspan class="fc-end-l">{{ e.label }}</tspan> {{ '{:,.0f}'.format(e.v).replace(',', '.') }}</text>
+          </g>
+          {% endfor %}
+          {# Στήλες hover: σωρευτικά (cum) + μηνιαία (chart = ίδιοι υπολογισμοί με πριν: έξοδα χωρίς πάγια, αγορές παγίων, κέρδος) #}
+          {% for m in c.months %}{% set b = chart.months[loop.index0] %}
+          <g class="yr-col fc-col" data-month="{{ b.full }}" data-in="{{ b.income|el_amount }}" data-out="{{ b.expense|el_amount }}"
+             data-op="{{ b.op|el_amount }}" data-assets="{{ b.assets|el_amount if b.assets else '' }}"
+             data-profit="{{ b.profit|el_amount }}" data-neg="{{ 1 if b.profit < 0 else 0 }}"
+             data-cin="{{ m.in|el_amount }}" data-cout="{{ m.out|el_amount }}" data-cres="{{ m.res|el_amount }}"
+             data-cneg="{{ 1 if m.res < 0 else 0 }}" data-prev="{{ m.prev|el_amount if has_prev else '' }}">
+            <rect class="yr-hit" x="{{ m.x }}" y="{{ c.top }}" width="{{ m.w }}" height="{{ c.base - c.top }}" rx="6"/>
+            <line class="fc-cross" x1="{{ m.cx }}" x2="{{ m.cx }}" y1="{{ c.top }}" y2="{{ c.base }}"/>
           </g>
           {% endfor %}
         </svg>
@@ -249,14 +261,20 @@
   const plot = $('.yr-plot'), ptip = plot.querySelector('.yr-tip');
   function showCol(g) {
     const d = g.dataset, box = plot.getBoundingClientRect(), r = g.querySelector('.yr-hit').getBoundingClientRect();
-    ptip.innerHTML = '<b>' + d.month + '</b>' +
+    // Δύο στήλες δίπλα-δίπλα: ο μήνας και τα σωρευτικά έως τον μήνα (σε στοίβα δεν χωρά στο ύψος του διαγράμματος).
+    ptip.innerHTML = '<b>' + d.month + '</b><div class="yr-tip-2"><div><b class="yr-tip-sec">Μήνας</b>' +
       '<span><i class="yr-dot yr-dot--in"></i>Έσοδα<em>' + d.in + ' €</em></span>' +
       (d.assets
         ? '<span><i class="yr-dot yr-dot--out"></i>Έξοδα χωρίς πάγια<em>' + d.op + ' €</em></span>' +
           '<span><i class="yr-dot yr-dot--asset"></i>Αγορές παγίων<em>' + d.assets + ' €</em></span>' +
           '<span class="yr-tip-sum">Σύνολο εξόδων<em>' + d.out + ' €</em></span>'
         : '<span><i class="yr-dot yr-dot--out"></i>Έξοδα<em>' + d.out + ' €</em></span>') +
-      '<span class="yr-tip-bal' + (d.neg === '1' ? ' is-neg' : '') + '">Καθαρό κέρδος<em>' + d.profit + ' €</em></span>';
+      '<span class="yr-tip-bal' + (d.neg === '1' ? ' is-neg' : '') + '">Καθαρό κέρδος<em>' + d.profit + ' €</em></span>' +
+      '</div><div><b class="yr-tip-sec">Σωρευτικά από Ιανουάριο</b>' +
+      '<span><i class="yr-dot yr-dot--in"></i>Έσοδα<em>' + d.cin + ' €</em></span>' +
+      '<span><i class="yr-dot yr-dot--out"></i>Σύνολο εξόδων<em>' + d.cout + ' €</em></span>' +
+      '<span class="yr-tip-bal' + (d.cneg === '1' ? ' is-neg' : '') + '">Υπόλοιπο εσ. − εξ.<em>' + d.cres + ' €</em></span>' +
+      (d.prev ? '<span class="yr-tip-sum">Πέρσι ίδιο διάστημα<em>' + d.prev + ' €</em></span>' : '') + '</div></div>';
     ptip.hidden = false;
     const x = r.left - box.left + r.width / 2;
     ptip.style.left = Math.min(Math.max(x, ptip.offsetWidth / 2 + 4), box.width - ptip.offsetWidth / 2 - 4) + 'px';
@@ -369,29 +387,6 @@
     });
     setTimeout(() => { el.textContent = final; }, 750);
   }
-  // Οι μπάρες μένουν ίδιοι κόμβοι· αλλάζει μόνο το σχήμα τους (CSS transition στο d).
-  function morphChart(oldSvg, newSvg) {
-    const firstCol = oldSvg.querySelector('.yr-col');
-    oldSvg.querySelectorAll(':scope > line, :scope > text').forEach(n => n.remove());
-    newSvg.querySelectorAll(':scope > line, :scope > text').forEach(n => oldSvg.insertBefore(n, firstCol));
-    oldSvg.setAttribute('aria-label', newSvg.getAttribute('aria-label'));
-    const og = [...oldSvg.querySelectorAll('.yr-col')], ng = newSvg.querySelectorAll('.yr-col');
-    og.splice(ng.length).forEach(g => g.remove());  // π.χ. τρέχον έτος: λιγότεροι μήνες
-    ng.forEach((g, i) => {
-      const o = og[i];
-      if (!o) { oldSvg.append(g); return; }
-      for (const a of g.attributes) if (a.name.startsWith('data-')) o.setAttribute(a.name, a.value);
-      // Περιοχή hover και ετικέτα μήνα: νέες (άλλο πλάτος στήλης όταν αλλάζει το πλήθος μηνών).
-      o.querySelector('.yr-hit').replaceWith(g.querySelector('.yr-hit'));
-      o.querySelector('.yr-month').replaceWith(g.querySelector('.yr-month'));
-      ['in', 'out', 'asset'].forEach(k => {
-        const np = g.querySelector('.yr-bar--' + k), op = o.querySelector('.yr-bar--' + k);
-        if (np && op) op.setAttribute('d', np.getAttribute('d'));
-        else if (np) o.insertBefore(np, o.querySelector('.yr-month'));
-        else if (op) op.remove();
-      });
-    });
-  }
   function applyFresh(fresh) {
     const cur = $('.yr');
     cur.classList.add('is-live');  // τα νέα κομμάτια χωρίς εισαγωγικά animations
@@ -411,9 +406,10 @@
       if (k.dataset.docs !== undefined) k.dataset.docs = n.dataset.docs;
     });
     // Διάγραμμα (morph), κάρτες ΦΠΑ, κέρδος, πίνακας.
-    morphChart(cur.querySelector('.yr-plot svg'), fresh.querySelector('.yr-plot svg'));
+    hideCol();  // το tooltip του παλιού έτους
+    cur.querySelector('.yr-plot svg').replaceWith(fresh.querySelector('.yr-plot svg'));
     labelCols();
-    cur.querySelector('.yr-chart .yr-legend').replaceWith(fresh.querySelector('.yr-chart .yr-legend'));
+    cur.querySelector('.yr-chart .yr-chart-head').replaceWith(fresh.querySelector('.yr-chart .yr-chart-head'));  // τίτλος με έτος + υπόμνημα
     cur.querySelector('.yr-quarters').replaceWith(fresh.querySelector('.yr-quarters'));
     cur.querySelector('.yr-pl-card').replaceWith(fresh.querySelector('.yr-pl-card'));
     cur.querySelector('.yr-table-card').replaceWith(fresh.querySelector('.yr-table-card'));

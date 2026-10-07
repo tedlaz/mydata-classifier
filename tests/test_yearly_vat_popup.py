@@ -33,6 +33,11 @@ feb = re.search(r'<tbody[^>]*data-month="Φεβ\. 2025"[^>]*', h).group(0)
 assert 'data-m-nin="0,00"' in feb and 'data-m-in="0,00"' in feb, feb
 hq = c.get("/reports/yearly?year=2025&per=q").data.decode()
 assert 'data-q-nout="100,00"' in hq and 'data-q-in="2,40"' in hq and 'data-q-label="Α΄ τρίμηνο 2025"' in hq
+# Διάγραμμα σωρευτικής πορείας: tooltip με μηνιαία (data-in/out) και σωρευτικά (data-cin/cout/cres) Φεβρουαρίου.
+fcol = re.search(r'<g class="yr-col fc-col" data-month="Φεβ\. 2025"[^>]*', h).group(0)
+for k, v in (("in", "0,00"), ("out", "40,00"), ("cin", "150,00"), ("cout", "50,00"), ("cres", "100,00")):
+    assert f'data-{k}="{v}"' in fcol, (k, fcol)
+assert h.count('class="yr-col fc-col"') == 12 and 'class="fc-line fc-line--res"' in h
 print("ok")
 # Εκτός ΦΠΑ: έσοδο 50 (0%), έξοδο 40 χωρίς χαρ. ΦΠΑ (Φεβ.)
 for k, v in (("m-xout", "50,00"), ("m-xin", "0,00"), ("m-xdiff", "50,00"), ("q-xout", "50,00"), ("q-xin", "40,00"), ("q-xdiff", "10,00")):
