@@ -3449,46 +3449,54 @@ def _spark(values: list[float], w: int = 120, h: int = 34) -> str:
 
 
 def _assets_card(cid: int, year: int, rows: list[dict]) -> dict:
-    """Πάγια έτους για τον πίνακα ελέγχου: αγορές (κατηγορία 2.7) και καταχωρημένες αποσβέσεις (E3_587) ανά μήνα,
-    αποσβέσεις έτους κατά τον κανόνα (_depreciation) και αναπόσβεστη αξία 31/12 των παγίων ≥ 1.500 € της 5ετίας.
-    Διάγραμμα (viewBox 760×200, 12 μήνες): μπάρες = αγορές μήνα, γραμμές = σωρευτικές αγορές / αποσβέσεις."""
+    """Πάγια για τον πίνακα ελέγχου, φέτος και πέρσι: αγορές (κατηγορία 2.7) και καταχωρημένες αποσβέσεις (E3_587)
+    ανά μήνα, αποσβέσεις έτους κατά τον κανόνα (_depreciation) και αναπόσβεστη αξία 31/12 των παγίων ≥ 1.500 € της 5ετίας.
+    Διάγραμμα (viewBox 760×220, 12 μήνες): μπάρες = αγορές μήνα φέτος, γραμμές = σωρευτικές αγορές / αποσβέσεις
+    (φέτος συνεχείς έως τον τρέχοντα μήνα, πέρσι διακεκομμένες), κύκλος Δεκεμβρίου = εκτίμηση απόσβεσης κατά τον κανόνα."""
     from itertools import accumulate
 
-    lines = {y: _expense_lines(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, str(y)))[1]
-             for y in range(year - 4, year + 1)}
+    docs = {y: db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, str(y)) for y in range(year - 4, year + 1)}
+    lines = {y: _expense_lines(d)[1] for y, d in docs.items()}
     dep = _depreciation(lines, year)
     # Αναπόσβεστη αξία: 20% τον χρόνο από τη χρήση αγοράς (μαζί με αυτήν), όπως στο _depreciation.
     residual = sum(v * max(0.0, 1 - _DEPR_RATE * (year - y + 1))
                    for y, vs in lines.items() for v in vs if abs(v) >= _DEPR_FULL_LIMIT)
+    prev_t = _yearly_totals(docs[year - 1])
+    n = len(rows)
     buy = [r["expense"]["assets"] for r in rows]
-    booked = [r["expense"]["depreciation"] for r in rows]
-    cum_buy, cum_dep = list(accumulate(buy)), list(accumulate(booked))
+    series = {"buy": list(accumulate(buy)), "dep": list(accumulate(r["expense"]["depreciation"] for r in rows)),
+              "pbuy": list(accumulate(prev_t[m]["assets"] for m in range(1, 13))),
+              "pdep": list(accumulate(prev_t[m]["depreciation"] for m in range(1, 13)))}
 
-    W, H, left, right, top, bottom = 760, 200, 58, 12, 14, 30
+    W, H, left, right, top, bottom = 760, 220, 58, 12, 14, 30
     base = H - bottom
-    step = _nice_step(max(cum_buy + cum_dep + [0]))
-    n_ticks = max(1, -(-max(cum_buy + cum_dep + [0]) // step))
+    top_v = max([v for s in series.values() for v in s] + [dep["total"], 0])
+    step = _nice_step(top_v)
+    n_ticks = max(1, -(-top_v // step))
     ymax, slot = step * n_ticks, (W - left - right) / 12
     bar_w = min(22.0, slot * 0.36)
     x = lambda i: round(left + slot * (i + 0.5), 1)  # noqa: E731
     y = lambda v: round(base - max(v, 0) / ymax * (base - top), 1)  # noqa: E731
     pts = lambda vals: " ".join(f"{x(i)},{y(v)}" for i, v in enumerate(vals))  # noqa: E731
-    months = [{"label": _GREEK_MONTHS[i], "full": f"{_GREEK_MONTHS[i]} {year}", "cx": x(i),
-               "x": round(left + slot * i, 1), "w": round(slot, 1),
-               "bar": (round(x(i) - bar_w / 2, 1), y(buy[i]), round(bar_w, 1), round(base - y(buy[i]), 1)) if i < len(rows) else None,
-               "buy": buy[i] if i < len(rows) else 0, "dep": booked[i] if i < len(rows) else 0,
-               "cum_buy": cum_buy[i] if i < len(rows) else 0, "cum_dep": cum_dep[i] if i < len(rows) else 0}
+    get = lambda k, i: round(series[k][i], 2) if i < len(series[k]) else None  # noqa: E731
+    months = [{"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(left + slot * i, 1), "w": round(slot, 1),
+               "bar": (round(x(i) - bar_w / 2, 1), y(buy[i]), round(bar_w, 1), round(base - y(buy[i]), 1)) if i < n else None,
+               "m_buy": buy[i] if i < n else None, **{k: get(k, i) for k in series}}
               for i in range(12)]
-    n = len(rows)
+    has_buy = n and any(series["buy"])
     return {
-        "bought": round(sum(buy), 2), "booked": round(sum(booked), 2), "dep": dep, "residual": round(residual, 2),
-        "empty": not any(vs for vs in lines.values()) and not any(booked),
+        "dep": dep, "residual": round(residual, 2),
+        "bought": round(series["buy"][-1], 2) if n else 0.0, "booked": round(series["dep"][-1], 2) if n else 0.0,
+        "p_bought": round(series["pbuy"][-1], 2), "p_booked": round(series["pdep"][-1], 2),
+        "empty": not any(lines.values()) and not any(series["dep"] + series["pdep"]),
         "chart": {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "months": months,
-                  "buy_line": "M" + pts(cum_buy) if n else "", "dep_line": "M" + pts(cum_dep) if any(booked) else "",
-                  "buy_area": f"M{x(0)},{base} L{pts(cum_buy)} L{x(n - 1)},{base}Z" if n else "",
-                  "end": {"x": x(n - 1), "buy": y(cum_buy[-1]), "dep": y(cum_dep[-1])} if n else None,
+                  "lines": {k: "M" + pts(v) if any(v) else "" for k, v in series.items()},
+                  "buy_area": f"M{x(0)},{base} L{pts(series['buy'])} L{x(n - 1)},{base}Z" if has_buy else "",
+                  "est": {"x": x(11), "y": y(dep["total"])} if dep["total"] else None,
                   "ticks": [{"v": step * k, "y": y(step * k)} for k in range(int(n_ticks) + 1)]},
     }
+
+
 
 @app.route("/dashboard")
 def dashboard():
