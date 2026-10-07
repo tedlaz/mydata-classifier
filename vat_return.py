@@ -256,8 +256,9 @@ def _e3(d: dict) -> list[dict]:
     return [e for e in json.loads(d["cls_json"] or "[]") if e.get("type") and not e["type"].startswith("VAT_")]
 
 
-def _matrix(rows: dict, cols_order: list[str], total: float) -> dict:
-    """{e3: {στήλη: ποσό}} → γραμμές/στήλες για προβολή, με σύνολα και έλεγχο συμφωνίας."""
+def _matrix(rows: dict, cols_order: list[str], total: float, docs: dict) -> dict:
+    """{e3: {στήλη: ποσό}} → γραμμές/στήλες για προβολή, με σύνολα και έλεγχο συμφωνίας.
+    docs = {(e3, στήλη): {mark: ποσό}}: ποια παραστατικά σχηματίζουν κάθε κελί (modal της συμφωνίας)."""
     used = [c for c in cols_order if any(abs(r.get(c, 0.0)) >= 0.005 for r in rows.values())]
     bases = {b for b, _, _ in OUTPUT_RATES.values()} | {b for b, _ in INPUT_CODES.values()} | set(EXEMPT_CODES.values()) | {OUT}
     base_cols = [c for c in used if c in bases]  # βάσεις (30x/36x) + εκτός = καθαρή αξία· όχι οι φόροι
@@ -268,7 +269,7 @@ def _matrix(rows: dict, cols_order: list[str], total: float) -> dict:
     totals = {c: round(sum(r["vals"][c] for r in out_rows), 2) for c in used}
     net = round(sum(r["net"] for r in out_rows), 2)
     return {"cols": used, "rows": out_rows, "totals": totals, "net": net, "total": round(total, 2),
-            "ok": abs(net - total) < 0.015}
+            "ok": abs(net - total) < 0.015, "base_cols": base_cols, "docs": docs}
 
 
 def reconcile(income: list[dict], expense: list[dict]) -> dict:
@@ -278,9 +279,11 @@ def reconcile(income: list[dict], expense: list[dict]) -> dict:
     def add(rows, e3, col, v):
         rows.setdefault(e3, {})
         rows[e3][col] = rows[e3].get(col, 0.0) + v
+        cell = docs.setdefault((e3, col), {})
+        cell[d.get("mark")] = cell.get(d.get("mark"), 0.0) + v  # d = το παραστατικό του βρόχου
 
     # ---- Έσοδα: κάθε χαρακτηρισμός Ε3 → οι γραμμές του → κατηγορία ΦΠΑ → 30x/33x ή εκτός ----
-    rows, total = {}, 0.0
+    rows, total, docs = {}, 0.0, {}
     for d in income:
         sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
         net_doc = sign * (d["total_net"] or 0.0)
@@ -316,10 +319,10 @@ def reconcile(income: list[dict], expense: list[dict]) -> dict:
             add(rows, e3[0]["type"] if e3 else "", OUT, diff)
     inc_cols = [c for cat in sorted(OUTPUT_RATES, key=lambda c: OUTPUT_RATES[c][0]) for c in OUTPUT_RATES[cat][:2]]
     inc_cols = list(dict.fromkeys(inc_cols)) + sorted(set(EXEMPT_CODES.values())) + [OUT]
-    out = {"income": _matrix(rows, inc_cols, total)}
+    out = {"income": _matrix(rows, inc_cols, total, docs)}
 
     # ---- Έξοδα: χαρακτηρισμοί ΦΠΑ → 36x/38x, στον Ε3 της ίδιας γραμμής/ποσού· υπόλοιπο → εκτός ----
-    rows, total = {}, 0.0
+    rows, total, docs = {}, 0.0, {}
     for d in expense:
         sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
         net_doc = sign * (d["total_net"] or 0.0)
@@ -362,7 +365,7 @@ def reconcile(income: list[dict], expense: list[dict]) -> dict:
             for i, o in enumerate(owners):
                 add(rows, o.get("type") or "", ND, nd * abs(src[i]) / w)
     exp_cols = [c for t in sorted(INPUT_CODES) for c in INPUT_CODES[t]] + [OUT, ND]
-    out["expense"] = _matrix(rows, exp_cols, total)
+    out["expense"] = _matrix(rows, exp_cols, total, docs)
     return out
 
 
@@ -443,6 +446,11 @@ if __name__ == "__main__":
     assert m_exp["E3_102_001"]["361"] == 50 and m_exp["E3_102_001"]["381"] == 12 and m_exp["E3_102_001"]["out"] == 5, m_exp
     assert m_exp["E3_585_016"]["361"] == 0 and m_exp["E3_585_016"]["out"] == 33 and m_exp["E3_585_016"]["nd"] == 7.2, m_exp
     assert m["expense"]["totals"]["364"] == 17 and m["expense"]["totals"]["384"] == 3.53 and m["expense"]["net"] == 105, m["expense"]
+    # Παραστατικά ανά κελί (modal της συμφωνίας): αθροίζουν στο ποσό του κελιού.
+    for book in ("income", "expense"):
+        for row in m[book]["rows"]:
+            for c, v in row["vals"].items():
+                assert abs(sum(m[book]["docs"].get((row["e3"], c), {}).values()) - v) < 0.01, (book, row["e3"], c)
     assert (r["470"], r["502"], r["511"]) == (36, 46, 0), r
     # Χρεωστικό έως 30 € → δεν αποδίδεται, μεταφέρεται· το 483 της επόμενης προστίθεται στο προς καταβολή.
     small = [{"mark": "10", "invoice_type": "2.1", "lines_json": json.dumps(

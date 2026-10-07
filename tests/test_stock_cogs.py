@@ -36,9 +36,9 @@ for flag in ("1", "0"):  # ίδιο κέρδος με ή χωρίς τα απο�
     assert "5.500,00" in c.get(f"/reports/yearly?year={y}").data.decode(), flag
 print("ok")
 
-# Πινακάκι «Καθαρό κέρδος»: κόστος πωληθέντων σε ένα πλαίσιο, αγορές παγίων κάτω από το κέρδος.
+# Πινακάκι «Καθαρό κέρδος» (πίνακας ελέγχου, τρέχον έτος): κόστος πωληθέντων σε ένα πλαίσιο, αγορές παγίων κάτω από το κέρδος.
 doc("expense", "A1", 800, "E3_882_001", "category2_7")
-h = c.get(f"/reports/yearly?year={y}").data.decode()
+h = c.get("/dashboard").data.decode()
 g = h.index("yr-wf-group")
 assert g < h.index("Αποθέματα λήξης", g) < h.index("= Κόστος πωληθέντων", g) < h.index("yr-wf-res") < h.index("Αγορές παγίων", g)
 assert "5.500,00" in h and "--w:" in h

@@ -2622,13 +2622,15 @@ def _yearly_totals(docs: list[dict], include_stock: bool = False) -> dict:
 
 def _yearly_vat_periods(rows: list[dict], year: str, now) -> list[dict]:
     """Κάρτες ΦΠΑ κάτω από το διάγραμμα, κατά την περίοδο ΦΠΑ της εταιρείας: ανά μήνα
-    (μηνιαίος) ή ανά τρίμηνο (τριμηνιαίος). partial = περίοδος που δεν έχει κλείσει."""
+    (μηνιαίος) ή ανά τρίμηνο (τριμηνιαίος). partial = περίοδος που δεν έχει κλείσει· href = η δήλωση Φ2 της περιόδου."""
     if (get_active_company() or {}).get("vat_period") == "q":
         return [dict(rows[i]["vat_quarter"], short=f"{_QUARTER_NAMES[i // 3]} τριμ.",
-                     title=rows[i]["vat_quarter"]["span"]) for i in range(0, len(rows), 3)]
+                     title=rows[i]["vat_quarter"]["span"], href=url_for("reports_vat", year=year, period=f"q{i // 3 + 1}"))
+                for i in range(0, len(rows), 3)]
     current = year == str(now.year)
     return [dict(r["vat_month"], short=_GREEK_MONTHS[i], title=r["label"],
-                 partial=current and i + 1 == now.month) for i, r in enumerate(rows)]
+                 partial=current and i + 1 == now.month, href=url_for("reports_vat", year=year, period=f"m{i + 1}"))
+            for i, r in enumerate(rows)]
 
 
 def _yearly_statuses(kind: str, unclassified: bool) -> list[str]:
@@ -3305,6 +3307,62 @@ def reports_vat_reconcile():
     )
 
 
+@app.route("/reports/vat/reconcile/docs")
+def reports_vat_reconcile_docs():
+    """Τμήμα HTML για το modal της συμφωνίας Φ2: τα παραστατικά ενός κελιού (book, e3, col). Ανά παραστατικό
+    η καθαρή αξία / ΦΠΑ του και η αξία / ΦΠΑ που συμμετέχει στο κελί: κωδικός βάσης (30x/36x/34x, εκτός) μαζί
+    με τον φόρο του (33x/38x) και αντίστροφα· nd = μόνο ΦΠΑ. Χωρίς e3 = όλες οι γραμμές (σύνολο στήλης)·
+    col=net = όλες οι βάσεις + εκτός (αξία) και όλοι οι φόροι + μη εκπιπτόμενος (ΦΠΑ) της γραμμής."""
+    cid = _active_company_id()
+    years, year, period, kind = _vat_period_args(cid)
+    book, col = request.args.get("book"), request.args.get("col", "")
+    e3 = request.args.get("e3")  # None = σύνολο στήλης· "" = χωρίς λογαριασμό Ε3
+    if book not in ("income", "expense"):
+        return "Μη έγκυρη επιλογή.", 400
+    date_from, date_to = _vat_bounds(int(year), kind, int(period[1:]))
+    docs = db.period_documents(cid, book, date_from, date_to)
+    m = vat_return.reconcile(docs if book == "income" else [], docs if book == "expense" else [])[book]
+    pairs = [p[:2] for p in vat_return.OUTPUT_RATES.values()] + list(vat_return.INPUT_CODES.values())
+    tax_of, base_of = {b: t for b, t in pairs}, {t: b for b, t in pairs}
+    if col == "net":
+        base_cols, tax_cols = m["base_cols"], [c for c in m["cols"] if c not in m["base_cols"]]
+    elif col == vat_return.ND:
+        base_cols, tax_cols = [], [col]
+    elif col in base_of:
+        base_cols, tax_cols = [base_of[col]], [col]
+    else:
+        base_cols, tax_cols = [col], [tax_of[col]] if col in tax_of else []
+
+    def collect(cols):
+        out: dict = {}
+        for (row, c), cell in m["docs"].items():
+            if c in cols and (e3 is None or row == e3):
+                for mark, v in cell.items():
+                    out[mark] = out.get(mark, 0.0) + v
+        return out
+
+    def cell(c):  # το ποσό του κελιού όπως στον πίνακα (ο πίνακας αθροίζει στρογγυλεμένες γραμμές)
+        if e3 is None:
+            return m["totals"].get(c, 0.0)
+        return next((r["vals"].get(c, 0.0) for r in m["rows"] if r["e3"] == e3), 0.0)
+
+    part, part_vat = collect(base_cols), collect(tax_cols)
+    rows = []
+    for d in docs:
+        p, pv = part.get(d["mark"], 0.0), part_vat.get(d["mark"], 0.0)
+        if abs(p) >= 0.005 or abs(pv) >= 0.005:
+            sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+            rows.append(dict(d, part=round(p, 2), part_vat=round(pv, 2), credit=sign < 0,
+                             net=sign * (d["total_net"] or 0.0), vat=sign * (d["total_vat"] or 0.0)))
+    total = {"net": round(sum(r["net"] for r in rows), 2), "vat": round(sum(r["vat"] for r in rows), 2),
+             "part": round(sum(cell(c) for c in base_cols), 2), "part_vat": round(sum(cell(c) for c in tax_cols), 2)}
+    accounts = {**EXPENSE_TYPES, **INCOME_TYPES}
+    return render_template(
+        "_reconcile_docs.html", docs=rows, total=total, book=book, col=col, clicked_tax=col in tax_cols and col != "net",
+        e3=e3, e3_label=accounts.get(e3 or "", ""), type_names=INVOICE_TYPE_NAMES, year=year, period=period,
+    )
+
+
 @app.route("/reports/vat")
 def reports_vat():
     """Δήλωση ΦΠΑ (Φ2) για μήνα (period=m1…m12) ή τρίμηνο (q1…q4) ενός έτους, ανάλογα με την
@@ -3449,12 +3507,9 @@ def _spark(values: list[float], w: int = 120, h: int = 34) -> str:
 
 
 def _assets_card(cid: int, year: int, rows: list[dict]) -> dict:
-    """Πάγια για τον πίνακα ελέγχου, φέτος και πέρσι: αγορές (κατηγορία 2.7) και καταχωρημένες αποσβέσεις (E3_587)
-    ανά μήνα, αποσβέσεις έτους κατά τον κανόνα (_depreciation) και αναπόσβεστη αξία 31/12 των παγίων ≥ 1.500 € της 5ετίας.
-    Διάγραμμα (viewBox 760×220, 12 μήνες): μπάρες = αγορές μήνα φέτος, γραμμές = σωρευτικές αγορές / αποσβέσεις
-    (φέτος συνεχείς έως τον τρέχοντα μήνα, πέρσι διακεκομμένες), κύκλος Δεκεμβρίου = εκτίμηση απόσβεσης κατά τον κανόνα."""
-    from itertools import accumulate
-
+    """Πάγια για τον πίνακα ελέγχου: αγορές (κατηγορία 2.7) φέτος / πέρσι, καταχωρημένες αποσβέσεις (E3_587) φέτος / πέρσι,
+    αποσβέσεις έτους κατά τον κανόνα (_depreciation) και αναπόσβεστη αξία 31/12 των παγίων ≥ 1.500 € της 5ετίας.
+    Διάγραμμα (viewBox 760×220): ανά μήνα δύο μπάρες — αγορές φέτος (έως τον τρέχοντα μήνα) και πέρσι."""
     docs = {y: db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, str(y)) for y in range(year - 4, year + 1)}
     lines = {y: _expense_lines(d)[1] for y, d in docs.items()}
     dep = _depreciation(lines, year)
@@ -3462,37 +3517,30 @@ def _assets_card(cid: int, year: int, rows: list[dict]) -> dict:
     residual = sum(v * max(0.0, 1 - _DEPR_RATE * (year - y + 1))
                    for y, vs in lines.items() for v in vs if abs(v) >= _DEPR_FULL_LIMIT)
     prev_t = _yearly_totals(docs[year - 1])
-    n = len(rows)
-    buy = [r["expense"]["assets"] for r in rows]
-    series = {"buy": list(accumulate(buy)), "dep": list(accumulate(r["expense"]["depreciation"] for r in rows)),
-              "pbuy": list(accumulate(prev_t[m]["assets"] for m in range(1, 13))),
-              "pdep": list(accumulate(prev_t[m]["depreciation"] for m in range(1, 13)))}
+    buy = [r["expense"]["assets"] for r in rows] + [None] * (12 - len(rows))
+    pbuy = [prev_t[m]["assets"] for m in range(1, 13)]
 
-    W, H, left, right, top, bottom = 760, 220, 58, 12, 14, 30
+    W, H, left, right, top, bottom = 760, 220, 58, 8, 14, 30
     base = H - bottom
-    top_v = max([v for s in series.values() for v in s] + [dep["total"], 0])
-    step = _nice_step(top_v)
-    n_ticks = max(1, -(-top_v // step))
+    step = _nice_step(max([v or 0 for v in buy + pbuy] + [0]))
+    n_ticks = max(1, -(-max([v or 0 for v in buy + pbuy] + [0]) // step))
     ymax, slot = step * n_ticks, (W - left - right) / 12
-    bar_w = min(22.0, slot * 0.36)
-    x = lambda i: round(left + slot * (i + 0.5), 1)  # noqa: E731
+    bar_w = min(20.0, slot * 0.3)
     y = lambda v: round(base - max(v, 0) / ymax * (base - top), 1)  # noqa: E731
-    pts = lambda vals: " ".join(f"{x(i)},{y(v)}" for i, v in enumerate(vals))  # noqa: E731
-    get = lambda k, i: round(series[k][i], 2) if i < len(series[k]) else None  # noqa: E731
-    months = [{"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(left + slot * i, 1), "w": round(slot, 1),
-               "bar": (round(x(i) - bar_w / 2, 1), y(buy[i]), round(bar_w, 1), round(base - y(buy[i]), 1)) if i < n else None,
-               "m_buy": buy[i] if i < n else None, **{k: get(k, i) for k in series}}
-              for i in range(12)]
-    has_buy = n and any(series["buy"])
+    bar = lambda x, v: (round(x, 1), y(v), round(bar_w, 1), round(base - y(v), 1)) if v and base - y(v) >= 0.5 else None  # noqa: E731
+    months = []
+    for i in range(12):
+        cx = left + slot * (i + 0.5)
+        months.append({"label": _GREEK_MONTHS[i], "cx": round(cx, 1), "x": round(left + slot * i, 1), "w": round(slot, 1),
+                       "buy": buy[i], "pbuy": pbuy[i],
+                       "bar": bar(cx + 1, buy[i]), "pbar": bar(cx - bar_w - 1, pbuy[i])})  # πέρσι αριστερά, φέτος δεξιά
     return {
         "dep": dep, "residual": round(residual, 2),
-        "bought": round(series["buy"][-1], 2) if n else 0.0, "booked": round(series["dep"][-1], 2) if n else 0.0,
-        "p_bought": round(series["pbuy"][-1], 2), "p_booked": round(series["pdep"][-1], 2),
-        "empty": not any(lines.values()) and not any(series["dep"] + series["pdep"]),
+        "bought": round(sum(v or 0 for v in buy), 2), "p_bought": round(sum(pbuy), 2),
+        "booked": round(sum(r["expense"]["depreciation"] for r in rows), 2),
+        "p_booked": round(sum(prev_t[m]["depreciation"] for m in range(1, 13)), 2),
+        "empty": not any(lines.values()) and not any(r["expense"]["depreciation"] for r in rows),
         "chart": {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "months": months,
-                  "lines": {k: "M" + pts(v) if any(v) else "" for k, v in series.items()},
-                  "buy_area": f"M{x(0)},{base} L{pts(series['buy'])} L{x(n - 1)},{base}Z" if has_buy else "",
-                  "est": {"x": x(11), "y": y(dep["total"])} if dep["total"] else None,
                   "ticks": [{"v": step * k, "y": y(step * k)} for k in range(int(n_ticks) + 1)]},
     }
 

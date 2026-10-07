@@ -39,6 +39,12 @@
 .rc-ok{color:var(--ok);font-weight:800}
 .rc-bad{color:var(--err);font-weight:800}
 .rc-note{color:var(--muted);font-size:.8rem;margin:10px 0 0}
+.rc-cell{all:unset;cursor:pointer;border-radius:5px;padding:1px 4px;margin:-1px -4px;font:inherit;transition:background .15s,color .15s}
+.rc-cell:hover,.rc-cell:focus-visible{background:var(--accent-soft);color:var(--accent);text-decoration:underline}
+.rc-cell:focus-visible{outline:2px solid var(--accent-glow)}
+.rc-docs{min-width:900px}
+.rc-docs .rc-part{background:color-mix(in srgb,var(--accent-soft) 45%,transparent);font-weight:700}
+.rc-docs th.rc-part.is-hit{color:var(--accent)}
 </style>
 
 <div class="yr-head">
@@ -60,7 +66,15 @@
   </nav>
 </section>
 
-{% macro matrix(m, noun) -%}
+{# Κελί με ποσό: κουμπί που ανοίγει το modal με τα παραστατικά του (e3 = none → σύνολο στήλης). #}
+{% macro cell(v, book, c, e3=none, cls='') -%}
+  {% set title = ('Έσοδα' if book == 'income' else 'Έξοδα') ~ ' · ' ~ ('Καθαρή αξία' if c == 'net' else ((c ~ ' ') if c not in ('out', 'nd') else '') ~ col_names.get(c, c)) %}
+  <td class="c-{{ c }} {{ cls }} {{ 'zero' if not v }}">{% if v %}<button type="button" class="rc-cell"
+    data-docs="{{ url_for('reports_vat_reconcile_docs', year=year, period=period, book=book, col=c, e3=e3, t=title) }}"
+    title="Παραστατικά: {{ title }}">{{ v|el_amount }}</button>{% else %}—{% endif %}</td>
+{%- endmacro %}
+
+{% macro matrix(m, noun, book) -%}
 {% if m.rows %}
 <div class="rc-scroll">
 <table class="rc-t">
@@ -73,13 +87,13 @@
     {% for r in m.rows %}
     <tr>
       <td>{% if r.e3 %}<code>{{ r.e3 }}</code><small>{{ accounts.get(r.e3, '') }}</small>{% else %}<small>— χωρίς λογαριασμό Ε3 (αχαρακτήριστα / μόνο ΦΠΑ / απορριφθέντα)</small>{% endif %}</td>
-      {% for c in m.cols %}{% set v = r.vals[c] %}<td class="c-{{ c }} {{ 'zero' if not v }}">{{ v|el_amount if v else '—' }}</td>{% endfor %}
-      <td class="c-net">{{ r.net|el_amount }}</td>
+      {% for c in m.cols %}{{ cell(r.vals[c], book, c, r.e3) }}{% endfor %}
+      {{ cell(r.net, book, 'net', r.e3) }}
     </tr>
     {% endfor %}
   </tbody>
   <tfoot>
-    <tr><td>Σύνολο</td>{% for c in m.cols %}<td class="c-{{ c }}">{{ m.totals[c]|el_amount }}</td>{% endfor %}<td class="c-net">{{ m.net|el_amount }}</td></tr>
+    <tr><td>Σύνολο</td>{% for c in m.cols %}{{ cell(m.totals[c], book, c) }}{% endfor %}{{ cell(m.net, book, 'net') }}</tr>
     <tr class="rc-chk"><td colspan="{{ m.cols|length + 1 }}">Σύνολο {{ noun }} περιόδου (καθαρή αξία βιβλίου)</td>
       <td class="c-net">{{ m.total|el_amount }}<br>{% if m.ok %}<span class="rc-ok">✔ Συμφωνεί</span>{% else %}<span class="rc-bad">✖ {{ (m.total - m.net)|el_amount }}</span>{% endif %}</td></tr>
   </tfoot>
@@ -90,7 +104,7 @@
 
 <section class="card rc-card">
   <h2>📤 Έσοδα → εκροές</h2>
-  {{ matrix(r.income, 'εσόδων') }}
+  {{ matrix(r.income, 'εσόδων', 'income') }}
   <p class="rc-note">Ο ΦΠΑ εκροών υπολογίζεται όπως στο Φ2 (βάση × συντελεστής)· η διαφορά στρογγυλοποίησης από τα τιμολόγια μπαίνει στο 422 / 402.
     Χωρίς ΦΠΑ κατά κατηγορία εξαίρεσης: 14 → 342 · 4 → 345 · 8, 11–13, 28 → 348 · 16 → 349 · 7 → 310.
     Εκτός Φ2: οι λοιπές κατηγορίες εξαίρεσης, χωρίς ΦΠΑ, χωρίς κατηγορία ΦΠΑ.</p>
@@ -98,8 +112,41 @@
 
 <section class="card rc-card">
   <h2>📥 Έξοδα → εισροές</h2>
-  {{ matrix(r.expense, 'εξόδων') }}
+  {{ matrix(r.expense, 'εξόδων', 'expense') }}
   <p class="rc-note">Εκτός Φ2: λογαριασμοί χωρίς χαρακτηρισμό ΦΠΑ, αχαρακτήριστα, απορριφθέντα / ακυρωμένα, μη διαβιβασμένες εγγραφές.
     «ΦΠΑ μη εκπιπτόμενος»: ο ΦΠΑ των παραστατικών που δεν μπαίνει στις εισροές. Οι πράξεις λήπτη (364–366) μπαίνουν και στις εκροές και στο 313.</p>
 </section>
+
+{# Modal: παραστατικά ενός κελιού — γεμίζει με fetch από το reports_vat_reconcile_docs #}
+<dialog class="modal modal--wide yr-docs-modal" id="rc-docs" aria-label="Παραστατικά" closedby="any"></dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const dlg = document.getElementById('rc-docs');
+  async function openDocs(url) {
+    dlg.innerHTML = '<p class="muted">Φόρτωση…</p>';
+    if (!dlg.open) dlg.showModal();
+    try {
+      const r = await fetch(url);
+      dlg.innerHTML = r.ok ? await r.text() : '<p class="note note--err">Σφάλμα φόρτωσης (' + r.status + ').</p>';
+    } catch (_) {
+      dlg.innerHTML = '<p class="note note--err">Σφάλμα σύνδεσης.</p>';
+    }
+  }
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('.rc-cell');
+    if (btn) openDocs(btn.dataset.docs);
+  });
+  dlg.addEventListener('click', e => { if (e.target.closest('[data-close]')) dlg.close(); });
+  dlg.addEventListener('close', () => { dlg.innerHTML = ''; });
+  // Επιστροφή από παραστατικό που άνοιξε από το modal: ξανανοίγει το ίδιο modal.
+  const back = new URLSearchParams(location.search).get('docs');
+  if (back && back.startsWith('/reports/vat/reconcile/docs')) {
+    openDocs(back);
+    const u = new URL(location); u.searchParams.delete('docs'); history.replaceState(null, '', u);
+  }
+})();
+</script>
 {% endblock %}

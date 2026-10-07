@@ -125,34 +125,18 @@
 .db-feed-amt small{display:block;font-family:var(--font-ui);font-weight:600}
 .db-empty{color:var(--muted);font-size:.88rem;padding:14px 0;text-align:center}
 
-.db-legend i.buy{background:var(--info)} .db-legend i.dep{background:var(--yr-out)}
-.db-legend i.ln{width:16px;height:0;border-radius:0;border-top:2.5px solid var(--muted)} .db-legend i.ln.dash{border-top-style:dashed}
+.db-legend i.buy{background:var(--info)} .db-legend i.pbuy{background:var(--info);opacity:.35}
 .db-as-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:4px 0 10px}
 @media (max-width:760px){.db-as-kpis{grid-template-columns:1fr 1fr}}
 .db-as-kpis > div{padding:10px 12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);min-width:0}
-.db-as-kpis > .buy{border-left:4px solid var(--info)} .db-as-kpis > .dep{border-left:4px solid var(--yr-out)}
 .db-as-kpis small{display:block;font-size:.74rem;font-weight:600;color:var(--muted)}
 .db-as-kpis b{display:block;margin-top:4px;font:800 1.05rem var(--font-data);white-space:nowrap}
-.db-as-kpis dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:6px 0 0}
-.db-as-kpis dt{font-size:.76rem;color:var(--muted);font-weight:600}
-.db-as-kpis dd{margin:0;text-align:right;font:700 .9rem var(--font-data);white-space:nowrap}
-.db-as-kpis dd:nth-of-type(1){font-weight:800;font-size:1rem}
-.db-as-kpis span{display:block;margin-top:3px;font-size:.72rem;color:var(--muted)}
-.db-as-kpis .is-warn{background:var(--warn-soft);border-color:var(--warn-line)} .db-as-kpis span.warn{color:var(--warn);font-weight:600}
-.db-as-bar{fill:var(--info);opacity:.5}
-.db-as-area{fill:var(--info-soft);opacity:.7}
-.db-as-line{fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:100;stroke-dashoffset:100;
-  animation:db-dash 1.4s var(--ease) forwards .5s}
-.db-as-line.buy{stroke:var(--info)} .db-as-line.dep{stroke:var(--yr-out)}
-.db-as-line.pbuy,.db-as-line.pdep{stroke-width:2;opacity:.7;stroke-dasharray:1.2 1;stroke-dashoffset:0;animation:db-fade .6s var(--ease) both .4s}
-.db-as-line.pbuy{stroke:var(--info)} .db-as-line.pdep{stroke:var(--yr-out)}
-.db-as-est{fill:var(--surface);stroke:var(--yr-out);stroke-width:2.5;stroke-dasharray:3 2}
-.db-as-est-l{fill:var(--yr-out);font-size:10px;font-weight:700}
-@keyframes db-fade{from{opacity:0}}
-@keyframes db-dash{to{stroke-dashoffset:0}}
-@media (prefers-reduced-motion:reduce){.db *,.db{animation:none!important;transition:none!important}.db-kpi polyline{stroke-dashoffset:0}.db-as-line{stroke-dashoffset:0}}
+.db-as-kpis span{display:block;margin-top:3px;font-size:.72rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.db-as-kpis .is-warn{background:var(--warn-soft);border-color:var(--warn-line)} .db-as-kpis .is-warn span{color:var(--warn);font-weight:600}
+.db-as-bar{fill:var(--info)} .db-as-pbar{fill:var(--info);opacity:.35}
+@media (prefers-reduced-motion:reduce){.db *,.db{animation:none!important;transition:none!important}.db-kpi polyline{stroke-dashoffset:0}}
 :root[data-same-page] .db *{animation:none!important}
-:root[data-same-page] .db-kpi polyline,:root[data-same-page] .db-as-line{stroke-dashoffset:0}
+:root[data-same-page] .db-kpi polyline{stroke-dashoffset:0}
 </style>
 
 <div class="db yr">
@@ -279,17 +263,16 @@
         </div>
         {{ vat_tiles(vat_periods) }}
       </section>
-      {# ================= Πάγια: αγορές και αποσβέσεις φέτος / πέρσι ================= #}
+      {# ================= Πάγια: αγορές φέτος / πέρσι ανά μήνα, αποσβέσεις ================= #}
       {% set c = assets.chart %}
+      {% set py = year|int - 1 %}
       <section class="card db-card db-assets" style="--i:3">
         <div class="card-head">
           <h2>🏗 Πάγια {{ year }}</h2>
           {% if not assets.empty %}
           <ul class="db-legend">
-            <li><i class="buy"></i>Αγορές</li>
-            <li><i class="dep"></i>Αποσβέσεις</li>
-            <li><i class="ln"></i>{{ year }}</li>
-            <li><i class="ln dash"></i>{{ year|int - 1 }}</li>
+            <li><i class="buy"></i>Αγορές {{ year }}</li>
+            <li><i class="pbuy"></i>Αγορές {{ py }}</li>
           </ul>
           {% endif %}
         </div>
@@ -298,52 +281,31 @@
         {% else %}
         {% set d = assets.dep %}
         <div class="db-as-kpis">
-          <div class="buy">
-            <small>Αγορές παγίων</small>
-            <dl><dt>{{ year }}</dt><dd>{{ assets.bought|el_amount }} €</dd>
-                <dt>{{ year|int - 1 }}</dt><dd>{{ assets.p_bought|el_amount }} €</dd></dl>
-          </div>
-          <div class="dep">
-            <small>Αποσβέσεις (καταχωρημένες E3_587)</small>
-            <dl><dt>{{ year }}</dt><dd>{{ assets.booked|el_amount }} €</dd>
-                <dt>{{ year|int - 1 }}</dt><dd>{{ assets.p_booked|el_amount }} €</dd></dl>
-          </div>
+          <div><small>Αγορές</small><b>{{ assets.bought|el_amount }} €</b><span>{{ py }}: {{ assets.p_bought|el_amount }} €</span></div>
+          <div title="Καταχωρημένες με E3_587"><small>Αποσβέσεις</small><b>{{ assets.booked|el_amount }} €</b><span>{{ py }}: {{ assets.p_booked|el_amount }} €</span></div>
           <div class="{{ 'is-warn' if assets.booked < d.total }}"
-               title="Πάγια < 1.500 €: 100% στη χρήση αγοράς· από 1.500 € και πάνω 20% τον χρόνο για 5 χρόνια">
-            <small>Αποσβέσεις {{ year }} κατά τον κανόνα</small>
-            <b>{{ d.total|el_amount }} €</b>
-            <span>φετινές αγορές {{ d.cur|el_amount }} € · αγορές {{ year|int - 4 }}–{{ year|int - 1 }} (≥ 1.500 €) {{ d.older|el_amount }} €</span>
-            {% if assets.booked < d.total %}<span class="warn">υπολείπονται {{ (d.total - assets.booked)|el_amount }} €</span>{% endif %}
+               title="Πάγια < 1.500 €: 100% στη χρήση αγοράς· από 1.500 € 20% τον χρόνο για 5 χρόνια. Φετινές αγορές {{ d.cur|el_amount }} € + προηγ. ετών {{ d.older|el_amount }} €">
+            <small>Απόσβεση κανόνα</small><b>{{ d.total|el_amount }} €</b>
+            <span>{{ 'λείπουν ' ~ (d.total - assets.booked)|el_amount ~ ' €' if assets.booked < d.total else 'καταχωρήθηκε' }}</span>
           </div>
-          <div title="Πάγια ≥ 1.500 € της 5ετίας, μετά τις αποσβέσεις του {{ year }}">
-            <small>Αναπόσβεστη αξία 31/12</small><b>{{ assets.residual|el_amount }} €</b>
-          </div>
+          <div title="Πάγια ≥ 1.500 € της 5ετίας, μετά τις αποσβέσεις του {{ year }}"><small>Αναπόσβεστη 31/12</small><b>{{ assets.residual|el_amount }} €</b></div>
         </div>
         <div class="db-plot">
           <svg viewBox="0 0 {{ c.w }} {{ c.h }}" role="img"
-               aria-label="Πάγια: αγορές {{ year }} {{ assets.bought|el_amount }} € ({{ year|int - 1 }}: {{ assets.p_bought|el_amount }} €), αποσβέσεις {{ year }} {{ assets.booked|el_amount }} € ({{ year|int - 1 }}: {{ assets.p_booked|el_amount }} €)">
+               aria-label="Αγορές παγίων ανά μήνα: {{ year }} {{ assets.bought|el_amount }} €, {{ py }} {{ assets.p_bought|el_amount }} €">
             {% for t in c.ticks %}
             <line class="grid" x1="{{ c.left }}" x2="{{ c.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
             <text class="tick" x="{{ c.left - 8 }}" y="{{ t.y + 3 }}" text-anchor="end">{{ '{:,.0f}'.format(t.v).replace(',', '.') }}</text>
             {% endfor %}
-            {% if c.buy_area %}<path class="db-as-area" d="{{ c.buy_area }}"/>{% endif %}
             {% for m in c.months %}
             <g class="db-m" style="--i:{{ loop.index0 }}">
               <rect class="db-hit" x="{{ m.x }}" y="{{ c.top }}" width="{{ m.w }}" height="{{ c.base - c.top }}" rx="6"/>
-              {% if m.bar and m.bar[3] >= 0.5 %}<rect class="db-bar db-as-bar" x="{{ m.bar[0] }}" y="{{ m.bar[1] }}" width="{{ m.bar[2] }}" height="{{ m.bar[3] }}" rx="4"/>{% endif %}
+              {% if m.pbar %}<rect class="db-bar db-as-pbar" x="{{ m.pbar[0] }}" y="{{ m.pbar[1] }}" width="{{ m.pbar[2] }}" height="{{ m.pbar[3] }}" rx="4"/>{% endif %}
+              {% if m.bar %}<rect class="db-bar db-as-bar" x="{{ m.bar[0] }}" y="{{ m.bar[1] }}" width="{{ m.bar[2] }}" height="{{ m.bar[3] }}" rx="4"/>{% endif %}
               <text class="mlab" x="{{ m.cx }}" y="{{ c.base + 18 }}" text-anchor="middle">{{ m.label }}</text>
-              <title>{{ m.label }} — σωρευτικά
-Αγορές: {{ year }} {{ m.buy|el_amount ~ ' €' if m.buy is not none else '—' }}{% if m.m_buy %} (μήνα {{ m.m_buy|el_amount }} €){% endif %} · {{ year|int - 1 }} {{ m.pbuy|el_amount }} €
-Αποσβέσεις: {{ year }} {{ m.dep|el_amount ~ ' €' if m.dep is not none else '—' }} · {{ year|int - 1 }} {{ m.pdep|el_amount }} €</title>
+              <title>{{ m.label }} — Αγορές {{ year }}: {{ m.buy|el_amount ~ ' €' if m.buy is not none else '—' }} · {{ py }}: {{ m.pbuy|el_amount }} €</title>
             </g>
             {% endfor %}
-            {% for k in ('pbuy', 'pdep', 'buy', 'dep') if c.lines[k] %}
-            <path class="db-as-line {{ k }}" d="{{ c.lines[k] }}" pathLength="100"/>
-            {% endfor %}
-            {% if c.est %}
-            <circle class="db-as-est" cx="{{ c.est.x }}" cy="{{ c.est.y }}" r="5"><title>Εκτίμηση αποσβέσεων {{ year }} κατά τον κανόνα: {{ d.total|el_amount }} €</title></circle>
-            <text class="db-as-est-l" x="{{ c.est.x - 9 }}" y="{{ c.est.y - 9 }}" text-anchor="end">εκτίμηση {{ '{:,.0f}'.format(d.total).replace(',', '.') }}</text>
-            {% endif %}
           </svg>
         </div>
         {% endif %}

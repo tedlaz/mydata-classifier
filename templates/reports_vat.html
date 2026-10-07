@@ -13,7 +13,7 @@
 {% block content %}
 <div class="yr-head f2-noprint">
   <div>
-    <a class="back back--inline" href="{{ url_for('reports') }}">← Αναφορές</a>
+    <a class="back back--inline f2-back" href="{{ url_for('reports') }}">← Αναφορές</a>
     <h1>Δήλωση ΦΠΑ <span class="yr-year">{{ period_label }} {{ year }}</span></h1>
     <p class="page-sub">{{ 'Τριμηνιαία' if is_q else 'Μηνιαία' }} δήλωση Φ2 · {{ d_from }} – {{ d_to }}</p>
   </div>
@@ -214,6 +214,22 @@
 (function () {
   const PARTS = ['.yr-head.f2-noprint', '.f2-bar', '.f2-wrap'];
   let seq = 0;
+  // «←» επιστρέφει στη σελίδα από όπου άνοιξε η δήλωση (κρατιέται όσο κινείσαι μέσα στο Φ2 / στη Συμφωνία).
+  const NAMES = {'/dashboard': 'Πίνακας ελέγχου', '/reports/yearly': 'Συνοπτικό βιβλίο', '/reports': 'Αναφορές'};
+  let back = null;
+  try {
+    const r = document.referrer ? new URL(document.referrer) : null;
+    if (r && r.origin === location.origin && !r.pathname.startsWith('/reports/vat')) sessionStorage.setItem('f2-back', r.pathname + r.search);
+    back = sessionStorage.getItem('f2-back');
+  } catch (_) {}
+  function setBack() {
+    const a = document.querySelector('.f2-back');
+    if (!a || !back) return;
+    const path = back.split('?')[0];
+    a.href = back;
+    a.textContent = '← ' + (NAMES[path] || 'Πίσω');
+  }
+  setBack();
   async function go(url, push) {
     const my = ++seq, wrap = document.querySelector('.f2-wrap');
     wrap.classList.add('is-loading');
@@ -225,6 +241,7 @@
       const fresh = PARTS.map(s => doc.querySelector(s));
       if (fresh.some(n => !n)) throw new Error('no content');
       PARTS.forEach((s, i) => { fresh[i].classList.add('is-live'); document.querySelector(s).replaceWith(fresh[i]); });
+      setBack();
       if (push) history.pushState({f2: 1}, '', url);
     } catch (_) {
       location.href = url;  // αν κάτι αποτύχει: κανονική πλοήγηση
