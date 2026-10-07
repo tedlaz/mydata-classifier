@@ -49,8 +49,8 @@ r = vat_return.reconcile([], [{"mark": "4002", "invoice_type": "1.1", "total_net
 rows = {x["e3"]: x["vals"] for x in r["expense"]["rows"]}
 assert rows["E3_102_001"]["381"] == 12 and rows["E3_585_016"]["nd"] == 7.2 and r["expense"]["ok"], rows
 assert (r["expense"]["net"], r["expense"]["total"]) == (80, 80)
-# Στο μενού, κάτω από τη Δήλωση ΦΠΑ· σύνδεσμος από τη Δήλωση.
-nav = page[page.index('<nav class="nav">'):]
-assert nav.index('href="/reports/vat"') < nav.index('href="/reports/vat/reconcile"') < nav.index('href="/reports"')
+# Όχι στο μενού· σύνδεσμος μόνο από τη Δήλωση.
+nav = page[page.index('<nav class="nav">'):page.index('</nav>')]
+assert 'href="/reports/vat/reconcile"' not in nav and 'href="/reports/vat"' in nav
 assert "/reports/vat/reconcile?year=2026&amp;period=m3" in c.get("/reports/vat?year=2026&period=m3").get_data(as_text=True)
 print("ok")
