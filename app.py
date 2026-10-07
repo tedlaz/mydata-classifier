@@ -4644,6 +4644,28 @@ def companies_update(idx):
     return redirect(back if back.startswith("/") and not back.startswith(("//", "/\\")) else url_for("companies"))
 
 
+_TOGGLES = {"MYDATA_ENV", "use_accountant", "allow_send", "allow_classify", "allow_new", "allow_cancel"}
+
+
+@app.route("/companies/toggle/<int:idx>/<flag>", methods=["POST"])
+def companies_toggle(idx, flag):
+    """Tag της κάρτας: αλλάζει μία ρύθμιση (dev⇄prod ή μία άδεια) χωρίς το modal."""
+    comps = load_companies()
+    if not (0 <= idx < len(comps)) or flag not in _TOGGLES:
+        flash("Η εταιρεία δεν βρέθηκε.", "error")
+        return redirect(url_for("companies"))
+    c = comps[idx]
+    c[flag] = ("prod" if c[flag] == "dev" else "dev") if flag == "MYDATA_ENV" else not c[flag]
+    if c["locked"] and flag.startswith("allow_"):
+        flash("🔐 Κλειδωμένη εταιρεία — οι άδειες δεν αλλάζουν.", "error")
+    elif not c["use_accountant"] and not (c["AADE_USER_ID"] and c["AADE_SUBSCRIPTION_KEY"]):
+        flash("Χωρίς credentials λογιστή χρειάζονται User ID/Subscription Key (Ρυθμίσεις εταιρείας).", "error")
+    else:
+        db.update_company(c["id"], c)
+        flash(f"✔ Ενημερώθηκε η εταιρεία «{c['company_name']}».", "ok")
+    return redirect(url_for("companies"))
+
+
 @app.route("/companies/delete/<int:idx>", methods=["POST"])
 def companies_delete(idx):
     comps = load_companies()
