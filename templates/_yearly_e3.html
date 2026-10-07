@@ -4,7 +4,8 @@
   <tr class="yr-e3-section"><th colspan="4">{% if dot %}<i class="yr-dot {{ dot }}"></i>{% endif %}{{ title }}
     {%- if note %} <small class="muted">— {{ note }}</small>{% endif %}</th></tr>
 {%- endmacro %}
-{% macro rows(list, minus=False, cls='') -%}
+{# links (σελίδα, όχι PDF): το ποσό ανοίγει το modal με τα παραστατικά του λογαριασμού. #}
+{% macro rows(list, minus=False, cls='', book='expense') -%}
   {% for g in list %}
   <tr class="{{ cls }}">
     <td class="yr-e3-code">{{ g.type or '—' }}</td>
@@ -13,7 +14,9 @@
       {% if g.depreciation %}<span class="pill yr-tag">απόσβεση</span>{% endif %}
     </td>
     <td class="num">{{ g.count }}</td>
-    <td class="num yr-net">{{ '− ' if minus }}{{ g.amount|el_amount }}</td>
+    <td class="num yr-net">{% if links %}<button type="button" class="rc-cell" title="Παραστατικά {{ g.type }} · {{ g.category }}"
+      data-docs="{{ url_for('reports_yearly_e3_docs', year=year, book=book, type=g.type, category=g.category, page_back=back) }}">{{ '− ' if minus }}{{ g.amount|el_amount }}</button>
+      {%- else %}{{ '− ' if minus }}{{ g.amount|el_amount }}{% endif %}</td>
   </tr>
   {% endfor %}
 {%- endmacro %}
@@ -37,7 +40,7 @@
   </thead>
   <tbody>
     {{ head('1. Έσοδα', 'yr-dot--in') }}
-    {{ rows(pl.income) }}
+    {{ rows(pl.income, book='income') }}
     {% if not pl.income %}<tr><td colspan="4" class="muted yr-e3-desc">Κανένας χαρακτηρισμός Ε3.</td></tr>{% endif %}
     {{ sum('Σύνολο εσόδων', pl.inc_total, '(καθαρή αξία πίνακα ' ~ inc_net|el_amount ~ ')' if (pl.inc_total - inc_net)|abs >= 0.01 else '') }}
 

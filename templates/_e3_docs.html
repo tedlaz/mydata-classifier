@@ -1,15 +1,15 @@
-{# Περιεχόμενο του modal της συμφωνίας Φ2 (φορτώνεται με fetch): τα παραστατικά ενός κελιού. #}
+{# Περιεχόμενο του modal της ανάλυσης Ε3 (φορτώνεται με fetch): τα παραστατικά ενός λογαριασμού Ε3. #}
 {% from "_macros.html" import pager with context %}
 {% set is_in = book == 'income' %}
-{# «Επιστροφή» από το παραστατικό: η συμφωνία ξανανοίγει αυτό το modal (?docs=) #}
-{% set back = url_for('reports_vat_reconcile', year=year, period=period, docs=request.full_path) %}
+{# «Επιστροφή» από το παραστατικό: η ανάλυση Ε3 ξανανοίγει αυτό το modal (?docs=) #}
+{% set back = url_for('reports_yearly_e3', year=year, back=request.args.page_back or None, docs=request.full_path) %}
 <div class="modal-head">
-  <h2><i class="yr-dot {{ 'yr-dot--in' if is_in else 'yr-dot--out' }}"></i>{{ request.args.t or ('Έσοδα' if is_in else 'Έξοδα') }}</h2>
+  <h2><i class="yr-dot {{ 'yr-dot--in' if is_in else 'yr-dot--out' }}"></i>{{ typ or 'Χωρίς τύπο Ε3' }} · {{ type_label }}</h2>
   <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
 </div>
 <p class="muted small">
-  {% if e3 is none %}Όλοι οι λογαριασμοί Ε3{% elif e3 %}<code>{{ e3 }}</code> {{ e3_label }}{% else %}Χωρίς λογαριασμό Ε3{% endif %}
-  · {{ n_docs }} παραστατικά{% if pages > 1 %} (σελίδα {{ page }} από {{ pages }}){% endif %} · «Συμμετέχει» = το μέρος του παραστατικού που πέφτει σε αυτό το κελί (τα πιστωτικά αφαιρούνται).
+  {{ cat }}{% if category_label %} · {{ category_label }}{% endif %} · {{ year }} · {{ n_docs }} παραστατικά{% if pages > 1 %} (σελίδα {{ page }} από {{ pages }}){% endif %}
+  · «Ποσό Ε3» = ό,τι φέρνει το καθένα σε αυτόν τον λογαριασμό (τα πιστωτικά αφαιρούνται).
   <span class="rc-key"><i class="rc-whole"></i>ολόκληρο <i class="rc-partial"></i>μερικώς</span>
 </p>
 {% if docs %}
@@ -18,15 +18,13 @@
   <thead>
     <tr>
       <th>Ημ/νία</th><th>MARK</th><th>{{ 'Πελάτης' if is_in else 'Εκδότης' }}</th><th>Τύπος · Σειρά/Α/Α</th>
-      <th class="num">Καθαρή αξία</th><th class="num">ΦΠΑ</th>
-      <th class="num rc-part {{ 'is-hit' if not clicked_tax }}">Αξία που<br>συμμετέχει</th>
-      <th class="num rc-part {{ 'is-hit' if clicked_tax or col == 'nd' }}">ΦΠΑ που<br>συμμετέχει</th>
+      <th class="num">Καθαρή αξία</th><th class="num">ΦΠΑ</th><th class="num rc-part is-hit">Ποσό Ε3 που<br>συμμετέχει</th>
     </tr>
   </thead>
   <tbody>
     {% for d in docs %}
     <tr class="{{ 'rc-whole' if d.whole else 'rc-partial' }} {{ 'is-credit' if d.credit }}"
-        title="{{ 'Συμμετέχει ολόκληρο' if d.whole else 'Συμμετέχει μερικώς — έχει και άλλους λογαριασμούς Ε3 / κωδικούς ΦΠΑ' }}">
+        title="{{ 'Συμμετέχει ολόκληρο' if d.whole else 'Συμμετέχει μερικώς — έχει και άλλους λογαριασμούς Ε3' }}">
       <td>{{ '/'.join(d.issue_date.split('-')[::-1]) if d.issue_date }}</td>
       <td class="yr-docs-mark"><a href="{{ url_for('document', mark=d.mark, back=back) }}">{{ d.mark }}</a></td>
       <td class="yr-docs-cp"><b>{{ d.counterparty_name or '—' }}</b><span class="vat">{{ d.counterparty_vat or '' }}</span></td>
@@ -34,12 +32,10 @@
         <span title="{{ type_names.get(d.invoice_type, '') }}">{{ d.invoice_type }}</span>
         <span class="muted">{{ d.series or '' }}/{{ d.aa or '' }}</span>
         {% if d.credit %}<span class="pill yr-tag">πιστωτικό</span>{% endif %}
-        {% if d.status == 'unclassified' %}<span class="pill yr-tag yr-tag--unc">αχαρακτήριστο</span>{% endif %}
       </td>
       <td class="num">{{ d.net|el_amount }}</td>
       <td class="num">{{ d.vat|el_amount }}</td>
       <td class="num rc-part">{{ d.part|el_amount }}</td>
-      <td class="num rc-part">{{ d.part_vat|el_amount }}</td>
     </tr>
     {% endfor %}
   </tbody>
@@ -47,7 +43,7 @@
     <tr class="yr-total {{ 'yr-total--in' if is_in else 'yr-total--out' }}">
       <th colspan="4">Σύνολο{% if pages > 1 %} <small class="muted">— όλων των σελίδων ({{ n_docs }})</small>{% endif %}</th>
       <td class="num">{{ total.net|el_amount }}</td><td class="num">{{ total.vat|el_amount }}</td>
-      <td class="num rc-part">{{ total.part|el_amount }}</td><td class="num rc-part">{{ total.part_vat|el_amount }}</td>
+      <td class="num rc-part">{{ total.part|el_amount }}</td>
     </tr>
   </tfoot>
 </table>

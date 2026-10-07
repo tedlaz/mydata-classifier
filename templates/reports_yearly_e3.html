@@ -2,9 +2,48 @@
 {% block title %}Ανάλυση Ε3 {{ year }}{% endblock %}
 {% block content %}
 <div class="yr yr-e3-page">
-  <a class="yr-e3-back" href="{{ url_for('dashboard') }}">← Πίνακας ελέγχου</a>
+  <div class="yr-e3-top">
+    <a class="yr-e3-back" href="{{ back }}">← {{ 'Συνοπτικό βιβλίο' if back.startswith('/reports/yearly') else 'Πίνακας ελέγχου' }}</a>
+    <nav class="yr-years" aria-label="Χρήση">
+      {% for y in years %}<a href="{{ url_for('reports_yearly_e3', year=y, back=back) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
+    </nav>
+  </div>
   <section class="card">
     {% include "_yearly_e3.html" %}
   </section>
+  {# Modal: παραστατικά ενός λογαριασμού Ε3 — γεμίζει με fetch από το reports_yearly_e3_docs #}
+  <dialog class="modal modal--wide yr-docs-modal" id="e3-docs" aria-label="Παραστατικά" closedby="any"></dialog>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const dlg = document.getElementById('e3-docs');
+  async function openDocs(url) {
+    dlg.innerHTML = '<p class="muted">Φόρτωση…</p>';
+    if (!dlg.open) dlg.showModal();
+    try {
+      const r = await fetch(url);
+      dlg.innerHTML = r.ok ? await r.text() : '<p class="note note--err">Σφάλμα φόρτωσης (' + r.status + ').</p>';
+    } catch (_) {
+      dlg.innerHTML = '<p class="note note--err">Σφάλμα σύνδεσης.</p>';
+    }
+  }
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('.rc-cell');
+    if (btn) openDocs(btn.dataset.docs);
+    const pg = e.target.closest('dialog .pager a');  // σελίδες της λίστας: μέσα στο modal
+    if (pg && !e.ctrlKey && !e.metaKey) { e.preventDefault(); openDocs(pg.getAttribute('href')); }
+  });
+  dlg.addEventListener('click', e => { if (e.target.closest('[data-close]')) dlg.close(); });
+  dlg.addEventListener('close', () => { dlg.innerHTML = ''; });
+  // Επιστροφή από παραστατικό που άνοιξε από το modal: ξανανοίγει το ίδιο modal.
+  const back = new URLSearchParams(location.search).get('docs');
+  if (back && back.startsWith('/reports/yearly/e3/docs')) {
+    openDocs(back);
+    const u = new URL(location); u.searchParams.delete('docs'); history.replaceState(null, '', u);
+  }
+})();
+</script>
 {% endblock %}

@@ -2823,7 +2823,46 @@ def reports_yearly_e3():
     return render_template(
         "yearly_e3_print.html" if request.args.get("print") else "reports_yearly_e3.html",
         year=year, pl=pl, tax=_year_tax(cid, int(year), pl["profit"], withheld),
+        years=sorted(set(db.document_years(cid)) | {year}, reverse=True),
+        back=_safe_back(request.args.get("back")) or url_for("dashboard"),  # από όπου άνοιξε (συνοπτικό βιβλίο / πίνακας ελέγχου)
         inc_net=net(inc_docs), exp_net=net(exp_docs), now_str=datetime.now().strftime("%d/%m/%Y %H:%M"),
+        links=not request.args.get("print"),  # ποσά → modal παραστατικών (όχι στο PDF)
+    )
+
+
+@app.route("/reports/yearly/e3/docs")
+def reports_yearly_e3_docs():
+    """Τμήμα HTML για το modal της ανάλυσης Ε3: τα παραστατικά ενός λογαριασμού (type, category) του έτους,
+    με την καθαρή αξία / ΦΠΑ τους και το ποσό Ε3 που φέρνει το καθένα (ίδιος υπολογισμός με το _e3_breakdown).
+    whole = όλο το παραστατικό σε αυτόν τον λογαριασμό (ποσό = καθαρή αξία, ή μικτή όταν ο ΦΠΑ μπαίνει στο Ε3)."""
+    year, book = request.args.get("year", ""), request.args.get("book")
+    typ, cat = request.args.get("type", ""), request.args.get("category", "")
+    if not year.isdigit() or book not in ("income", "expense"):
+        return "Μη έγκυρη επιλογή.", 400
+    statuses = _INCOME_CLASSIFIED_STATUSES if book == "income" else _EXPENSE_CLASSIFIED_STATUSES
+    rows, total = [], {"net": 0.0, "vat": 0.0, "part": 0.0}
+    for d in db.period_documents(_active_company_id(), book, f"{year}-01-01", f"{year}-12-31"):
+        if d["status"] not in statuses:
+            continue
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        hits = [e.get("amount") or 0 for e in json.loads(d["cls_json"] or "[]")
+                if not (e.get("type") or "").startswith("VAT_") and (e.get("type") or "") == typ
+                and (e.get("category") or "") == cat]
+        if not hits:  # και με μηδενικό ποσό: μετρά στο «παραστατικά» της ανάλυσης
+            continue
+        part = sum(hits)
+        net, vat, part = sign * (d["total_net"] or 0.0), sign * (d["total_vat"] or 0.0), sign * part
+        rows.append(dict(d, net=net, vat=vat, part=round(part, 2), credit=sign < 0,
+                         whole=abs(part - net) < 0.015 or abs(part - net - vat) < 0.015))
+        for k, v in (("net", net), ("vat", vat), ("part", part)):
+            total[k] += v
+    # Σελιδοποίηση της λίστας (τα σύνολα από όλα τα παραστατικά)· q = οι παράμετροι του modal για τον pager.
+    page_docs, page, pages = paginate(rows, request.args.get("page"))
+    q = {k: v for k, v in request.args.items() if k != "page"}
+    return render_template(
+        "_e3_docs.html", docs=page_docs, n_docs=len(rows), page=page, pages=pages, q=q, total={k: round(v, 2) for k, v in total.items()}, book=book, year=year,
+        typ=typ, cat=cat, type_label=_CLASSIFICATION_NAMES.get(typ, ""),
+        category_label=_CLASSIFICATION_CATEGORY_NAMES.get(cat, ""), type_names=INVOICE_TYPE_NAMES,
     )
 
 
@@ -3358,9 +3397,12 @@ def reports_vat_reconcile_docs():
             rows.append(dict(d, part=round(p, 2), part_vat=round(pv, 2), credit=sign < 0, net=net, vat=vat, whole=whole))
     total = {"net": round(sum(r["net"] for r in rows), 2), "vat": round(sum(r["vat"] for r in rows), 2),
              "part": round(sum(cell(c) for c in base_cols), 2), "part_vat": round(sum(cell(c) for c in tax_cols), 2)}
+    # Σελιδοποίηση της λίστας (τα σύνολα από όλα τα παραστατικά)· q = οι παράμετροι του modal για τον pager.
+    page_docs, page, pages = paginate(rows, request.args.get("page"))
+    q = {k: v for k, v in request.args.items() if k != "page"}
     accounts = {**EXPENSE_TYPES, **INCOME_TYPES}
     return render_template(
-        "_reconcile_docs.html", docs=rows, total=total, book=book, col=col, clicked_tax=col in tax_cols and col != "net",
+        "_reconcile_docs.html", docs=page_docs, n_docs=len(rows), page=page, pages=pages, q=q, total=total, book=book, col=col, clicked_tax=col in tax_cols and col != "net",
         e3=e3, e3_label=accounts.get(e3 or "", ""), type_names=INVOICE_TYPE_NAMES, year=year, period=period,
     )
 

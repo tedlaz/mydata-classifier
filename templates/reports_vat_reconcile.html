@@ -39,18 +39,6 @@
 .rc-ok{color:var(--ok);font-weight:800}
 .rc-bad{color:var(--err);font-weight:800}
 .rc-note{color:var(--muted);font-size:.8rem;margin:10px 0 0}
-.rc-cell{all:unset;cursor:pointer;border-radius:5px;padding:1px 4px;margin:-1px -4px;font:inherit;transition:background .15s,color .15s}
-.rc-cell:hover,.rc-cell:focus-visible{background:var(--accent-soft);color:var(--accent);text-decoration:underline}
-.rc-cell:focus-visible{outline:2px solid var(--accent-glow)}
-.rc-docs{min-width:900px}
-.rc-docs .rc-part{background:color-mix(in srgb,var(--accent-soft) 45%,transparent);font-weight:700}
-.rc-docs th.rc-part.is-hit{color:var(--accent)}
-.rc-docs tr.rc-whole td{background:color-mix(in srgb,var(--ok-soft) 75%,transparent)}
-.rc-docs tr.rc-partial td{background:color-mix(in srgb,var(--warn-soft) 80%,transparent)}
-.rc-docs tr td.rc-part{background-image:linear-gradient(color-mix(in srgb,var(--accent-soft) 45%,transparent),color-mix(in srgb,var(--accent-soft) 45%,transparent))}
-.rc-key{display:inline-flex;align-items:center;gap:6px;margin-left:8px;white-space:nowrap}
-.rc-key i{width:12px;height:12px;border-radius:3px;border:1px solid var(--line)}
-.rc-key i.rc-whole{background:var(--ok-soft)} .rc-key i.rc-partial{background:var(--warn-soft);margin-left:6px}
 </style>
 
 <div class="yr-head">
@@ -144,6 +132,8 @@
   document.addEventListener('click', e => {
     const btn = e.target.closest('.rc-cell');
     if (btn) openDocs(btn.dataset.docs);
+    const pg = e.target.closest('dialog .pager a');  // σελίδες της λίστας: μέσα στο modal
+    if (pg && !e.ctrlKey && !e.metaKey) { e.preventDefault(); openDocs(pg.getAttribute('href')); }
   });
   dlg.addEventListener('click', e => { if (e.target.closest('[data-close]')) dlg.close(); });
   dlg.addEventListener('close', () => { dlg.innerHTML = ''; });

@@ -34,6 +34,8 @@
         <nav class="yr-years" aria-label="Έτος">
           {% for y in years %}<a href="{{ url_for('reports_yearly', year=y, unc=1 if unc else None, per='q' if per_q else None) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
         </nav>
+        <a class="btn btn-sm yr-e3-go" href="{{ url_for('reports_yearly_e3', year=year, back=url_for('reports_yearly', year=year)) }}"
+           title="Ανάλυση Ε3 {{ year }}: καθαρό κέρδος ανά χαρακτηρισμό Ε3">Ε3</a>
       </div>
     </div>
     <div class="db-kpis">
@@ -52,7 +54,7 @@
         <b><span class="{{ 'neg' if balance < 0 }}" data-num="{{ balance }}">{{ balance|el_amount }}</span><i>€</i></b>
         <span class="db-kpi-note">Όλα τα έξοδα, μαζί με τα πάγια</span>
       </div>
-      <a class="btn db-kpi" style="--i:3" href="{{ url_for('reports_yearly_e3', year=year) }}" title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">
+      <a class="btn db-kpi" style="--i:3" href="{{ url_for('reports_yearly_e3', year=year, back=url_for('reports_yearly', year=year)) }}" title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">
         <small>📈 Καθαρό κέρδος</small>
         <b><span class="{{ 'neg' if real_profit < 0 }}" data-num="{{ real_profit }}">{{ real_profit|el_amount }}</span><i>€</i></b>
         <span class="db-kpi-note">Ανάλυση ανά Ε3 →</span>
