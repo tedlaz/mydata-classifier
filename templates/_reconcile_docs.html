@@ -9,6 +9,7 @@
 <p class="muted small">
   {% if e3 is none %}Όλοι οι λογαριασμοί Ε3{% elif e3 %}<code>{{ e3 }}</code> {{ e3_label }}{% else %}Χωρίς λογαριασμό Ε3{% endif %}
   · {{ docs|length }} παραστατικά · «Συμμετέχει» = το μέρος του παραστατικού που πέφτει σε αυτό το κελί (τα πιστωτικά αφαιρούνται).
+  <span class="rc-key"><i class="rc-whole"></i>ολόκληρο <i class="rc-partial"></i>μερικώς</span>
 </p>
 {% if docs %}
 <div class="yr-scroll">
@@ -23,7 +24,8 @@
   </thead>
   <tbody>
     {% for d in docs %}
-    <tr class="{{ 'is-credit' if d.credit }}">
+    <tr class="{{ 'rc-whole' if d.whole else 'rc-partial' }} {{ 'is-credit' if d.credit }}"
+        title="{{ 'Συμμετέχει ολόκληρο' if d.whole else 'Συμμετέχει μερικώς — έχει και άλλους λογαριασμούς Ε3 / κωδικούς ΦΠΑ' }}">
       <td>{{ '/'.join(d.issue_date.split('-')[::-1]) if d.issue_date }}</td>
       <td class="yr-docs-mark"><a href="{{ url_for('document', mark=d.mark, back=back) }}">{{ d.mark }}</a></td>
       <td class="yr-docs-cp"><b>{{ d.counterparty_name or '—' }}</b><span class="vat">{{ d.counterparty_vat or '' }}</span></td>

@@ -3352,8 +3352,10 @@ def reports_vat_reconcile_docs():
         p, pv = part.get(d["mark"], 0.0), part_vat.get(d["mark"], 0.0)
         if abs(p) >= 0.005 or abs(pv) >= 0.005:
             sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
-            rows.append(dict(d, part=round(p, 2), part_vat=round(pv, 2), credit=sign < 0,
-                             net=sign * (d["total_net"] or 0.0), vat=sign * (d["total_vat"] or 0.0)))
+            net, vat = sign * (d["total_net"] or 0.0), sign * (d["total_vat"] or 0.0)
+            # Ολόκληρο = η αξία και ο ΦΠΑ του παραστατικού πέφτουν όλα σε αυτό το κελί (nd: μόνο ο ΦΠΑ).
+            whole = abs(pv - vat) < 0.015 and (not base_cols or abs(p - net) < 0.015)
+            rows.append(dict(d, part=round(p, 2), part_vat=round(pv, 2), credit=sign < 0, net=net, vat=vat, whole=whole))
     total = {"net": round(sum(r["net"] for r in rows), 2), "vat": round(sum(r["vat"] for r in rows), 2),
              "part": round(sum(cell(c) for c in base_cols), 2), "part_vat": round(sum(cell(c) for c in tax_cols), 2)}
     accounts = {**EXPENSE_TYPES, **INCOME_TYPES}
