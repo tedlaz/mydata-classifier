@@ -364,13 +364,12 @@
       if (note && nnote) note.textContent = nnote.textContent;
       if (n.href) k.href = n.href;
     });
-    // Διάγραμμα (morph), κάρτες ΦΠΑ, κέρδος, πίνακας.
+    // Διάγραμμα (morph), κάρτες ΦΠΑ, πίνακας.
     hideCol();  // το tooltip του παλιού έτους
     cur.querySelector('.yr-plot svg').replaceWith(fresh.querySelector('.yr-plot svg'));
     labelCols();
     cur.querySelector('.yr-chart .yr-chart-head').replaceWith(fresh.querySelector('.yr-chart .yr-chart-head'));  // τίτλος με έτος + υπόμνημα
     cur.querySelector('.yr-quarters').replaceWith(fresh.querySelector('.yr-quarters'));
-    cur.querySelector('.yr-pl-card').replaceWith(fresh.querySelector('.yr-pl-card'));
     cur.querySelector('.yr-table-card').replaceWith(fresh.querySelector('.yr-table-card'));
   }
   let busy = false;

@@ -1619,7 +1619,7 @@ a.yr-q:hover,a.yr-q:focus-visible{border-color:var(--accent-glow);background:var
 .yr-tag--unc{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)}
 /* Ανανέωση AJAX της ετήσιας σύνοψης: τα νέα κομμάτια χωρίς εισαγωγικά animations, οι μπάρες «μεταμορφώνονται» */
 .yr-unc.is-busy{cursor:progress}
-.yr2.is-live .yr-cols *,.yr2.is-live .yr-table-card,.yr2.is-live .yr-table-card *,.yr2.is-live .yr-pl-card{animation:none!important}
+.yr2.is-live .yr-cols *,.yr2.is-live .yr-table-card,.yr2.is-live .yr-table-card *{animation:none!important}
 .yr2.is-live .fc-area,.yr2.is-live .fc-end text{opacity:1}
 .yr2 .yr-bar{transition:d .5s var(--ease),opacity .15s}
 @media (prefers-reduced-motion:reduce){.yr2 .yr-bar{transition:none}}
