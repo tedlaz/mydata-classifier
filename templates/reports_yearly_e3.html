@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Ανάλυση Ε3 {{ year }}{% endblock %}
+{% block content %}
+<div class="yr yr-e3-page">
+  <a class="yr-e3-back" href="{{ url_for('dashboard') }}">← Πίνακας ελέγχου</a>
+  <section class="card">
+    {% include "_yearly_e3.html" %}
+  </section>
+</div>
+{% endblock %}

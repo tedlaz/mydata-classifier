@@ -52,11 +52,11 @@
         <b><span class="{{ 'neg' if balance < 0 }}" data-num="{{ balance }}">{{ balance|el_amount }}</span><i>€</i></b>
         <span class="db-kpi-note">Όλα τα έξοδα, μαζί με τα πάγια</span>
       </div>
-      <button type="button" class="db-kpi" style="--i:3" data-docs="{{ url_for('reports_yearly_e3', year=year) }}" title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">
+      <a class="btn db-kpi" style="--i:3" href="{{ url_for('reports_yearly_e3', year=year) }}" title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">
         <small>📈 Καθαρό κέρδος</small>
         <b><span class="{{ 'neg' if real_profit < 0 }}" data-num="{{ real_profit }}">{{ real_profit|el_amount }}</span><i>€</i></b>
         <span class="db-kpi-note">Ανάλυση ανά Ε3 →</span>
-      </button>
+      </a>
       <div class="db-kpi" style="--i:4">
         <small>🧮 ΦΠΑ εκροών − εισροών</small>
         <b><span class="{{ 'neg' if vat_diff < 0 }}" data-num="{{ vat_diff }}">{{ vat_diff|el_amount }}</span><i>€</i></b>
@@ -116,49 +116,6 @@
         <div class="yr-tip" role="status" hidden></div>
       </div>
       {{ vat_tiles(vat_periods) }}
-    </section>
-
-    {# ================= Καθαρό κέρδος (waterfall) ================= #}
-    {% set has_cogs = pl.opening or pl.purchases or pl.closing %}
-    <section class="card yr-pl-card">
-      <div class="yr-chart-head">
-        <h2>💰 Καθαρό κέρδος</h2>
-        <button type="button" class="btn-ghost btn-sm" data-docs="{{ url_for('reports_yearly_e3', year=year) }}" title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">Ανάλυση Ε3 →</button>
-      </div>
-      {% macro wf(label, v, i, li_cls='') -%}
-        <li class="{{ li_cls }}" style="--i:{{ i }}"><span class="yr-wf-l">{{ label }}</span><b>{{ v|el_amount }}</b></li>
-      {%- endmacro %}
-      <ul class="yr-wf">
-        {{ wf('Έσοδα', pl.inc_total, 0) }}
-        {% if has_cogs %}
-        {# Κόστος πωληθέντων: οι γραμμές που το σχηματίζουν, μαζί σε ένα πλαίσιο. #}
-        <li class="yr-wf-group" style="--i:1">
-          <ul class="yr-wf">
-            {{ wf('Αποθέματα έναρξης', pl.opening_total, 1) }}
-            {{ wf('+ Αγορές αποθεμάτων', pl.purchases_total, 2) }}
-            {{ wf('− Αποθέματα λήξης', pl.closing_total, 3) }}
-            {{ wf('= Κόστος πωληθέντων', pl.cogs, 4, 'yr-wf-sub') }}
-          </ul>
-        </li>
-        {% endif %}
-        {{ wf('Έξοδα χρήσης', pl.exp_total, 5) }}
-        {{ wf('Καθαρό κέρδος', real_profit, 6, 'yr-wf-res is-neg' if real_profit < 0 else 'yr-wf-res') }}
-        {% if pl.assets %}
-        {{ wf('Αγορές παγίων', pl.assets_total, 7, 'yr-wf-aside') }}
-        {% endif %}
-      </ul>
-      {% if pl.inc_total > 0 %}
-      {% set margin = (real_profit / pl.inc_total * 100)|round|int %}
-      <div class="yr-margin">
-        <span>Περιθώριο κέρδους</span><b class="{{ 'yneg' if margin < 0 }}">{{ margin }}%</b>
-      </div>
-      {% endif %}
-      {% if pl.assets_total and not pl.depreciation %}
-      <p class="note note--warn yr-pl-warn">
-        ⚠ Αγορές παγίων χωρίς <strong>καμία απόσβεση</strong> στο {{ year }} — πέρασέ τες με
-        <a href="{{ url_for('new_expense') }}">Νέα εγγραφή</a> (τύπος 17.x, E3_587).
-      </p>
-      {% endif %}
     </section>
   </div>
 
@@ -246,7 +203,7 @@
       Παρακρατήσεις, τέλη κ.λπ. συμπληρώνονται με την ανάκτηση — για παλιότερες ανακτήσεις κάνε ξανά «Ανάκτηση».    </p>
   </section>
 
-  {# Modal «Αναλυτικά»: γεμίζει με fetch από το reports_yearly_docs / reports_yearly_e3 #}
+  {# Modal «Αναλυτικά»: γεμίζει με fetch από το reports_yearly_docs #}
   <dialog class="modal modal--wide yr-docs-modal" id="yr-docs" aria-label="Αναλυτικά παραστατικά" closedby="any"></dialog>
 </div>
 {% endblock %}
@@ -340,7 +297,7 @@
     if (e.key === 'Escape' && open) { const t = open; hide(); t.focus(); }
   });
 
-  // ---- Modal: παραστατικά μήνα («Έσοδα»/«Έξοδα») ή ανάλυση Ε3 («Καθαρό κέρδος») ----
+  // ---- Modal: παραστατικά μήνα («Έσοδα»/«Έξοδα») ----
   const dlg = document.getElementById('yr-docs');
   async function openDocs(url) {
     dlg.innerHTML = '<p class="muted">Φόρτωση…</p>';
@@ -403,7 +360,7 @@
       if (pl && npl) pl.setAttribute('points', npl.getAttribute('points'));
       const note = k.querySelector('.db-kpi-note'), nnote = n.querySelector('.db-kpi-note');
       if (note && nnote) note.textContent = nnote.textContent;
-      if (k.dataset.docs !== undefined) k.dataset.docs = n.dataset.docs;
+      if (n.href) k.href = n.href;
     });
     // Διάγραμμα (morph), κάρτες ΦΠΑ, κέρδος, πίνακας.
     hideCol();  // το tooltip του παλιού έτους

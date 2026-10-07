@@ -2807,7 +2807,7 @@ def _year_tax(cid: int | None, year: int, profit: float, withheld: float) -> dic
 
 @app.route("/reports/yearly/e3")
 def reports_yearly_e3():
-    """Τμήμα HTML για το modal «Καθαρό κέρδος»: έσοδα και έξοδα του έτους ανά χαρακτηρισμό Ε3."""
+    """Σελίδα «Ανάλυση Ε3»: έσοδα και έξοδα του έτους ανά χαρακτηρισμό Ε3."""
     year = request.args.get("year", "")
     if not year.isdigit():
         return "Μη έγκυρο έτος.", 400
@@ -2819,7 +2819,7 @@ def reports_yearly_e3():
     withheld = round(sum(v["withheld"] for v in _yearly_totals(inc_docs).values()), 2)
     # ?print=1: αυτόνομη σελίδα A4 για «Αποθήκευση ως PDF» από τον browser.
     return render_template(
-        "yearly_e3_print.html" if request.args.get("print") else "_yearly_e3.html",
+        "yearly_e3_print.html" if request.args.get("print") else "reports_yearly_e3.html",
         year=year, pl=pl, tax=_year_tax(cid, int(year), pl["profit"], withheld),
         inc_net=net(inc_docs), exp_net=net(exp_docs), now_str=datetime.now().strftime("%d/%m/%Y %H:%M"),
     )
@@ -3447,6 +3447,49 @@ def _spark(values: list[float], w: int = 120, h: int = 34) -> str:
     return " ".join(f"{i * step:.1f},{h - 2 - (v - lo) / span * (h - 4):.1f}" for i, v in enumerate(values))
 
 
+
+def _assets_card(cid: int, year: int, rows: list[dict]) -> dict:
+    """Πάγια έτους για τον πίνακα ελέγχου: αγορές (κατηγορία 2.7) και καταχωρημένες αποσβέσεις (E3_587) ανά μήνα,
+    αποσβέσεις έτους κατά τον κανόνα (_depreciation) και αναπόσβεστη αξία 31/12 των παγίων ≥ 1.500 € της 5ετίας.
+    Διάγραμμα (viewBox 760×200, 12 μήνες): μπάρες = αγορές μήνα, γραμμές = σωρευτικές αγορές / αποσβέσεις."""
+    from itertools import accumulate
+
+    lines = {y: _expense_lines(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, str(y)))[1]
+             for y in range(year - 4, year + 1)}
+    dep = _depreciation(lines, year)
+    # Αναπόσβεστη αξία: 20% τον χρόνο από τη χρήση αγοράς (μαζί με αυτήν), όπως στο _depreciation.
+    residual = sum(v * max(0.0, 1 - _DEPR_RATE * (year - y + 1))
+                   for y, vs in lines.items() for v in vs if abs(v) >= _DEPR_FULL_LIMIT)
+    buy = [r["expense"]["assets"] for r in rows]
+    booked = [r["expense"]["depreciation"] for r in rows]
+    cum_buy, cum_dep = list(accumulate(buy)), list(accumulate(booked))
+
+    W, H, left, right, top, bottom = 760, 200, 58, 12, 14, 30
+    base = H - bottom
+    step = _nice_step(max(cum_buy + cum_dep + [0]))
+    n_ticks = max(1, -(-max(cum_buy + cum_dep + [0]) // step))
+    ymax, slot = step * n_ticks, (W - left - right) / 12
+    bar_w = min(22.0, slot * 0.36)
+    x = lambda i: round(left + slot * (i + 0.5), 1)  # noqa: E731
+    y = lambda v: round(base - max(v, 0) / ymax * (base - top), 1)  # noqa: E731
+    pts = lambda vals: " ".join(f"{x(i)},{y(v)}" for i, v in enumerate(vals))  # noqa: E731
+    months = [{"label": _GREEK_MONTHS[i], "full": f"{_GREEK_MONTHS[i]} {year}", "cx": x(i),
+               "x": round(left + slot * i, 1), "w": round(slot, 1),
+               "bar": (round(x(i) - bar_w / 2, 1), y(buy[i]), round(bar_w, 1), round(base - y(buy[i]), 1)) if i < len(rows) else None,
+               "buy": buy[i] if i < len(rows) else 0, "dep": booked[i] if i < len(rows) else 0,
+               "cum_buy": cum_buy[i] if i < len(rows) else 0, "cum_dep": cum_dep[i] if i < len(rows) else 0}
+              for i in range(12)]
+    n = len(rows)
+    return {
+        "bought": round(sum(buy), 2), "booked": round(sum(booked), 2), "dep": dep, "residual": round(residual, 2),
+        "empty": not any(vs for vs in lines.values()) and not any(booked),
+        "chart": {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "months": months,
+                  "buy_line": "M" + pts(cum_buy) if n else "", "dep_line": "M" + pts(cum_dep) if any(booked) else "",
+                  "buy_area": f"M{x(0)},{base} L{pts(cum_buy)} L{x(n - 1)},{base}Z" if n else "",
+                  "end": {"x": x(n - 1), "buy": y(cum_buy[-1]), "dep": y(cum_dep[-1])} if n else None,
+                  "ticks": [{"v": step * k, "y": y(step * k)} for k in range(int(n_ticks) + 1)]},
+    }
+
 @app.route("/dashboard")
 def dashboard():
     """Πίνακας ελέγχου: εκκρεμότητες, σύνοψη έτους, ΦΠΑ περιόδου, κορυφαίοι προμηθευτές/πελάτες, πρόσφατα."""
@@ -3563,6 +3606,9 @@ def dashboard():
 
     return render_template(
         "dashboard.html", company=company, year=year, kpi=kpi, chart=_yearly_chart(rows), vat=vat,
+        assets=_assets_card(cid, now.year, rows),
+        pl=_pl(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year),
+               db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year)),  # όπως στο συνοπτικό βιβλίο
         vat_periods=_yearly_vat_periods(rows, year, now),
         todos=todos, segments=segments,
         exp_total=exp_total, done_pct=done_pct, inc_st=inc_st,

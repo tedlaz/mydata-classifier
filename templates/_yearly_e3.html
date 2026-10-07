@@ -1,4 +1,4 @@
-{# Περιεχόμενο του modal «Καθαρό κέρδος»: αποτελέσματα χρήσης ανά χαρακτηρισμό Ε3 (φορτώνεται με fetch).
+{# Περιεχόμενο της σελίδας «Ανάλυση Ε3» (και της εκτύπωσης): αποτελέσματα χρήσης ανά χαρακτηρισμό Ε3.
    Έσοδα − κόστος πωληθέντων − έξοδα χρήσης· οι αγορές παγίων χωριστά. Ίδιος υπολογισμός (_pl) με την ετήσια σύνοψη. #}
 {% macro head(title, dot='', note='') -%}
   <tr class="yr-e3-section"><th colspan="4">{% if dot %}<i class="yr-dot {{ dot }}"></i>{% endif %}{{ title }}
@@ -27,9 +27,8 @@
 {% set n_exp = 3 if has_cogs else 2 %}
 <div class="modal-head">
   <h2>Καθαρό κέρδος {{ year }} · ανά χαρακτηρισμό Ε3</h2>
-  <a class="btn-ghost btn-sm yr-e3-pdf" href="{{ url_for('reports_yearly_e3', year=year, print=1) }}" target="_blank"
+  <a class="btn btn-ghost btn-sm yr-e3-pdf" href="{{ url_for('reports_yearly_e3', year=year, print=1) }}" target="_blank"
      title="Εκτύπωση ή αποθήκευση ως PDF">PDF</a>
-  <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
 </div>
 <div class="yr-scroll">
 <table class="yr-table yr-e3">
