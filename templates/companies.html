@@ -265,9 +265,11 @@
         <span class="co-pb co-pb--red" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
       </button>
       <form method="post" action="{{ url_for('companies_delete', idx=idx) }}">
+        <input type="hidden" name="confirm">
         <span class="co-guard" data-co-guard>
           <button type="submit" class="co-panic" title="Διαγραφή" aria-label="Διαγραφή «{{ c.company_name }}»" inert
-                  data-confirm="Διαγραφή της εταιρείας «{{ c.company_name }}»; Διαγράφονται και όλα τα τοπικά παραστατικά της."></button>
+                  data-confirm-key="{{ c.AADE_VAT_NUMBER or c.company_name }}"
+                  data-confirm-ask="Διαγραφή της εταιρείας «{{ c.company_name }}»· διαγράφονται και όλα τα τοπικά παραστατικά της.&#10;&#10;Για επιβεβαίωση γράψε {{ 'το ΑΦΜ της (' ~ c.AADE_VAT_NUMBER ~ ')' if c.AADE_VAT_NUMBER else 'την επωνυμία της' }}:"></button>
           <button type="button" class="co-cover" title="Καπάκι ασφαλείας: κλικ για να ανοίξει" aria-expanded="false"
                   aria-label="Άνοιγμα καπακιού ασφαλείας για διαγραφή «{{ c.company_name }}»"></button>
         </span>
@@ -407,12 +409,24 @@
     document.querySelectorAll('[data-co-guard].is-open').forEach(function(g){ if (!g.contains(e.target)) guard(g, false); });
     if (cover) guard(cover.parentNode, true);
   });
+  // Διαγραφή: ο χρήστης γράφει το ΑΦΜ (ή την επωνυμία)· ο server το ξαναελέγχει.
+  document.addEventListener('click', function(e){
+    var b = e.target.closest('.co-panic');
+    if (!b) return;
+    var v = prompt(b.dataset.confirmAsk);
+    if (v === null || v.trim() !== b.dataset.confirmKey) {
+      e.preventDefault();
+      if (v !== null) alert('Δεν ταιριάζει — η διαγραφή ακυρώθηκε.');
+      return;
+    }
+    b.form.elements.confirm.value = v.trim();
+  });
   document.addEventListener('keydown', function(e){
     if (e.key === 'Escape') document.querySelectorAll('[data-co-guard].is-open').forEach(function(g){ guard(g, false); });
   });
   // Ενεργοποίηση και tags-διακόπτες με ajax: ίδιο POST, και από τη σελίδα που επιστρέφει αλλάζουν μόνο τα κομμάτια
   // που εξαρτώνται από την ενεργή εταιρεία — χωρίς reload/αναβόσβημα. Αποτυχία → κανονική πλοήγηση.
-  var SWAP = ['.sidebar .who--top', '.sidebar .nav', '.topbar .who--bar', '#co-edit-active', '.co-grid'];
+  var SWAP = ['meta[name=active-company]', '.sidebar .who--top', '.sidebar .nav', '.topbar .who--bar', '#co-edit-active', '.co-grid'];
   document.addEventListener('submit', function(e){
     var f = e.target;
     if (!f.action || !/\/companies\/(select|toggle)\//.test(f.action)) return;

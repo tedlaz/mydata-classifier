@@ -165,6 +165,16 @@
   document.addEventListener('focusin', e => { if (e.target.matches('[data-reveal]')) e.target.type = 'text'; });
   document.addEventListener('focusout', e => { if (e.target.matches('[data-reveal]')) e.target.type = 'password'; });
 
+  // ---- Εταιρεία της σελίδας σε κάθε POST: ο server απορρίπτει αν άλλαξε από άλλη καρτέλα ----
+  // window + capture: τρέχει πριν από κάθε άλλο submit handler (και τα ajax με new FormData(form)).
+  window.addEventListener('submit', e => {
+    const form = e.target, cid = document.querySelector('meta[name=active-company]')?.content;
+    if (form.method.toLowerCase() !== 'post' || !cid) return;
+    let inp = form.querySelector(':scope > input[name=_cid]');
+    if (!inp) { inp = Object.assign(document.createElement('input'), {type: 'hidden', name: '_cid'}); form.prepend(inp); }
+    inp.value = cid;
+  }, true);
+
   // ---- Υποβολή: επιβεβαίωση φόρμας + ένδειξη φόρτωσης ----
   // Δεν κάνουμε το κουμπί disabled: θα χανόταν το name/value του (π.χ. action=manual).
   document.addEventListener('submit', e => {

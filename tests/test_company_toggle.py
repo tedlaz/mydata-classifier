@@ -33,3 +33,12 @@ db.lock_company(cid)
 c.post("/companies/toggle/0/allow_new")
 assert not co()["allow_new"]
 print("OK")
+
+# Διαγραφή: θέλει το ΑΦΜ για επιβεβαίωση.
+db.add_company({"company_name": "Β ΑΕ", "AADE_VAT_NUMBER": "123456789", "AADE_USER_ID": "u", "AADE_SUBSCRIPTION_KEY": "k"})
+i = [x["company_name"] for x in db.list_companies()].index("Β ΑΕ")
+c.post(f"/companies/delete/{i}", data={"confirm": "999"})
+assert len(db.list_companies()) == 2
+c.post(f"/companies/delete/{i}", data={"confirm": "123456789"})
+assert [x["company_name"] for x in db.list_companies()] == ["Δοκιμή ΑΕ"]
+print("OK delete")

@@ -120,6 +120,18 @@ def _require_feature():
     return None
 
 
+@app.before_request
+def _require_same_company():
+    """Η ενεργή εταιρεία είναι μία για όλες τις καρτέλες: POST από σελίδα άλλης εταιρείας (το _cid
+    βάζει το app.js) δεν εκτελείται. Οι σελίδες «Εταιρείες» εξαιρούνται: εκεί αλλάζει η ίδια η εταιρεία."""
+    cid = request.form.get("_cid") if request.method == "POST" else None
+    if not cid or (request.endpoint or "").startswith("companies") or cid == str(_active_company_id()):
+        return None
+    flash("Η ενεργή εταιρεία άλλαξε σε άλλη καρτέλα — η ενέργεια δεν εκτελέστηκε. Η σελίδα δείχνει πλέον την τρέχουσα εταιρεία.", "error")
+    ref = urlparse(request.referrer or "")
+    return redirect(_safe_back(ref.path + (f"?{ref.query}" if ref.query else "")) or url_for("dashboard"))
+
+
 @app.route("/setup", methods=["GET", "POST"])
 def setup():
     if db.get_auth():
@@ -4673,6 +4685,11 @@ def companies_delete(idx):
         flash("Η εταιρεία δεν βρέθηκε.", "error")
         return redirect(url_for("companies"))
     removed = comps[idx]
+    # Επιβεβαίωση: ο χρήστης πληκτρολογεί το ΑΦΜ (ή την επωνυμία, αν δεν έχει ΑΦΜ).
+    expected = removed.get("AADE_VAT_NUMBER") or removed.get("company_name", "")
+    if request.form.get("confirm", "").strip() != expected.strip():
+        flash("Η διαγραφή ακυρώθηκε: το ΑΦΜ επιβεβαίωσης δεν ταιριάζει.", "error")
+        return redirect(url_for("companies"))
     was_active = db.get_active_company_id() == removed["id"]
     db.delete_company(
         removed["id"]
