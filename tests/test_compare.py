@@ -58,13 +58,23 @@ assert cur["cogs"] == 400.0 and cur["expense"] == 600.0 and cur["profit"] == 110
 assert round(sum(cur["e3_out"].values()), 2) == cur["expense"] and cur["e3_out"]["category2_13"] == 400.0
 assert d["cum"]["lines"][-1]["v"] == cur["profit"] and sum(cur["m_out"]) == cur["expense"]
 
+# Περσινά αποθέματα έναρξης καταχωρημένα τον Δεκέμβριο (μετά το σημείο σύγκρισης): μετρούν, στον Ιανουάριο·
+# ο Δεκέμβριος των υπόλοιπων εγγραφών (P3) μένει εκτός.
+db.upsert_document(cid, "expense", {"mark": "S0", "issue_date": f"{y - 1}-12-20", "invoice_type": "17.1", "total_net": 300,
+                                    "total_vat": 0, "total_gross": 300,
+                                    "cls_info": [{"type": "E3_101", "category": "category2_13", "amount": 300}]}, "classified")
+d = A._compare(cid, now)
+p = d["prev"]
+assert p["cogs"] == 300.0 and p["expense"] == 350.0 and p["profit"] == 1150.0 and p["income"] == 1500.0, p
+assert p["m_out"][0] == 350.0 and p["e3_out"]["category2_13"] == 300.0 and p["n_out"] == 1
+
 html = c.get("/reports/compare").data.decode()
 assert "Σύγκριση ετών" in html and "cmp-line" in html and "1.700,00" in html and "Νέοι πελάτες" in html
 print("ok")
 
 # Μόνο ένα έτος: χωρίς μεταβολές, η σελίδα ανοίγει.
 with db.get_conn() as conn:
-    conn.execute("DELETE FROM documents WHERE mark IN ('P1', 'P2', 'P3', 'E2')")
+    conn.execute("DELETE FROM documents WHERE mark IN ('P1', 'P2', 'P3', 'E2', 'S0')")
 d = A._compare(cid, now)
 assert d["years"] == [str(y)] and d["prev"] is None and d["kpis"][0]["d"] is None and not d["insights"]
 assert c.get("/reports/compare").status_code == 200

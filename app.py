@@ -3223,15 +3223,25 @@ def _compare(cid: int | None, now: datetime) -> dict:
     Y = {}
     for y in years:
         inc = [d for d in db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, y) if in_cut(d)]
-        exp = [d for d in db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y) if in_cut(d)]
+        all_exp = db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y)
+        exp = [d for d in all_exp if in_cut(d)]
+        # Αποθέματα έναρξης: η εγγραφή γίνεται οποτεδήποτε μέσα στη χρήση, αλλά αφορά την αρχή της —
+        # μετρά πάντα, και όταν είναι μετά το σημείο σύγκρισης λογίζεται τον Ιανουάριο (μόνο το ποσό 2.13).
+        opening = []
+        for d in all_exp:
+            stock = [e for e in json.loads(d["cls_json"] or "[]") if e.get("category") == OPENING_STOCK]
+            if stock and not in_cut(d):
+                amount = sum(e.get("amount") or 0 for e in stock)
+                opening.append(dict(d, issue_date=f"{y}-01-01", total_net=amount, total_vat=0, lines_json="[]",
+                                    cls_json=json.dumps(stock), **dict.fromkeys(db.EXTRA_TOTALS, 0)))
         it, et = _yearly_totals(inc), _yearly_totals(exp)
         ms = range(1, cut + 1)
         s = lambda t, c: round(sum(t[m][c] for m in ms), 2)  # noqa: E731
         # Έσοδα / έξοδα / κέρδος όπως η «Ανάλυση Ε3»: έξοδα = κόστος πωληθέντων (με αποθέματα έναρξης/λήξης)
         # + έξοδα χρήσης, χωρίς αγορές παγίων. Ανά μήνα το ίδιο _pl (γραμμικό: οι μήνες αθροίζουν στο σύνολο).
-        pl = _pl(inc, exp)
+        pl = _pl(inc, exp + opening)
         of = lambda docs, m: [d for d in docs if d["issue_date"][5:7] == f"{m:02d}"]  # noqa: E731
-        mpl = [_pl(of(inc, m), of(exp, m)) for m in ms]
+        mpl = [_pl(of(inc, m), of(exp + opening, m)) for m in ms]
         cum, acc = [], 0.0
         for p in mpl:
             acc += p["profit"]
