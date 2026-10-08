@@ -2269,6 +2269,11 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .cmp-hb{display:flex;align-items:center;gap:8px}
 .cmp-hb i{height:10px;width:var(--w);max-width:calc(100% - 100px);border-radius:0 4px 4px 0;animation:cmp-w .8s var(--ease) both .3s}
 .cmp-hb b{font:600 .76rem var(--font-data);color:var(--ink-2);white-space:nowrap}
+.cmp-hb b small{display:block;font-weight:500;font-size:.68rem;color:var(--muted)}
+.cmp-hb-track ~ b{min-width:118px;text-align:right}
+.cmp-hb-track{position:relative;flex:1;min-width:0;height:10px}
+.cmp-hb-track i{position:absolute;left:0;top:0;max-width:100%}
+.cmp-hb-track i.is-full,.yr-dot.is-full{opacity:.3}
 .cmp-k-buy{background:var(--accent)}
 .cmp-k-dep{background:repeating-linear-gradient(45deg,var(--accent) 0 2px,color-mix(in oklab,var(--accent) 25%,var(--surface)) 2px 4.5px)}
 .cmp-k-out{background:var(--yr-in)} .cmp-k-in{background:var(--yr-out)}

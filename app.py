@@ -3279,6 +3279,8 @@ def _compare(cid: int | None, now: datetime) -> dict:
             "profit": pl["profit"], "gross": pl["gross"], "cogs": pl["cogs"],
             "vat_out": s(it, "vat"), "vat_in": s(et, "vat"), "withheld": s(it, "withheld"),
             "assets": s(et, "assets"), "depreciation": s(et, "depreciation"),
+            # Όλο το έτος (για τα προηγούμενα): αγορές / αποσβέσεις συχνά καταχωρούνται μετά τη σημερινή ημερομηνία.
+            **{k + "_full": round(sum(v[k] for v in _yearly_totals(all_exp).values()), 2) for k in ("assets", "depreciation")},
             "cum": cum, "cum_full": cum_full,
             "r_in": [p["inc_total"] for p in rest], "r_out": [p["cogs"] + p["exp_total"] for p in rest],
             "n_in": len(inc), "n_out": len(exp),
@@ -3409,7 +3411,7 @@ def _compare(cid: int | None, now: datetime) -> dict:
         # Αθροιστικά της περιόδου (όχι ανά μήνα: ίδια έσοδα/έξοδα καταχωρούνται σε άλλο μήνα κάθε χρόνο).
         "totals": _cmp_bars(years, [[Y[y][k] for k in _CMP_TOTALS] for y in years], list(_CMP_TOTALS.values())),
         "customers": customers, "suppliers": suppliers, "e3_in": e3_in, "e3_out": e3_out,
-        "assets_max": max([abs(Y[y][k]) for y in years for k in ("assets", "depreciation")] + [1]),
+        "assets_max": max([abs(Y[y][k + s]) for y in years for k in ("assets", "depreciation") for s in ("", "_full")] + [1]),
         "vat_max": max([abs(Y[y][k]) for y in years for k in ("vat_out", "vat_in")] + [1]),
         "asset_docs": asset_docs[:10], "asset_docs_n": len(asset_docs), "insights": insights,
     }

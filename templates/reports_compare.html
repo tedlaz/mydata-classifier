@@ -303,18 +303,27 @@
   <div class="cmp-grid2 cmp-grid2--top">
     <section class="card cmp-card">
       <div class="cmp-card-head"><h2>🏗 Πάγια</h2>
-        <ul class="yr-legend"><li><i class="yr-dot cmp-k-buy"></i>Αγορές (2.7)</li><li><i class="yr-dot cmp-k-dep"></i>Αποσβέσεις (E3_587)</li></ul></div>
+        <ul class="yr-legend"><li><i class="yr-dot cmp-k-buy"></i>Αγορές (2.7)</li><li><i class="yr-dot cmp-k-dep"></i>Αποσβέσεις (E3_587)</li>
+          <li><i class="yr-dot cmp-k-buy is-full"></i>όλο το έτος</li></ul></div>
       <ul class="cmp-hbars">
-        {% for y in years|reverse %}{% set r = c.Y[y] %}
+        {% for y in years|reverse %}{% set r = c.Y[y] %}{% set past = not loop.first %}
         <li style="--i:{{ loop.index0 }}">
           <span class="cmp-hb-y">{{ ydot(loop.index0) }}{{ y }}</span>
           <span class="cmp-hb-bars">
-            <span class="cmp-hb"><i class="cmp-k-buy" style="--w:{{ ([r.assets, 0]|max / c.assets_max * 100)|round(2) }}%"></i><b>{{ r.assets|el_amount }}</b></span>
-            <span class="cmp-hb"><i class="cmp-k-dep" style="--w:{{ ([r.depreciation, 0]|max / c.assets_max * 100)|round(2) }}%"></i><b>{{ r.depreciation|el_amount }}</b></span>
+            {% for k, cls, label in (('assets', 'cmp-k-buy', 'Αγορές'), ('depreciation', 'cmp-k-dep', 'Αποσβέσεις')) %}
+            <span class="cmp-hb" title="{{ label }} {{ y }} — {{ c.span }}: {{ r[k]|el_amount }} €{% if past %} · όλο το έτος: {{ r[k ~ '_full']|el_amount }} €{% endif %}">
+              <span class="cmp-hb-track">
+                {% if past %}<i class="{{ cls }} is-full" style="--w:{{ ([r[k ~ '_full'], 0]|max / c.assets_max * 100)|round(2) }}%"></i>{% endif %}
+                <i class="{{ cls }}" style="--w:{{ ([r[k], 0]|max / c.assets_max * 100)|round(2) }}%"></i>
+              </span>
+              <b>{{ r[k]|el_amount }}{% if past and r[k ~ '_full'] != r[k] %} <small>όλο το έτος {{ r[k ~ '_full']|el_amount }}</small>{% endif %}</b>
+            </span>
+            {% endfor %}
           </span>
         </li>
         {% endfor %}
       </ul>
+      <p class="muted small">Πρώτο ποσό: {{ c.span }} (σύγκριση) · για τα προηγούμενα έτη, η αχνή μπάρα και το δεύτερο ποσό: όλο το έτος.</p>
       {% if c.asset_docs %}
       <h3 class="cmp-sub">Αγορές παγίων {{ years[-1] }} <small>{{ c.asset_docs_n }} παραστατικ{{ 'ό' if c.asset_docs_n == 1 else 'ά' }}{% if c.asset_docs_n > 10 %} · τα 10 μεγαλύτερα{% endif %}</small></h3>
       <ol class="cmp-mini">{% for a in c.asset_docs %}<li><span>{{ a.date|replace('-', '/') }} · {{ a.name }}</span><b>{{ a.amount|el_amount }}</b></li>{% endfor %}</ol>

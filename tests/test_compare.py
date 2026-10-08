@@ -106,3 +106,9 @@ elapsed = now.timetuple().tm_yday
 assert abs(d["proj"]["v"] - (d["cur"]["profit"] + 30 - d["cur"]["expense"] / elapsed * (days - elapsed))) < 0.05, d["proj"]
 assert "ημερήσιος ρυθμός" in d["proj"]["method"]
 print("ok proj")
+
+# Πάγια: αγορά πέρσι μετά τη σημερινή ημερομηνία — εκτός σύγκρισης (YTD), αλλά στο «όλο το έτος».
+doc("expense", "A0", y - 1, 11, "555", 1000, e3=("E3_882_001", "category2_7"), day=15)
+d = A._compare(cid, now)
+assert d["prev"]["assets"] == 0 and d["prev"]["assets_full"] == 1000.0, d["prev"]
+print("ok assets full")
