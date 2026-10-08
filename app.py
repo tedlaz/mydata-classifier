@@ -3255,7 +3255,8 @@ def _cmp_e3(Y: dict, years: list[str], key: str) -> dict:
 
 def _compare(cid: int | None, now: datetime) -> dict:
     """Όλα τα στοιχεία της σελίδας «Σύγκριση ετών». Έσοδα, έξοδα, κέρδος και Ε3: ίδιος υπολογισμός με την
-    «Ανάλυση Ε3» (_pl, με αποθέματα)· ΦΠΑ, πάγια, παρακρατήσεις: από τα σύνολα (_yearly_totals)."""
+    «Ανάλυση Ε3» (_pl)· αποθέματα μόνο σε χρήση με έναρξης και λήξης (βλ. παρακάτω).
+    ΦΠΑ, πάγια, παρακρατήσεις: από τα σύνολα (_yearly_totals)."""
     # Year to date: 1/1 έως τη σημερινή ημερομηνία (ΜΜ-ΗΗ) κάθε έτους. done = ολοκληρωμένοι μήνες
     # (καμπύλες ανά μήνα, βάση της προβολής)· ο τρέχων μήνας μετρά έως σήμερα.
     md, done = now.strftime("%m-%d"), now.month - 1
@@ -3263,26 +3264,43 @@ def _compare(cid: int | None, now: datetime) -> dict:
     years = [str(y) for y in range(now.year - _CMP_YEARS + 1, now.year + 1) if str(y) in have or y == now.year]
     with_stock = stock_in("dashboard")
     in_cut = lambda d: "01-01" <= (d["issue_date"] or "")[5:10] <= md  # noqa: E731
+    closes: dict = {}  # αποθέματα λήξης ανά χρήση: (ποσό, υπάρχει εγγραφή;)
+
+    def close_of(y):
+        if y not in closes:
+            st = _pl([], db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y))
+            closes[y] = (st["closing_total"], bool(st["closing"]))
+        return closes[y]
+
     Y = {}
     for y in years:
         all_inc = db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, y)
         inc = [d for d in all_inc if in_cut(d)]
-        all_exp = db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y)
+        raw = db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y)
+        # Αποθέματα: έναρξης = η εγγραφή 2.13 της χρήσης ή, αν λείπει, τα αποθέματα λήξης της προηγούμενης·
+        # λήξης = η εγγραφή 2.14 της χρήσης. Μετρούν μόνο με ΚΑΙ τα δύο (αλλιώς το αποτέλεσμα «κρέμεται»:
+        # π.χ. απόθεμα που αγοράστηκε για την επόμενη χρήση) και τότε λογίζονται στην αρχή της χρήσης, ώστε η
+        # μεταβολή τους να μετρά και στο year to date (η εγγραφή γίνεται οποτεδήποτε, συνήθως στο κλείσιμο).
+        st = _pl([], raw)
+        closes[y] = (st["closing_total"], bool(st["closing"]))
+        prev_close, had_close = close_of(str(int(y) - 1))
+        s_open, src = ((st["opening_total"], "own") if st["opening"] else
+                       (prev_close, "prev") if had_close else (0.0, None))
+        used = src is not None and bool(st["closing"])
+        why = None if used else (
+            "χωρίς εγγραφές αποθεμάτων" if src is None and not st["closing"] else
+            "ανοιχτή χρήση: τα αποθέματα λήξης δηλώνονται στο κλείσιμο" if src and y == years[-1] else
+            "χωρίς αποθέματα λήξης" if src else f"χωρίς αποθέματα έναρξης (ούτε λήξης στο {int(y) - 1})")
+        all_exp = [dict(d, cls_json=json.dumps([e for e in json.loads(d["cls_json"] or "[]")
+                                                 if e.get("category") not in STOCK_CATEGORIES])) for d in raw]
         exp = [d for d in all_exp if in_cut(d)]
-        # Αποθέματα έναρξης: η εγγραφή γίνεται οποτεδήποτε μέσα στη χρήση, αλλά αφορά την αρχή της —
-        # μετρά πάντα, και όταν είναι μετά το σημείο σύγκρισης λογίζεται τον Ιανουάριο (μόνο το ποσό 2.13).
-        # late = οι εγγραφές μετά το σημείο σύγκρισης χωρίς το 2.13 (για την καμπύλη όλου του έτους).
-        opening, late = [], []
-        for d in all_exp:
-            if in_cut(d):
-                continue
-            cls = json.loads(d["cls_json"] or "[]")
-            stock = [e for e in cls if e.get("category") == OPENING_STOCK]
-            if stock:
-                amount = sum(e.get("amount") or 0 for e in stock)
-                opening.append(dict(d, issue_date=f"{y}-01-01", total_net=amount, total_vat=0, lines_json="[]",
-                                    cls_json=json.dumps(stock), **dict.fromkeys(db.EXTRA_TOTALS, 0)))
-            late.append(dict(d, cls_json=json.dumps([e for e in cls if e.get("category") != OPENING_STOCK])))
+        # opening = οι εγγραφές αποθεμάτων που μετρούν (στο year to date και στον Ιανουάριο της καμπύλης)·
+        # late = μετά το σημείο σύγκρισης, χωρίς αποθέματα (καμπύλη όλου του έτους, βάση της προβολής).
+        opening = [{"issue_date": f"{y}-01-01", "invoice_type": "", "counterparty_vat": "", "counterparty_name": None,
+                    "total_net": amt, "total_vat": 0, "lines_json": "[]", **dict.fromkeys(db.EXTRA_TOTALS, 0),
+                    "cls_json": json.dumps([{"type": "", "category": cat, "amount": amt}])}
+                   for cat, amt in ((OPENING_STOCK, s_open), (CLOSING_STOCK, st["closing_total"]))] if used else []
+        late = [d for d in all_exp if not in_cut(d)]
         it, et = _yearly_totals(inc), _yearly_totals(exp)
         s = lambda t, c: round(sum(t[m][c] for m in range(1, 13)), 2)  # noqa: E731  (inc/exp ήδη έως σήμερα)
         # Έσοδα / έξοδα / κέρδος όπως η «Ανάλυση Ε3»: έξοδα = κόστος πωληθέντων (με αποθέματα έναρξης/λήξης)
@@ -3313,12 +3331,18 @@ def _compare(cid: int | None, now: datetime) -> dict:
             "n_in": len(inc), "n_out": len(exp),
             "credits": sum(d["invoice_type"] in CREDIT_INVOICE_TYPES for d in inc + exp),
             "customers": _counterparty_totals([d for d in inc if d["counterparty_vat"]]),  # λιανική: όχι πελάτης
-            "suppliers": _counterparty_totals(exp, not with_stock),
+            "suppliers": _counterparty_totals([d for d in raw if in_cut(d)], not with_stock),
             # Έξοδα Ε3 όπως στο κέρδος: αποθέματα λήξης αφαιρούνται, αγορές παγίων εκτός (ενότητα «Πάγια»).
             "e3_in": _e3_groups(pl["income"]),
             "e3_out": _e3_groups(pl["opening"] + pl["purchases"] + [dict(g, amount=-g["amount"]) for g in pl["closing"]]
                                  + pl["expense"]),
             "exp_docs": exp,
+            # Ανάλυση κόστους πωληθέντων (year to date): έναρξης + αγορές − λήξης.
+            "s_open": pl["opening_total"], "purchases": pl["purchases_total"], "s_close": pl["closing_total"],
+            # Αποθέματα όλης της χρήσης (ενότητα «Αποθέματα»).
+            "stock_open": round(s_open, 2), "stock_src": src, "stock_close": st["closing_total"],
+            "has_close": bool(st["closing"]), "stock_used": used, "stock_why": why,
+            "exp_ns": round(pl["purchases_total"] + pl["exp_total"], 2),  # χωρίς αποθέματα: βάση της προβολής
         }
         r["vat_net"] = round(r["vat_out"] - r["vat_in"], 2)
         r["margin"] = round(r["profit"] / r["income"] * 100, 1) if r["income"] else None
@@ -3344,7 +3368,7 @@ def _compare(cid: int | None, now: datetime) -> dict:
         return [max(e, f) if i >= done else 0.0 for i, (e, f) in enumerate(zip(est, cur["r_" + side]))], how
 
     r_in, m_in = rest_of("income", "in", "έσοδα")
-    r_out, m_out = rest_of("expense", "out", "έξοδα")
+    r_out, m_out = rest_of("exp_ns", "out", "έξοδα")  # λόγος χωρίς αποθέματα: η μεταβολή τους δεν είναι ρυθμός
     proj, proj_in, proj_out = [], [], []
     acc, acc_in, acc_out = cur["profit"], cur["income"], cur["expense"]
     for i in range(12):
@@ -3373,7 +3397,9 @@ def _compare(cid: int | None, now: datetime) -> dict:
             kpi("vat_net", "Καθαρός ΦΠΑ", None), kpi("assets", "Αγορές παγίων", None)]
     # Αναλυτικός πίνακας μεγεθών: (κλειδί, τίτλος, μορφή, αύξηση = καλό;)
     metrics = [(k, label, fmt, good, [Y[y][k] for y in years]) for k, label, fmt, good in (
-        ("income", "Έσοδα Ε3", "amt", True), ("cogs", "Κόστος πωληθέντων (με αποθέματα)", "amt", False),
+        ("income", "Έσοδα Ε3", "amt", True), ("s_open", "Αποθέματα έναρξης", "amt", None),
+        ("purchases", "+ Αγορές εμπορευμάτων / πρώτων υλών (2.1, 2.2)", "amt", False),
+        ("s_close", "− Αποθέματα λήξης", "amt", None), ("cogs", "= Κόστος πωληθέντων", "amt", False),
         ("gross", "Μικτό κέρδος", "amt", True), ("opex", "Έξοδα χρήσης", "amt", False),
         ("expense", "Σύνολο εξόδων Ε3", "amt", False),
         ("profit", "Καθαρό κέρδος Ε3", "amt", True), ("margin", "Περιθώριο καθαρού κέρδους", "pct", True),
@@ -3402,6 +3428,10 @@ def _compare(cid: int | None, now: datetime) -> dict:
 
     # Σημεία-κλειδιά: σύντομες προτάσεις από τα παραπάνω (μόνο με σύγκριση έναντι πέρσι).
     insights = []
+    # Αποθέματα εκτός υπολογισμού (χρήση χωρίς έναρξης ή χωρίς λήξης) — μόνο αν υπάρχει κάποια εγγραφή αποθεμάτων.
+    skip = [f"{y} ({Y[y]['stock_why']})" for y in years if Y[y]["stock_why"] and Y[y]["stock_why"] != "χωρίς εγγραφές αποθεμάτων"]
+    if prev and skip:
+        insights.append(("flat", None, "Αποθέματα εκτός υπολογισμού: " + " · ".join(skip)))
     if prev:
         amt = lambda v: format_el_amount(abs(v)) + " €"  # noqa: E731
         pct = lambda d: f" ({'+' if d['pct'] > 0 else ''}{d['pct']:.1f}%)".replace(".", ",") if d["pct"] is not None else ""  # noqa: E731

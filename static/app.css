@@ -2294,3 +2294,11 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
   .cmp .card,.cmp .db-hero{break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .cmp .yr-scroll{overflow:visible}
 }
+
+/* Σύγκριση ετών: κατάσταση αποθεμάτων ανά χρήση. */
+.cmp-st{display:inline-block;padding:2px 8px;font-family:var(--font-ui);border-radius:99px;font-size:.75rem;font-weight:600;white-space:nowrap}
+.cmp-st--ok{background:var(--ok-soft);color:var(--ok)}
+.cmp-st--warn{background:var(--err-soft);color:var(--err)}
+.cmp-st--none{background:var(--surface-3);color:var(--muted)}
+.cmp-cogs .cmp-name span{padding-left:14px;font-weight:500}
+.cmp-cogs td{color:var(--muted)}

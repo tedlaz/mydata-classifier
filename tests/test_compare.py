@@ -58,41 +58,52 @@ assert abs(C["res"]["proj_v"] - (1500.0 + 9999 * 1700 / 1500)) < 0.05, C["res"][
 assert "έσοδα ×1,13" in d["proj_method"] and "έξοδα ×4,00" in d["proj_method"], d["proj_method"]
 assert any("Έσοδα αυξήθηκαν" in t for _, _, t in d["insights"]), d["insights"]
 
-# Αποθέματα έναρξης (1/1): μετρούν στο κόστος πωληθέντων και στα έξοδα, όπως στην «Ανάλυση Ε3».
-db.upsert_document(cid, "expense", {"mark": "S1", "issue_date": f"{y}-01-01", "invoice_type": "17.1", "total_net": 400,
-                                    "total_vat": 0, "total_gross": 400,
-                                    "cls_info": [{"type": "E3_101", "category": "category2_13", "amount": 400}]}, "classified")
+
+
+def stock(mark, year, month, day, cat, amount):
+    db.upsert_document(cid, "expense", {"mark": mark, "issue_date": f"{year}-{month:02d}-{day:02d}", "invoice_type": "17.1",
+                                        "total_net": amount, "total_vat": 0, "total_gross": amount,
+                                        "cls_info": [{"type": "E3_101", "category": cat, "amount": amount}]}, "classified")
+
+
+# Αποθέματα: μετρούν μόνο σε χρήση με έναρξης ΚΑΙ λήξης. Φέτος μόνο έναρξης (ανοιχτή χρήση) → αγνοούνται.
+stock("S1", y, 1, 1, "category2_13", 400)
 d = A._compare(cid, now)
 cur = d["cur"]
-assert cur["cogs"] == 400.0 and cur["expense"] == 600.0 and cur["profit"] == 1100.0, cur
-assert round(sum(cur["e3_out"].values()), 2) == cur["expense"] and cur["e3_out"]["category2_13"] == 400.0
-assert cur["cum"][-1] == cur["profit"]
-bars = {m["label"]: m["vals"] for m in d["totals"]["months"]}  # αθροιστικά ανά μέγεθος: (έτος, slot, ποσό), φέτος πρώτο
-assert bars["Σύνολο εξόδων"][0] == (str(y), 0, 600.0, False, None) and bars["Καθαρό κέρδος"][0][2] == 1100.0, bars
+assert cur["cogs"] == 0 and cur["expense"] == 200.0 and cur["profit"] == 1500.0 and not cur["stock_used"], cur
+assert cur["stock_src"] == "own" and "ανοιχτή χρήση" in cur["stock_why"] and d["prev"]["stock_why"] == "χωρίς εγγραφές αποθεμάτων"
+assert any("Αποθέματα εκτός υπολογισμού: " + str(y) + " (ανοιχτή χρήση" in t for _, _, t in d["insights"]), d["insights"]
 
-# Περσινά αποθέματα έναρξης καταχωρημένα τον Δεκέμβριο (μετά το σημείο σύγκρισης): μετρούν, στον Ιανουάριο·
-# ο Δεκέμβριος των υπόλοιπων εγγραφών (P3) μένει εκτός.
-db.upsert_document(cid, "expense", {"mark": "S0", "issue_date": f"{y - 1}-12-20", "invoice_type": "17.1", "total_net": 300,
-                                    "total_vat": 0, "total_gross": 300,
-                                    "cls_info": [{"type": "E3_101", "category": "category2_13", "amount": 300}]}, "classified")
+# Πέρσι έναρξης τον Δεκέμβριο (μετά το σημείο σύγκρισης), χωρίς λήξης → αγνοούνται, με μήνυμα.
+stock("S0", y - 1, 12, 20, "category2_13", 300)
+p = A._compare(cid, now)["prev"]
+assert p["expense"] == 50.0 and p["profit"] == 1450.0 and p["stock_why"] == "χωρίς αποθέματα λήξης", p
+
+# + λήξης 31/12 → πλήρης χρήση: ολόκληρη η μεταβολή (300 − 120) μετρά και στο year to date, στον Ιανουάριο.
+stock("S9", y - 1, 12, 31, "category2_14", 120)
 d = A._compare(cid, now)
 p = d["prev"]
-assert p["cogs"] == 300.0 and p["expense"] == 350.0 and p["profit"] == 1150.0 and p["income"] == 1500.0, p
-assert p["e3_out"]["category2_13"] == 300.0 and p["n_out"] == 1
-assert p["cum"][-1] == 1150.0 and p["cum_full"][0] == 1150.0  # τα αποθέματα έναρξης μετρούν, στον Ιανουάριο
-assert p["cum_full"][-1] == 1150.0 + 9999  # όλο το έτος: χωρίς διπλομέτρηση του 2.13 του Δεκεμβρίου
-
+assert p["stock_used"] and p["s_open"] == 300.0 and p["purchases"] == 0 and p["s_close"] == 120.0 and p["cogs"] == 180.0, p
+assert p["expense"] == 230.0 and p["profit"] == 1270.0 and p["n_out"] == 1
+assert p["e3_out"]["category2_13"] == 300.0 and p["e3_out"]["category2_14"] == -120.0
+assert p["cum"][-1] == 1270.0 and p["cum_full"][0] == 1270.0 and p["cum_full"][-1] == 1270.0 + 9999  # χωρίς διπλομέτρηση
+assert any("Αποθέματα εκτός υπολογισμού: " + str(y) in t for _, _, t in d["insights"]), d["insights"]
+# Προβολή εξόδων: λόγος χωρίς αποθέματα (200 / 50), όχι 200 / 230.
+assert "έξοδα ×4,00" in d["proj_method"], d["proj_method"]
+bars = {m["label"]: m["vals"] for m in d["totals"]["months"]}  # αθροιστικά ανά μέγεθος: (έτος, slot, ποσό), φέτος πρώτο
+assert bars["Σύνολο εξόδων"][1] == (str(y - 1), 1, 230.0, False, None), bars
 html = c.get("/reports/compare").data.decode()
 assert "Σύγκριση ετών" in html and "cmp-line" in html and "1.700,00" in html and "Νέοι πελάτες" in html
+assert "✓ Μετρούν" in html and "Αγνοούνται" in html and "= Κόστος πωληθέντων" in html
 print("ok")
 
 # Μόνο ένα έτος: χωρίς μεταβολές, η σελίδα ανοίγει.
 with db.get_conn() as conn:
-    conn.execute("DELETE FROM documents WHERE mark IN ('P1', 'P2', 'P3', 'E2', 'S0')")
+    conn.execute("DELETE FROM documents WHERE mark IN ('P1', 'P2', 'P3', 'E2', 'S0', 'S9')")
 d = A._compare(cid, now)
 assert d["years"] == [str(y)] and d["prev"] is None and d["kpis"][0]["d"] is None and not d["insights"]
 assert c.get("/reports/compare").status_code == 200
-assert "1.100,00" in c.get("/reports/compare").data.decode()
+assert "1.500,00" in c.get("/reports/compare").data.decode()
 print("ok single year")
 
 # Year to date: ο τρέχων μήνας μετρά έως σήμερα (5/10 μέσα, 20/10 έξω) — και πέρσι στην ίδια ημερομηνία.
@@ -124,3 +135,16 @@ assert p.startswith("M0.0,100.0") and p.endswith("30.0,0.0") and "C" in p
 seg = p.split("C")[2]  # 2ο τμήμα (10,50)→(20,50): οριζόντια σημεία ελέγχου
 assert seg.startswith("13.3,50.0 16.7,50.0"), seg
 print("ok smooth")
+
+# Αποθέματα έναρξης από τα αποθέματα λήξης της προηγούμενης χρήσης (όταν λείπει η εγγραφή 2.13).
+with db.get_conn() as conn:
+    conn.execute("DELETE FROM documents WHERE mark = 'S1'")
+stock("S8", y - 1, 12, 31, "category2_14", 120)
+stock("S7", y, 10, 1, "category2_14", 50)
+d = A._compare(cid, now)
+cur, p = d["cur"], d["prev"]
+assert cur["stock_used"] and cur["stock_src"] == "prev" and cur["s_open"] == 120.0 and cur["s_close"] == 50.0, cur
+assert cur["cogs"] == 70.0 and cur["expense"] == cur["exp_ns"] + 70.0
+assert not p["stock_used"] and p["stock_why"] == f"χωρίς αποθέματα έναρξης (ούτε λήξης στο {y - 2})", p
+assert "λήξης " + str(y - 1) in c.get("/reports/compare").data.decode()
+print("ok stock chain")
