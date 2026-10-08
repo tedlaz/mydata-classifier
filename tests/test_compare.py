@@ -13,17 +13,18 @@ c = A.app.test_client()
 c.post("/companies/add", data={"company_name": "Εμπορική", "use_accountant": "1", "entity_type": "legal"})
 cid = db.list_companies()[0]["id"]
 db.set_active_company_id(cid)
-now = A.datetime.now(A.ATHENS)
-y = now.year
+y = A.datetime.now(A.ATHENS).year
+now = A.datetime(y, 10, 8, 12, tzinfo=A.ATHENS)  # σταθερό «σήμερα»: year to date = 1/1 – 8/10, 9 ολοκληρωμένοι μήνες
 
 
-def doc(kind, mark, year, month, vat, net, typ="2.1", e3=("E3_561_001", "category1_1")):
-    db.upsert_document(cid, kind, {"mark": mark, "issue_date": f"{year}-{month:02d}-15", "invoice_type": typ,
+def doc(kind, mark, year, month, vat, net, typ="2.1", e3=("E3_561_001", "category1_1"), day=1):
+    # Ημέρα 1: τα παραστατικά του Ιανουαρίου μετρούν και στη σελίδα (πραγματική ημερομηνία), όποια μέρα κι αν τρέχει.
+    db.upsert_document(cid, kind, {"mark": mark, "issue_date": f"{year}-{month:02d}-{day:02d}", "invoice_type": typ,
                                    "issuer_vat": vat, "total_net": net, "total_vat": 0, "total_gross": net,
                                    "cls_info": [{"type": e3[0], "category": e3[1], "amount": net}]}, "classified")
 
 
-# Πέρσι: A 1.000 + B 500 τον Ιανουάριο· ο Δεκέμβριος είναι πάντα μετά το σημείο σύγκρισης → εκτός.
+# Πέρσι: A 1.000 + B 500 τον Ιανουάριο· ο Δεκέμβριος είναι μετά τη σημερινή ημερομηνία → εκτός.
 doc("income", "P1", y - 1, 1, "111", 1000)
 doc("income", "P2", y - 1, 1, "222", 500)
 doc("income", "P3", y - 1, 12, "111", 9999)
@@ -36,7 +37,7 @@ doc("expense", "E2", y - 1, 1, "999", 50, e3=("E3_585_009", "category2_5"))
 
 d = A._compare(cid, now)
 assert d["years"] == [str(y - 1), str(y)], d["years"]
-assert d["cut"] == max(now.month - 1, 1)
+assert d["span"] == "1/1 – 8/10"
 assert d["cur"]["income"] == 1700.0 and d["prev"]["income"] == 1500.0, (d["cur"]["income"], d["prev"]["income"])
 inc = d["kpis"][0]
 assert inc["d"] == {"v": 200.0, "pct": 13.3}, inc["d"]
@@ -88,3 +89,13 @@ assert d["years"] == [str(y)] and d["prev"] is None and d["kpis"][0]["d"] is Non
 assert c.get("/reports/compare").status_code == 200
 assert "1.100,00" in c.get("/reports/compare").data.decode()
 print("ok single year")
+
+# Year to date: ο τρέχων μήνας μετρά έως σήμερα (5/10 μέσα, 20/10 έξω) — και πέρσι στην ίδια ημερομηνία.
+before = A._compare(cid, now)["cur"]["income"]
+doc("income", "T1", y, 10, "444", 70, day=5)
+doc("income", "T2", y, 10, "444", 30, day=20)
+doc("income", "T3", y - 1, 10, "444", 40, day=8)
+d = A._compare(cid, now)
+assert d["cur"]["income"] == before + 70 and d["prev"]["income"] == 40.0, (d["cur"]["income"], d["prev"]["income"])
+assert d["cum"]["today"][2] == d["cur"]["profit"] and len(d["cur"]["cum"]) == 9  # σημείο «σήμερα» = YTD
+print("ok ytd")

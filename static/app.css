@@ -2191,6 +2191,7 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .cmp-zone{fill:var(--surface-3);opacity:.45}
 .cmp-cut{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:3 4}
 .cmp-cut-lbl{fill:var(--muted);font:600 10.5px var(--font-ui)}
+.cmp-today circle{r:5.5;stroke-width:2.5}
 .cmp-end circle.is-proj{fill:var(--surface);stroke:var(--c);stroke-width:2.5}
 .cmp-dash{display:inline-block;width:18px;height:0;margin-right:7px;border-top:2.5px dashed var(--cmp-0)}
 .cmp-proj-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:10px 4px 0;font-size:.86rem}

@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Σύγκριση ετών{% endblock %}
-{% set month_end = ['Ιανουαρίου','Φεβρουαρίου','Μαρτίου','Απριλίου','Μαΐου','Ιουνίου','Ιουλίου','Αυγούστου','Σεπτεμβρίου','Οκτωβρίου','Νοεμβρίου','Δεκεμβρίου'] %}
 {% set years = c.years %}
 {% set has_prev = c.prev is not none %}
 
@@ -175,8 +174,8 @@
       <div>
         <a class="yr-hero-back" href="{{ url_for('dashboard') }}">← Πίνακας ελέγχου</a>
         <h1>Σύγκριση ετών <span class="yr-hero-year">{{ years[0] }}{% if years|length > 1 %}–{{ years[-1] }}{% endif %}</span></h1>
-        <p class="db-hi">Ίδιο χρονικό σημείο κάθε έτους: <b>1 Ιανουαρίου – τέλος {{ month_end[c.cut - 1] }}</b>
-          {% if open_month %}(ο Ιανουάριος είναι ακόμα ανοιχτός){% else %}(ολοκληρωμένοι μήνες){% endif %} · κατάσταση {{ now_str }}</p>
+        <p class="db-hi">Ίδιο χρονικό σημείο κάθε έτους: <b>{{ c.span }}</b> (year to date)
+          · κατάσταση {{ now_str }}</p>
       </div>
       <div class="cmp-hero-tools">
         <ul class="cmp-ylegend" aria-label="Χρώμα ανά έτος">
@@ -224,16 +223,18 @@
     </div>
     {% set ch = c.cum %}
     {% call plot(ch, 'Σωρευτικό αποτέλεσμα') %}
-      {% if c.cut < 12 %}
+      {% if ch.proj %}
       <rect class="cmp-zone" x="{{ ch.cut_x }}" y="{{ ch.top }}" width="{{ ch.right - ch.cut_x }}" height="{{ ch.base - ch.top }}"/>
       {% endif %}
       <line class="cmp-cut" x1="{{ ch.cut_x }}" x2="{{ ch.cut_x }}" y1="{{ ch.top - 6 }}" y2="{{ ch.base }}"/>
-      <text class="cmp-cut-lbl" x="{{ ch.cut_x + 6 }}" y="{{ ch.top + 6 }}">σημείο σύγκρισης · προβολή →</text>
+      <text class="cmp-cut-lbl" x="{{ ch.cut_x + 6 }}" y="{{ ch.top + 6 }}">σήμερα · προβολή →</text>
       <g class="cmp-lines">
         {% for ln in ch.lines %}
         <path pathLength="1" class="cmp-line cmp-s{{ ln.slot }} {{ 'is-cur' if ln.slot == 0 }}" d="{{ ln.d }}"/>
         {% endfor %}
         {% if ch.proj %}<path class="cmp-proj cmp-s0" d="{{ ch.proj }}"/>{% endif %}
+        <g class="cmp-end cmp-s0 cmp-today"><circle cx="{{ ch.today[0] }}" cy="{{ ch.today[1] }}" r="5">
+          <title>{{ years[-1] }} έως σήμερα ({{ c.span }}): {{ ch.today[2]|el_amount }} €</title></circle></g>
         {% for ln in ch.lines %}
         <g class="cmp-end cmp-s{{ ln.slot }}" style="--i:{{ loop.index0 }}">
           <circle class="{{ 'is-proj' if ln.proj }}" cx="{{ ln.ex }}" cy="{{ ln.ey }}" r="4.5"/>
@@ -253,11 +254,11 @@
   {# ================= Αθροιστικά ποσά της περιόδου (όχι ανά μήνα) ================= #}
   <section class="card yr-chart">
     <div class="yr-chart-head">
-      <h2>💶 Αθροιστικά {{ months[0] }}–{{ months[c.cut - 1] }} <small class="muted">ποσά Ε3, όπως στην «Ανάλυση Ε3»</small></h2>
+      <h2>💶 Αθροιστικά {{ c.span }} <small class="muted">ποσά Ε3, όπως στην «Ανάλυση Ε3»</small></h2>
       <ul class="yr-legend">{% for y in years|reverse %}<li>{{ ydot(loop.index0) }}{{ y }}</li>{% endfor %}</ul>
     </div>
     {% set ch = c.totals %}
-    {% call plot(ch, 'Αθροιστικά ' ~ months[0] ~ '–' ~ months[c.cut - 1]) %}
+    {% call plot(ch, 'Αθροιστικά ' ~ c.span) %}
       <g class="cmp-bars">
         {% for m in ch.months %}{% for b in m.bars %}{% if b.d %}<path class="cmp-bar cmp-s{{ b.slot }}" d="{{ b.d }}" style="--i:{{ loop.index0 }}"/>{% endif %}{% endfor %}{% endfor %}
       </g>
@@ -266,7 +267,7 @@
 
   {# ================= Αναλυτικός πίνακας μεγεθών ================= #}
   <section class="card yr-table-card cmp-card cmp-metrics">
-    <div class="cmp-card-head"><h2>📊 Βασικά μεγέθη <small>{{ months[0] }}–{{ months[c.cut - 1] }} κάθε έτους</small></h2></div>
+    <div class="cmp-card-head"><h2>📊 Βασικά μεγέθη <small>{{ c.span }} κάθε έτους</small></h2></div>
     <div class="yr-scroll">
       <table class="yr-table cmp-table">
         <thead><tr><th class="yr-sticky">Μέγεθος</th>
@@ -284,7 +285,7 @@
       </table>
     </div>
     <p class="muted small yr-note">Ποσά σε €. Έσοδα, έξοδα και κέρδος από τα ποσά Ε3, ακριβώς όπως η «Ανάλυση Ε3»: κόστος πωληθέντων = αποθέματα έναρξης + αγορές − αποθέματα λήξης, οι αγορές παγίων εκτός (μετρά η απόσβεση). Έσοδα = χαρακτηρισμένα του βιβλίου εσόδων· έξοδα = χαρακτηρισμένα / απεσταλμένα /
-      επιβεβαιωμένα. Τα πιστωτικά αφαιρούνται. Τα αποθέματα έναρξης μετρούν πάντα, όποια ημ/νία κι αν έχει η εγγραφή μέσα στη χρήση (μετά το σημείο σύγκρισης: στον Ιανουάριο). Για τα υπόλοιπα μετρά η ημερομηνία της εγγραφής: αποθέματα λήξης ή αποσβέσεις με ημ/νία 31/12 δεν ανήκουν στο διάστημα σύγκρισης. ΦΠΑ, πάγια, παρακρατήσεις: από τα σύνολα των παραστατικών.
+      επιβεβαιωμένα. Τα πιστωτικά αφαιρούνται. Τα αποθέματα έναρξης μετρούν πάντα, όποια ημ/νία κι αν έχει η εγγραφή μέσα στη χρήση (μετά τη σημερινή ημερομηνία: στον Ιανουάριο). Για τα υπόλοιπα μετρά η ημερομηνία της εγγραφής: αποθέματα λήξης ή αποσβέσεις με ημ/νία 31/12 δεν ανήκουν στο διάστημα year to date. ΦΠΑ, πάγια, παρακρατήσεις: από τα σύνολα των παραστατικών.
       Χρώμα μεταβολής: πράσινο όταν είναι ευνοϊκή, κόκκινο όταν όχι, ουδέτερο όταν δεν κρίνεται.</p>
   </section>
 

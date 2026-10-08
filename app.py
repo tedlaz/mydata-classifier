@@ -3112,23 +3112,24 @@ def _cmp_axis(lo: float, hi: float, base: float, top: float):
     return y, [{"v": ymin + step * k, "y": y(ymin + step * k)} for k in range(n + 1)]
 
 
-def _cmp_lines(years: list[str], series: list[list[float]], proj: list[float], cut: int) -> dict:
-    """Γεωμετρία SVG (viewBox 760×250), άξονας 12 μηνών: μία καμπύλη ανά έτος (τα προηγούμενα όλο το έτος,
-    το τρέχον έως τον μήνα cut) και η προβολή του τρέχοντος (proj, 12 σωρευτικές τιμές) από το cut έως τον
-    Δεκέμβριο. Ετικέτες τέλους απομακρυσμένες ώστε να μη συμπίπτουν. slot = απόσταση από το τρέχον έτος (0 = φέτος)."""
+def _cmp_lines(years: list[str], series: list[list[float]], proj: list[float], done: int, today: float, ytd: float) -> dict:
+    """Γεωμετρία SVG (viewBox 760×250), άξονας 12 μηνών (σημείο i = τέλος του μήνα i+1): μία καμπύλη ανά έτος
+    (τα προηγούμενα όλο το έτος, το τρέχον στους done ολοκληρωμένους μήνες + σημείο ytd στη θέση today) και η
+    προβολή του τρέχοντος (proj, 12 σωρευτικές τιμές) από σήμερα έως τον Δεκέμβριο. Ετικέτες τέλους
+    απομακρυσμένες ώστε να μη συμπίπτουν. slot = απόσταση από το τρέχον έτος (0 = φέτος)."""
     W, H, left, right, top, bottom = 760, 250, 64, 120, 16, 30
     base = H - bottom
-    vals = [v for s in series for v in s] + proj
+    vals = [v for s in series for v in s] + proj + [ytd]
     y, ticks = _cmp_axis(min(vals + [0]), max(vals + [0]), base, top)
     x = lambda i: round(left + i / 11 * (W - left - right), 1)  # noqa: E731
     path = lambda pts: "M" + " L".join(f"{x(i)},{y(v)}" for i, v in pts)  # noqa: E731
     lines = []
     for k, (yr, s) in enumerate(zip(years, series)):
         cur = k == len(years) - 1
-        end = len(s) - 1 if not (cur and proj) else 11
-        v = proj[-1] if cur and proj else s[-1]
+        pts = list(enumerate(s)) + ([(today, ytd)] if cur else [])
+        end, v = (11, proj[-1]) if cur and proj else pts[-1]
         lines.append({"year": yr, "slot": len(years) - 1 - k, "v": v, "ex": x(end), "ey": y(v), "proj": cur and bool(proj),
-                      "d": path(enumerate(s))})
+                      "d": path(pts)})
     for i, ln in enumerate(sorted(lines, key=lambda ln: ln["ey"])):  # ετικέτες τέλους ≥ 14px μεταξύ τους
         ln["ly"] = ln["ey"] if not i else max(ln["ey"], prev + 14)
         prev = ln["ly"]
@@ -3136,12 +3137,13 @@ def _cmp_lines(years: list[str], series: list[list[float]], proj: list[float], c
     months = []
     for i in range(12):
         vals_i = [(yr, len(years) - 1 - k, s[i], False) for k, (yr, s) in enumerate(zip(years, series)) if i < len(s)]
-        if proj and i >= cut:
+        if proj and i >= done:
             vals_i.append((years[-1], 0, proj[i], True))
         months.append({"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(x(i) - slot / 2, 1), "w": round(slot, 1),
                        "vals": vals_i[::-1]})
     return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "lines": lines, "months": months,
-            "ticks": ticks, "cut_x": x(cut - 1), "proj": path((i, proj[i]) for i in range(cut - 1, 12)) if proj else ""}
+            "ticks": ticks, "cut_x": x(today), "today": (x(today), y(ytd), ytd),
+            "proj": path([(today, ytd)] + [(i, proj[i]) for i in range(done, 12)]) if proj else ""}
 
 
 def _bar_path(x: float, w: float, by: float, ty: float) -> str:
@@ -3230,11 +3232,13 @@ def _cmp_e3(Y: dict, years: list[str], key: str) -> dict:
 def _compare(cid: int | None, now: datetime) -> dict:
     """Όλα τα στοιχεία της σελίδας «Σύγκριση ετών». Έσοδα, έξοδα, κέρδος και Ε3: ίδιος υπολογισμός με την
     «Ανάλυση Ε3» (_pl, με αποθέματα)· ΦΠΑ, πάγια, παρακρατήσεις: από τα σύνολα (_yearly_totals)."""
-    cut = max(now.month - 1, 1)  # Ιανουάριος: δεν υπάρχει ολοκληρωμένος μήνας — συγκρίνεται ο ανοιχτός
+    # Year to date: 1/1 έως τη σημερινή ημερομηνία (ΜΜ-ΗΗ) κάθε έτους. done = ολοκληρωμένοι μήνες
+    # (καμπύλες ανά μήνα, βάση της προβολής)· ο τρέχων μήνας μετρά έως σήμερα.
+    md, done = now.strftime("%m-%d"), now.month - 1
     have = set(db.document_years(cid))
     years = [str(y) for y in range(now.year - _CMP_YEARS + 1, now.year + 1) if str(y) in have or y == now.year]
     with_stock = stock_in("dashboard")
-    in_cut = lambda d: "01" <= (d["issue_date"] or "")[5:7] <= f"{cut:02d}"  # noqa: E731
+    in_cut = lambda d: "01-01" <= (d["issue_date"] or "")[5:10] <= md  # noqa: E731
     Y = {}
     for y in years:
         all_inc = db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, y)
@@ -3256,19 +3260,18 @@ def _compare(cid: int | None, now: datetime) -> dict:
                                     cls_json=json.dumps(stock), **dict.fromkeys(db.EXTRA_TOTALS, 0)))
             late.append(dict(d, cls_json=json.dumps([e for e in cls if e.get("category") != OPENING_STOCK])))
         it, et = _yearly_totals(inc), _yearly_totals(exp)
-        ms = range(1, cut + 1)
-        s = lambda t, c: round(sum(t[m][c] for m in ms), 2)  # noqa: E731
+        s = lambda t, c: round(sum(t[m][c] for m in range(1, 13)), 2)  # noqa: E731  (inc/exp ήδη έως σήμερα)
         # Έσοδα / έξοδα / κέρδος όπως η «Ανάλυση Ε3»: έξοδα = κόστος πωληθέντων (με αποθέματα έναρξης/λήξης)
         # + έξοδα χρήσης, χωρίς αγορές παγίων. Ανά μήνα το ίδιο _pl (γραμμικό: οι μήνες αθροίζουν στο σύνολο).
         pl = _pl(inc, exp + opening)
-        # Όλοι οι μήνες του έτους (οι ≤ cut ταυτίζονται με τη σύγκριση): καμπύλη + βάση της προβολής.
+        # Όλοι οι μήνες του έτους (οι ολοκληρωμένοι ταυτίζονται με τη σύγκριση): καμπύλη + βάση της προβολής.
         of = lambda docs, m: [d for d in docs if (d["issue_date"] or "")[5:7] == f"{m:02d}"]  # noqa: E731
         mpl = [_pl(of(all_inc, m), of(exp + opening + late, m)) for m in range(1, 13)]
         cum_full, acc = [], 0.0
         for p in mpl:
             acc += p["profit"]
             cum_full.append(round(acc, 2))
-        cum = cum_full[:cut]
+        cum = cum_full[:done]
         r = Y[y] = {
             "income": pl["inc_total"], "expense": round(pl["cogs"] + pl["exp_total"], 2), "opex": pl["exp_total"],
             "profit": pl["profit"], "gross": pl["gross"], "cogs": pl["cogs"],
@@ -3293,10 +3296,11 @@ def _compare(cid: int | None, now: datetime) -> dict:
     cur = Y[years[-1]]
     prev = Y[years[-2]] if len(years) > 1 else None
     # Προβολή του τρέχοντος έτους έως τον Δεκέμβριο: ίδια μέθοδος με την «Πρόβλεψη έτους» (_forecast), χωριστά
-    # για έσοδα και έξοδα Ε3 — περσινοί μήνες × (φετινά / περσινά του ίδιου διαστήματος). Πρώτα cut μήνες = πραγματικά.
+    # για έσοδα και έξοδα Ε3 — περσινοί μήνες × (φετινά / περσινά των ολοκληρωμένων μηνών). Ο τρέχων μήνας
+    # δεν πέφτει κάτω από όσα έχουν ήδη καταχωρηθεί.
     base = prev or {"f_in": [0.0] * 12, "f_out": [0.0] * 12}
-    p_in, m_in = _forecast(cur["f_in"], base["f_in"], cut)
-    p_out, m_out = _forecast(cur["f_out"], base["f_out"], cut)
+    p_in, m_in = _forecast(cur["f_in"], base["f_in"], done)
+    p_out, m_out = _forecast(cur["f_out"], base["f_out"], done)
     proj, acc = [], 0.0
     for a, b in zip(p_in, p_out):
         acc += a - b
@@ -3381,8 +3385,10 @@ def _compare(cid: int | None, now: datetime) -> dict:
                              f"Περιθώριο καθαρού κέρδους {m1:.1f}% από {m0:.1f}% πέρσι".replace(".", ",")))
 
     return {
-        "years": years, "cut": cut, "Y": Y, "cur": cur, "prev": prev, "kpis": kpis, "metrics": metrics,
-        "cum": _cmp_lines(years, [Y[y]["cum_full"] for y in years[:-1]] + [cur["cum"]], proj, cut),
+        "years": years, "span": f"1/1 – {now.day}/{now.month}", "Y": Y, "cur": cur, "prev": prev, "kpis": kpis, "metrics": metrics,
+        # Θέση της σημερινής ημέρας στον άξονα (σημείο i = τέλος του μήνα i+1): το YTD σημείο της φετινής καμπύλης.
+        "cum": _cmp_lines(years, [Y[y]["cum_full"] for y in years[:-1]] + [cur["cum"]], proj, done,
+                          max(done - 1 + now.day / calendar.monthrange(now.year, now.month)[1], 0), cur["profit"]),
         "proj": {"v": proj[-1], "method": proj_method,
                  "prev_full": prev["cum_full"][-1] if prev else None, "d": _cmp_delta(proj[-1], prev["cum_full"][-1]) if prev else None},
         # Αθροιστικά της περιόδου (όχι ανά μήνα: ίδια έσοδα/έξοδα καταχωρούνται σε άλλο μήνα κάθε χρόνο).
@@ -3399,7 +3405,7 @@ def reports_compare():
     """Σύγκριση ετών: τρέχον έτος απέναντι στα προηγούμενα, στους ίδιους ολοκληρωμένους μήνες."""
     now = datetime.now(ATHENS)
     data = _compare(_active_company_id(), now)
-    return render_template("reports_compare.html", c=data, open_month=now.month == 1, months=_GREEK_MONTHS,
+    return render_template("reports_compare.html", c=data, months=_GREEK_MONTHS,
                            now_str=now.strftime("%d/%m/%Y"))
 
 
