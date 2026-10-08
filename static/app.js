@@ -2,20 +2,29 @@
 (function () {
   const root = document.documentElement;
 
-  // ---- Θέμα (light/dark) ----
+  // ---- Θέμα (μενού #theme-menu). Οι παλέτες πατάνε σε light/dark βάση. ----
+  const PALETTE_BASE = { tokyo: 'dark', nord: 'dark', neon: 'dark', paper: 'light', solar: 'light', neonl: 'light' };
   function currentTheme() {
     return root.dataset.theme ||
       (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   }
-  function syncTheme() { root.dataset.themeNow = currentTheme(); }
+  function syncTheme() {
+    root.dataset.themeNow = currentTheme();
+    const active = root.dataset.palette || root.dataset.themeNow;
+    document.querySelectorAll('[data-theme-pick]').forEach(b =>
+      b.setAttribute('aria-pressed', b.dataset.themePick === active));
+  }
   syncTheme();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
   document.addEventListener('click', e => {
-    if (!e.target.closest('[data-theme-toggle]')) return;
-    const next = currentTheme() === 'dark' ? 'light' : 'dark';
-    root.dataset.theme = next;
+    const pick = e.target.closest('[data-theme-pick]');
+    if (!pick) return;
+    const next = pick.dataset.themePick;
+    root.dataset.theme = PALETTE_BASE[next] || next;
+    if (PALETTE_BASE[next]) root.dataset.palette = next; else delete root.dataset.palette;
     try { localStorage.setItem('theme', next); } catch (_) {}
     syncTheme();
+    pick.closest('[popover]').hidePopover();
   });
 
   // ---- Μενού: μάζεμα/ξεδίπλωμα (desktop) με κλικ στο εικονίδιο της εφαρμογής ----

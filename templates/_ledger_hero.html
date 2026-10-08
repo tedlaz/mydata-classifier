@@ -11,12 +11,12 @@
 {{ month_style() }}
 <style>
 .lh{position:relative;overflow:hidden;border-radius:20px;padding:clamp(20px,3.5vw,34px);color:#fff;margin-bottom:22px;
-  background:radial-gradient(120% 140% at 0% 0%,var(--lh-a) 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
+  background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,var(--lh-a),var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
 .lh--in{--lh-a:#0f5a4a;--lh-b1:#1fbf8a;--lh-b2:#5b66f5}
 .lh--out{--lh-a:#2a2f7a;--lh-b1:#5b66f5;--lh-b2:#ff6b8b}
 .lh-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;animation:lh-float 13s ease-in-out infinite;pointer-events:none}
-.lh-blob.b1{width:300px;height:300px;background:var(--lh-b1);top:-140px;right:-40px}
-.lh-blob.b2{width:220px;height:220px;background:var(--lh-b2);bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
+.lh-blob.b1{width:300px;height:300px;background:color-mix(in oklab,var(--lh-b1),var(--hero-glow) var(--hero-fade));top:-140px;right:-40px}
+.lh-blob.b2{width:220px;height:220px;background:color-mix(in oklab,var(--lh-b2),var(--hero-glow) var(--hero-fade));bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
 @keyframes lh-float{50%{transform:translate(26px,-18px) scale(1.1)}}
 .lh-top{position:relative;display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end}
 .lh h1{margin:0 0 4px;font-size:clamp(1.7rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.02em;color:#fff}
@@ -35,10 +35,10 @@
 .lh-tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c)}
 .lh-tile:hover{transform:translateY(-3px);background:rgba(255,255,255,.11)}
 .lh-tile b{font:800 1.15rem/1.2 var(--font-data)}
-.lh-tile span{font-size:.8rem;color:#c6cbe8}
+.lh-tile span{font-size:.8rem;color:var(--hero-ink-2)}
 .lh-tile .e{position:absolute;right:8px;top:50%;margin-top:-.55em;font-size:.95rem;line-height:1.1;opacity:.85;transition:transform .4s var(--ease)}
 .lh-tile:hover .e{transform:scale(1.2) rotate(-8deg)}
-.lh-tile.is-on{background:linear-gradient(#1b2150,#1b2150) padding-box,
+.lh-tile.is-on{background:linear-gradient(var(--hero-tile),var(--hero-tile)) padding-box,
   conic-gradient(from var(--lh-ang),var(--c),transparent 40%,var(--c) 80%) border-box;border:2px solid transparent;
   animation:lh-rise .55s var(--ease) both,lh-spin 4s linear infinite;box-shadow:0 12px 30px -14px var(--c)}
 .lh-tile.is-on span{color:#fff;font-weight:700}
@@ -56,7 +56,7 @@
 .lh-ring .fg{stroke:url(#lh-grad);stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:calc(100 - var(--p));animation:lh-fill 1.6s var(--ease) .5s both}
 @keyframes lh-fill{from{stroke-dashoffset:100}}
 .lh-ring div b{position:absolute;inset:0;display:grid;place-items:center;font:800 .58rem var(--font-data)}
-.lh-ring small{font-size:.74rem;color:#c6cbe8;max-width:110px;line-height:1.25}
+.lh-ring small{font-size:.74rem;color:var(--hero-ink-2);max-width:110px;line-height:1.25}
 
 /* Λωρίδα μηνών του βιβλίου (στη θέση των παλιών συνόλων προβολής). */
 .lh-sums{position:relative;margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);

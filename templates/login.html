@@ -6,6 +6,7 @@
 <title>{{ 'Νέος χρήστης' if setup else 'Σύνδεση' }} · myDATA</title>
 <script>
 (function(){var r=document.documentElement,t;try{t=localStorage.getItem('theme')}catch(e){}
+var b={tokyo:'dark',nord:'dark',neon:'dark',paper:'light',solar:'light',neonl:'light'}[t];if(b){r.dataset.palette=t;t=b}
 if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')})();
 </script>
 <link rel="icon" href="{{ url_for('static', filename='app.ico') }}">

@@ -30,15 +30,15 @@
 .sy-mo.is-empty .bar{background:none}
 .sy-mo b{font:700 .7rem var(--font-data)}
 /* Στη σκούρα κεφαλίδα των βιβλίων. */
-.sy-strip--dark .sy-legend{color:#aab2d4}
+.sy-strip--dark .sy-legend{color:var(--hero-ink)}
 .sy-strip--dark .sy-legend i.e{border-color:rgba(255,255,255,.3)}
-.sy-strip--dark .sy-yl{color:#aab2d4}
+.sy-strip--dark .sy-yl{color:var(--hero-ink)}
 .sy-strip--dark .sy-mgrid > .sy-yl:not(:first-child){border-color:rgba(255,255,255,.15)}
 .sy-strip--dark .sy-mo{background:rgba(255,255,255,.06);color:#fff;border-color:rgba(255,255,255,.12)}
-.sy-strip--dark .sy-mo:hover{border-color:#9aa2ff}
-.sy-strip--dark .sy-mo.is-now{background:rgba(154,162,255,.18);border-color:rgba(154,162,255,.45)}
-.sy-strip--dark .sy-mo.is-on{border-color:#9aa2ff;box-shadow:0 0 0 2px rgba(154,162,255,.35)}
-.sy-strip--dark .sy-mo.is-empty{background:none;color:#8b93b8;border-color:rgba(255,255,255,.14)}
+.sy-strip--dark .sy-mo:hover{border-color:var(--hero-accent)}
+.sy-strip--dark .sy-mo.is-now{background:color-mix(in srgb,var(--hero-accent) 18%,transparent);border-color:color-mix(in srgb,var(--hero-accent) 45%,transparent)}
+.sy-strip--dark .sy-mo.is-on{border-color:var(--hero-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--hero-accent) 35%,transparent)}
+.sy-strip--dark .sy-mo.is-empty{background:none;color:var(--hero-ink);border-color:rgba(255,255,255,.14)}
 .sy-strip--dark .sy-mo .bar{background:rgba(255,255,255,.1)}
 .sy-strip--dark .sy-mo.is-empty .bar{background:none}
 /* Στενή οθόνη: ένα έτος ανά γραμμή (το έτος ως τίτλος, 12 κελιά από κάτω). */

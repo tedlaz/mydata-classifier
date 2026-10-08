@@ -5,33 +5,33 @@
 <style>
 /* ---------- Κεφαλίδα (ίδια οικογένεια με βιβλία/εταιρείες) ---------- */
 .ne-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(20px,3.5vw,32px);color:#fff;margin-bottom:18px;
-  background:radial-gradient(120% 140% at 0% 0%,#4a2a7a 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
+  background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,#4a2a7a,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
 .ne-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;animation:ne-float 13s ease-in-out infinite;pointer-events:none}
-.ne-blob.b1{width:300px;height:300px;background:#b04bff;top:-140px;right:-40px}
-.ne-blob.b2{width:220px;height:220px;background:#5b66f5;bottom:-140px;left:30%;opacity:.3;animation-delay:-6s}
+.ne-blob.b1{width:300px;height:300px;background:color-mix(in oklab,#b04bff,var(--hero-glow) var(--hero-fade));top:-140px;right:-40px}
+.ne-blob.b2{width:220px;height:220px;background:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));bottom:-140px;left:30%;opacity:.3;animation-delay:-6s}
 @keyframes ne-float{50%{transform:translate(26px,-18px) scale(1.1)}}
 .ne-top{position:relative;display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between;align-items:flex-start}
 .ne-hero h1{margin:0 0 4px;font-size:clamp(1.6rem,3.4vw,2.3rem);font-weight:800;letter-spacing:-.02em;color:#fff}
-.ne-hero p{margin:0;color:#c6cbe8;font-size:.9rem}
+.ne-hero p{margin:0;color:var(--hero-ink-2);font-size:.9rem}
 .ne-hero .info-btn{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
 .ne-hero .info-btn.has-attention{border-color:#f2c265;color:#f2c265}
 .ne-totals{position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:20px}
 .ne-tot{padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
   animation:ne-rise .55s var(--ease) both;animation-delay:calc(var(--i) * 80ms + 120ms)}
-.ne-tot span{display:block;font-size:.78rem;color:#aab2d4;font-weight:600;text-transform:uppercase;letter-spacing:.08em}
+.ne-tot span{display:block;font-size:.78rem;color:var(--hero-ink);font-weight:600;text-transform:uppercase;letter-spacing:.08em}
 .ne-tot b{display:inline-block;font:800 clamp(1.2rem,2.6vw,1.7rem)/1.2 var(--font-data);margin-top:4px}
-.ne-tot--g{background:linear-gradient(135deg,rgba(91,102,245,.35),rgba(31,191,138,.25));border-color:rgba(255,255,255,.2)}
+.ne-tot--g{background:linear-gradient(135deg,color-mix(in srgb,var(--hero-glow) 35%,transparent),rgba(31,191,138,.25));border-color:rgba(255,255,255,.2)}
 .ne-tot b.is-pop{animation:ne-pop .45s var(--ease)}
 @keyframes ne-pop{40%{transform:scale(1.12);color:#6ff0c4}}
 @keyframes ne-rise{from{opacity:0;transform:translateY(16px)}}
 .ne-tpls{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.1)}
-.ne-tpls > span{font-size:.78rem;color:#aab2d4;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-right:4px}
+.ne-tpls > span{font-size:.78rem;color:var(--hero-ink);font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-right:4px}
 .ne-hero .tpl-chip{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.18);animation:ne-rise .5s var(--ease) both;
   animation-delay:calc(var(--i) * 60ms + 300ms);transition:background .2s,transform .2s var(--ease)}
 .ne-hero .tpl-chip:hover{background:rgba(255,255,255,.16);transform:translateY(-2px)}
 .ne-hero .tpl-chip a{color:#fff}
 .ne-hero .tpl-chip.is-current{background:var(--accent-grad);border-color:transparent}
-.ne-hero .tpl-del{color:#aab2d4}
+.ne-hero .tpl-del{color:var(--hero-ink)}
 
 /* ---------- Βήματα φόρμας ---------- */
 .ne-info{margin:-4px 0 16px;animation:ne-rise .3s var(--ease) both}

@@ -5,15 +5,15 @@
 <style>
 /* Κεφαλίδα στο ύφος των βιβλίων (_ledger_hero.html: .lh--in). */
 .sy-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(18px,3vw,28px);color:#fff;margin-bottom:22px;
-  background:radial-gradient(120% 140% at 0% 0%,#0f5a4a 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
+  background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,#0f5a4a,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
 .sy-hero .blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;pointer-events:none;animation:sy-float 13s ease-in-out infinite}
-.sy-hero .b1{width:300px;height:300px;background:#1fbf8a;top:-140px;right:-40px}
-.sy-hero .b2{width:220px;height:220px;background:#5b66f5;bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
+.sy-hero .b1{width:300px;height:300px;background:color-mix(in oklab,#1fbf8a,var(--hero-glow) var(--hero-fade));top:-140px;right:-40px}
+.sy-hero .b2{width:220px;height:220px;background:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
 @keyframes sy-float{50%{transform:translate(26px,-18px) scale(1.1)}}
 .sy-hero h1{position:relative;margin:0;font-size:clamp(1.7rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.02em;color:#fff}
 .sy-hero-last{position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-top:14px}
 .sy-hero-last > div{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;padding:8px 14px;border-radius:10px;
-  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-left:4px solid var(--c);font-size:.8rem;color:#aab2d4}
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-left:4px solid var(--c);font-size:.8rem;color:var(--hero-ink)}
 .sy-hero-last b{color:#fff;font-size:.9rem}
 .sy-hero-last .mono{font-family:var(--font-data);color:#fff}
 .sy-hero-strip{position:relative;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)}

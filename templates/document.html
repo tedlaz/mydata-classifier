@@ -7,12 +7,12 @@
 {% macro doc_url(m) %}{{ url_for('document', mark=m, back=back) }}{% endmacro %}
 <style>
 .dc-hero{position:relative;overflow:hidden;border-radius:16px;padding:12px clamp(14px,2.5vw,22px);color:#fff;margin-bottom:14px;
-  background:radial-gradient(120% 140% at 0% 0%,var(--dc-a) 0%,#141a3c 50%,#0b0f22 100%);box-shadow:var(--shadow-hi)}
+  background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,var(--dc-a),var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
 .dc-hero--in{--dc-a:#0f5a4a;--dc-b1:#1fbf8a;--dc-b2:#5b66f5}
 .dc-hero--out{--dc-a:#2a2f7a;--dc-b1:#5b66f5;--dc-b2:#ff6b8b}
 .dc-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;animation:dc-float 13s ease-in-out infinite;pointer-events:none}
-.dc-blob.b1{width:300px;height:300px;background:var(--dc-b1);top:-140px;right:-40px}
-.dc-blob.b2{width:220px;height:220px;background:var(--dc-b2);bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
+.dc-blob.b1{width:300px;height:300px;background:color-mix(in oklab,var(--dc-b1),var(--hero-glow) var(--hero-fade));top:-140px;right:-40px}
+.dc-blob.b2{width:220px;height:220px;background:color-mix(in oklab,var(--dc-b2),var(--hero-glow) var(--hero-fade));bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
 @keyframes dc-float{50%{transform:translate(26px,-18px) scale(1.1)}}
 @keyframes dc-rise{from{opacity:0;transform:translateY(14px)}}
 .dc-nav{position:relative;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px}
@@ -21,7 +21,7 @@
 .dc-hero .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
 .dc-hero .btn-ghost:hover{background:rgba(255,255,255,.16)}
 .dc-hero .pg-off{opacity:.35;pointer-events:none}
-.dc-pos{font:600 .8rem var(--font-data);color:#aab2d4;padding:0 6px}
+.dc-pos{font:600 .8rem var(--font-data);color:var(--hero-ink);padding:0 6px}
 .dc-top{position:relative;display:flex;flex-wrap:wrap;gap:10px 24px;justify-content:space-between;align-items:flex-start}
 .dc-who{display:flex;gap:12px;align-items:center;min-width:0}
 .dc-av{flex:none;width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:.95rem;
@@ -32,7 +32,7 @@
 .dc-hero--in h1{color:#c9f7df}
 .dc-hero--out h1{color:#fff0b3}
 .dc-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
-.dc-meta span{font-size:.76rem;padding:2px 9px;border-radius:999px;background:rgba(255,255,255,.08);color:#dfe3ff}
+.dc-meta span{font-size:.76rem;padding:2px 9px;border-radius:999px;background:rgba(255,255,255,.08);color:var(--hero-ink-hi)}
 .dc-meta .mono{font-family:var(--font-data)}
 .dc-meta .dc-kind{font-weight:800;letter-spacing:.06em}
 .dc-meta .dc-kind--in{color:#4fd1a0;background:rgba(79,209,160,.18);box-shadow:inset 0 0 0 1px rgba(79,209,160,.45)}
@@ -51,9 +51,9 @@
 .dc-tots{position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:10px}
 .dc-tot{padding:6px 12px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
   animation:dc-rise .5s var(--ease) both;animation-delay:calc(var(--i) * 70ms + 150ms)}
-.dc-tot span{display:block;font-size:.68rem;color:#aab2d4;font-weight:600;text-transform:uppercase;letter-spacing:.07em}
+.dc-tot span{display:block;font-size:.68rem;color:var(--hero-ink);font-weight:600;text-transform:uppercase;letter-spacing:.07em}
 .dc-tot b{display:block;font:800 1.05rem/1.25 var(--font-data)}
-.dc-tot--g{background:linear-gradient(135deg,rgba(91,102,245,.35),rgba(31,191,138,.25));border-color:rgba(255,255,255,.22)}
+.dc-tot--g{background:linear-gradient(135deg,color-mix(in srgb,var(--hero-glow) 35%,transparent),rgba(31,191,138,.25));border-color:rgba(255,255,255,.22)}
 .dc-tot--g b{font-size:1.2rem}
 /* Μεγάλη σειρά/αριθμός: οριζόντια κύλιση μέσα στην κάρτα. */
 .dc-tot--sa{min-width:0}

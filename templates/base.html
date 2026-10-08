@@ -10,6 +10,7 @@
 <script>
 // Πριν το πρώτο paint: θέμα + εικονίδιο εναλλαγής, για να μην «αναβοσβήνει».
 (function(){var r=document.documentElement,t;try{t=localStorage.getItem('theme')}catch(e){}
+var b={tokyo:'dark',nord:'dark',neon:'dark',paper:'light',solar:'light',neonl:'light'}[t];if(b){r.dataset.palette=t;t=b}
 if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
 try{if(localStorage.getItem('navMini'))r.dataset.navMini=''}catch(e){}})();
 // Ίδια σελίδα (φίλτρο, σελιδοποίηση, καρτέλα του ίδιου βιβλίου π.χ. /invoices ⇄ /invoices/sync):
@@ -102,9 +103,23 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
     <div class="sidebar-foot">
       <a class="nav-link {{ 'is-active' if ep == 'companies' }}" href="{{ url_for('companies') }}" title="Εταιρείες"
          {% if ep == 'companies' %}aria-current="page"{% endif %}>{{ icon('building') }}Εταιρείες</a>
-      <button type="button" class="theme-toggle" data-theme-toggle title="Εναλλαγή θέματος">
-        {{ icon('sun') }}{{ icon('moon') }}Εναλλαγή θέματος
+      <button type="button" class="theme-toggle" popovertarget="theme-menu" title="Επιλογή θέματος">
+        {{ icon('sun') }}{{ icon('moon') }}Θέμα: <span class="theme-name"></span>
       </button>
+      <div id="theme-menu" class="theme-menu" popover>
+        {% for key, name, bg, side, ac in [
+             ('light', 'Φωτεινό', '#f4f6fb', '#10142a', '#4a55e8'),
+             ('paper', 'Χαρτί', '#f4f1ea', '#2b2722', '#2f5d8a'),
+             ('solar', 'Solarized', '#fdf6e3', '#073642', '#268bd2'),
+             ('neonl', 'Neon Light', '#f7f7fb', '#0a0a14', '#d1007a'),
+             ('dark', 'Σκοτεινό', '#0c1020', '#090c19', '#8a93ff'),
+             ('tokyo', 'Tokyo Night', '#1a1b26', '#16161e', '#7aa2f7'),
+             ('nord', 'Nord', '#2e3440', '#272c36', '#88c0d0'),
+             ('neon', 'Neon', '#07060d', '#050409', '#00f0ff')] %}
+        <button type="button" data-theme-pick="{{ key }}" aria-pressed="false"
+                style="--sw-bg:{{ bg }};--sw-side:{{ side }};--sw-ac:{{ ac }}"><i class="theme-sw"></i>{{ name }}</button>
+        {% endfor %}
+      </div>
     </div>
   </aside>
   <div class="scrim"></div>
