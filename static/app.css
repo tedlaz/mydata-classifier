@@ -2186,6 +2186,15 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .cmp-line{fill:none;stroke:var(--c);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;opacity:.9;
   stroke-dasharray:1;stroke-dashoffset:1;animation:db-draw 1.4s var(--ease) forwards .3s}
 .cmp-line.is-cur{stroke-width:3.5;opacity:1}
+.cmp-proj{fill:none;stroke:var(--c);stroke-width:2.5;stroke-dasharray:6 5;stroke-linecap:round;opacity:.85;
+  animation:db-rise .6s var(--ease) both 1.4s}
+.cmp-zone{fill:var(--surface-3);opacity:.45}
+.cmp-cut{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:3 4}
+.cmp-cut-lbl{fill:var(--muted);font:600 10.5px var(--font-ui)}
+.cmp-end circle.is-proj{fill:var(--surface);stroke:var(--c);stroke-width:2.5}
+.cmp-dash{display:inline-block;width:18px;height:0;margin-right:7px;border-top:2.5px dashed var(--cmp-0)}
+.cmp-proj-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:10px 4px 0;font-size:.86rem}
+.cmp-proj-note small{flex-basis:100%;font-size:.76rem}
 .cmp-end{animation:db-rise .5s var(--ease) both;animation-delay:calc(var(--i) * 80ms + 1.2s)}
 .cmp-end circle{fill:var(--c);stroke:var(--surface);stroke-width:2}
 .cmp-end text{fill:var(--ink-2);font-size:11px}

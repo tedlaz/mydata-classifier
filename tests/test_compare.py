@@ -45,7 +45,11 @@ cu = d["customers"]
 assert cu["new_n"] == 1 and cu["new"][0]["vat"] == "333" and cu["lost_n"] == 1 and cu["lost"][0]["vat"] == "222", cu
 assert cu["rows"][0]["vals"] == [1000.0, 1400.0] and cu["active"] == [2, 2]
 assert d["e3_out"]["rows"][0]["vals"] == [50.0, 200.0] and d["e3_out"]["rows"][0]["d"]["pct"] == 300.0
-assert d["cum"]["lines"][-1]["v"] == 1500.0  # φέτος: 1.700 − 200 (= καθαρό κέρδος Ε3)
+assert d["cur"]["cum"][-1] == 1500.0  # φέτος: 1.700 − 200 (= καθαρό κέρδος Ε3)
+# Πέρσι όλο το έτος (μαζί με τον Δεκέμβριο: P3 9.999)· προβολή φέτος = περσινοί μήνες × 1.700 / 1.500 (έσοδα), × 200 / 50 (έξοδα).
+assert d["cum"]["lines"][0]["v"] == 1500.0 + 9999 - 50
+assert abs(d["proj"]["v"] - (1500.0 + 9999 * 1700 / 1500)) < 0.05, d["proj"]
+assert "εποχικότητα" in d["proj"]["method"]
 assert any("Έσοδα αυξήθηκαν" in t for _, _, t in d["insights"]), d["insights"]
 
 # Αποθέματα έναρξης (1/1): μετρούν στο κόστος πωληθέντων και στα έξοδα, όπως στην «Ανάλυση Ε3».
@@ -56,7 +60,9 @@ d = A._compare(cid, now)
 cur = d["cur"]
 assert cur["cogs"] == 400.0 and cur["expense"] == 600.0 and cur["profit"] == 1100.0, cur
 assert round(sum(cur["e3_out"].values()), 2) == cur["expense"] and cur["e3_out"]["category2_13"] == 400.0
-assert d["cum"]["lines"][-1]["v"] == cur["profit"] and sum(cur["m_out"]) == cur["expense"]
+assert cur["cum"][-1] == cur["profit"]
+bars = {m["label"]: m["vals"] for m in d["totals"]["months"]}  # αθροιστικά ανά μέγεθος: (έτος, slot, ποσό), φέτος πρώτο
+assert bars["Σύνολο εξόδων"][0] == (str(y), 0, 600.0, False) and bars["Καθαρό κέρδος"][0][2] == 1100.0, bars
 
 # Περσινά αποθέματα έναρξης καταχωρημένα τον Δεκέμβριο (μετά το σημείο σύγκρισης): μετρούν, στον Ιανουάριο·
 # ο Δεκέμβριος των υπόλοιπων εγγραφών (P3) μένει εκτός.
@@ -66,7 +72,9 @@ db.upsert_document(cid, "expense", {"mark": "S0", "issue_date": f"{y - 1}-12-20"
 d = A._compare(cid, now)
 p = d["prev"]
 assert p["cogs"] == 300.0 and p["expense"] == 350.0 and p["profit"] == 1150.0 and p["income"] == 1500.0, p
-assert p["m_out"][0] == 350.0 and p["e3_out"]["category2_13"] == 300.0 and p["n_out"] == 1
+assert p["e3_out"]["category2_13"] == 300.0 and p["n_out"] == 1
+assert p["cum"][-1] == 1150.0 and p["cum_full"][0] == 1150.0  # τα αποθέματα έναρξης μετρούν, στον Ιανουάριο
+assert p["cum_full"][-1] == 1150.0 + 9999  # όλο το έτος: χωρίς διπλομέτρηση του 2.13 του Δεκεμβρίου
 
 html = c.get("/reports/compare").data.decode()
 assert "Σύγκριση ετών" in html and "cmp-line" in html and "1.700,00" in html and "Νέοι πελάτες" in html

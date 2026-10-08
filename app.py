@@ -3064,6 +3064,9 @@ def reports_yearly_e3_docs():
 # (ολοκληρωμένοι μήνες: Ιαν. έως τον προηγούμενο μήνα, κάθε έτους).
 # ---------------------------------------------------------------------------
 _CMP_YEARS = 6  # τρέχον + έως 5 προηγούμενα (όσα έχουν παραστατικά)
+# Μεγέθη του γραφήματος αθροιστικών ποσών (κλειδί → ετικέτα άξονα).
+_CMP_TOTALS = {"income": "Έσοδα", "cogs": "Κόστος πωληθέντων", "opex": "Έξοδα χρήσης",
+               "expense": "Σύνολο εξόδων", "profit": "Καθαρό κέρδος"}
 
 
 def _counterparty_totals(docs: list[dict], stock: bool = False) -> dict:
@@ -3109,25 +3112,36 @@ def _cmp_axis(lo: float, hi: float, base: float, top: float):
     return y, [{"v": ymin + step * k, "y": y(ymin + step * k)} for k in range(n + 1)]
 
 
-def _cmp_lines(years: list[str], series: list[list[float]], n: int) -> dict:
-    """Γεωμετρία SVG (viewBox 760×250): μία καμπύλη ανά έτος στους n πρώτους μήνες, με ετικέτα τέλους
-    (απομακρυσμένες ώστε να μη συμπίπτουν). slot = απόσταση από το τρέχον έτος (0 = φέτος)."""
-    W, H, left, right, top, bottom = 760, 250, 64, 92, 16, 30
+def _cmp_lines(years: list[str], series: list[list[float]], proj: list[float], cut: int) -> dict:
+    """Γεωμετρία SVG (viewBox 760×250), άξονας 12 μηνών: μία καμπύλη ανά έτος (τα προηγούμενα όλο το έτος,
+    το τρέχον έως τον μήνα cut) και η προβολή του τρέχοντος (proj, 12 σωρευτικές τιμές) από το cut έως τον
+    Δεκέμβριο. Ετικέτες τέλους απομακρυσμένες ώστε να μη συμπίπτουν. slot = απόσταση από το τρέχον έτος (0 = φέτος)."""
+    W, H, left, right, top, bottom = 760, 250, 64, 120, 16, 30
     base = H - bottom
-    vals = [v for s in series for v in s]
+    vals = [v for s in series for v in s] + proj
     y, ticks = _cmp_axis(min(vals + [0]), max(vals + [0]), base, top)
-    x = lambda i: round(left + (i / (n - 1) if n > 1 else 0.5) * (W - left - right), 1)  # noqa: E731
-    lines = [{"year": yr, "slot": len(years) - 1 - k, "v": s[-1], "ey": y(s[-1]),
-              "d": "M" + " L".join(f"{x(i)},{y(v)}" for i, v in enumerate(s))} for k, (yr, s) in enumerate(zip(years, series))]
+    x = lambda i: round(left + i / 11 * (W - left - right), 1)  # noqa: E731
+    path = lambda pts: "M" + " L".join(f"{x(i)},{y(v)}" for i, v in pts)  # noqa: E731
+    lines = []
+    for k, (yr, s) in enumerate(zip(years, series)):
+        cur = k == len(years) - 1
+        end = len(s) - 1 if not (cur and proj) else 11
+        v = proj[-1] if cur and proj else s[-1]
+        lines.append({"year": yr, "slot": len(years) - 1 - k, "v": v, "ex": x(end), "ey": y(v), "proj": cur and bool(proj),
+                      "d": path(enumerate(s))})
     for i, ln in enumerate(sorted(lines, key=lambda ln: ln["ey"])):  # ετικέτες τέλους ≥ 14px μεταξύ τους
         ln["ly"] = ln["ey"] if not i else max(ln["ey"], prev + 14)
         prev = ln["ly"]
-    slot = (W - left - right) / max(n, 1)
-    months = [{"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(x(i) - slot / 2, 1), "w": round(slot, 1),
-               "vals": [(yr, len(years) - 1 - k, s[i]) for k, (yr, s) in enumerate(zip(years, series))][::-1]}
-              for i in range(n)]
-    return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "end_x": x(n - 1),
-            "lines": lines, "months": months, "ticks": ticks}
+    slot = (W - left - right) / 11
+    months = []
+    for i in range(12):
+        vals_i = [(yr, len(years) - 1 - k, s[i], False) for k, (yr, s) in enumerate(zip(years, series)) if i < len(s)]
+        if proj and i >= cut:
+            vals_i.append((years[-1], 0, proj[i], True))
+        months.append({"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(x(i) - slot / 2, 1), "w": round(slot, 1),
+                       "vals": vals_i[::-1]})
+    return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "lines": lines, "months": months,
+            "ticks": ticks, "cut_x": x(cut - 1), "proj": path((i, proj[i]) for i in range(cut - 1, 12)) if proj else ""}
 
 
 def _bar_path(x: float, w: float, by: float, ty: float) -> str:
@@ -3140,23 +3154,24 @@ def _bar_path(x: float, w: float, by: float, ty: float) -> str:
             f"H{x + w - r:.1f}Q{x + w:.1f},{ty:.1f} {x + w:.1f},{ty - d * r:.1f}V{by:.1f}Z")
 
 
-def _cmp_bars(years: list[str], series: list[list[float]], n: int) -> dict:
-    """Γεωμετρία SVG (viewBox 760×250): ανά μήνα ομάδα μπαρών, μία ανά έτος (παλαιότερο αριστερά),
-    με 2px κενό ανάμεσα. Αρνητικοί μήνες (μόνο πιστωτικά) σχεδιάζονται κάτω από τη βάση."""
+def _cmp_bars(years: list[str], series: list[list[float]], labels: list[str]) -> dict:
+    """Γεωμετρία SVG (viewBox 760×250): ανά ετικέτα (μέγεθος) ομάδα μπαρών, μία ανά έτος (παλαιότερο αριστερά),
+    με 2px κενό ανάμεσα. Αρνητικές τιμές (π.χ. ζημιά) σχεδιάζονται κάτω από τη βάση."""
     W, H, left, right, top, bottom = 760, 250, 64, 8, 16, 30
     base = H - bottom
     vals = [v for s in series for v in s]
     y, ticks = _cmp_axis(min(vals + [0]), max(vals + [0]), base, top)
+    n = len(labels)
     slot, k = (W - left - right) / max(n, 1), len(series)
-    bw = max(2.0, min(16.0, (slot * 0.8 - 2 * (k - 1)) / k))
+    bw = max(2.0, min(28.0, (slot * 0.8 - 2 * (k - 1)) / k))
     group = k * bw + 2 * (k - 1)
     months = []
     for i in range(n):
         cx = left + slot * (i + 0.5)
         bars = [{"slot": len(years) - 1 - j, "d": _bar_path(cx - group / 2 + j * (bw + 2), bw, y(0), y(s[i]))}
                 for j, s in enumerate(series)]
-        months.append({"label": _GREEK_MONTHS[i], "cx": round(cx, 1), "x": round(left + slot * i, 1), "w": round(slot, 1),
-                       "bars": bars, "vals": [(yr, len(years) - 1 - j, s[i]) for j, (yr, s) in enumerate(zip(years, series))][::-1]})
+        months.append({"label": labels[i], "cx": round(cx, 1), "x": round(left + slot * i, 1), "w": round(slot, 1),
+                       "bars": bars, "vals": [(yr, len(years) - 1 - j, s[i], False) for j, (yr, s) in enumerate(zip(years, series))][::-1]})
     return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "zero": y(0),
             "months": months, "ticks": ticks}
 
@@ -3222,36 +3237,45 @@ def _compare(cid: int | None, now: datetime) -> dict:
     in_cut = lambda d: "01" <= (d["issue_date"] or "")[5:7] <= f"{cut:02d}"  # noqa: E731
     Y = {}
     for y in years:
-        inc = [d for d in db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, y) if in_cut(d)]
+        all_inc = db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, y)
+        inc = [d for d in all_inc if in_cut(d)]
         all_exp = db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y)
         exp = [d for d in all_exp if in_cut(d)]
         # Αποθέματα έναρξης: η εγγραφή γίνεται οποτεδήποτε μέσα στη χρήση, αλλά αφορά την αρχή της —
         # μετρά πάντα, και όταν είναι μετά το σημείο σύγκρισης λογίζεται τον Ιανουάριο (μόνο το ποσό 2.13).
-        opening = []
+        # late = οι εγγραφές μετά το σημείο σύγκρισης χωρίς το 2.13 (για την καμπύλη όλου του έτους).
+        opening, late = [], []
         for d in all_exp:
-            stock = [e for e in json.loads(d["cls_json"] or "[]") if e.get("category") == OPENING_STOCK]
-            if stock and not in_cut(d):
+            if in_cut(d):
+                continue
+            cls = json.loads(d["cls_json"] or "[]")
+            stock = [e for e in cls if e.get("category") == OPENING_STOCK]
+            if stock:
                 amount = sum(e.get("amount") or 0 for e in stock)
                 opening.append(dict(d, issue_date=f"{y}-01-01", total_net=amount, total_vat=0, lines_json="[]",
                                     cls_json=json.dumps(stock), **dict.fromkeys(db.EXTRA_TOTALS, 0)))
+            late.append(dict(d, cls_json=json.dumps([e for e in cls if e.get("category") != OPENING_STOCK])))
         it, et = _yearly_totals(inc), _yearly_totals(exp)
         ms = range(1, cut + 1)
         s = lambda t, c: round(sum(t[m][c] for m in ms), 2)  # noqa: E731
         # Έσοδα / έξοδα / κέρδος όπως η «Ανάλυση Ε3»: έξοδα = κόστος πωληθέντων (με αποθέματα έναρξης/λήξης)
         # + έξοδα χρήσης, χωρίς αγορές παγίων. Ανά μήνα το ίδιο _pl (γραμμικό: οι μήνες αθροίζουν στο σύνολο).
         pl = _pl(inc, exp + opening)
-        of = lambda docs, m: [d for d in docs if d["issue_date"][5:7] == f"{m:02d}"]  # noqa: E731
-        mpl = [_pl(of(inc, m), of(exp + opening, m)) for m in ms]
-        cum, acc = [], 0.0
+        # Όλοι οι μήνες του έτους (οι ≤ cut ταυτίζονται με τη σύγκριση): καμπύλη + βάση της προβολής.
+        of = lambda docs, m: [d for d in docs if (d["issue_date"] or "")[5:7] == f"{m:02d}"]  # noqa: E731
+        mpl = [_pl(of(all_inc, m), of(exp + opening + late, m)) for m in range(1, 13)]
+        cum_full, acc = [], 0.0
         for p in mpl:
             acc += p["profit"]
-            cum.append(round(acc, 2))
+            cum_full.append(round(acc, 2))
+        cum = cum_full[:cut]
         r = Y[y] = {
             "income": pl["inc_total"], "expense": round(pl["cogs"] + pl["exp_total"], 2), "opex": pl["exp_total"],
             "profit": pl["profit"], "gross": pl["gross"], "cogs": pl["cogs"],
             "vat_out": s(it, "vat"), "vat_in": s(et, "vat"), "withheld": s(it, "withheld"),
             "assets": s(et, "assets"), "depreciation": s(et, "depreciation"),
-            "m_in": [p["inc_total"] for p in mpl], "m_out": [round(p["cogs"] + p["exp_total"], 2) for p in mpl], "cum": cum,
+            "cum": cum, "cum_full": cum_full,
+            "f_in": [p["inc_total"] for p in mpl], "f_out": [round(p["cogs"] + p["exp_total"], 2) for p in mpl],
             "n_in": len(inc), "n_out": len(exp),
             "credits": sum(d["invoice_type"] in CREDIT_INVOICE_TYPES for d in inc + exp),
             "customers": _counterparty_totals([d for d in inc if d["counterparty_vat"]]),  # λιανική: όχι πελάτης
@@ -3268,6 +3292,16 @@ def _compare(cid: int | None, now: datetime) -> dict:
         r["n_cust"], r["n_supp"] = len(r["customers"]), len(r["suppliers"])
     cur = Y[years[-1]]
     prev = Y[years[-2]] if len(years) > 1 else None
+    # Προβολή του τρέχοντος έτους έως τον Δεκέμβριο: ίδια μέθοδος με την «Πρόβλεψη έτους» (_forecast), χωριστά
+    # για έσοδα και έξοδα Ε3 — περσινοί μήνες × (φετινά / περσινά του ίδιου διαστήματος). Πρώτα cut μήνες = πραγματικά.
+    base = prev or {"f_in": [0.0] * 12, "f_out": [0.0] * 12}
+    p_in, m_in = _forecast(cur["f_in"], base["f_in"], cut)
+    p_out, m_out = _forecast(cur["f_out"], base["f_out"], cut)
+    proj, acc = [], 0.0
+    for a, b in zip(p_in, p_out):
+        acc += a - b
+        proj.append(round(acc, 2))
+    proj_method = f"έσοδα: {m_in} · έξοδα: {m_out}"
 
     def kpi(key, label, good_up):
         vals = [Y[y][key] for y in years]
@@ -3348,9 +3382,11 @@ def _compare(cid: int | None, now: datetime) -> dict:
 
     return {
         "years": years, "cut": cut, "Y": Y, "cur": cur, "prev": prev, "kpis": kpis, "metrics": metrics,
-        "cum": _cmp_lines(years, [Y[y]["cum"] for y in years], cut),
-        "bars_in": _cmp_bars(years, [Y[y]["m_in"] for y in years], cut),
-        "bars_out": _cmp_bars(years, [Y[y]["m_out"] for y in years], cut),
+        "cum": _cmp_lines(years, [Y[y]["cum_full"] for y in years[:-1]] + [cur["cum"]], proj, cut),
+        "proj": {"v": proj[-1], "method": proj_method,
+                 "prev_full": prev["cum_full"][-1] if prev else None, "d": _cmp_delta(proj[-1], prev["cum_full"][-1]) if prev else None},
+        # Αθροιστικά της περιόδου (όχι ανά μήνα: ίδια έσοδα/έξοδα καταχωρούνται σε άλλο μήνα κάθε χρόνο).
+        "totals": _cmp_bars(years, [[Y[y][k] for k in _CMP_TOTALS] for y in years], list(_CMP_TOTALS.values())),
         "customers": customers, "suppliers": suppliers, "e3_in": e3_in, "e3_out": e3_out,
         "assets_max": max([abs(Y[y][k]) for y in years for k in ("assets", "depreciation")] + [1]),
         "vat_max": max([abs(Y[y][k]) for y in years for k in ("vat_out", "vat_in")] + [1]),

@@ -35,8 +35,8 @@
     {% endfor %}
     {{ caller() }}
     {% for m in ch.months %}
-    {% set tip %}<b>{{ months[loop.index0] }} <small>{{ label }}</small></b>{% for y, s, v in m.vals %}<span>{{ ydot(s) }}{{ y }}<em>{{ v|el_amount }} €</em></span>{% endfor %}{% if m.vals|length > 1 %}{% set dd = m.vals[0][2] - m.vals[1][2] %}<span class="yr-tip-bal{{ ' is-neg' if dd < 0 }}">Μεταβολή έναντι {{ m.vals[1][0] }}<em>{{ fmtv(dd, 'amt', true) }} €</em></span>{% endif %}{% endset %}
-    <g class="cmp-col" tabindex="0" data-tip="{{ tip|forceescape }}" aria-label="{{ months[loop.index0] }}: {% for y, s, v in m.vals %}{{ y }} {{ v|el_amount }} €{{ ', ' if not loop.last }}{% endfor %}">
+    {% set tip %}<b>{{ m.label }} <small>{{ label }}</small></b>{% for y, s, v, p in m.vals %}<span>{{ ydot(s) }}{{ y }}{{ ' (προβολή)' if p }}<em>{{ v|el_amount }} €</em></span>{% endfor %}{% if m.vals|length > 1 %}{% set dd = m.vals[0][2] - m.vals[1][2] %}<span class="yr-tip-bal{{ ' is-neg' if dd < 0 }}">Μεταβολή έναντι {{ m.vals[1][0] }}<em>{{ fmtv(dd, 'amt', true) }} €</em></span>{% endif %}{% endset %}
+    <g class="cmp-col" tabindex="0" data-tip="{{ tip|forceescape }}" aria-label="{{ m.label }}: {% for y, s, v, p in m.vals %}{{ y }}{{ ' προβολή' if p }} {{ v|el_amount }} €{{ ', ' if not loop.last }}{% endfor %}">
       <rect class="yr-hit" x="{{ m.x }}" y="{{ ch.top }}" width="{{ m.w }}" height="{{ ch.base - ch.top }}" rx="6"/>
     </g>
     {% endfor %}
@@ -220,41 +220,49 @@
   <section class="card yr-chart">
     <div class="yr-chart-head">
       <h2>📈 Σωρευτικό αποτέλεσμα <small class="muted">καθαρό κέρδος Ε3 μήνα προς μήνα — όπως στην «Ανάλυση Ε3»</small></h2>
-      <ul class="yr-legend">{% for y in years|reverse %}<li>{{ ydot(loop.index0) }}{{ y }}</li>{% endfor %}</ul>
+      <ul class="yr-legend">{% for y in years|reverse %}<li>{{ ydot(loop.index0) }}{{ y }}</li>{% endfor %}<li><i class="cmp-dash" aria-hidden="true"></i>Προβολή {{ years[-1] }}</li></ul>
     </div>
     {% set ch = c.cum %}
     {% call plot(ch, 'Σωρευτικό αποτέλεσμα') %}
+      {% if c.cut < 12 %}
+      <rect class="cmp-zone" x="{{ ch.cut_x }}" y="{{ ch.top }}" width="{{ ch.right - ch.cut_x }}" height="{{ ch.base - ch.top }}"/>
+      {% endif %}
+      <line class="cmp-cut" x1="{{ ch.cut_x }}" x2="{{ ch.cut_x }}" y1="{{ ch.top - 6 }}" y2="{{ ch.base }}"/>
+      <text class="cmp-cut-lbl" x="{{ ch.cut_x + 6 }}" y="{{ ch.top + 6 }}">σημείο σύγκρισης · προβολή →</text>
       <g class="cmp-lines">
         {% for ln in ch.lines %}
         <path pathLength="1" class="cmp-line cmp-s{{ ln.slot }} {{ 'is-cur' if ln.slot == 0 }}" d="{{ ln.d }}"/>
         {% endfor %}
+        {% if ch.proj %}<path class="cmp-proj cmp-s0" d="{{ ch.proj }}"/>{% endif %}
         {% for ln in ch.lines %}
         <g class="cmp-end cmp-s{{ ln.slot }}" style="--i:{{ loop.index0 }}">
-          <circle cx="{{ ch.end_x }}" cy="{{ ln.ey }}" r="4.5"/>
-          <text x="{{ ch.end_x + 10 }}" y="{{ ln.ly + 4 }}"><tspan class="cmp-end-y">{{ ln.year }}</tspan> {{ '{:,.0f}'.format(ln.v).replace(',', '.') }}</text>
+          <circle class="{{ 'is-proj' if ln.proj }}" cx="{{ ln.ex }}" cy="{{ ln.ey }}" r="4.5"/>
+          <text x="{{ ch.right + 10 }}" y="{{ ln.ly + 4 }}"><tspan class="cmp-end-y">{{ ln.year }}{{ '*' if ln.proj }}</tspan> {{ '{:,.0f}'.format(ln.v).replace(',', '.') }}</text>
         </g>
         {% endfor %}
       </g>
     {% endcall %}
+    {% set pj = c.proj %}
+    <p class="cmp-proj-note">
+      <b>* Προβολή {{ years[-1] }} έως 31/12: <span class="{{ 'yneg' if pj.v < 0 }}">{{ pj.v|el_amount }} €</span></b>
+      {% if pj.prev_full is not none %} · όλο το {{ years[-2] }}: {{ pj.prev_full|el_amount }} € {{ delta(pj.d, true) }}{% endif %}
+      <small class="muted">Μέθοδος — {{ pj.method }}. Ενδεικτική· αναλυτικά σενάρια στην <a href="{{ url_for('reports_forecast') }}">Πρόβλεψη έτους</a>.</small>
+    </p>
   </section>
 
-  {# ================= Μηνιαία έσοδα / έξοδα ================= #}
-  <div class="cmp-stack">
-    {% for key, title, icon in (('bars_in', 'Έσοδα Ε3 ανά μήνα', '💶'), ('bars_out', 'Έξοδα Ε3 ανά μήνα — κόστος πωληθέντων + έξοδα χρήσης', '🧾')) %}
-    <section class="card yr-chart">
-      <div class="yr-chart-head">
-        <h2>{{ icon }} {{ title }}</h2>
-        <ul class="yr-legend">{% for y in years|reverse %}<li>{{ ydot(loop.index0) }}{{ y }}</li>{% endfor %}</ul>
-      </div>
-      {% set ch = c[key] %}
-      {% call plot(ch, title) %}
-        <g class="cmp-bars">
-          {% for m in ch.months %}{% for b in m.bars %}{% if b.d %}<path class="cmp-bar cmp-s{{ b.slot }}" d="{{ b.d }}" style="--i:{{ loop.index0 }}"/>{% endif %}{% endfor %}{% endfor %}
-        </g>
-      {% endcall %}
-    </section>
-    {% endfor %}
-  </div>
+  {# ================= Αθροιστικά ποσά της περιόδου (όχι ανά μήνα) ================= #}
+  <section class="card yr-chart">
+    <div class="yr-chart-head">
+      <h2>💶 Αθροιστικά {{ months[0] }}–{{ months[c.cut - 1] }} <small class="muted">ποσά Ε3, όπως στην «Ανάλυση Ε3»</small></h2>
+      <ul class="yr-legend">{% for y in years|reverse %}<li>{{ ydot(loop.index0) }}{{ y }}</li>{% endfor %}</ul>
+    </div>
+    {% set ch = c.totals %}
+    {% call plot(ch, 'Αθροιστικά ' ~ months[0] ~ '–' ~ months[c.cut - 1]) %}
+      <g class="cmp-bars">
+        {% for m in ch.months %}{% for b in m.bars %}{% if b.d %}<path class="cmp-bar cmp-s{{ b.slot }}" d="{{ b.d }}" style="--i:{{ loop.index0 }}"/>{% endif %}{% endfor %}{% endfor %}
+      </g>
+    {% endcall %}
+  </section>
 
   {# ================= Αναλυτικός πίνακας μεγεθών ================= #}
   <section class="card yr-table-card cmp-card cmp-metrics">
