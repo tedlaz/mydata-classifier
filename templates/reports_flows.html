@@ -32,8 +32,9 @@ html[data-flows-vt="older"]{--fl-dx:-28px}
 html[data-flows-vt="newer"]{--fl-dx:28px}
 @keyframes fl-out{to{opacity:0;transform:translateX(calc(var(--fl-dx) * -1)) scale(.985);filter:blur(2px)}}
 @keyframes fl-in{from{opacity:0;transform:translateX(var(--fl-dx)) scale(.985);filter:blur(2px)}}
+.sk{--s-other:color-mix(in oklab,var(--s-rest),var(--surface) 45%)}  /* «Λοιποί»: πιο ανοιχτό από τους γκρι κόμβους */
 .sk-plot{overflow-x:auto}
-.sk-plot svg{display:block;width:100%;min-width:640px;height:auto}
+.sk-plot svg{width:100%;min-width:640px;height:auto}  /* display: μόνο ο επιλεγμένος συνδυασμός (block) */
 .sk-v{display:none}
 .sk-link{fill:var(--c);opacity:.28;transition:opacity .2s}
 .sk-bar{fill:var(--c)}
@@ -97,25 +98,26 @@ html[data-flows-vt="newer"]{--fl-dx:28px}
       <h2>🔀 Ροή από Έσοδα σε Έξοδα</h2>
       <div class="sk-opts">
         <label>Έσοδα ανά <select name="sk-src">
-          {% for key, v in sk.src.items() %}<option value="{{ key }}">{{ v.title }}</option>{% endfor %}
+          {% for key, title in sk.src.items() %}<option value="{{ key }}">{{ title }}</option>{% endfor %}
         </select></label>
         <span class="sk-arrow" aria-hidden="true">→</span>
         <label>Έξοδα ανά <select name="sk-dst">
-          {% for key, v in sk.dst.items() %}<option value="{{ key }}">{{ v.title }}</option>{% endfor %}
+          {% for key, title in sk.dst.items() %}<option value="{{ key }}">{{ title }}</option>{% endfor %}
         </select></label>
       </div>
     </div>
     <style>
-      {% for side in ('src', 'dst') %}{% for key in sk[side] %}
-      .sk:has([name=sk-{{ side }}] [value={{ key }}]:checked) .sk-{{ side }}-{{ key }}{display:inline}
-      {% endfor %}{% endfor %}
+      {# Ένα διάγραμμα ανά συνδυασμό (πηγή × προορισμός)· φαίνεται αυτό που ταιριάζει στις δύο επιλογές. #}
+      {% for p in sk.pairs %}
+      .sk:has([name=sk-src] [value={{ p.src_key }}]:checked):has([name=sk-dst] [value={{ p.dst_key }}]:checked) .sk-p-{{ p.src_key }}-{{ p.dst_key }}{display:block}
+      {% endfor %}
     </style>
     <div class="sk-plot">
-      <svg viewBox="0 0 {{ sk.w }} {{ sk.h }}" role="img"
-           aria-label="Ροή: έσοδα {{ sk.inc|el_amount }} €, έξοδα {{ sk.exp|el_amount }} €, {{ 'κέρδος' if sk.profit >= 0 else 'ζημία' }} {{ sk.profit|abs|el_amount }} €">
-        {% for side in ('src', 'dst') %}{% for key, v in sk[side].items() %}
-        <g class="sk-v sk-{{ side }}-{{ key }}">
-          {% for n in v.nodes %}
+      {% for p in sk.pairs %}
+      <svg class="sk-v sk-p-{{ p.src_key }}-{{ p.dst_key }}" viewBox="0 0 {{ sk.w }} {{ p.h }}" role="img"
+           aria-label="Ροή ανά {{ sk.src[p.src_key] }} → {{ sk.dst[p.dst_key] }}: έσοδα {{ sk.inc|el_amount }} €, έξοδα {{ sk.exp|el_amount }} €, {{ 'κέρδος' if sk.profit >= 0 else 'ζημία' }} {{ sk.profit|abs|el_amount }} €">
+        {% for side in ('src', 'dst') %}{% set key = p.src_key if side == 'src' else p.dst_key %}
+          {% for n in p[side] %}
           <g class="sk-n" style="--c:{{ n.color }}"{% if n.docs %} data-docs="{{ url_for('reports_flows_docs', year=year, side=side, key=key, label=n.label) }}" tabindex="0" role="button"{% endif %}>
             {% if n.h %}<path class="sk-link" d="{{ n.path }}"/>
             <rect class="sk-bar" x="{{ sk.x[side] }}" y="{{ n.y }}" width="{{ sk.bar }}" height="{{ n.h }}" rx="2"/>{% endif %}
@@ -128,11 +130,11 @@ html[data-flows-vt="newer"]{--fl-dx:28px}
             <title>{{ n.label }}: {{ n.value|el_amount }} € ({{ n.pct }}% των εσόδων){% if n.docs %} — κλικ για τα παραστατικά{% endif %}</title>
           </g>
           {% endfor %}
-        </g>
-        {% endfor %}{% endfor %}
-        <rect class="sk-mid" x="{{ sk.x.mid }}" y="{{ sk.mid.y }}" width="{{ sk.bar }}" height="{{ sk.mid.h }}" rx="2"><title>Έσοδα {{ sk.inc|el_amount }} € · Έξοδα {{ sk.exp|el_amount }} €</title></rect>
-        <text class="sk-mid-lbl" x="{{ sk.x.mid + sk.bar / 2 }}" y="{{ sk.mid.y - 6 }}" text-anchor="middle">Έσοδα {{ sk.inc|el_amount }} €</text>
+        {% endfor %}
+        <rect class="sk-mid" x="{{ sk.x.mid }}" y="{{ p.mid.y }}" width="{{ sk.bar }}" height="{{ p.mid.h }}" rx="2"><title>Έσοδα {{ sk.inc|el_amount }} € · Έξοδα {{ sk.exp|el_amount }} €</title></rect>
+        <text class="sk-mid-lbl" x="{{ sk.x.mid + sk.bar / 2 }}" y="{{ p.mid.y - 6 }}" text-anchor="middle">Έσοδα {{ sk.inc|el_amount }} €</text>
       </svg>
+      {% endfor %}
     </div>
   </section>
   {% endif %}

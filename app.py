@@ -894,6 +894,7 @@ def _two_years(today: date) -> list[str]:
 
 _SK_W, _SK_H, _SK_PAD, _SK_GAP, _SK_BAR = 1000, 340, 12, 8, 12  # _SK_H: ελάχιστο ύψος
 _SK_LINE, _SK_WRAP, _SK_LGAP = 14, 26, 6  # ετικέτες: ύψος γραμμής, χαρακτήρες ανά γραμμή, κενό μεταξύ τους
+_SK_MAX, _SK_MIN_SHARE = 15, 0.005  # έως 15 κόμβοι ανά πλευρά· κάτω από 0,5% του συνόλου → «Λοιποί»
 _SK_X = {"src": 250, "mid": 480, "dst": 700}  # x των ράβδων: πηγές · σύνολο · προορισμοί (χώρος για ετικέτες)
 
 
@@ -937,7 +938,8 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool, pick: 
         return lambda d, _e3: [(d["counterparty_name"] or d["counterparty_vat"], 1) if d["counterparty_vat"] else (no_vat, 1)]
 
     def group(docs, key):
-        # [(ετικέτα, ποσό, [(παραστατικό, μερίδιο)])]: τα 6 μεγαλύτερα + «Λοιποί».
+        # [(ετικέτα, ποσό, [(παραστατικό, μερίδιο)])]: τα μεγαλύτερα (έως _SK_MAX, όσα ≥ 0,5%) + «Λοιποί».
+        # Το διάγραμμα ψηλώνει όσο χρειάζεται, οπότε δείχνει όσα περισσότερα έχουν νόημα.
         out: dict = {}
         for d in docs:
             amount, e3 = net(d)
@@ -946,7 +948,8 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool, pick: 
                 g[0] += amount * share
                 g[1].append((d, amount * share))
         items = sorted(((k, round(v, 2), m) for k, (v, m) in out.items()), key=lambda t: -t[1])
-        keep = [t for t in items[:6] if t[1] > 0]
+        floor = _SK_MIN_SHARE * sum(t[1] for t in items)
+        keep = [t for t in items[:_SK_MAX] if t[1] > 0 and t[1] >= floor]
         rest = round(sum(t[1] for t in items) - sum(t[1] for t in keep), 2)
         # Ομάδες με αρνητικό υπόλοιπο (πιστωτικά) πάνε στα «Λοιποί»· αν αυτά βγουν αρνητικά, τα συμψηφίζουν
         # οι μικρότερες ομάδες, ώστε το άθροισμα να μένει ακριβώς το σύνολο.
@@ -979,26 +982,22 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool, pick: 
     for side, extra, first in (("src", ("Ζημία", -profit, "var(--err)") if profit < 0 else None, False),
                                ("dst", ("Κέρδος", max(profit, 0), "var(--ok)"), True)):
         for key, (title, nodes) in sides[side].items():
-            nodes = [(lbl, v, "var(--s-rest)" if lbl == "Λοιποί" else f"var(--s{i + 1})") for i, (lbl, v, _m) in enumerate(nodes)]
+            # 7 διακριτά χρώματα (σταθερή σειρά, χωρίς ανακύκλωση)· από τον 8ο ουδέτερο γκρι, «Λοιποί» πιο ανοιχτό.
+            nodes = [(lbl, v, "var(--s-other)" if lbl == "Λοιποί" else f"var(--s{i + 1})" if i < 7 else "var(--s-rest)")
+                     for i, (lbl, v, _m) in enumerate(nodes)]
             if extra:
                 nodes = [extra, *nodes] if first else [*nodes, extra]
             sides[side][key] = (title, nodes)
 
-    # Ετικέτες ολόκληρες: αναδίπλωση σε γραμμές + μία γραμμή για το ποσό. Το ύψος του διαγράμματος
-    # μεγαλώνει όσο χρειάζεται για να χωρέσουν όλες χωρίς επικάλυψη, στην πιο «γεμάτη» εκδοχή.
+    # Κάθε συνδυασμός (πηγή × προορισμός) σχεδιάζεται χωριστά: ύψος = όσο χρειάζονται οι ετικέτες της πιο
+    # «γεμάτης» πλευράς, και οι ράβδοι/ροές απλώνονται σε όλο αυτό το ύψος (όχι στριμωγμένες πάνω).
     wrapped = {label: textwrap.wrap(label, _SK_WRAP) or [label] for s_ in sides.values() for _, n in s_.values()
                for label, _, _ in n}
     block = lambda label: (len(wrapped[label]) + 1) * _SK_LINE  # noqa: E731
-    need = max(sum(block(lbl) for lbl, _, _ in n) + _SK_LGAP * (len(n) - 1) for s_ in sides.values() for _, n in s_.values())
-    height = max(_SK_H, round(need + 2 * _SK_PAD))
+    need = lambda nodes: sum(block(lbl) for lbl, _, _ in nodes) + _SK_LGAP * (len(nodes) - 1)  # noqa: E731
 
-    # Κοινή κλίμακα για όλες τις εκδοχές, ώστε η εναλλαγή να μην αλλάζει το μέγεθος του κέντρου.
-    inner = height - 2 * _SK_PAD
-    k = min((inner - _SK_GAP * (len(n) - 1)) / total for s_ in sides.values() for _, n in s_.values())
-    mid_h = total * k
-    mid_y = _SK_PAD + (inner - mid_h) / 2
-
-    def layout(side, nodes):
+    def layout(side, nodes, height, k, mid_y):
+        inner = height - 2 * _SK_PAD
         hs = [max(v, 0) * k for _, v, _ in nodes]
         y = _SK_PAD + (inner - sum(hs) - _SK_GAP * (len(nodes) - 1)) / 2
         cy, out, bottom = mid_y, [], -_SK_LGAP  # η πρώτη ετικέτα δεν ξεκινά πάνω από το διάγραμμα
@@ -1013,7 +1012,7 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool, pick: 
             bottom = top + block(label)
             out.append({"label": label, "lines": wrapped[label], "value": value,
                         "pct": round(value / inc * 100) if inc > 0 else 0, "color": color,
-                        "docs": color.startswith("var(--s"),  # κέρδος/ζημία: διαφορά, όχι παραστατικά
+                        "docs": color.startswith("var(--s"),  # κέρδος/ζημία (--ok/--err): διαφορά, όχι παραστατικά
                         "y": round(y, 1), "h": round(max(h, 1 if value > 0 else 0), 1), "cy": round(y + h / 2, 1),
                         "top": top, "path": path})
             y += h + _SK_GAP
@@ -1028,11 +1027,20 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool, pick: 
             n["ys"] = [round(n["top"] + _SK_LINE * (i + 0.8), 1) for i in range(len(n["lines"]) + 1)]
         return out
 
+    pairs = []
+    for a, (_, left) in sides["src"].items():
+        for b, (_, right) in sides["dst"].items():
+            height = max(_SK_H, round(max(need(left), need(right)) + 2 * _SK_PAD))
+            inner = height - 2 * _SK_PAD
+            k = min((inner - _SK_GAP * (len(n) - 1)) / total for n in (left, right))
+            mid_h = total * k
+            mid_y = _SK_PAD + (inner - mid_h) / 2
+            pairs.append({"src_key": a, "dst_key": b, "h": height, "mid": {"y": round(mid_y, 1), "h": round(mid_h, 1)},
+                          "src": layout("src", left, height, k, mid_y), "dst": layout("dst", right, height, k, mid_y)})
     return {
-        "w": _SK_W, "h": height, "bar": _SK_BAR, "x": _SK_X, "inc": inc, "exp": exp, "profit": profit,
-        "mid": {"y": round(mid_y, 1), "h": round(mid_h, 1)},
-        **{side: {key: {"title": title, "nodes": layout(side, nodes)} for key, (title, nodes) in opts.items()}
-           for side, opts in sides.items()},
+        "w": _SK_W, "bar": _SK_BAR, "x": _SK_X, "inc": inc, "exp": exp, "profit": profit, "pairs": pairs,
+        "src": {key: title for key, (title, _) in sides["src"].items()},
+        "dst": {key: title for key, (title, _) in sides["dst"].items()},
     }
 
 
