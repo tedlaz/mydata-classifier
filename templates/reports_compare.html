@@ -215,49 +215,45 @@
   </section>
   {% endif %}
 
-  {# ================= Σωρευτικό αποτέλεσμα ================= #}
-  <section class="card yr-chart">
+  {# ================= Σωρευτικά: έσοδα / έξοδα / αποτέλεσμα, ένα γράφημα το καθένα ================= #}
+  <section class="card yr-chart cmp-cums">
     <div class="yr-chart-head">
-      <h2>📈 Σωρευτικά έσοδα & αποτέλεσμα <small class="muted">ποσά Ε3 μήνα προς μήνα — όπως στην «Ανάλυση Ε3»</small></h2>
-      <ul class="yr-legend">
-        <li><span class="cmp-ramp" aria-hidden="true">{% for y in years %}<i class="cmp-r{{ loop.index0 }}"></i>{% endfor %}</span>Αποτέλεσμα</li>
-        <li><span class="cmp-ramp" aria-hidden="true">{% for y in years %}<i class="cmp-i{{ loop.index0 }}"></i>{% endfor %}</span>Έσοδα<small class="muted" style="margin-left:6px">(έντονο = {{ years[-1] }})</small></li>
+      <h2>📈 Σωρευτική πορεία <small class="muted">ποσά Ε3 μήνα προς μήνα — όπως στην «Ανάλυση Ε3»</small></h2>
+      <ul class="yr-legend">{% for y in years|reverse %}<li>{{ ydot(loop.index0) }}{{ y }}</li>{% endfor %}
         <li><i class="cmp-dash" aria-hidden="true"></i>Προβολή {{ years[-1] }}</li></ul>
     </div>
-    {% set ch = c.cum %}
-    {% call plot(ch, 'Σωρευτικά έσοδα και αποτέλεσμα', 'r') %}
-      {% if ch.projs %}
-      <rect class="cmp-zone" x="{{ ch.cut_x }}" y="{{ ch.top }}" width="{{ ch.right - ch.cut_x }}" height="{{ ch.base - ch.top }}"/>
-      {% endif %}
-      <line class="cmp-cut" x1="{{ ch.cut_x }}" x2="{{ ch.cut_x }}" y1="{{ ch.top - 6 }}" y2="{{ ch.base }}"/>
-      <text class="cmp-cut-lbl" x="{{ ch.cut_x + 6 }}" y="{{ ch.top + 6 }}">σήμερα · προβολή →</text>
-      <g class="cmp-lines">
-        {# Έσοδα πρώτα (από κάτω, αχνά), μετά το αποτέλεσμα (έντονο). #}
-        {% for key in ('in', 'res') %}
-        {% for ln in ch.lines if ln.key == key %}
-        <path pathLength="1" class="cmp-line cmp-line--{{ key }} cmp-{{ 'i' if key == 'in' else 'r' }}{{ ln.slot }} {{ 'is-cur' if ln.slot == 0 }}" d="{{ ln.d }}"/>
-        {% endfor %}
-        {% for p in ch.projs if p.key == key %}<path class="cmp-proj cmp-proj--{{ key }} cmp-{{ 'i' if key == 'in' else 'r' }}0" d="{{ p.d }}"/>{% endfor %}
-        {% endfor %}
-        {% for t in ch.todays %}
-        <g class="cmp-end cmp-{{ 'i' if t.key == 'in' else 'r' }}0 cmp-today cmp-today--{{ t.key }}"><circle cx="{{ t.x }}" cy="{{ t.y }}" r="5">
-          <title>{{ 'Έσοδα' if t.key == 'in' else 'Αποτέλεσμα' }} {{ years[-1] }} έως σήμερα ({{ c.span }}): {{ t.v|el_amount }} €</title></circle></g>
-        {% endfor %}
-        {% for ln in ch.lines %}
-        <g class="cmp-end cmp-end--{{ ln.key }} cmp-{{ 'i' if ln.key == 'in' else 'r' }}{{ ln.slot }}" style="--i:{{ loop.index0 }}">
-          <circle class="{{ 'is-proj' if ln.proj }}" cx="{{ ln.ex }}" cy="{{ ln.ey }}" r="4.5"/>
-          <text x="{{ ch.right + 10 }}" y="{{ ln.ly + 4 }}"><tspan class="cmp-end-y">{{ ln.year }}{{ '*' if ln.proj }}</tspan>{{ ' έσ.' if ln.key == 'in' }} {{ '{:,.0f}'.format(ln.v).replace(',', '.') }}</text>
+    {% for cc in c.cums %}{% set ch = cc.chart %}
+    <div class="cmp-cum">
+      <div class="cmp-cum-head">
+        <h3>{{ cc.title }}</h3>
+        <p><span class="muted">Προβολή {{ years[-1] }} έως 31/12:</span>
+          <b class="{{ 'yneg' if cc.proj_v < 0 }}">{{ cc.proj_v|el_amount }} €</b>
+          {% if cc.prev_full is not none %}<span class="muted">· όλο το {{ years[-2] }}: {{ cc.prev_full|el_amount }} €</span> {{ delta(cc.d, cc.good_up) }}{% endif %}</p>
+      </div>
+      {% call plot(ch, cc.title) %}
+        {% if ch.proj %}
+        <rect class="cmp-zone" x="{{ ch.cut_x }}" y="{{ ch.top }}" width="{{ ch.right - ch.cut_x }}" height="{{ ch.base - ch.top }}"/>
+        {% endif %}
+        <line class="cmp-cut" x1="{{ ch.cut_x }}" x2="{{ ch.cut_x }}" y1="{{ ch.top - 6 }}" y2="{{ ch.base }}"/>
+        {% if loop.first %}<text class="cmp-cut-lbl" x="{{ ch.cut_x + 6 }}" y="{{ ch.top + 6 }}">σήμερα · προβολή →</text>{% endif %}
+        <g class="cmp-lines">
+          {% for ln in ch.lines|reverse %}{# παλαιότερα από κάτω, φέτος από πάνω #}
+          <path pathLength="1" class="cmp-line cmp-s{{ ln.slot }} {{ 'is-cur' if ln.slot == 0 }}" d="{{ ln.d }}"/>
+          {% endfor %}
+          {% if ch.proj %}<path class="cmp-proj cmp-s0" d="{{ ch.proj }}"/>{% endif %}
+          <g class="cmp-end cmp-s0 cmp-today"><circle cx="{{ ch.today.x }}" cy="{{ ch.today.y }}" r="5">
+            <title>{{ cc.title }} {{ years[-1] }} έως σήμερα ({{ c.span }}): {{ ch.today.v|el_amount }} €</title></circle></g>
+          {% for ln in ch.lines %}
+          <g class="cmp-end cmp-s{{ ln.slot }}" style="--i:{{ loop.index0 }}">
+            <circle class="{{ 'is-proj' if ln.proj }}" cx="{{ ln.ex }}" cy="{{ ln.ey }}" r="4.5"/>
+            <text x="{{ ch.right + 10 }}" y="{{ ln.ly + 4 }}"><tspan class="cmp-end-y">{{ ln.year }}{{ '*' if ln.proj }}</tspan> {{ '{:,.0f}'.format(ln.v).replace(',', '.') }}</text>
+          </g>
+          {% endfor %}
         </g>
-        {% endfor %}
-      </g>
-    {% endcall %}
-    {% set pj = c.proj %}
-    <p class="cmp-proj-note">
-      <b>* Προβολή {{ years[-1] }} έως 31/12: αποτέλεσμα <span class="{{ 'yneg' if pj.v < 0 }}">{{ pj.v|el_amount }} €</span>
-        · έσοδα {{ c.proj_in|el_amount }} €</b>
-      {% if pj.prev_full is not none %} · όλο το {{ years[-2] }}: {{ pj.prev_full|el_amount }} € {{ delta(pj.d, true) }}{% endif %}
-      <small class="muted">Μέθοδος — {{ pj.method }}. Ενδεικτική· αναλυτικά σενάρια στην <a href="{{ url_for('reports_forecast') }}">Πρόβλεψη έτους</a>.</small>
-    </p>
+      {% endcall %}
+    </div>
+    {% endfor %}
+    <p class="muted small cmp-method">* Προβολή — {{ c.proj_method }}. Ενδεικτική· αναλυτικά σενάρια στην <a href="{{ url_for('reports_forecast') }}">Πρόβλεψη έτους</a>.</p>
   </section>
 
   {# ================= Αθροιστικά ποσά της περιόδου (όχι ανά μήνα) ================= #}

@@ -3136,47 +3136,38 @@ def _smooth(pts: list[tuple[float, float]]) -> str:
     return "".join(out)
 
 
-def _cmp_lines(years: list[str], layers: list[dict], done: int, today: float) -> dict:
-    """Γεωμετρία SVG (viewBox 760×280), άξονας 12 μηνών (σημείο i = τέλος του μήνα i+1). layers = σωρευτικά
-    μεγέθη ({key: "res" αποτέλεσμα | "in" έσοδα, series ανά έτος, proj 12 τιμές, ytd}): ανά έτος μία καμπύλη
-    (τα προηγούμενα όλο το έτος, το τρέχον στους done ολοκληρωμένους μήνες + σημείο ytd στη θέση today) και η
-    προβολή του τρέχοντος από σήμερα έως τον Δεκέμβριο. Ομαλές καμπύλες (_smooth). Ετικέτες τέλους
-    απομακρυσμένες ώστε να μη συμπίπτουν. slot = απόσταση από το τρέχον έτος (0 = φέτος)."""
-    W, H, left, right, top, bottom = 760, 280, 64, 130, 16, 30
+def _cmp_lines(years: list[str], series: list[list[float]], proj: list[float], ytd: float, done: int, today: float) -> dict:
+    """Γεωμετρία SVG (viewBox 760×160), άξονας 12 μηνών (σημείο i = τέλος του μήνα i+1), ένα σωρευτικό μέγεθος:
+    ανά έτος μία καμπύλη (τα προηγούμενα όλο το έτος, το τρέχον στους done ολοκληρωμένους μήνες + σημείο ytd στη
+    θέση today) και η προβολή του τρέχοντος (proj, 12 τιμές) από σήμερα έως τον Δεκέμβριο. Ομαλές καμπύλες
+    (_smooth). Ετικέτες τέλους απομακρυσμένες ώστε να μη συμπίπτουν. slot = απόσταση από το τρέχον έτος (0 = φέτος)."""
+    W, H, left, right, top, bottom = 760, 160, 64, 110, 12, 26
     base = H - bottom
-    vals = [v for L in layers for s in L["series"] for v in s] + [v for L in layers for v in L["proj"] + [L["ytd"]]]
+    vals = [v for s in series for v in s] + proj + [ytd]
     y, ticks = _cmp_axis(min(vals + [0]), max(vals + [0]), base, top)
     x = lambda i: round(left + i / 11 * (W - left - right), 1)  # noqa: E731
     path = lambda pts: _smooth([(x(i), y(v)) for i, v in pts])  # noqa: E731
-    lines, projs, todays = [], [], []
-    for L in layers:
-        for k, (yr, s) in enumerate(zip(years, L["series"])):
-            cur = k == len(years) - 1
-            pts = list(enumerate(s)) + ([(today, L["ytd"])] if cur else [])
-            end, v = (11, L["proj"][-1]) if cur and L["proj"] else pts[-1]
-            lines.append({"key": L["key"], "year": yr, "slot": len(years) - 1 - k, "v": v, "ex": x(end), "ey": y(v),
-                          "proj": cur and bool(L["proj"]), "d": path(pts)})
-        if L["proj"]:
-            projs.append({"key": L["key"], "d": path([(today, L["ytd"])] + [(i, L["proj"][i]) for i in range(done, 12)])})
-        todays.append({"key": L["key"], "x": x(today), "y": y(L["ytd"]), "v": L["ytd"]})
+    lines = []
+    for k, (yr, s) in enumerate(zip(years, series)):
+        cur = k == len(years) - 1
+        pts = list(enumerate(s)) + ([(today, ytd)] if cur else [])
+        end, v = (11, proj[-1]) if cur and proj else pts[-1]
+        lines.append({"year": yr, "slot": len(years) - 1 - k, "v": v, "ex": x(end), "ey": y(v), "proj": cur and bool(proj),
+                      "d": path(pts)})
     for i, ln in enumerate(sorted(lines, key=lambda ln: ln["ey"])):  # ετικέτες τέλους ≥ 14px μεταξύ τους
         ln["ly"] = ln["ey"] if not i else max(ln["ey"], prev + 14)
         prev = ln["ly"]
     slot = (W - left - right) / 11
     months = []
     for i in range(12):
-        # Ανά έτος: (έτος, slot, αποτέλεσμα, προβολή;, έσοδα) — φέτος από τη στιγμή που ξεκινά η προβολή.
-        at = lambda L, k, s: s[i] if i < len(s) else (L["proj"][i] if k == len(years) - 1 and L["proj"] and i >= done else None)  # noqa: E731
-        vals_i = []
-        for k, yr in enumerate(years):
-            got = {L["key"]: at(L, k, L["series"][k]) for L in layers}
-            if got.get("res") is not None:
-                vals_i.append((yr, len(years) - 1 - k, got["res"], k == len(years) - 1 and i >= len(layers[0]["series"][k]),
-                               got.get("in")))
+        vals_i = [(yr, len(years) - 1 - k, s[i], False, None) for k, (yr, s) in enumerate(zip(years, series)) if i < len(s)]
+        if proj and i >= done:
+            vals_i.append((years[-1], 0, proj[i], True, None))
         months.append({"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(x(i) - slot / 2, 1), "w": round(slot, 1),
                        "vals": vals_i[::-1]})
     return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "lines": lines, "months": months,
-            "ticks": ticks, "cut_x": x(today), "projs": projs, "todays": todays}
+            "ticks": ticks, "cut_x": x(today), "today": {"x": x(today), "y": y(ytd), "v": ytd},
+            "proj": path([(today, ytd)] + [(i, proj[i]) for i in range(done, 12)]) if proj else ""}
 
 
 def _bar_path(x: float, w: float, by: float, ty: float) -> str:
@@ -3300,11 +3291,13 @@ def _compare(cid: int | None, now: datetime) -> dict:
         # Όλοι οι μήνες του έτους (οι ολοκληρωμένοι ταυτίζονται με τη σύγκριση): καμπύλη + βάση της προβολής.
         of = lambda docs, m: [d for d in docs if (d["issue_date"] or "")[5:7] == f"{m:02d}"]  # noqa: E731
         mpl = [_pl(of(all_inc, m), of(exp + opening + late, m)) for m in range(1, 13)]
-        cum_full, cum_in_full, acc, acc_in = [], [], 0.0, 0.0  # σωρευτικό αποτέλεσμα / σωρευτικά έσοδα
+        # Σωρευτικά όλου του έτους: αποτέλεσμα / έσοδα / έξοδα Ε3 (κόστος πωληθέντων + έξοδα χρήσης).
+        cum_full, cum_in_full, cum_out_full, acc, acc_in, acc_out = [], [], [], 0.0, 0.0, 0.0
         for p in mpl:
-            acc, acc_in = acc + p["profit"], acc_in + p["inc_total"]
+            acc, acc_in, acc_out = acc + p["profit"], acc_in + p["inc_total"], acc_out + p["cogs"] + p["exp_total"]
             cum_full.append(round(acc, 2))
             cum_in_full.append(round(acc_in, 2))
+            cum_out_full.append(round(acc_out, 2))
         cum = cum_full[:done]
         # Μετά τη σημερινή ημερομηνία, ανά μήνα (έσοδα / έξοδα Ε3): βάση της αναλογικής προβολής.
         rest = [_pl(of([d for d in all_inc if not in_cut(d)], m), of(late, m)) for m in range(1, 13)]
@@ -3315,7 +3308,7 @@ def _compare(cid: int | None, now: datetime) -> dict:
             "assets": s(et, "assets"), "depreciation": s(et, "depreciation"),
             # Όλο το έτος (για τα προηγούμενα): αγορές / αποσβέσεις συχνά καταχωρούνται μετά τη σημερινή ημερομηνία.
             **{k + "_full": round(sum(v[k] for v in _yearly_totals(all_exp).values()), 2) for k in ("assets", "depreciation")},
-            "cum": cum, "cum_full": cum_full, "cum_in_full": cum_in_full,
+            "cum": cum, "cum_full": cum_full, "cum_in_full": cum_in_full, "cum_out_full": cum_out_full,
             "r_in": [p["inc_total"] for p in rest], "r_out": [p["cogs"] + p["exp_total"] for p in rest],
             "n_in": len(inc), "n_out": len(exp),
             "credits": sum(d["invoice_type"] in CREDIT_INVOICE_TYPES for d in inc + exp),
@@ -3352,11 +3345,22 @@ def _compare(cid: int | None, now: datetime) -> dict:
 
     r_in, m_in = rest_of("income", "in", "έσοδα")
     r_out, m_out = rest_of("expense", "out", "έξοδα")
-    proj, proj_in, acc, acc_in = [], [], cur["profit"], cur["income"]
+    proj, proj_in, proj_out = [], [], []
+    acc, acc_in, acc_out = cur["profit"], cur["income"], cur["expense"]
     for i in range(12):
-        acc, acc_in = acc + r_in[i] - r_out[i], acc_in + r_in[i]
+        acc, acc_in, acc_out = acc + r_in[i] - r_out[i], acc_in + r_in[i], acc_out + r_out[i]
         proj.append(round(acc if i >= done else cur["profit"], 2))
         proj_in.append(round(acc_in if i >= done else cur["income"], 2))
+        proj_out.append(round(acc_out if i >= done else cur["expense"], 2))
+    today = max(done - 1 + now.day / calendar.monthrange(now.year, now.month)[1], 0)  # θέση της σημερινής ημέρας
+
+    def cum_chart(key, series_key, title, good_up, pr, ytd):
+        """Ένα από τα τρία σωρευτικά γραφήματα + η προβολή του έναντι όλου του περσινού έτους."""
+        prev_full = prev[series_key][-1] if prev else None
+        return {"key": key, "title": title, "good_up": good_up, "proj_v": pr[-1], "prev_full": prev_full,
+                "d": _cmp_delta(pr[-1], prev_full) if prev else None,
+                "chart": _cmp_lines(years, [Y[y][series_key] for y in years[:-1]] + [cur[series_key][:done]],
+                                    pr, ytd, done, today)}
     proj_method = f"{m_in} · {m_out}"
 
     def kpi(key, label, good_up):
@@ -3438,15 +3442,11 @@ def _compare(cid: int | None, now: datetime) -> dict:
 
     return {
         "years": years, "span": f"1/1 – {now.day}/{now.month}", "Y": Y, "cur": cur, "prev": prev, "kpis": kpis, "metrics": metrics,
-        # Θέση της σημερινής ημέρας στον άξονα (σημείο i = τέλος του μήνα i+1): το YTD σημείο της φετινής καμπύλης.
-        "cum": _cmp_lines(years, [
-            {"key": "res", "series": [Y[y]["cum_full"] for y in years[:-1]] + [cur["cum"]], "proj": proj, "ytd": cur["profit"]},
-            {"key": "in", "series": [Y[y]["cum_in_full"] for y in years[:-1]] + [cur["cum_in_full"][:done]],
-             "proj": proj_in, "ytd": cur["income"]},
-        ], done, max(done - 1 + now.day / calendar.monthrange(now.year, now.month)[1], 0)),
-        "proj_in": proj_in[-1],
-        "proj": {"v": proj[-1], "method": proj_method,
-                 "prev_full": prev["cum_full"][-1] if prev else None, "d": _cmp_delta(proj[-1], prev["cum_full"][-1]) if prev else None},
+        # Τρία σωρευτικά γραφήματα το ένα κάτω από το άλλο (ίδια χρώματα ετών με όλη την αναφορά).
+        "cums": [cum_chart("in", "cum_in_full", "Σωρευτικά έσοδα", True, proj_in, cur["income"]),
+                 cum_chart("out", "cum_out_full", "Σωρευτικά έξοδα", False, proj_out, cur["expense"]),
+                 cum_chart("res", "cum_full", "Σωρευτικό αποτέλεσμα", True, proj, cur["profit"])],
+        "proj_method": proj_method,
         # Αθροιστικά της περιόδου (όχι ανά μήνα: ίδια έσοδα/έξοδα καταχωρούνται σε άλλο μήνα κάθε χρόνο).
         "totals": _cmp_bars(years, [[Y[y][k] for k in _CMP_TOTALS] for y in years], list(_CMP_TOTALS.values())),
         "customers": customers, "suppliers": suppliers, "e3_in": e3_in, "e3_out": e3_out,

@@ -2186,24 +2186,13 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .cmp-line{fill:none;stroke:var(--c);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;opacity:.9;
   stroke-dasharray:1;stroke-dashoffset:1;animation:db-draw 1.4s var(--ease) forwards .3s}
 .cmp-line.is-cur{stroke-width:3.5;opacity:1}
-/* Σωρευτικά: χρώμα = μέγεθος (αποτέλεσμα μπλε, έσοδα πράσινο), ένταση = έτος (r0 / i0 = φέτος, το πιο έντονο).
-   Το ζεύγος φέτος επικυρωμένο (validate_palette.js) σε light & dark· τα παλαιότερα σβήνουν προς την επιφάνεια. */
-.cmp{--cmp-r0:#1c5cab;--cmp-r1:#3987e5;--cmp-r2:#6da7ec;--cmp-r3:#9ec5f4;--cmp-r4:#b7d3f6;--cmp-r5:#cde2fb;
-  --cmp-i0:#138f63;--cmp-i1:#1baf7a;--cmp-i2:#5cc99c;--cmp-i3:#8fdbbb;--cmp-i4:#b0e6cf;--cmp-i5:#cdf0e1}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]) .cmp{--cmp-r0:#3987e5;--cmp-r1:#2a6cc0;--cmp-r2:#23589c;--cmp-r3:#1d4a80;--cmp-r4:#193f6a;--cmp-r5:#163657;
-    --cmp-i0:#199e70;--cmp-i1:#16835d;--cmp-i2:#136c4e;--cmp-i3:#115a42;--cmp-i4:#0f4c38;--cmp-i5:#0d402f}
-}
-:root[data-theme="dark"] .cmp{--cmp-r0:#3987e5;--cmp-r1:#2a6cc0;--cmp-r2:#23589c;--cmp-r3:#1d4a80;--cmp-r4:#193f6a;--cmp-r5:#163657;
-  --cmp-i0:#199e70;--cmp-i1:#16835d;--cmp-i2:#136c4e;--cmp-i3:#115a42;--cmp-i4:#0f4c38;--cmp-i5:#0d402f}
-.cmp-r0{--c:var(--cmp-r0)} .cmp-r1{--c:var(--cmp-r1)} .cmp-r2{--c:var(--cmp-r2)}
-.cmp-r3{--c:var(--cmp-r3)} .cmp-r4{--c:var(--cmp-r4)} .cmp-r5{--c:var(--cmp-r5)}
-.cmp-i0{--c:var(--cmp-i0)} .cmp-i1{--c:var(--cmp-i1)} .cmp-i2{--c:var(--cmp-i2)}
-.cmp-i3{--c:var(--cmp-i3)} .cmp-i4{--c:var(--cmp-i4)} .cmp-i5{--c:var(--cmp-i5)}
-.cmp-line--in{stroke-width:2}
-.cmp-line--in.is-cur{stroke-width:3}
-.cmp-ramp{display:inline-flex;gap:2px;margin-right:7px}
-.cmp-ramp i{width:9px;height:9px;border-radius:2px;background:var(--c)}
+/* Σωρευτικά: τρία γραφήματα (έσοδα / έξοδα / αποτέλεσμα) στην ίδια κάρτα */
+.cmp-cum + .cmp-cum{margin-top:14px;padding-top:14px;border-top:1px solid var(--line-soft)}
+.cmp-cum-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 14px;margin:4px 0 2px}
+.cmp-cum-head h3{margin:0;font-size:.92rem}
+.cmp-cum-head p{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0;font-size:.82rem}
+.cmp-cum-head b{font-family:var(--font-data)}
+.cmp-method{margin:12px 4px 0}
 .cmp-proj{fill:none;stroke:var(--c);stroke-width:2.5;stroke-dasharray:6 5;stroke-linecap:round;opacity:.85;
   animation:db-rise .6s var(--ease) both 1.4s}
 .cmp-zone{fill:var(--surface-3);opacity:.45}
@@ -2212,8 +2201,6 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .cmp-today circle{r:5.5;stroke-width:2.5}
 .cmp-end circle.is-proj{fill:var(--surface);stroke:var(--c);stroke-width:2.5}
 .cmp-dash{display:inline-block;width:18px;height:0;margin-right:7px;border-top:2.5px dashed var(--ink-2)}
-.cmp-proj-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:10px 4px 0;font-size:.86rem}
-.cmp-proj-note small{flex-basis:100%;font-size:.76rem}
 .cmp-end{animation:db-rise .5s var(--ease) both;animation-delay:calc(var(--i) * 80ms + 1.2s)}
 .cmp-end circle{fill:var(--c);stroke:var(--surface);stroke-width:2}
 .cmp-end text{fill:var(--ink-2);font-size:11px}

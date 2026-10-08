@@ -48,12 +48,14 @@ assert cu["rows"][0]["vals"] == [1000.0, 1400.0] and cu["active"] == [2, 2]
 assert d["e3_out"]["rows"][0]["vals"] == [50.0, 200.0] and d["e3_out"]["rows"][0]["d"]["pct"] == 300.0
 assert d["cur"]["cum"][-1] == 1500.0  # φέτος: 1.700 − 200 (= καθαρό κέρδος Ε3)
 # Πέρσι όλο το έτος (μαζί με τον Δεκέμβριο: P3 9.999)· προβολή = φετινό YTD + περσινά μετά τις 8/10 × 1.700 / 1.500 (έσοδα), × 200 / 50 (έξοδα).
-assert d["cum"]["lines"][0]["v"] == 1500.0 + 9999 - 50
-inc_prev = next(ln for ln in d["cum"]["lines"] if ln["key"] == "in" and ln["year"] == str(y - 1))
+C = {cc["key"]: cc for cc in d["cums"]}  # τα τρία σωρευτικά γραφήματα: in / out / res
+assert C["res"]["chart"]["lines"][0]["v"] == 1500.0 + 9999 - 50 and C["res"]["prev_full"] == 1500.0 + 9999 - 50
+inc_prev = C["in"]["chart"]["lines"][0]
 assert inc_prev["v"] == 1500.0 + 9999 and "C" in inc_prev["d"]  # σωρευτικά έσοδα όλο το έτος, ομαλή καμπύλη
-assert abs(d["proj_in"] - (1700.0 + 9999 * 1700 / 1500)) < 0.05, d["proj_in"]
-assert abs(d["proj"]["v"] - (1500.0 + 9999 * 1700 / 1500)) < 0.05, d["proj"]
-assert "έσοδα ×1,13" in d["proj"]["method"] and "έξοδα ×4,00" in d["proj"]["method"], d["proj"]["method"]
+assert C["out"]["chart"]["lines"][0]["v"] == 50.0 and C["out"]["proj_v"] == 200.0  # έξοδα: πέρσι τίποτα μετά τις 8/10
+assert abs(C["in"]["proj_v"] - (1700.0 + 9999 * 1700 / 1500)) < 0.05, C["in"]["proj_v"]
+assert abs(C["res"]["proj_v"] - (1500.0 + 9999 * 1700 / 1500)) < 0.05, C["res"]["proj_v"]
+assert "έσοδα ×1,13" in d["proj_method"] and "έξοδα ×4,00" in d["proj_method"], d["proj_method"]
 assert any("Έσοδα αυξήθηκαν" in t for _, _, t in d["insights"]), d["insights"]
 
 # Αποθέματα έναρξης (1/1): μετρούν στο κόστος πωληθέντων και στα έξοδα, όπως στην «Ανάλυση Ε3».
@@ -100,14 +102,14 @@ doc("income", "T2", y, 10, "444", 30, day=20)
 doc("income", "T3", y - 1, 10, "444", 40, day=8)
 d = A._compare(cid, now)
 assert d["cur"]["income"] == before + 70 and d["prev"]["income"] == 40.0, (d["cur"]["income"], d["prev"]["income"])
-assert [t["v"] for t in d["cum"]["todays"]] == [d["cur"]["profit"], d["cur"]["income"]] and len(d["cur"]["cum"]) == 9  # σημείο «σήμερα» = YTD
+assert [cc["chart"]["today"]["v"] for cc in d["cums"]] == [d["cur"]["income"], d["cur"]["expense"], d["cur"]["profit"]] and len(d["cur"]["cum"]) == 9  # σημείο «σήμερα» = YTD
 print("ok ytd")
 # Προβολή από το YTD: έσοδα — πέρσι τίποτα μετά τις 8/10, άρα μόνο το ήδη καταχωρημένο 20/10 (T2 30, ελάχιστο)·
 # έξοδα — πέρσι 0 έως 8/10 (χωρίς βάση) → ημερήσιος ρυθμός φετινού YTD × μέρες που απομένουν.
 days = 366 if A.calendar.isleap(y) else 365
 elapsed = now.timetuple().tm_yday
-assert abs(d["proj"]["v"] - (d["cur"]["profit"] + 30 - d["cur"]["expense"] / elapsed * (days - elapsed))) < 0.05, d["proj"]
-assert "ημερήσιος ρυθμός" in d["proj"]["method"]
+assert abs(d["cums"][2]["proj_v"] - (d["cur"]["profit"] + 30 - d["cur"]["expense"] / elapsed * (days - elapsed))) < 0.05, d["cums"][2]["proj_v"]
+assert "ημερήσιος ρυθμός" in d["proj_method"]
 print("ok proj")
 
 # Πάγια: αγορά πέρσι μετά τη σημερινή ημερομηνία — εκτός σύγκρισης (YTD), αλλά στο «όλο το έτος».
