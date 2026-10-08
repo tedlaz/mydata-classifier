@@ -897,11 +897,13 @@ _SK_LINE, _SK_WRAP, _SK_LGAP = 14, 26, 6  # ετικέτες: ύψος γραμ�
 _SK_X = {"src": 250, "mid": 480, "dst": 700}  # x των ράβδων: πηγές · σύνολο · προορισμοί (χώρος για ετικέτες)
 
 
-def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool) -> dict | None:
+def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool, pick: tuple | None = None):
     """Διάγραμμα ροής (Sankey) του πίνακα ελέγχου: από πού έρχονται τα έσοδα → σύνολο → πού πάνε.
     Ίδια καθαρή αξία ανά παραστατικό με τα KPI (πιστωτικά αρνητικά, χωρίς αποθέματα αν !with_stock),
     άρα τα σύνολα = Έσοδα/Έξοδα της κεφαλίδας. Το κέρδος φαίνεται πάντα (δεξιά)· η ζημία μπαίνει αριστερά.
-    Κάθε πλευρά έχει εναλλακτικές ομαδοποιήσεις, προϋπολογισμένες (εναλλαγή μόνο με CSS)."""
+    Κάθε πλευρά έχει εναλλακτικές ομαδοποιήσεις, προϋπολογισμένες (εναλλαγή μόνο με CSS).
+    pick = (πλευρά, ομαδοποίηση, ετικέτα): αντί για το διάγραμμα, τα [(παραστατικό, ποσό στη ροή)] του κόμβου
+    — για το modal· ίδιος υπολογισμός, άρα το σύνολό τους = το ποσό του κόμβου."""
 
     def net(d):
         e3 = [e for e in json.loads(d["cls_json"] or "[]") if not (e.get("type") or "").startswith("VAT_")]
@@ -935,24 +937,29 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool) -> dic
         return lambda d, _e3: [(d["counterparty_name"] or d["counterparty_vat"], 1) if d["counterparty_vat"] else (no_vat, 1)]
 
     def group(docs, key):
+        # [(ετικέτα, ποσό, [(παραστατικό, μερίδιο)])]: τα 6 μεγαλύτερα + «Λοιποί».
         out: dict = {}
         for d in docs:
             amount, e3 = net(d)
             for label, share in key(d, e3):
-                out[label] = out.get(label, 0) + amount * share
-        items = sorted(((k, round(v, 2)) for k, v in out.items()), key=lambda t: -t[1])
+                g = out.setdefault(label, [0.0, []])
+                g[0] += amount * share
+                g[1].append((d, amount * share))
+        items = sorted(((k, round(v, 2), m) for k, (v, m) in out.items()), key=lambda t: -t[1])
         keep = [t for t in items[:6] if t[1] > 0]
-        rest = round(sum(v for _, v in items) - sum(v for _, v in keep), 2)
+        rest = round(sum(t[1] for t in items) - sum(t[1] for t in keep), 2)
         # Ομάδες με αρνητικό υπόλοιπο (πιστωτικά) πάνε στα «Λοιποί»· αν αυτά βγουν αρνητικά, τα συμψηφίζουν
         # οι μικρότερες ομάδες, ώστε το άθροισμα να μένει ακριβώς το σύνολο.
         while rest < -0.005 and keep:
             rest = round(rest + keep.pop()[1], 2)
-        return keep + ([("Λοιποί", rest)] if rest > 0.005 else [])
+        kept = {t[0] for t in keep}
+        others = [m for t in items if t[0] not in kept for m in t[2]]
+        return keep + ([("Λοιποί", rest, others)] if rest > 0.005 else [])
 
     inc = round(sum(net(d)[0] for d in inc_docs), 2)
     exp = round(sum(net(d)[0] for d in exp_docs), 2)
     if inc <= 0 and exp <= 0:
-        return None
+        return [] if pick else None
     profit = round(inc - exp, 2)
     total = max(inc, exp)
     sides = {
@@ -965,11 +972,14 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool) -> dic
                 "e3a": ("Λογαριασμός Ε3", group(exp_docs, e3_by(e3_account))),
                 "sup": ("Προμηθευτής", group(exp_docs, party("Χωρίς ΑΦΜ")))},
     }
+    if pick:
+        side, key, label = pick
+        return next((m for lbl, _v, m in sides.get(side, {}).get(key, ("", []))[1] if lbl == label), [])
     # Συμπληρωματικοί κόμβοι: ζημία αριστερά (κόκκινο), κέρδος πάντα πρώτο δεξιά (πράσινο, ακόμη και 0).
     for side, extra, first in (("src", ("Ζημία", -profit, "var(--err)") if profit < 0 else None, False),
                                ("dst", ("Κέρδος", max(profit, 0), "var(--ok)"), True)):
         for key, (title, nodes) in sides[side].items():
-            nodes = [(lbl, v, "var(--s-rest)" if lbl == "Λοιποί" else f"var(--s{i + 1})") for i, (lbl, v) in enumerate(nodes)]
+            nodes = [(lbl, v, "var(--s-rest)" if lbl == "Λοιποί" else f"var(--s{i + 1})") for i, (lbl, v, _m) in enumerate(nodes)]
             if extra:
                 nodes = [extra, *nodes] if first else [*nodes, extra]
             sides[side][key] = (title, nodes)
@@ -1003,6 +1013,7 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool) -> dic
             bottom = top + block(label)
             out.append({"label": label, "lines": wrapped[label], "value": value,
                         "pct": round(value / inc * 100) if inc > 0 else 0, "color": color,
+                        "docs": color.startswith("var(--s"),  # κέρδος/ζημία: διαφορά, όχι παραστατικά
                         "y": round(y, 1), "h": round(max(h, 1 if value > 0 else 0), 1), "cy": round(y + h / 2, 1),
                         "top": top, "path": path})
             y += h + _SK_GAP
@@ -3016,6 +3027,39 @@ def reports_yearly_e3_docs():
         category_label=_CLASSIFICATION_CATEGORY_NAMES.get(cat, ""), type_names=INVOICE_TYPE_NAMES,
     )
 
+
+
+@app.route("/dashboard/flow-docs")
+def dashboard_flow_docs():
+    """Τμήμα HTML για το modal του διαγράμματος ροής: τα παραστατικά ενός κόμβου (side, key, label) του έτους,
+    με το ποσό που φέρνει το καθένα στη ροή (ίδιος υπολογισμός με το _sankey)."""
+    side, key, label = request.args.get("side"), request.args.get("key", ""), request.args.get("label", "")
+    if side not in ("src", "dst"):
+        return "Μη έγκυρη επιλογή.", 400
+    cid, year = _active_company_id(), str(datetime.now(ATHENS).year)
+    inc = [d for d in db.period_documents(cid, "income", f"{year}-01-01", f"{year}-12-31") if d["status"] in _INCOME_CLASSIFIED_STATUSES]
+    exp = [d for d in db.period_documents(cid, "expense", f"{year}-01-01", f"{year}-12-31") if d["status"] in _EXPENSE_CLASSIFIED_STATUSES]
+    # Ένα παραστατικό μπορεί να φέρνει πολλά μερίδια στον ίδιο κόμβο (π.χ. δύο χαρακτηρισμοί ίδιου λογαριασμού).
+    rows: dict = {}
+    for d, part in _sankey(inc, exp, stock_in("dashboard"), pick=(side, key, label)):
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        r = rows.setdefault(d["mark"], dict(d, net=sign * (d["total_net"] or 0), vat=sign * (d["total_vat"] or 0),
+                                             part=0.0, credit=sign < 0))
+        r["part"] += part
+    # Ταξινόμηση: συναλλασσόμενος (χωρίς τόνους/πεζά-κεφαλαία· χωρίς όνομα στο τέλος) → ημερομηνία → αριθμός
+    # (σειρά, μετά Α/Α αριθμητικά όταν είναι αριθμός: 2 πριν από το 10).
+    def order(r):
+        name, aa = r["counterparty_name"] or "", str(r["aa"] or "")
+        return (not name, _fold(name), r["issue_date"] or "", r["series"] or "",
+                (0, int(aa), "") if aa.isdigit() else (1, 0, aa))
+    docs = sorted(rows.values(), key=order)
+    for r in docs:
+        r["part"] = round(r["part"], 2)
+    total = {k: round(sum(r[k] for r in docs), 2) for k in ("net", "vat", "part")}
+    page_docs, page, pages = paginate(docs, request.args.get("page"))
+    q = {k: v for k, v in request.args.items() if k != "page"}
+    return render_template("_flow_docs.html", docs=page_docs, n_docs=len(docs), page=page, pages=pages, q=q,
+                           total=total, label=label, is_in=side == "src", year=year, type_names=INVOICE_TYPE_NAMES)
 
 _QUARTER_NAMES = ("Α΄", "Β΄", "Γ΄", "Δ΄")
 

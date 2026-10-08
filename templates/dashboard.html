@@ -161,10 +161,12 @@
 .sk-v{display:none}
 .sk-link{fill:var(--c);opacity:.28;transition:opacity .2s}
 .sk-bar{fill:var(--c)}
-.sk-n:hover .sk-link{opacity:.55}
-.sk-n:hover .sk-lbl{font-weight:700;fill:var(--ink)}
-.sk-n:hover .sk-val{font-weight:800}
-.sk-n:hover .sk-lead{stroke:var(--ink);opacity:1}
+.sk-n[data-docs]{cursor:pointer}
+.sk-n:focus{outline:none}  /* το πληκτρολόγιο φαίνεται από τον τονισμό (παρακάτω), όχι από πλαίσιο */
+.sk-n:is(:hover,:focus-visible) .sk-link{opacity:.55}
+.sk-n:is(:hover,:focus-visible) .sk-lbl{font-weight:700;fill:var(--ink)}
+.sk-n:is(:hover,:focus-visible) .sk-val{font-weight:800}
+.sk-n:is(:hover,:focus-visible) .sk-lead{stroke:var(--ink);opacity:1}
 .sk-lbl{font:500 12px var(--font-ui);fill:var(--ink-2)}
 .sk-val{font:700 12px var(--font-data);fill:var(--ink)}
 .sk-lead{fill:none;stroke:var(--muted);stroke-width:1;opacity:.6}
@@ -287,7 +289,7 @@
         {% for side in ('src', 'dst') %}{% for key, v in sk[side].items() %}
         <g class="sk-v sk-{{ side }}-{{ key }}">
           {% for n in v.nodes %}
-          <g class="sk-n" style="--c:{{ n.color }}">
+          <g class="sk-n" style="--c:{{ n.color }}"{% if n.docs %} data-docs="{{ url_for('dashboard_flow_docs', side=side, key=key, label=n.label) }}" tabindex="0" role="button"{% endif %}>
             {% if n.h %}<path class="sk-link" d="{{ n.path }}"/>
             <rect class="sk-bar" x="{{ sk.x[side] }}" y="{{ n.y }}" width="{{ sk.bar }}" height="{{ n.h }}" rx="2"/>{% endif %}
             {% set edge = sk.x[side] if side == 'src' else sk.x[side] + sk.bar %}
@@ -296,7 +298,7 @@
             <text class="sk-lbl" text-anchor="{{ 'end' if side == 'src' else 'start' }}">
               {%- for line in n.lines %}<tspan x="{{ lx }}" y="{{ n.ys[loop.index0] }}">{{ line }}</tspan>{% endfor -%}
               <tspan class="sk-val" x="{{ lx }}" y="{{ n.ys[-1] }}">{{ n.value|el_amount }} €</tspan></text>
-            <title>{{ n.label }}: {{ n.value|el_amount }} € ({{ n.pct }}% των εσόδων)</title>
+            <title>{{ n.label }}: {{ n.value|el_amount }} € ({{ n.pct }}% των εσόδων){% if n.docs %} — κλικ για τα παραστατικά{% endif %}</title>
           </g>
           {% endfor %}
         </g>
@@ -517,5 +519,43 @@
   </div>
 
 
+  {# Modal: παραστατικά ενός κόμβου του διαγράμματος ροής — γεμίζει με fetch από το dashboard_flow_docs #}
+  <dialog class="modal modal--wide yr-docs-modal" id="sk-docs" aria-label="Παραστατικά" closedby="any"></dialog>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const dlg = document.getElementById('sk-docs');
+  if (!dlg) return;
+  let byKey = false;  // άνοιξε από πληκτρολόγιο: η εστίαση γυρνά στον κόμβο· από ποντίκι: όχι (χωρίς υπόλοιπο τονισμό)
+  async function openDocs(url) {
+    dlg.innerHTML = '<p class="muted">Φόρτωση…</p>';
+    if (!dlg.open) dlg.showModal();
+    try {
+      const r = await fetch(url);
+      dlg.innerHTML = r.ok ? await r.text() : '<p class="note note--err">Σφάλμα φόρτωσης (' + r.status + ').</p>';
+    } catch (_) {
+      dlg.innerHTML = '<p class="note note--err">Σφάλμα σύνδεσης.</p>';
+    }
+  }
+  document.addEventListener('click', e => {
+    const node = e.target.closest('.sk-n[data-docs]');
+    if (node) { byKey = false; openDocs(node.dataset.docs); }
+    const pg = e.target.closest('#sk-docs .pager a');  // σελίδες της λίστας: μέσα στο modal
+    if (pg && !e.ctrlKey && !e.metaKey) { e.preventDefault(); openDocs(pg.getAttribute('href')); }
+  });
+  document.addEventListener('keydown', e => {
+    const node = e.target.closest && e.target.closest('.sk-n[data-docs]');
+    if (node && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); byKey = true; openDocs(node.dataset.docs); }
+  });
+  dlg.addEventListener('click', e => { if (e.target.closest('[data-close]')) dlg.close(); });
+  dlg.addEventListener('close', () => {
+    dlg.innerHTML = '';
+    // Η επιστροφή εστίασης γίνεται μετά το close: αφαίρεσέ την στο επόμενο frame.
+    if (!byKey) requestAnimationFrame(() => { if (document.activeElement?.closest?.('.sk-n')) document.activeElement.blur(); });
+  });
+})();
+</script>
 {% endblock %}
