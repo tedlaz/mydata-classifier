@@ -894,25 +894,41 @@ def _two_years(today: date) -> list[str]:
 
 _SK_W, _SK_H, _SK_PAD, _SK_GAP, _SK_BAR = 1000, 340, 12, 8, 12  # _SK_H: ελάχιστο ύψος
 _SK_LINE, _SK_WRAP, _SK_LGAP = 14, 26, 6  # ετικέτες: ύψος γραμμής, χαρακτήρες ανά γραμμή, κενό μεταξύ τους
+CLOSING_LABEL = "Αποθέματα λήξης"  # κόμβος εσόδου στις Ροές (μειώνουν το κόστος πωληθέντων)
 _SK_MAX, _SK_MIN_SHARE = 15, 0.005  # έως 15 κόμβοι ανά πλευρά· κάτω από 0,5% του συνόλου → «Λοιποί»
 _SK_X = {"src": 250, "mid": 480, "dst": 700}  # x των ράβδων: πηγές · σύνολο · προορισμοί (χώρος για ετικέτες)
 
 
-def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool, pick: tuple | None = None):
-    """Διάγραμμα ροής (Sankey) του πίνακα ελέγχου: από πού έρχονται τα έσοδα → σύνολο → πού πάνε.
-    Ίδια καθαρή αξία ανά παραστατικό με τα KPI (πιστωτικά αρνητικά, χωρίς αποθέματα αν !with_stock),
-    άρα τα σύνολα = Έσοδα/Έξοδα της κεφαλίδας. Το κέρδος φαίνεται πάντα (δεξιά)· η ζημία μπαίνει αριστερά.
+def _sankey(inc_docs: list[dict], exp_docs: list[dict], pick: tuple | None = None, stock: bool = True, assets: bool = True):
+    """Διάγραμμα ροής (Sankey) των Ροών: από πού έρχονται τα έσοδα → σύνολο → πού πάνε.
+    Καθαρή αξία ανά παραστατικό (πιστωτικά αρνητικά). Αποθέματα όπως στο καθαρό κέρδος (κόστος πωληθέντων =
+    έναρξης + αγορές − λήξης): τα αποθέματα έναρξης (2.13) είναι έξοδο, τα αποθέματα λήξης (2.14) καταλογίζονται
+    ως έσοδο (κόμβος «Αποθέματα λήξης» στις πηγές). Το κέρδος φαίνεται πάντα (δεξιά)· η ζημία μπαίνει αριστερά.
+    stock=False: χωρίς αποθέματα (ούτε έναρξης ούτε λήξης)· assets=False: χωρίς αγορές παγίων (2.7) στα έξοδα
+    (κεφαλαιοποιούνται· οι αποσβέσεις μένουν).
     Κάθε πλευρά έχει εναλλακτικές ομαδοποιήσεις, προϋπολογισμένες (εναλλαγή μόνο με CSS).
     pick = (πλευρά, ομαδοποίηση, ετικέτα): αντί για το διάγραμμα, τα [(παραστατικό, ποσό στη ροή)] του κόμβου
     — για το modal· ίδιος υπολογισμός, άρα το σύνολό τους = το ποσό του κόμβου."""
 
-    def net(d):
-        e3 = [e for e in json.loads(d["cls_json"] or "[]") if not (e.get("type") or "").startswith("VAT_")]
-        stock = 0 if with_stock else sum(e.get("amount") or 0 for e in e3 if e.get("category") in STOCK_CATEGORIES)
-        if not with_stock:
-            e3 = [e for e in e3 if e.get("category") not in STOCK_CATEGORIES]
-        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
-        return sign * ((d["total_net"] or 0) - stock), e3
+    def items(docs, book):
+        # [(παραστατικό, ποσό, χαρακτηρισμοί Ε3, αποθέματα λήξης;)]: το απόθεμα λήξης ενός παραστατικού εξόδων
+        # βγαίνει από τα έξοδα και γίνεται χωριστό στοιχείο εσόδου.
+        inc_out, exp_out = [], []
+        for d in docs:
+            e3 = [e for e in json.loads(d["cls_json"] or "[]") if not (e.get("type") or "").startswith("VAT_")]
+            sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+            # Εκτός ροής: αποθέματα (αν !stock) και αγορές παγίων (αν !assets) — μόνο στα έξοδα.
+            skip = {*(() if stock else STOCK_CATEGORIES), *(() if assets else (ASSET_CATEGORY,))} if book == "expense" else set()
+            skipped = sum(e.get("amount") or 0 for e in e3 if e.get("category") in skip)
+            e3 = [e for e in e3 if e.get("category") not in skip]
+            closing = [e for e in e3 if e.get("category") == CLOSING_STOCK] if book == "expense" else []
+            closing_amount = sum(e.get("amount") or 0 for e in closing)
+            rest = [e for e in e3 if e not in closing]
+            net = (d["total_net"] or 0) - skipped - closing_amount
+            (inc_out if book == "income" else exp_out).append((d, sign * net, rest, False))
+            if closing_amount:
+                inc_out.append((d, sign * closing_amount, closing, True))
+        return inc_out, exp_out
 
     def e3_by(label_of):
         # Η καθαρή αξία μοιράζεται αναλογικά στους χαρακτηρισμούς Ε3 του παραστατικού (κατά ποσό).
@@ -937,13 +953,12 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool, pick: 
     def party(no_vat):
         return lambda d, _e3: [(d["counterparty_name"] or d["counterparty_vat"], 1) if d["counterparty_vat"] else (no_vat, 1)]
 
-    def group(docs, key):
+    def group(rows, key):
         # [(ετικέτα, ποσό, [(παραστατικό, μερίδιο)])]: τα μεγαλύτερα (έως _SK_MAX, όσα ≥ 0,5%) + «Λοιποί».
         # Το διάγραμμα ψηλώνει όσο χρειάζεται, οπότε δείχνει όσα περισσότερα έχουν νόημα.
         out: dict = {}
-        for d in docs:
-            amount, e3 = net(d)
-            for label, share in key(d, e3):
+        for d, amount, e3, closing in rows:
+            for label, share in ([(CLOSING_LABEL, 1)] if closing else key(d, e3)):
                 g = out.setdefault(label, [0.0, []])
                 g[0] += amount * share
                 g[1].append((d, amount * share))
@@ -959,21 +974,24 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool, pick: 
         others = [m for t in items if t[0] not in kept for m in t[2]]
         return keep + ([("Λοιποί", rest, others)] if rest > 0.005 else [])
 
-    inc = round(sum(net(d)[0] for d in inc_docs), 2)
-    exp = round(sum(net(d)[0] for d in exp_docs), 2)
+    inc_rows, _ = items(inc_docs, "income")
+    closing_rows, exp_rows = items(exp_docs, "expense")
+    inc_rows += closing_rows
+    inc = round(sum(r[1] for r in inc_rows), 2)
+    exp = round(sum(r[1] for r in exp_rows), 2)
     if inc <= 0 and exp <= 0:
         return [] if pick else None
     profit = round(inc - exp, 2)
     total = max(inc, exp)
     sides = {
-        "src": {"cust": ("Πελάτης", group(inc_docs, party("Λιανική"))),
-                "e3": ("Κατηγορία Ε3", group(inc_docs, e3_by(e3_category))),
-                "e3t": ("Τύπος Ε3", group(inc_docs, e3_by(e3_type))),
-                "e3a": ("Λογαριασμός Ε3", group(inc_docs, e3_by(e3_account)))},
-        "dst": {"e3": ("Κατηγορία Ε3", group(exp_docs, e3_by(e3_category))),
-                "e3t": ("Τύπος Ε3", group(exp_docs, e3_by(e3_type))),
-                "e3a": ("Λογαριασμός Ε3", group(exp_docs, e3_by(e3_account))),
-                "sup": ("Προμηθευτής", group(exp_docs, party("Χωρίς ΑΦΜ")))},
+        "src": {"cust": ("Πελάτης", group(inc_rows, party("Λιανική"))),
+                "e3": ("Κατηγορία Ε3", group(inc_rows, e3_by(e3_category))),
+                "e3t": ("Τύπος Ε3", group(inc_rows, e3_by(e3_type))),
+                "e3a": ("Λογαριασμός Ε3", group(inc_rows, e3_by(e3_account)))},
+        "dst": {"e3": ("Κατηγορία Ε3", group(exp_rows, e3_by(e3_category))),
+                "e3t": ("Τύπος Ε3", group(exp_rows, e3_by(e3_type))),
+                "e3a": ("Λογαριασμός Ε3", group(exp_rows, e3_by(e3_account))),
+                "sup": ("Προμηθευτής", group(exp_rows, party("Χωρίς ΑΦΜ")))},
     }
     if pick:
         side, key, label = pick
@@ -3044,6 +3062,11 @@ def _flow_docs(cid: int | None, year: str) -> tuple[list[dict], list[dict]]:
     return docs("income", _INCOME_CLASSIFIED_STATUSES), docs("expense", _EXPENSE_CLASSIFIED_STATUSES)
 
 
+def _flow_opts() -> dict:
+    """Διακόπτες των Ροών από τη διεύθυνση: αποθέματα / πάγια (προεπιλογή: ενεργοί· «0» = εκτός)."""
+    return {"stock": request.args.get("stock") != "0", "assets": request.args.get("assets") != "0"}
+
+
 def _flow_year(cid: int | None) -> tuple[str, list[str]]:
     """(επιλεγμένο έτος, διαθέσιμα έτη): όσα έχουν παραστατικά + το τρέχον, νεότερο πρώτο."""
     now = str(datetime.now(ATHENS).year)
@@ -3058,7 +3081,6 @@ def reports_flows():
     cid = _active_company_id()
     year, years = _flow_year(cid)
     inc, exp = _flow_docs(cid, year)
-    # Αποθέματα: όπως στον πίνακα ελέγχου (από εκεί ήρθε το διάγραμμα), ώστε τα σύνολα να ταιριάζουν.
     # Μηνιαίος «καθρέφτης» της κεφαλίδας: πλήθος παραστατικών εσόδων/εξόδων ανά μήνα του έτους (όλες οι καταστάσεις,
     # όπως στον πίνακα ελέγχου).
     months = [f"{year}-{m:02d}" for m in range(1, 13)]
@@ -3067,7 +3089,8 @@ def reports_flows():
         for ym, st in (db.month_counts(cid, kind, f"{year}-01-01") if cid else {}).items():
             if ym in months:
                 monthly.setdefault(ym, {})[kind] = sum(st.values())
-    return render_template("reports_flows.html", year=year, years=years, sankey=_sankey(inc, exp, stock_in("dashboard")),
+    opts = _flow_opts()
+    return render_template("reports_flows.html", year=year, years=years, sankey=_sankey(inc, exp, **opts), opts=opts,
                            months=months, monthly=monthly, this_month=datetime.now(ATHENS).strftime("%Y-%m"))
 
 
@@ -3083,7 +3106,8 @@ def reports_flows_docs():
     inc, exp = _flow_docs(cid, year)
     # Ένα παραστατικό μπορεί να φέρνει πολλά μερίδια στον ίδιο κόμβο (π.χ. δύο χαρακτηρισμοί ίδιου λογαριασμού).
     rows: dict = {}
-    for d, part in _sankey(inc, exp, stock_in("dashboard"), pick=(side, key, label)):
+    opts = _flow_opts()
+    for d, part in _sankey(inc, exp, pick=(side, key, label), **opts):
         sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
         r = rows.setdefault(d["mark"], dict(d, net=sign * (d["total_net"] or 0), vat=sign * (d["total_vat"] or 0),
                                              part=0.0, credit=sign < 0))
@@ -3101,7 +3125,7 @@ def reports_flows_docs():
     page_docs, page, pages = paginate(docs, request.args.get("page"))
     q = {k: v for k, v in request.args.items() if k != "page"}
     return render_template("_flow_docs.html", docs=page_docs, n_docs=len(docs), page=page, pages=pages, q=q,
-                           total=total, label=label, is_in=side == "src", year=year, type_names=INVOICE_TYPE_NAMES)
+                           total=total, label=label, is_in=side == "src", year=year, type_names=INVOICE_TYPE_NAMES, opts=opts)
 
 _QUARTER_NAMES = ("Α΄", "Β΄", "Γ΄", "Δ΄")
 

@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Ροές {{ year }}{% endblock %}
 {% from "_macros.html" import month_spark %}
+{# Διακόπτες στη διεύθυνση μόνο όταν είναι ανενεργοί (προεπιλογή: ενεργοί). #}
+{% set fq = {'stock': None if opts.stock else 0, 'assets': None if opts.assets else 0} %}
 
 {% block content %}
 <style>
@@ -30,9 +32,20 @@ html[data-flows-vt]::view-transition-new(flows-kpis){animation-delay:.06s}
 html[data-flows-vt]::view-transition-new(flows-body){animation-delay:.1s}
 html[data-flows-vt="older"]{--fl-dx:-28px}
 html[data-flows-vt="newer"]{--fl-dx:28px}
+html[data-flows-vt="same"]{--fl-dx:0px}
 @keyframes fl-out{to{opacity:0;transform:translateX(calc(var(--fl-dx) * -1)) scale(.985);filter:blur(2px)}}
 @keyframes fl-in{from{opacity:0;transform:translateX(var(--fl-dx)) scale(.985);filter:blur(2px)}}
 .sk{--s-other:color-mix(in oklab,var(--s-rest),var(--surface) 45%)}  /* «Λοιποί»: πιο ανοιχτό από τους γκρι κόμβους */
+/* Διακόπτες αποθεμάτων/παγίων (στην κάρτα, δίπλα στις επιλογές). */
+.sk-sw{display:inline-flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--line);border-radius:9px;
+  font-size:.8rem;font-weight:600;color:var(--muted);text-decoration:none;background:var(--surface)}
+.sk-sw:hover{border-color:var(--accent-glow);color:var(--ink)}
+.sk-sw i{position:relative;flex:none;width:28px;height:16px;border-radius:99px;background:var(--surface-3);transition:background .2s}
+.sk-sw i::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .2s var(--ease)}
+.sk-sw[aria-checked="true"]{color:var(--ink)}
+.sk-sw[aria-checked="true"] i{background:var(--accent)}
+.sk-sw[aria-checked="true"] i::after{transform:translateX(12px)}
 .sk-plot{overflow-x:auto}
 .sk-plot svg{width:100%;min-width:640px;height:auto}  /* display: μόνο ο επιλεγμένος συνδυασμός (block) */
 .sk-v{display:none}
@@ -62,7 +75,7 @@ html[data-flows-vt="newer"]{--fl-dx:28px}
       </div>
       <div class="yr-hero-tools" data-swap="tools">
         <nav class="yr-years" aria-label="Έτος">
-          {% for y in years %}<a href="{{ url_for('reports_flows', year=y) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
+          {% for y in years %}<a href="{{ url_for('reports_flows', year=y, **fq) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
         </nav>
         <div class="db-spark">
           <span class="db-spark-key"><span><i class="in"></i>έσοδα</span><span><i class="ex"></i>έξοδα</span></span>
@@ -104,6 +117,12 @@ html[data-flows-vt="newer"]{--fl-dx:28px}
         <label>Έξοδα ανά <select name="sk-dst">
           {% for key, title in sk.dst.items() %}<option value="{{ key }}">{{ title }}</option>{% endfor %}
         </select></label>
+        {% for name, label, tip in [('stock', 'Αποθέματα', 'Αποθέματα έναρξης στα έξοδα και λήξης ως έσοδο'),
+                                    ('assets', 'Πάγια', 'Αγορές παγίων (2.7) στα έξοδα')] %}
+        <a class="sk-sw" role="switch" aria-checked="{{ 'true' if opts[name] else 'false' }}" data-flow-opt
+           href="{{ url_for('reports_flows', year=year, **dict(fq, **{name: 0 if opts[name] else None})) }}"
+           title="{{ tip }}: {{ 'μετρούν — κλικ για να εξαιρεθούν' if opts[name] else 'εξαιρούνται — κλικ για να μετρούν' }}"><i></i>{{ label }}</a>
+        {% endfor %}
       </div>
     </div>
     <style>
@@ -118,7 +137,7 @@ html[data-flows-vt="newer"]{--fl-dx:28px}
            aria-label="Ροή ανά {{ sk.src[p.src_key] }} → {{ sk.dst[p.dst_key] }}: έσοδα {{ sk.inc|el_amount }} €, έξοδα {{ sk.exp|el_amount }} €, {{ 'κέρδος' if sk.profit >= 0 else 'ζημία' }} {{ sk.profit|abs|el_amount }} €">
         {% for side in ('src', 'dst') %}{% set key = p.src_key if side == 'src' else p.dst_key %}
           {% for n in p[side] %}
-          <g class="sk-n" style="--c:{{ n.color }}"{% if n.docs %} data-docs="{{ url_for('reports_flows_docs', year=year, side=side, key=key, label=n.label) }}" tabindex="0" role="button"{% endif %}>
+          <g class="sk-n" style="--c:{{ n.color }}"{% if n.docs %} data-docs="{{ url_for('reports_flows_docs', year=year, side=side, key=key, label=n.label, **fq) }}" tabindex="0" role="button"{% endif %}>
             {% if n.h %}<path class="sk-link" d="{{ n.path }}"/>
             <rect class="sk-bar" x="{{ sk.x[side] }}" y="{{ n.y }}" width="{{ sk.bar }}" height="{{ n.h }}" rx="2"/>{% endif %}
             {% set edge = sk.x[side] if side == 'src' else sk.x[side] + sk.bar %}
@@ -219,15 +238,21 @@ html[data-flows-vt="newer"]{--fl-dx:28px}
     const html = document.documentElement;
     if (!document.startViewTransition || matchMedia('(prefers-reduced-motion: reduce)').matches) return swap();
     const id = ++vtId;
-    html.dataset.flowsVt = to && from && to < from ? 'older' : 'newer';
+    html.dataset.flowsVt = !to || !from || to === from ? 'same' : to < from ? 'older' : 'newer';
     // Καθάρισμα στο τέλος (ή, για σιγουριά, λίγο μετά τη διάρκειά της)· όχι αν ξεκίνησε ήδη νέα μετάβαση.
     const clear = () => { if (id === vtId) delete html.dataset.flowsVt; };
-    document.startViewTransition(swap).finished.finally(clear);
-    setTimeout(clear, 1200);
+    // Η αλλαγή γίνεται μία φορά· αν η μετάβαση δεν την τρέξει εγκαίρως (π.χ. γρήγορα διαδοχικά κλικ ενώ
+    // τρέχει η προηγούμενη), την παραλείπουμε και αλλάζουμε κατευθείαν.
+    let swapped = false;
+    const once = () => { if (!swapped) { swapped = true; swap(); } };
+    const vt = document.startViewTransition(once);
+    vt.ready.catch(() => {});  // παράλειψη μετάβασης: όχι σφάλμα
+    vt.finished.then(clear, clear);
+    setTimeout(() => { if (!swapped) { vt.skipTransition(); once(); } clear(); }, 400);
   }
   let vtId = 0;
   document.addEventListener('click', e => {
-    const a = e.target.closest('.yr-years a');
+    const a = e.target.closest('.yr-years a, a[data-flow-opt]');
     if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
     e.preventDefault();
     if (a.getAttribute('aria-current') !== 'page') loadYear(a.href, true);

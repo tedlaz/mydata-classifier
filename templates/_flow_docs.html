@@ -1,6 +1,6 @@
 {# Περιεχόμενο του modal του διαγράμματος ροής (φορτώνεται με fetch): τα παραστατικά ενός κόμβου. #}
 {% from "_macros.html" import pager with context %}
-{% set back = url_for('reports_flows', year=year) %}
+{% set back = url_for('reports_flows', year=year, stock=None if opts.stock else 0, assets=None if opts.assets else 0) %}
 <div class="modal-head">
   <h2><i class="yr-dot {{ 'yr-dot--in' if is_in else 'yr-dot--out' }}"></i>{{ label }}</h2>
   <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
