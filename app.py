@@ -3272,13 +3272,15 @@ def _compare(cid: int | None, now: datetime) -> dict:
             acc += p["profit"]
             cum_full.append(round(acc, 2))
         cum = cum_full[:done]
+        # Μετά τη σημερινή ημερομηνία, ανά μήνα (έσοδα / έξοδα Ε3): βάση της αναλογικής προβολής.
+        rest = [_pl(of([d for d in all_inc if not in_cut(d)], m), of(late, m)) for m in range(1, 13)]
         r = Y[y] = {
             "income": pl["inc_total"], "expense": round(pl["cogs"] + pl["exp_total"], 2), "opex": pl["exp_total"],
             "profit": pl["profit"], "gross": pl["gross"], "cogs": pl["cogs"],
             "vat_out": s(it, "vat"), "vat_in": s(et, "vat"), "withheld": s(it, "withheld"),
             "assets": s(et, "assets"), "depreciation": s(et, "depreciation"),
             "cum": cum, "cum_full": cum_full,
-            "f_in": [p["inc_total"] for p in mpl], "f_out": [round(p["cogs"] + p["exp_total"], 2) for p in mpl],
+            "r_in": [p["inc_total"] for p in rest], "r_out": [p["cogs"] + p["exp_total"] for p in rest],
             "n_in": len(inc), "n_out": len(exp),
             "credits": sum(d["invoice_type"] in CREDIT_INVOICE_TYPES for d in inc + exp),
             "customers": _counterparty_totals([d for d in inc if d["counterparty_vat"]]),  # λιανική: όχι πελάτης
@@ -3295,17 +3297,30 @@ def _compare(cid: int | None, now: datetime) -> dict:
         r["n_cust"], r["n_supp"] = len(r["customers"]), len(r["suppliers"])
     cur = Y[years[-1]]
     prev = Y[years[-2]] if len(years) > 1 else None
-    # Προβολή του τρέχοντος έτους έως τον Δεκέμβριο: ίδια μέθοδος με την «Πρόβλεψη έτους» (_forecast), χωριστά
-    # για έσοδα και έξοδα Ε3 — περσινοί μήνες × (φετινά / περσινά των ολοκληρωμένων μηνών). Ο τρέχων μήνας
-    # δεν πέφτει κάτω από όσα έχουν ήδη καταχωρηθεί.
-    base = prev or {"f_in": [0.0] * 12, "f_out": [0.0] * 12}
-    p_in, m_in = _forecast(cur["f_in"], base["f_in"], done)
-    p_out, m_out = _forecast(cur["f_out"], base["f_out"], done)
-    proj, acc = [], 0.0
-    for a, b in zip(p_in, p_out):
-        acc += a - b
-        proj.append(round(acc, 2))
-    proj_method = f"έσοδα: {m_in} · έξοδα: {m_out}"
+    # Αναλογική προβολή έως 31/12, χωριστά για έσοδα και έξοδα Ε3: φετινό YTD + περσινά ποσά ΜΕΤΑ τη σημερινή
+    # ημερομηνία × (φετινό YTD / περσινό YTD της ίδιας ημερομηνίας). Χωρίς περσινή βάση: ημερήσιος ρυθμός φετινού YTD.
+    # Ό,τι έχει ήδη καταχωρηθεί φέτος μετά από σήμερα είναι το ελάχιστο του μήνα του.
+    dim = [calendar.monthrange(now.year, m)[1] for m in range(1, 13)]
+    left = [0] * done + [dim[done] - now.day] + dim[done + 1:]  # μέρες που απομένουν ανά μήνα
+    elapsed = now.timetuple().tm_yday
+
+    def rest_of(key, side, name):
+        ytd = cur[key]
+        if prev and prev[key] > 0:
+            k = ytd / prev[key]
+            est = [v * k for v in prev["r_" + side]]
+            how = f"{name} ×{k:.2f}".replace(".", ",") + f" επί των περσινών μετά τις {now.day}/{now.month}"
+        else:
+            est, how = [ytd / elapsed * n for n in left], f"{name}: ημερήσιος ρυθμός φέτος (χωρίς περσινή βάση)"
+        return [max(e, f) if i >= done else 0.0 for i, (e, f) in enumerate(zip(est, cur["r_" + side]))], how
+
+    r_in, m_in = rest_of("income", "in", "έσοδα")
+    r_out, m_out = rest_of("expense", "out", "έξοδα")
+    proj, acc = [], cur["profit"]
+    for i in range(12):
+        acc += r_in[i] - r_out[i]
+        proj.append(round(acc if i >= done else cur["profit"], 2))
+    proj_method = f"{m_in} · {m_out}"
 
     def kpi(key, label, good_up):
         vals = [Y[y][key] for y in years]

@@ -47,10 +47,10 @@ assert cu["new_n"] == 1 and cu["new"][0]["vat"] == "333" and cu["lost_n"] == 1 a
 assert cu["rows"][0]["vals"] == [1000.0, 1400.0] and cu["active"] == [2, 2]
 assert d["e3_out"]["rows"][0]["vals"] == [50.0, 200.0] and d["e3_out"]["rows"][0]["d"]["pct"] == 300.0
 assert d["cur"]["cum"][-1] == 1500.0  # φέτος: 1.700 − 200 (= καθαρό κέρδος Ε3)
-# Πέρσι όλο το έτος (μαζί με τον Δεκέμβριο: P3 9.999)· προβολή φέτος = περσινοί μήνες × 1.700 / 1.500 (έσοδα), × 200 / 50 (έξοδα).
+# Πέρσι όλο το έτος (μαζί με τον Δεκέμβριο: P3 9.999)· προβολή = φετινό YTD + περσινά μετά τις 8/10 × 1.700 / 1.500 (έσοδα), × 200 / 50 (έξοδα).
 assert d["cum"]["lines"][0]["v"] == 1500.0 + 9999 - 50
 assert abs(d["proj"]["v"] - (1500.0 + 9999 * 1700 / 1500)) < 0.05, d["proj"]
-assert "εποχικότητα" in d["proj"]["method"]
+assert "έσοδα ×1,13" in d["proj"]["method"] and "έξοδα ×4,00" in d["proj"]["method"], d["proj"]["method"]
 assert any("Έσοδα αυξήθηκαν" in t for _, _, t in d["insights"]), d["insights"]
 
 # Αποθέματα έναρξης (1/1): μετρούν στο κόστος πωληθέντων και στα έξοδα, όπως στην «Ανάλυση Ε3».
@@ -99,3 +99,10 @@ d = A._compare(cid, now)
 assert d["cur"]["income"] == before + 70 and d["prev"]["income"] == 40.0, (d["cur"]["income"], d["prev"]["income"])
 assert d["cum"]["today"][2] == d["cur"]["profit"] and len(d["cur"]["cum"]) == 9  # σημείο «σήμερα» = YTD
 print("ok ytd")
+# Προβολή από το YTD: έσοδα — πέρσι τίποτα μετά τις 8/10, άρα μόνο το ήδη καταχωρημένο 20/10 (T2 30, ελάχιστο)·
+# έξοδα — πέρσι 0 έως 8/10 (χωρίς βάση) → ημερήσιος ρυθμός φετινού YTD × μέρες που απομένουν.
+days = 366 if A.calendar.isleap(y) else 365
+elapsed = now.timetuple().tm_yday
+assert abs(d["proj"]["v"] - (d["cur"]["profit"] + 30 - d["cur"]["expense"] / elapsed * (days - elapsed))) < 0.05, d["proj"]
+assert "ημερήσιος ρυθμός" in d["proj"]["method"]
+print("ok proj")
