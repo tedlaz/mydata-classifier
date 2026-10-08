@@ -2113,4 +2113,11 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
   linear-gradient(color-mix(in srgb,var(--sp-ink) 7%,transparent),color-mix(in srgb,var(--sp-ink) 7%,transparent));border-radius:3px}
 .spark-m.is-empty::before{content:"";grid-row:2;width:3px;height:3px;margin-top:-1px;border-radius:50%;background:var(--sp-muted);opacity:.6}
 @keyframes sp-grow{from{transform:scaleY(0)}}
+/* Ο «καθρέφτης» μέσα σε σκούρα κεφαλίδα (Πίνακας ελέγχου, Ροές), με υπόμνημα. */
+.db-spark{display:flex;align-items:center;gap:12px}
+.db-spark .spark{--sp-w:13px;--sp-h:22px;--sp-bar:8px;--sp-fs:.58rem;--sp-line:rgba(255,255,255,.18);--sp-ink:#fff;--sp-muted:var(--hero-ink)}
+.db-spark-key{display:flex;flex-direction:column;gap:4px;font-size:.72rem;color:var(--hero-ink);line-height:1.2}
+.db-spark-key i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;background:#3dffa0;box-shadow:0 0 6px #3dffa0}
+.db-spark-key i.ex{background:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));box-shadow:0 0 6px color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade))}
+@media (max-width:560px){.db-spark-key{display:none}}
 @media (prefers-reduced-motion:reduce){.spark-m i{animation:none}}

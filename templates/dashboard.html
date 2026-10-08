@@ -146,32 +146,6 @@
 .db > .db-hero .db-kpi{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:7px 12px;border-radius:10px}
 .db > .db-hero .db-kpi small{white-space:nowrap}
 .db > .db-hero .db-kpi b{margin:0;font-size:clamp(1rem,1.6vw,1.15rem)}
-.db-spark{display:flex;align-items:center;gap:12px}
-.db-spark .spark{--sp-w:13px;--sp-h:22px;--sp-bar:8px;--sp-fs:.58rem;--sp-line:rgba(255,255,255,.18);--sp-ink:#fff;--sp-muted:var(--hero-ink)}
-.db-spark-key{display:flex;flex-direction:column;gap:4px;font-size:.72rem;color:var(--hero-ink);line-height:1.2}
-.db-spark-key i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;background:#3dffa0;box-shadow:0 0 6px #3dffa0}
-.db-spark-key i.ex{background:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));box-shadow:0 0 6px color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade))}
-@media (max-width:560px){.db-spark-key{display:none}}
-/* Ροή εσόδων→εξόδων (Sankey): χρώματα από την παλέτα του OLAP (--s1…--s7, --s-rest). */
-.sk-opts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.sk-opts label{display:flex;align-items:center;gap:6px;margin:0;font-size:.8rem;color:var(--muted)}
-.sk-opts select{width:auto;padding:4px 8px;font-size:.82rem}
-.sk-arrow{color:var(--muted)}
-.sk .db-plot svg{min-width:640px}
-.sk-v{display:none}
-.sk-link{fill:var(--c);opacity:.28;transition:opacity .2s}
-.sk-bar{fill:var(--c)}
-.sk-n[data-docs]{cursor:pointer}
-.sk-n:focus{outline:none}  /* το πληκτρολόγιο φαίνεται από τον τονισμό (παρακάτω), όχι από πλαίσιο */
-.sk-n:is(:hover,:focus-visible) .sk-link{opacity:.55}
-.sk-n:is(:hover,:focus-visible) .sk-lbl{font-weight:700;fill:var(--ink)}
-.sk-n:is(:hover,:focus-visible) .sk-val{font-weight:800}
-.sk-n:is(:hover,:focus-visible) .sk-lead{stroke:var(--ink);opacity:1}
-.sk-lbl{font:500 12px var(--font-ui);fill:var(--ink-2)}
-.sk-val{font:700 12px var(--font-data);fill:var(--ink)}
-.sk-lead{fill:none;stroke:var(--muted);stroke-width:1;opacity:.6}
-.sk-mid{fill:var(--ink-2)}
-.sk-mid-lbl{font:700 12px var(--font-data);fill:var(--ink)}
 </style>
 
 <div class="db yr">
@@ -261,54 +235,6 @@
       </div>
     </section>
   </div>
-
-  {# ================= Ροή: από πού έρχονται τα έσοδα → πού πάνε (Sankey) ================= #}
-  {% if sankey %}
-  {% set sk = sankey %}
-  <section class="card db-card sk" style="--i:2">
-    <div class="card-head">
-      <h2>🔀 Ροή από Έσοδα σε Έξοδα · {{ year }}</h2>
-      <div class="sk-opts">
-        <label>Έσοδα ανά <select name="sk-src">
-          {% for key, v in sk.src.items() %}<option value="{{ key }}">{{ v.title }}</option>{% endfor %}
-        </select></label>
-        <span class="sk-arrow" aria-hidden="true">→</span>
-        <label>Έξοδα ανά <select name="sk-dst">
-          {% for key, v in sk.dst.items() %}<option value="{{ key }}">{{ v.title }}</option>{% endfor %}
-        </select></label>
-      </div>
-    </div>
-    <style>
-      {% for side in ('src', 'dst') %}{% for key in sk[side] %}
-      .sk:has([name=sk-{{ side }}] [value={{ key }}]:checked) .sk-{{ side }}-{{ key }}{display:inline}
-      {% endfor %}{% endfor %}
-    </style>
-    <div class="db-plot">
-      <svg viewBox="0 0 {{ sk.w }} {{ sk.h }}" role="img"
-           aria-label="Ροή: έσοδα {{ sk.inc|el_amount }} €, έξοδα {{ sk.exp|el_amount }} €, {{ 'κέρδος' if sk.profit >= 0 else 'ζημία' }} {{ sk.profit|abs|el_amount }} €">
-        {% for side in ('src', 'dst') %}{% for key, v in sk[side].items() %}
-        <g class="sk-v sk-{{ side }}-{{ key }}">
-          {% for n in v.nodes %}
-          <g class="sk-n" style="--c:{{ n.color }}"{% if n.docs %} data-docs="{{ url_for('dashboard_flow_docs', side=side, key=key, label=n.label) }}" tabindex="0" role="button"{% endif %}>
-            {% if n.h %}<path class="sk-link" d="{{ n.path }}"/>
-            <rect class="sk-bar" x="{{ sk.x[side] }}" y="{{ n.y }}" width="{{ sk.bar }}" height="{{ n.h }}" rx="2"/>{% endif %}
-            {% set edge = sk.x[side] if side == 'src' else sk.x[side] + sk.bar %}
-            {% set lx = edge - 16 if side == 'src' else edge + 16 %}
-            {% if (n.lcy - n.cy)|abs > 3 %}<path class="sk-lead" d="M{{ edge }} {{ n.cy }}L{{ edge - 6 if side == 'src' else edge + 6 }} {{ n.cy }}L{{ lx + 3 if side == 'src' else lx - 3 }} {{ n.lcy }}"/>{% endif %}
-            <text class="sk-lbl" text-anchor="{{ 'end' if side == 'src' else 'start' }}">
-              {%- for line in n.lines %}<tspan x="{{ lx }}" y="{{ n.ys[loop.index0] }}">{{ line }}</tspan>{% endfor -%}
-              <tspan class="sk-val" x="{{ lx }}" y="{{ n.ys[-1] }}">{{ n.value|el_amount }} €</tspan></text>
-            <title>{{ n.label }}: {{ n.value|el_amount }} € ({{ n.pct }}% των εσόδων){% if n.docs %} — κλικ για τα παραστατικά{% endif %}</title>
-          </g>
-          {% endfor %}
-        </g>
-        {% endfor %}{% endfor %}
-        <rect class="sk-mid" x="{{ sk.x.mid }}" y="{{ sk.mid.y }}" width="{{ sk.bar }}" height="{{ sk.mid.h }}" rx="2"><title>Έσοδα {{ sk.inc|el_amount }} € · Έξοδα {{ sk.exp|el_amount }} €</title></rect>
-        <text class="sk-mid-lbl" x="{{ sk.x.mid + sk.bar / 2 }}" y="{{ sk.mid.y - 6 }}" text-anchor="middle">Έσοδα {{ sk.inc|el_amount }} €</text>
-      </svg>
-    </div>
-  </section>
-  {% endif %}
 
   {# ================= Διάγραμμα + Πρόοδος ================= #}
   <div class="db-grid">
@@ -519,43 +445,5 @@
   </div>
 
 
-  {# Modal: παραστατικά ενός κόμβου του διαγράμματος ροής — γεμίζει με fetch από το dashboard_flow_docs #}
-  <dialog class="modal modal--wide yr-docs-modal" id="sk-docs" aria-label="Παραστατικά" closedby="any"></dialog>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-(() => {
-  const dlg = document.getElementById('sk-docs');
-  if (!dlg) return;
-  let byKey = false;  // άνοιξε από πληκτρολόγιο: η εστίαση γυρνά στον κόμβο· από ποντίκι: όχι (χωρίς υπόλοιπο τονισμό)
-  async function openDocs(url) {
-    dlg.innerHTML = '<p class="muted">Φόρτωση…</p>';
-    if (!dlg.open) dlg.showModal();
-    try {
-      const r = await fetch(url);
-      dlg.innerHTML = r.ok ? await r.text() : '<p class="note note--err">Σφάλμα φόρτωσης (' + r.status + ').</p>';
-    } catch (_) {
-      dlg.innerHTML = '<p class="note note--err">Σφάλμα σύνδεσης.</p>';
-    }
-  }
-  document.addEventListener('click', e => {
-    const node = e.target.closest('.sk-n[data-docs]');
-    if (node) { byKey = false; openDocs(node.dataset.docs); }
-    const pg = e.target.closest('#sk-docs .pager a');  // σελίδες της λίστας: μέσα στο modal
-    if (pg && !e.ctrlKey && !e.metaKey) { e.preventDefault(); openDocs(pg.getAttribute('href')); }
-  });
-  document.addEventListener('keydown', e => {
-    const node = e.target.closest && e.target.closest('.sk-n[data-docs]');
-    if (node && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); byKey = true; openDocs(node.dataset.docs); }
-  });
-  dlg.addEventListener('click', e => { if (e.target.closest('[data-close]')) dlg.close(); });
-  dlg.addEventListener('close', () => {
-    dlg.innerHTML = '';
-    // Η επιστροφή εστίασης γίνεται μετά το close: αφαίρεσέ την στο επόμενο frame.
-    if (!byKey) requestAnimationFrame(() => { if (document.activeElement?.closest?.('.sk-n')) document.activeElement.blur(); });
-  });
-})();
-</script>
 {% endblock %}

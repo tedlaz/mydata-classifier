@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}Ροές {{ year }}{% endblock %}
+{% from "_macros.html" import month_spark %}
+
+{% block content %}
+<style>
+/* Ροή εσόδων→εξόδων (Sankey): χρώματα από την παλέτα του OLAP (--s1…--s7, --s-rest). */
+.sk-opts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.sk-opts label{display:flex;align-items:center;gap:6px;margin:0;font-size:.8rem;color:var(--muted)}
+.sk-opts select{width:auto;padding:4px 8px;font-size:.82rem}
+.sk-arrow{color:var(--muted)}
+/* Αλλαγή έτους (AJAX): τα κομμάτια που αλλάζουν εμφανίζονται αμέσως, χωρίς animations εισόδου. */
+.yr2[data-swapped] [data-swap],.yr2[data-swapped] [data-swap] *{animation:none!important}
+/* Μετάβαση στην αλλαγή έτους (View Transitions): η σελίδα μένει ακίνητη, τα κομμάτια που αλλάζουν
+   γλιστρούν με crossfade προς την κατεύθυνση του χρόνου (παλαιότερο έτος → από αριστερά), κλιμακωτά. */
+html[data-flows-vt]::view-transition-old(root){display:none}
+html[data-flows-vt]::view-transition-new(root){animation:none}
+html[data-flows-vt] [data-swap="title"]{view-transition-name:flows-title}
+html[data-flows-vt] [data-swap="tools"]{view-transition-name:flows-tools}
+html[data-flows-vt] [data-swap="kpis"]{view-transition-name:flows-kpis}
+html[data-flows-vt] [data-swap="body"]{view-transition-name:flows-body}
+html[data-flows-vt]::view-transition-group(flows-title),html[data-flows-vt]::view-transition-group(flows-tools),
+html[data-flows-vt]::view-transition-group(flows-kpis),html[data-flows-vt]::view-transition-group(flows-body){animation-duration:.42s;animation-timing-function:cubic-bezier(.2,.7,.2,1)}
+html[data-flows-vt]::view-transition-old(flows-title),html[data-flows-vt]::view-transition-old(flows-tools),
+html[data-flows-vt]::view-transition-old(flows-kpis),html[data-flows-vt]::view-transition-old(flows-body){animation:fl-out .2s ease-in both}
+html[data-flows-vt]::view-transition-new(flows-title),html[data-flows-vt]::view-transition-new(flows-tools),
+html[data-flows-vt]::view-transition-new(flows-kpis),html[data-flows-vt]::view-transition-new(flows-body){animation:fl-in .42s cubic-bezier(.2,.7,.2,1) both}
+html[data-flows-vt]::view-transition-new(flows-tools){animation-delay:.03s}
+html[data-flows-vt]::view-transition-new(flows-kpis){animation-delay:.06s}
+html[data-flows-vt]::view-transition-new(flows-body){animation-delay:.1s}
+html[data-flows-vt="older"]{--fl-dx:-28px}
+html[data-flows-vt="newer"]{--fl-dx:28px}
+@keyframes fl-out{to{opacity:0;transform:translateX(calc(var(--fl-dx) * -1)) scale(.985);filter:blur(2px)}}
+@keyframes fl-in{from{opacity:0;transform:translateX(var(--fl-dx)) scale(.985);filter:blur(2px)}}
+.sk-plot{overflow-x:auto}
+.sk-plot svg{display:block;width:100%;min-width:640px;height:auto}
+.sk-v{display:none}
+.sk-link{fill:var(--c);opacity:.28;transition:opacity .2s}
+.sk-bar{fill:var(--c)}
+.sk-n[data-docs]{cursor:pointer}
+.sk-n:focus{outline:none}  /* το πληκτρολόγιο φαίνεται από τον τονισμό (παρακάτω), όχι από πλαίσιο */
+.sk-n:is(:hover,:focus-visible) .sk-link{opacity:.55}
+.sk-n:is(:hover,:focus-visible) .sk-lbl{font-weight:700;fill:var(--ink)}
+.sk-n:is(:hover,:focus-visible) .sk-val{font-weight:800}
+.sk-n:is(:hover,:focus-visible) .sk-lead{stroke:var(--ink);opacity:1}
+.sk-lbl{font:500 12px var(--font-ui);fill:var(--ink-2)}
+.sk-val{font:700 12px var(--font-data);fill:var(--ink)}
+.sk-lead{fill:none;stroke:var(--muted);stroke-width:1;opacity:.6}
+.sk-mid{fill:var(--ink-2)}
+.sk-mid-lbl{font:700 12px var(--font-data);fill:var(--ink)}
+</style>
+
+<div class="yr yr2">
+  {# ================= Κεφαλίδα + KPI ================= #}
+  <section class="db-hero yr-hero">
+    <span class="db-blob b1"></span><span class="db-blob b2"></span><span class="db-blob b3"></span>
+    <div class="db-hero-in">
+      <div data-swap="title">
+        <h1>Ροές <span class="yr-hero-year">{{ year }}</span></h1>
+        <p class="db-hi">Από πού έρχονται τα έσοδα και πού πάνε · κλικ σε ένα κομμάτι για τα παραστατικά του</p>
+      </div>
+      <div class="yr-hero-tools" data-swap="tools">
+        <nav class="yr-years" aria-label="Έτος">
+          {% for y in years %}<a href="{{ url_for('reports_flows', year=y) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
+        </nav>
+        <div class="db-spark">
+          <span class="db-spark-key"><span><i class="in"></i>έσοδα</span><span><i class="ex"></i>έξοδα</span></span>
+          {{ month_spark(monthly, months, this_month) }}
+        </div>
+      </div>
+    </div>
+    <div data-swap="kpis">
+    {% if sankey %}
+    <div class="db-kpis">
+      <div class="db-kpi" style="--i:0">
+        <small><i class="db-dot" style="background:var(--yr-in)"></i>Έσοδα {{ year }}</small>
+        <b>{{ sankey.inc|el_amount }}<i>€</i></b>
+      </div>
+      <div class="db-kpi" style="--i:1">
+        <small><i class="db-dot" style="background:var(--yr-out)"></i>Έξοδα {{ year }}</small>
+        <b>{{ sankey.exp|el_amount }}<i>€</i></b>
+      </div>
+      <div class="db-kpi" style="--i:2">
+        <small>📈 {{ 'Κέρδος' if sankey.profit >= 0 else 'Ζημία' }}</small>
+        <b><span class="{{ 'neg' if sankey.profit < 0 }}">{{ sankey.profit|el_amount }}</span><i>€</i></b>
+      </div>
+    </div>
+    {% endif %}
+    </div>
+  </section>
+
+  <div data-swap="body">
+  {% if sankey %}
+  {% set sk = sankey %}
+  <section class="card sk">
+    <div class="card-head">
+      <h2>🔀 Ροή από Έσοδα σε Έξοδα</h2>
+      <div class="sk-opts">
+        <label>Έσοδα ανά <select name="sk-src">
+          {% for key, v in sk.src.items() %}<option value="{{ key }}">{{ v.title }}</option>{% endfor %}
+        </select></label>
+        <span class="sk-arrow" aria-hidden="true">→</span>
+        <label>Έξοδα ανά <select name="sk-dst">
+          {% for key, v in sk.dst.items() %}<option value="{{ key }}">{{ v.title }}</option>{% endfor %}
+        </select></label>
+      </div>
+    </div>
+    <style>
+      {% for side in ('src', 'dst') %}{% for key in sk[side] %}
+      .sk:has([name=sk-{{ side }}] [value={{ key }}]:checked) .sk-{{ side }}-{{ key }}{display:inline}
+      {% endfor %}{% endfor %}
+    </style>
+    <div class="sk-plot">
+      <svg viewBox="0 0 {{ sk.w }} {{ sk.h }}" role="img"
+           aria-label="Ροή: έσοδα {{ sk.inc|el_amount }} €, έξοδα {{ sk.exp|el_amount }} €, {{ 'κέρδος' if sk.profit >= 0 else 'ζημία' }} {{ sk.profit|abs|el_amount }} €">
+        {% for side in ('src', 'dst') %}{% for key, v in sk[side].items() %}
+        <g class="sk-v sk-{{ side }}-{{ key }}">
+          {% for n in v.nodes %}
+          <g class="sk-n" style="--c:{{ n.color }}"{% if n.docs %} data-docs="{{ url_for('reports_flows_docs', year=year, side=side, key=key, label=n.label) }}" tabindex="0" role="button"{% endif %}>
+            {% if n.h %}<path class="sk-link" d="{{ n.path }}"/>
+            <rect class="sk-bar" x="{{ sk.x[side] }}" y="{{ n.y }}" width="{{ sk.bar }}" height="{{ n.h }}" rx="2"/>{% endif %}
+            {% set edge = sk.x[side] if side == 'src' else sk.x[side] + sk.bar %}
+            {% set lx = edge - 16 if side == 'src' else edge + 16 %}
+            {% if (n.lcy - n.cy)|abs > 3 %}<path class="sk-lead" d="M{{ edge }} {{ n.cy }}L{{ edge - 6 if side == 'src' else edge + 6 }} {{ n.cy }}L{{ lx + 3 if side == 'src' else lx - 3 }} {{ n.lcy }}"/>{% endif %}
+            <text class="sk-lbl" text-anchor="{{ 'end' if side == 'src' else 'start' }}">
+              {%- for line in n.lines %}<tspan x="{{ lx }}" y="{{ n.ys[loop.index0] }}">{{ line }}</tspan>{% endfor -%}
+              <tspan class="sk-val" x="{{ lx }}" y="{{ n.ys[-1] }}">{{ n.value|el_amount }} €</tspan></text>
+            <title>{{ n.label }}: {{ n.value|el_amount }} € ({{ n.pct }}% των εσόδων){% if n.docs %} — κλικ για τα παραστατικά{% endif %}</title>
+          </g>
+          {% endfor %}
+        </g>
+        {% endfor %}{% endfor %}
+        <rect class="sk-mid" x="{{ sk.x.mid }}" y="{{ sk.mid.y }}" width="{{ sk.bar }}" height="{{ sk.mid.h }}" rx="2"><title>Έσοδα {{ sk.inc|el_amount }} € · Έξοδα {{ sk.exp|el_amount }} €</title></rect>
+        <text class="sk-mid-lbl" x="{{ sk.x.mid + sk.bar / 2 }}" y="{{ sk.mid.y - 6 }}" text-anchor="middle">Έσοδα {{ sk.inc|el_amount }} €</text>
+      </svg>
+    </div>
+  </section>
+  {% endif %}
+  {% if not sankey %}
+  <section class="card"><div class="empty"><b>Δεν υπάρχουν χαρακτηρισμένα έσοδα ή έξοδα για το {{ year }}</b></div></section>
+  {% endif %}
+
+  {# Modal: παραστατικά ενός κόμβου του διαγράμματος ροής — γεμίζει με fetch από το dashboard_flow_docs #}
+  <dialog class="modal modal--wide yr-docs-modal" id="sk-docs" aria-label="Παραστατικά" closedby="any"></dialog>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  // ---- Modal: παραστατικά ενός κομματιού. Το dialog αντικαθίσταται στην αλλαγή έτους → αναζήτηση κάθε φορά. ----
+  const dlg = () => document.getElementById('sk-docs');
+  let byKey = false;  // άνοιξε από πληκτρολόγιο: η εστίαση γυρνά στον κόμβο· από ποντίκι: όχι (χωρίς υπόλοιπο τονισμό)
+  async function openDocs(url) {
+    const d = dlg();
+    d.innerHTML = '<p class="muted">Φόρτωση…</p>';
+    if (!d.open) d.showModal();
+    try {
+      const r = await fetch(url);
+      d.innerHTML = r.ok ? await r.text() : '<p class="note note--err">Σφάλμα φόρτωσης (' + r.status + ').</p>';
+    } catch (_) {
+      d.innerHTML = '<p class="note note--err">Σφάλμα σύνδεσης.</p>';
+    }
+  }
+  document.addEventListener('click', e => {
+    const node = e.target.closest('.sk-n[data-docs]');
+    if (node) { byKey = false; openDocs(node.dataset.docs); }
+    const pg = e.target.closest('#sk-docs .pager a');  // σελίδες της λίστας: μέσα στο modal
+    if (pg && !e.ctrlKey && !e.metaKey) { e.preventDefault(); openDocs(pg.getAttribute('href')); }
+    if (e.target.closest('#sk-docs [data-close]')) dlg().close();
+  });
+  document.addEventListener('keydown', e => {
+    const node = e.target.closest && e.target.closest('.sk-n[data-docs]');
+    if (node && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); byKey = true; openDocs(node.dataset.docs); }
+  });
+  // Το «close» δεν ανεβαίνει (bubble): πιάσ' το στη φάση capture του document.
+  document.addEventListener('close', e => {
+    if (e.target.id !== 'sk-docs') return;
+    e.target.innerHTML = '';
+    // Η επιστροφή εστίασης γίνεται μετά το close: αφαίρεσέ την στο επόμενο frame.
+    if (!byKey) requestAnimationFrame(() => { if (document.activeElement?.closest?.('.sk-n')) document.activeElement.blur(); });
+  }, true);
+
+  // ---- Αλλαγή έτους με AJAX: αλλάζει μόνο το περιεχόμενο των Ροών· κρατά τις επιλογές των dropdowns. ----
+  async function loadYear(url, push) {
+    const root = document.querySelector('.yr.yr2');
+    const keep = [...root.querySelectorAll('.sk-opts select')].map(s => [s.name, s.value]);
+    const from = +(root.querySelector('.yr-years [aria-current]')?.textContent || 0);
+    const to = +(new URL(url, location.href).searchParams.get('year') || 0);
+    root.setAttribute('aria-busy', 'true');
+    let doc, parts;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(r.status);
+      doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+      parts = [...root.querySelectorAll('[data-swap]')].map(el => [el, doc.querySelector(`[data-swap="${el.dataset.swap}"]`)]);
+      if (parts.some(([, fresh]) => !fresh)) throw new Error('no content');
+    } catch (_) {
+      location.href = url;  // ό,τι κι αν πάει στραβά: κανονική πλοήγηση
+      return;
+    }
+    for (const [, fresh] of parts) {
+      for (const [name, value] of keep) {
+        const sel = fresh.querySelector(`.sk-opts select[name="${name}"]`);
+        if (sel && [...sel.options].some(o => o.value === value)) sel.value = value;
+      }
+    }
+    // Αλλάζουν μόνο τα κομμάτια που διαφέρουν ανά έτος· η σελίδα και η κεφαλίδα (φόντο, blobs) μένουν.
+    const swap = () => {
+      root.dataset.swapped = '';  // τα νέα κομμάτια χωρίς τα δικά τους animations εισόδου
+      for (const [el, fresh] of parts) el.replaceWith(fresh);
+      root.removeAttribute('aria-busy');
+      document.title = doc.title;
+    };
+    if (push) history.pushState({}, '', url);
+    const html = document.documentElement;
+    if (!document.startViewTransition || matchMedia('(prefers-reduced-motion: reduce)').matches) return swap();
+    const id = ++vtId;
+    html.dataset.flowsVt = to && from && to < from ? 'older' : 'newer';
+    // Καθάρισμα στο τέλος (ή, για σιγουριά, λίγο μετά τη διάρκειά της)· όχι αν ξεκίνησε ήδη νέα μετάβαση.
+    const clear = () => { if (id === vtId) delete html.dataset.flowsVt; };
+    document.startViewTransition(swap).finished.finally(clear);
+    setTimeout(clear, 1200);
+  }
+  let vtId = 0;
+  document.addEventListener('click', e => {
+    const a = e.target.closest('.yr-years a');
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    if (a.getAttribute('aria-current') !== 'page') loadYear(a.href, true);
+  });
+  window.addEventListener('popstate', () => loadYear(location.href, false));
+})();
+</script>
+{% endblock %}

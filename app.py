@@ -3029,16 +3029,50 @@ def reports_yearly_e3_docs():
 
 
 
-@app.route("/dashboard/flow-docs")
-def dashboard_flow_docs():
-    """Τμήμα HTML για το modal του διαγράμματος ροής: τα παραστατικά ενός κόμβου (side, key, label) του έτους,
+def _flow_docs(cid: int | None, year: str) -> tuple[list[dict], list[dict]]:
+    """Χαρακτηρισμένα έσοδα/έξοδα ενός έτους για τις Ροές (ίδιες καταστάσεις με τις αναφορές)."""
+    docs = lambda kind, st: [d for d in db.period_documents(cid, kind, f"{year}-01-01", f"{year}-12-31")  # noqa: E731
+                             if d["status"] in st]
+    return docs("income", _INCOME_CLASSIFIED_STATUSES), docs("expense", _EXPENSE_CLASSIFIED_STATUSES)
+
+
+def _flow_year(cid: int | None) -> tuple[str, list[str]]:
+    """(επιλεγμένο έτος, διαθέσιμα έτη): όσα έχουν παραστατικά + το τρέχον, νεότερο πρώτο."""
+    now = str(datetime.now(ATHENS).year)
+    years = sorted(set(db.document_years(cid)) | {now}, reverse=True)
+    year = request.args.get("year", "")
+    return (year if year in years else now), years
+
+
+@app.route("/reports/flows")
+def reports_flows():
+    """Ροές: διάγραμμα Sankey από πού έρχονται τα έσοδα και πού πάνε, ανά έτος."""
+    cid = _active_company_id()
+    year, years = _flow_year(cid)
+    inc, exp = _flow_docs(cid, year)
+    # Αποθέματα: όπως στον πίνακα ελέγχου (από εκεί ήρθε το διάγραμμα), ώστε τα σύνολα να ταιριάζουν.
+    # Μηνιαίος «καθρέφτης» της κεφαλίδας: πλήθος παραστατικών εσόδων/εξόδων ανά μήνα του έτους (όλες οι καταστάσεις,
+    # όπως στον πίνακα ελέγχου).
+    months = [f"{year}-{m:02d}" for m in range(1, 13)]
+    monthly: dict = {}
+    for kind in ("income", "expense"):
+        for ym, st in (db.month_counts(cid, kind, f"{year}-01-01") if cid else {}).items():
+            if ym in months:
+                monthly.setdefault(ym, {})[kind] = sum(st.values())
+    return render_template("reports_flows.html", year=year, years=years, sankey=_sankey(inc, exp, stock_in("dashboard")),
+                           months=months, monthly=monthly, this_month=datetime.now(ATHENS).strftime("%Y-%m"))
+
+
+@app.route("/reports/flows/docs")
+def reports_flows_docs():
+    """Τμήμα HTML για το modal των Ροών: τα παραστατικά ενός κόμβου (side, key, label) του έτους,
     με το ποσό που φέρνει το καθένα στη ροή (ίδιος υπολογισμός με το _sankey)."""
     side, key, label = request.args.get("side"), request.args.get("key", ""), request.args.get("label", "")
     if side not in ("src", "dst"):
         return "Μη έγκυρη επιλογή.", 400
-    cid, year = _active_company_id(), str(datetime.now(ATHENS).year)
-    inc = [d for d in db.period_documents(cid, "income", f"{year}-01-01", f"{year}-12-31") if d["status"] in _INCOME_CLASSIFIED_STATUSES]
-    exp = [d for d in db.period_documents(cid, "expense", f"{year}-01-01", f"{year}-12-31") if d["status"] in _EXPENSE_CLASSIFIED_STATUSES]
+    cid = _active_company_id()
+    year, _years = _flow_year(cid)
+    inc, exp = _flow_docs(cid, year)
     # Ένα παραστατικό μπορεί να φέρνει πολλά μερίδια στον ίδιο κόμβο (π.χ. δύο χαρακτηρισμοί ίδιου λογαριασμού).
     rows: dict = {}
     for d, part in _sankey(inc, exp, stock_in("dashboard"), pick=(side, key, label)):
@@ -3898,9 +3932,6 @@ def dashboard():
         d["credit"] = d["invoice_type"] in CREDIT_INVOICE_TYPES
 
     months = _last_12_months(now)  # μηνιαίος «καθρέφτης» στην κεφαλίδα
-    # Ροή εσόδων→εξόδων: ίδια παραστατικά (καταστάσεις) με τα KPI της κεφαλίδας.
-    sankey = _sankey([d for d in inc_docs if d["status"] in _INCOME_CLASSIFIED_STATUSES],
-                     [d for d in exp_docs if d["status"] in _EXPENSE_CLASSIFIED_STATUSES], with_stock)
     return render_template(
         "dashboard.html", company=company, year=year, kpi=kpi, chart=_yearly_chart(rows), vat=vat,
         assets=_assets_card(cid, now.year, rows),
@@ -3913,7 +3944,6 @@ def dashboard():
         top_in=top_in, top_in_max=max([t["amount"] for t in top_in] + [1]), recent=recent,
         type_names=INVOICE_TYPE_NAMES,
         months=months, this_month=months[-1], monthly=db.company_month_counts(months[0] + "-01").get(cid, {}),
-        sankey=sankey,
     )
 
 
