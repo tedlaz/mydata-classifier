@@ -59,6 +59,17 @@
       .observe(toolbar);
   }
 
+  // ---- Βιβλία: κλικ οπουδήποτε στη γραμμή = άνοιγμα παραστατικού (όπως το MARK) ----
+  // Τα στοιχεία ελέγχου της γραμμής (επιλογή, ✎, κουμπιά) και η επιλογή κειμένου δεν ανοίγουν τίποτα.
+  document.addEventListener('click', e => {
+    const tr = e.target.closest('.ledger-card .ledger tbody tr');
+    if (!tr || e.target.closest('a,button,input,textarea,select,label') || String(getSelection())) return;
+    const a = tr.querySelector('.mark a');
+    if (!a) return;
+    if (e.ctrlKey || e.metaKey) window.open(a.href, '_blank');
+    else a.click();
+  });
+
   // ---- Διόρθωση επωνυμίας από τους πίνακες (κοινός κατάλογος ΑΦΜ → επωνυμία) ----
   // Enter/κλικ αλλού = αποθήκευση, Esc = ακύρωση. Ενημερώνει όλες τις γραμμές με ίδιο ΑΦΜ.
   document.addEventListener('click', e => {

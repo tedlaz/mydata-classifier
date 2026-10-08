@@ -1029,6 +1029,20 @@ def company_stats() -> dict:
     return {r["company_id"]: dict(r) for r in rows}
 
 
+def company_month_counts(date_from: str) -> dict:
+    """Πλήθος παραστατικών ανά εταιρεία/μήνα (από date_from): {company_id: {"yyyy-mm": {"income": n, "expense": n}}}."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT company_id, kind, substr(issue_date, 1, 7) AS ym, COUNT(*) AS n FROM documents "
+            "WHERE issue_date >= ? GROUP BY company_id, kind, ym",
+            (date_from,),
+        ).fetchall()
+    out: dict = {}
+    for r in rows:
+        out.setdefault(r["company_id"], {}).setdefault(r["ym"], {})[r["kind"]] = r["n"]
+    return out
+
+
 def olap_documents(company_id: int | None, kind: str, statuses: list[str]) -> list[dict]:
     """Όλα τα παραστατικά ενός kind (στις δοσμένες καταστάσεις) με γραμμές, ισχύοντα χαρακτηρισμό
     και όλα τα σύνολα — η πρώτη ύλη του κύβου OLAP."""

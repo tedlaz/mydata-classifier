@@ -254,7 +254,7 @@ a{color:var(--accent)}
 
 .topbar{display:none}
 .content{flex:1;min-width:0}
-main{max-width:1240px;margin:0 auto;padding:30px clamp(14px,3vw,36px) 70px}
+main{max-width:1240px;margin:0 auto;padding:12px 4px 32px}
 
 @media (max-width:1023px){
   :root{--topbar-h:56px}
@@ -274,7 +274,7 @@ main{max-width:1240px;margin:0 auto;padding:30px clamp(14px,3vw,36px) 70px}
   .nav-open .sidebar{transform:none}
   .scrim{position:fixed;inset:0;background:rgba(8,10,22,.5);z-index:35;opacity:0;pointer-events:none;transition:opacity .3s}
   .nav-open .scrim{opacity:1;pointer-events:auto}
-  main{padding-top:20px}
+  main{padding-top:12px}
 }
 
 /* ---------- Page header ---------- */
@@ -288,8 +288,8 @@ main{max-width:1240px;margin:0 auto;padding:30px clamp(14px,3vw,36px) 70px}
 .back:hover{gap:10px}
 
 /* ---------- Cards & type ---------- */
-.card{--card-pad:clamp(16px,2.5vw,26px);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
-  padding:var(--card-pad);margin-bottom:20px;box-shadow:var(--shadow);
+.card{--card-pad:clamp(12px,1.6vw,18px);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:var(--card-pad);margin-bottom:14px;box-shadow:var(--shadow);
   transition:box-shadow .25s,border-color .25s,background .25s}
 main > *{animation:rise .45s var(--ease) both}
 main > :nth-child(2){animation-delay:.05s}
@@ -297,7 +297,7 @@ main > :nth-child(3){animation-delay:.1s}
 main > :nth-child(4){animation-delay:.15s}
 main > :nth-child(n+5){animation-delay:.2s}
 @keyframes rise{from{opacity:0;transform:translateY(10px)}}
-.card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
 .card-head h2{margin:0}
 h1{font-size:clamp(1.3rem,2.6vw,1.7rem);font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
 h2{font-size:1.02rem;font-weight:700;margin:0 0 10px;letter-spacing:-.005em}
@@ -468,12 +468,12 @@ a.pg:hover{background:var(--accent-soft);transform:translateY(-1px)}
 .table-wrap{margin:6px -6px 0;container-type:inline-size}
 table.ledger{width:100%;border-collapse:collapse;font-size:.9rem}
 .ledger thead th{position:sticky;top:calc(var(--topbar-h) + var(--toolbar-h, 0px));z-index:5;background:var(--surface);font-family:var(--font-ui);font-size:.7rem;font-weight:700;
-  text-transform:uppercase;letter-spacing:.07em;color:var(--muted);text-align:left;padding:11px 10px;
+  text-transform:uppercase;letter-spacing:.07em;color:var(--muted);text-align:left;padding:8px 8px;
   border-bottom:1px solid var(--line);white-space:nowrap}
 .ledger thead th.num{text-align:right}
 .ledger thead th a{color:inherit;text-decoration:none}
 .ledger thead th a:hover{color:var(--accent)}
-.ledger tbody td{padding:13px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+.ledger tbody td{padding:9px 8px;border-bottom:1px solid var(--line-soft);vertical-align:top}
 .ledger tbody tr{transition:background .15s}
 .ledger tbody tr:hover{background:var(--surface-2)}
 .ledger tbody tr:has(.sel:checked){background:var(--accent-soft)}
@@ -523,12 +523,12 @@ table.ledger{width:100%;border-collapse:collapse;font-size:.9rem}
 
 /* ---------- Panels / sections ---------- */
 .panel{background:var(--surface-2);border:1px dashed var(--accent-glow);border-radius:var(--radius);
-  padding:clamp(14px,2vw,22px);margin-top:20px}
+  padding:clamp(10px,1.4vw,16px);margin-top:14px}
 .panel h2{color:var(--accent-deep)}
 .section{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:var(--radius);
-  padding:clamp(14px,2vw,20px);margin:0 0 18px}
-.section > h2,.section-head h2{color:var(--accent-deep);margin-bottom:14px}
-.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  padding:clamp(10px,1.4vw,16px);margin:0 0 12px}
+.section > h2,.section-head h2{color:var(--accent-deep);margin-bottom:10px}
+.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
 .section-head h2{margin:0}
 .card-danger{border-color:var(--err-line);background:var(--err-soft)}
 .empty{text-align:center;padding:30px 10px;color:var(--muted)}
@@ -779,10 +779,31 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .ledger-card .ledger thead th{background:color-mix(in srgb,var(--view-soft) 70%,var(--surface))}
 .ledger-card .ledger tbody td:first-child{box-shadow:inset 3px 0 0 var(--view)}
 .ledger-card .ledger tbody tr:hover{background:color-mix(in srgb,var(--view-soft) 45%,transparent)}
+.ledger-card .ledger tbody tr{cursor:pointer}
 .ledger-card .result-info{color:var(--view)}
 @container (max-width:1000px){
   .ledger-card .ledger tbody tr{border-left:4px solid var(--view)}
   .ledger-card .ledger tbody td:first-child{box-shadow:none}
+  /* Συμπαγής κάρτα: ετικέτα πάνω από την τιμή, στήλες όσο το περιεχόμενο (όλα σε μία γραμμή)· τα φαρδιά πιάνουν όλο το πλάτος. */
+  .ledger-card .ledger tbody tr{display:grid;grid-template-columns:repeat(7,fit-content(220px)) 1fr;padding:2px 0 6px;margin-bottom:8px}
+  .ledger-card .ledger tbody td{display:block;width:auto;min-width:0;padding:5px 12px;overflow-wrap:anywhere}
+  .ledger-card .ledger tbody td:not([data-label=""])::before{display:block;font-size:.6rem;margin-bottom:1px}
+  .ledger-card .ledger tbody td:is(.row-head,.cell-cls,[data-label=""],:has(.issuer)){grid-column:1/-1;contain:inline-size}
+  .ledger-card .ledger tbody td.row-head{padding:7px 12px;margin-bottom:2px;order:-1}
+  .ledger-card .ledger tbody td:is(.cell-cls,:has(.issuer)){order:1}
+  .ledger-card .ledger tbody td.num{order:2}
+  .ledger-card .ledger tbody td[data-label=""]:not(.row-head){order:3}
+  .ledger-card .ledger td .issuer,.ledger-card .ledger tbody td.num{text-align:left}
+  .ledger-card .ledger tbody td.mark{overflow-wrap:normal;white-space:nowrap}
+  .ledger-card .ledger tbody td.series{overflow-wrap:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
+@container (max-width:860px){
+  .ledger-card .ledger tbody tr{grid-template-columns:repeat(4,fit-content(200px)) 1fr}
+  .ledger-card .ledger tbody td[data-label="Καθαρή αξία"]{grid-column:1}
+}
+@container (max-width:520px){
+  .ledger-card .ledger tbody tr{grid-template-columns:repeat(3,fit-content(180px)) 1fr}
+  .ledger-card .ledger tbody td.series{grid-column:1}
 }
 @media (max-width:760px){ .ledger-card{border-top:5px solid var(--view)} }
 /* Σε μορφή καρτών: η δευτερεύουσα γραμμή (MARK χαρακτ., σειρά, καθαρή/ΦΠΑ) πάει από κάτω. */
@@ -1368,7 +1389,7 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 }
 
 /* Ίδια σελίδα (data-same-page, ορίζεται στο base.html): τα εισαγωγικά animations των κεφαλίδων δεν ξαναπαίζουν. */
-[data-same-page] :is(.co-card,.co-add,.co-meter .needle,.lh-tile,.lh-ring,.lh-ring .fg,.lh-sums,
+[data-same-page] :is(.co-card,.co-add,.spark-m i,.co-meter .needle,.lh-tile,.lh-ring,.lh-ring .fg,.lh-sums,
   .cp-tile,.cp-ring,.cp-ring .fg,.cp-search,.ne-tot,.ne-hero .tpl-chip,.sy-card,.sy-act){animation:none}
 [data-same-page] #ne-form .ne-card{animation:none}
 [data-same-page] .lh-tile.is-on{animation:lh-spin 4s linear infinite}
@@ -1376,7 +1397,7 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 /* =====================================================================
    Σκούρα κεφαλίδα (hero) με κάρτες KPI — Πίνακας ελέγχου, Ετήσια σύνοψη
    ===================================================================== */
-.db-hero{position:relative;overflow:hidden;border-radius:22px;padding:clamp(22px,4vw,36px);color:#fff;
+.db-hero{position:relative;overflow:hidden;border-radius:22px;padding:clamp(16px,2.6vw,24px);color:#fff;
   background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,#2a2f7a,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
 .db-blob{position:absolute;border-radius:50%;filter:blur(52px);opacity:.5;animation:db-float 14s ease-in-out infinite;pointer-events:none}
 .db-blob.b1{width:320px;height:320px;background:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));top:-150px;right:-40px}
@@ -1528,12 +1549,12 @@ a.yr-q:hover,a.yr-q:focus-visible{border-color:var(--accent-glow);background:var
    OLAP v2: hero, 5 τύποι διαγραμμάτων με animation, υποανάλυση, φίλτρα
    Κατηγορική παλέτα 8 θέσεων (επικυρωμένη, σταθερή σειρά) — ξεχωριστά βήματα για σκούρο θέμα.
    ===================================================================== */
-.olap{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s-rest:#a3a8b8;
+.olap,.sk{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s-rest:#a3a8b8;
   display:flex;flex-direction:column;gap:18px}
 @media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]) .olap{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s-rest:#5d6582}
+  :root:not([data-theme="light"]) :is(.olap,.sk){--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s-rest:#5d6582}
 }
-:root[data-theme="dark"] .olap{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s-rest:#5d6582}
+:root[data-theme="dark"] :is(.olap,.sk){--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s-rest:#5d6582}
 .olap > :not(dialog),.olap .card{margin:0}
 .olap .card{min-width:0}
 .c-in{--c:var(--yr-in)} .c-out{--c:var(--yr-out)} .c-acc{--c:var(--accent)} .c-rest{--c:var(--s-rest)}
@@ -1751,7 +1772,7 @@ main > .is-live{animation:none}
 
 /* ---------- Παράμετροι: κοινά (hero, tiles, drop zone) + Αντίγραφα ασφαλείας ---------- */
 .pm-hero{position:relative;overflow:hidden;display:flex;flex-wrap:wrap;gap:18px 28px;align-items:center;justify-content:space-between;
-  padding:clamp(18px,2.8vw,28px);margin-bottom:20px;border-radius:var(--radius);color:#fff;
+  padding:clamp(14px,2vw,20px);margin-bottom:14px;border-radius:var(--radius);color:#fff;
   background:radial-gradient(120% 140% at 100% 0%,rgba(138,147,255,.35) 0%,transparent 55%),linear-gradient(135deg,var(--side-2) 0%,var(--side) 100%);
   box-shadow:var(--shadow-hi)}
 .pm-hero h2{margin:0 0 4px;color:#fff}
@@ -2073,3 +2094,23 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .co-share summary{cursor:pointer;font-weight:600}
 .co-share form{display:grid;gap:6px;margin-top:10px}
 @media (max-width:560px){ .co-fields{grid-template-columns:1fr} }
+
+/* ---------- Μηνιαίος «καθρέφτης» 12 μηνών (macro month_spark): έσοδα πάνω, έξοδα κάτω, σαν VU-meter με LED.
+   Μέγεθος/χρώματα από μεταβλητές: --sp-w (στήλη), --sp-h (μισό ύψος), --sp-bar, --sp-fs, --sp-line/ink/muted. ---------- */
+.spark{--sp-in:#3dffa0;--sp-ex:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));
+  --sp-w:7px;--sp-h:16px;--sp-bar:5px;--sp-fs:.5rem;--sp-line:var(--line);--sp-ink:var(--ink);--sp-muted:var(--muted);
+  display:grid;grid-template-columns:repeat(12,var(--sp-w));gap:3px;align-items:stretch}
+.spark-m{display:grid;grid-template-rows:var(--sp-h) 1px var(--sp-h) auto;justify-items:center;
+  background:linear-gradient(var(--sp-line),var(--sp-line)) 0 var(--sp-h)/100% 1px no-repeat}
+.spark-m i{width:var(--sp-bar);border-radius:3px;animation:sp-grow .6s var(--ease) both;animation-delay:calc(var(--i,0) * 70ms + var(--j) * 30ms + 200ms)}
+.spark-m .in{grid-row:1;align-self:end;height:calc(var(--in) * (var(--sp-h) - 2px) + min(var(--in) * 1000px, 2px));transform-origin:bottom;
+  background:linear-gradient(0deg,color-mix(in oklab,var(--sp-in),transparent 35%),var(--sp-in));box-shadow:0 0 6px -1px var(--sp-in)}
+.spark-m .ex{grid-row:3;align-self:start;height:calc(var(--ex) * (var(--sp-h) - 2px) + min(var(--ex) * 1000px, 2px));transform-origin:top;
+  background:linear-gradient(180deg,color-mix(in oklab,var(--sp-ex),transparent 35%),var(--sp-ex));box-shadow:0 0 6px -1px var(--sp-ex)}
+.spark-m small{grid-row:4;margin-top:2px;font:700 var(--sp-fs) var(--font-data);color:var(--sp-muted);line-height:1}
+.spark-m.is-now small{color:var(--sp-ink)}
+.spark-m.is-now{background:linear-gradient(var(--sp-line),var(--sp-line)) 0 var(--sp-h)/100% 1px no-repeat,
+  linear-gradient(color-mix(in srgb,var(--sp-ink) 7%,transparent),color-mix(in srgb,var(--sp-ink) 7%,transparent));border-radius:3px}
+.spark-m.is-empty::before{content:"";grid-row:2;width:3px;height:3px;margin-top:-1px;border-radius:50%;background:var(--sp-muted);opacity:.6}
+@keyframes sp-grow{from{transform:scaleY(0)}}
+@media (prefers-reduced-motion:reduce){.spark-m i{animation:none}}

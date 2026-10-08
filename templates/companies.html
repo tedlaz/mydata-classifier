@@ -2,6 +2,7 @@
 {% block title %}Εταιρείες{% endblock %}
 
 {% from "_company_form.html" import company_fields %}
+{% from "_macros.html" import month_spark %}
 
 {% block content %}
 <style>
@@ -90,6 +91,7 @@
 .co-nums b{display:block;font:700 .95rem var(--font-data);color:var(--ink)}
 .co-nums .hot b{color:#f8bd5a}
 .co-empty-book{font-size:.8rem;color:var(--muted);max-width:260px}
+.co-spark{padding-right:10px;margin-right:2px;border-right:1px solid var(--line)}
 
 /* Χειριστήρια πάνελ: διακόπτης toggle (ενεργοποίηση), ραβδωτό ποτενσιόμετρο (επεξεργασία), κουμπί κινδύνου (διαγραφή). */
 .co-actions{grid-area:act;display:flex;gap:12px;align-items:center;white-space:nowrap}
@@ -253,6 +255,7 @@
 
     <div class="co-body">
       {% if s %}
+      {{ month_spark(monthly.get(c.id, {}), months, this_month, 'co-spark') }}
       <div class="co-nums">
         <div><b>{{ exp }}</b>έξοδα</div>
         <div><b>{{ s.income or 0 }}</b>έσοδα</div>

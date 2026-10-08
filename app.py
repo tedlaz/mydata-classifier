@@ -11,6 +11,7 @@ import random
 import re
 import statistics
 import sys
+import textwrap
 import threading
 import tomllib
 import unicodedata
@@ -889,6 +890,144 @@ def page_numbers(page: int, total: int, edge: int = 2, around: int = 1) -> list:
 def _two_years(today: date) -> list[str]:
     """Όλοι οι μήνες του προηγούμενου και του τρέχοντος έτους, ως "yyyy-mm" (Ιαν προηγ. έτους πρώτος)."""
     return [f"{y}-{m:02d}" for y in (today.year - 1, today.year) for m in range(1, 13)]
+
+
+_SK_W, _SK_H, _SK_PAD, _SK_GAP, _SK_BAR = 1000, 340, 12, 8, 12  # _SK_H: ελάχιστο ύψος
+_SK_LINE, _SK_WRAP, _SK_LGAP = 14, 26, 6  # ετικέτες: ύψος γραμμής, χαρακτήρες ανά γραμμή, κενό μεταξύ τους
+_SK_X = {"src": 250, "mid": 480, "dst": 700}  # x των ράβδων: πηγές · σύνολο · προορισμοί (χώρος για ετικέτες)
+
+
+def _sankey(inc_docs: list[dict], exp_docs: list[dict], with_stock: bool) -> dict | None:
+    """Διάγραμμα ροής (Sankey) του πίνακα ελέγχου: από πού έρχονται τα έσοδα → σύνολο → πού πάνε.
+    Ίδια καθαρή αξία ανά παραστατικό με τα KPI (πιστωτικά αρνητικά, χωρίς αποθέματα αν !with_stock),
+    άρα τα σύνολα = Έσοδα/Έξοδα της κεφαλίδας. Το κέρδος φαίνεται πάντα (δεξιά)· η ζημία μπαίνει αριστερά.
+    Κάθε πλευρά έχει εναλλακτικές ομαδοποιήσεις, προϋπολογισμένες (εναλλαγή μόνο με CSS)."""
+
+    def net(d):
+        e3 = [e for e in json.loads(d["cls_json"] or "[]") if not (e.get("type") or "").startswith("VAT_")]
+        stock = 0 if with_stock else sum(e.get("amount") or 0 for e in e3 if e.get("category") in STOCK_CATEGORIES)
+        if not with_stock:
+            e3 = [e for e in e3 if e.get("category") not in STOCK_CATEGORIES]
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        return sign * ((d["total_net"] or 0) - stock), e3
+
+    def e3_by(label_of):
+        # Η καθαρή αξία μοιράζεται αναλογικά στους χαρακτηρισμούς Ε3 του παραστατικού (κατά ποσό).
+        def shares(_d, e3):
+            w = [(label_of(e), e.get("amount") or 0) for e in e3]
+            tot = sum(a for _, a in w)
+            return [(label, a / tot) for label, a in w] if tot else [("Χωρίς χαρακτηρισμό", 1)]
+        return shares
+
+    def e3_category(e):
+        cat = e.get("category") or ""
+        return _CLASSIFICATION_CATEGORY_NAMES.get(cat) or cat or "Χωρίς κατηγορία"
+
+    def e3_type(e):  # E3_561_001 → «561_001 Πωλήσεις αγαθών και υπηρεσιών Χονδρικές - Επιτηδευματιών»
+        typ = e.get("type") or ""
+        return f"{typ.removeprefix('E3_')} {_CLASSIFICATION_NAMES.get(typ, '')}".strip() if typ else "Χωρίς τύπο Ε3"
+
+    def e3_account(e):  # E3_561_001 → «561 Πωλήσεις αγαθών & υπηρεσιών»
+        group = "_".join((e.get("type") or "").split("_")[:2])
+        return f"{group.removeprefix('E3_')} {_e3_group_label(group)}".strip() if group else "Χωρίς λογαριασμό Ε3"
+
+    def party(no_vat):
+        return lambda d, _e3: [(d["counterparty_name"] or d["counterparty_vat"], 1) if d["counterparty_vat"] else (no_vat, 1)]
+
+    def group(docs, key):
+        out: dict = {}
+        for d in docs:
+            amount, e3 = net(d)
+            for label, share in key(d, e3):
+                out[label] = out.get(label, 0) + amount * share
+        items = sorted(((k, round(v, 2)) for k, v in out.items()), key=lambda t: -t[1])
+        keep = [t for t in items[:6] if t[1] > 0]
+        rest = round(sum(v for _, v in items) - sum(v for _, v in keep), 2)
+        # Ομάδες με αρνητικό υπόλοιπο (πιστωτικά) πάνε στα «Λοιποί»· αν αυτά βγουν αρνητικά, τα συμψηφίζουν
+        # οι μικρότερες ομάδες, ώστε το άθροισμα να μένει ακριβώς το σύνολο.
+        while rest < -0.005 and keep:
+            rest = round(rest + keep.pop()[1], 2)
+        return keep + ([("Λοιποί", rest)] if rest > 0.005 else [])
+
+    inc = round(sum(net(d)[0] for d in inc_docs), 2)
+    exp = round(sum(net(d)[0] for d in exp_docs), 2)
+    if inc <= 0 and exp <= 0:
+        return None
+    profit = round(inc - exp, 2)
+    total = max(inc, exp)
+    sides = {
+        "src": {"cust": ("Πελάτης", group(inc_docs, party("Λιανική"))),
+                "e3": ("Κατηγορία Ε3", group(inc_docs, e3_by(e3_category))),
+                "e3t": ("Τύπος Ε3", group(inc_docs, e3_by(e3_type))),
+                "e3a": ("Λογαριασμός Ε3", group(inc_docs, e3_by(e3_account)))},
+        "dst": {"e3": ("Κατηγορία Ε3", group(exp_docs, e3_by(e3_category))),
+                "e3t": ("Τύπος Ε3", group(exp_docs, e3_by(e3_type))),
+                "e3a": ("Λογαριασμός Ε3", group(exp_docs, e3_by(e3_account))),
+                "sup": ("Προμηθευτής", group(exp_docs, party("Χωρίς ΑΦΜ")))},
+    }
+    # Συμπληρωματικοί κόμβοι: ζημία αριστερά (κόκκινο), κέρδος πάντα πρώτο δεξιά (πράσινο, ακόμη και 0).
+    for side, extra, first in (("src", ("Ζημία", -profit, "var(--err)") if profit < 0 else None, False),
+                               ("dst", ("Κέρδος", max(profit, 0), "var(--ok)"), True)):
+        for key, (title, nodes) in sides[side].items():
+            nodes = [(lbl, v, "var(--s-rest)" if lbl == "Λοιποί" else f"var(--s{i + 1})") for i, (lbl, v) in enumerate(nodes)]
+            if extra:
+                nodes = [extra, *nodes] if first else [*nodes, extra]
+            sides[side][key] = (title, nodes)
+
+    # Ετικέτες ολόκληρες: αναδίπλωση σε γραμμές + μία γραμμή για το ποσό. Το ύψος του διαγράμματος
+    # μεγαλώνει όσο χρειάζεται για να χωρέσουν όλες χωρίς επικάλυψη, στην πιο «γεμάτη» εκδοχή.
+    wrapped = {label: textwrap.wrap(label, _SK_WRAP) or [label] for s_ in sides.values() for _, n in s_.values()
+               for label, _, _ in n}
+    block = lambda label: (len(wrapped[label]) + 1) * _SK_LINE  # noqa: E731
+    need = max(sum(block(lbl) for lbl, _, _ in n) + _SK_LGAP * (len(n) - 1) for s_ in sides.values() for _, n in s_.values())
+    height = max(_SK_H, round(need + 2 * _SK_PAD))
+
+    # Κοινή κλίμακα για όλες τις εκδοχές, ώστε η εναλλαγή να μην αλλάζει το μέγεθος του κέντρου.
+    inner = height - 2 * _SK_PAD
+    k = min((inner - _SK_GAP * (len(n) - 1)) / total for s_ in sides.values() for _, n in s_.values())
+    mid_h = total * k
+    mid_y = _SK_PAD + (inner - mid_h) / 2
+
+    def layout(side, nodes):
+        hs = [max(v, 0) * k for _, v, _ in nodes]
+        y = _SK_PAD + (inner - sum(hs) - _SK_GAP * (len(nodes) - 1)) / 2
+        cy, out, bottom = mid_y, [], -_SK_LGAP  # η πρώτη ετικέτα δεν ξεκινά πάνω από το διάγραμμα
+        x_bar = _SK_X[side]
+        for (label, value, color), h in zip(nodes, hs):
+            # Ροή: από τη δεξιά άκρη της πηγής στο κέντρο, ή από το κέντρο στην αριστερή άκρη του προορισμού.
+            (x0, y0), (x1, y1) = ((x_bar + _SK_BAR, y), (_SK_X["mid"], cy)) if side == "src" else                 ((_SK_X["mid"] + _SK_BAR, cy), (x_bar, y))
+            xm = (x0 + x1) / 2
+            path = (f"M{x0:.1f} {y0:.1f}C{xm:.1f} {y0:.1f} {xm:.1f} {y1:.1f} {x1:.1f} {y1:.1f}"
+                    f"L{x1:.1f} {y1 + h:.1f}C{xm:.1f} {y1 + h:.1f} {xm:.1f} {y0 + h:.1f} {x0:.1f} {y0 + h:.1f}Z")
+            top = max(y + h / 2 - block(label) / 2, bottom + _SK_LGAP)  # μπλοκ ετικέτας κεντραρισμένο στη ράβδο
+            bottom = top + block(label)
+            out.append({"label": label, "lines": wrapped[label], "value": value,
+                        "pct": round(value / inc * 100) if inc > 0 else 0, "color": color,
+                        "y": round(y, 1), "h": round(max(h, 1 if value > 0 else 0), 1), "cy": round(y + h / 2, 1),
+                        "top": top, "path": path})
+            y += h + _SK_GAP
+            cy += h
+        # Αντίστροφο πέρασμα: όσες βγήκαν κάτω από το διάγραμμα ανεβαίνουν, μόνο όσο χρειάζεται.
+        limit = height - _SK_PAD
+        for n in reversed(out):
+            n["top"] = min(n["top"], limit - block(n["label"]))
+            limit = n["top"] - _SK_LGAP
+        for n in out:
+            n["lcy"] = round(n["top"] + block(n["label"]) / 2, 1)  # κέντρο ετικέτας (για τη γραμμή-οδηγό)
+            n["ys"] = [round(n["top"] + _SK_LINE * (i + 0.8), 1) for i in range(len(n["lines"]) + 1)]
+        return out
+
+    return {
+        "w": _SK_W, "h": height, "bar": _SK_BAR, "x": _SK_X, "inc": inc, "exp": exp, "profit": profit,
+        "mid": {"y": round(mid_y, 1), "h": round(mid_h, 1)},
+        **{side: {key: {"title": title, "nodes": layout(side, nodes)} for key, (title, nodes) in opts.items()}
+           for side, opts in sides.items()},
+    }
+
+
+def _last_12_months(now: datetime) -> list[str]:
+    """Οι τελευταίοι 12 μήνες έως τον τρέχοντα, ως "yyyy-mm" (ο παλαιότερος πρώτος). Για το month_spark."""
+    return [f"{(now.year * 12 + now.month - 1 - k) // 12}-{(now.month - 1 - k) % 12 + 1:02d}" for k in range(11, -1, -1)]
 
 
 def _month_strip(cid: int | None, kinds) -> dict:
@@ -3624,8 +3763,6 @@ def dashboard():
     kpi = {
         "income": ytd("income", "net"), "expense": ytd("expense", "net"),
         "vat": round(ytd("income", "vat") - ytd("expense", "vat"), 2),
-        "spark_in": _spark([r["income"]["net"] for r in rows]),
-        "spark_out": _spark([r["expense"]["net"] for r in rows]),
     }
     kpi["result"] = round(kpi["income"] - kpi["expense"], 2)
     _add_vat_periods(rows, year)
@@ -3716,6 +3853,10 @@ def dashboard():
     for d in recent:
         d["credit"] = d["invoice_type"] in CREDIT_INVOICE_TYPES
 
+    months = _last_12_months(now)  # μηνιαίος «καθρέφτης» στην κεφαλίδα
+    # Ροή εσόδων→εξόδων: ίδια παραστατικά (καταστάσεις) με τα KPI της κεφαλίδας.
+    sankey = _sankey([d for d in inc_docs if d["status"] in _INCOME_CLASSIFIED_STATUSES],
+                     [d for d in exp_docs if d["status"] in _EXPENSE_CLASSIFIED_STATUSES], with_stock)
     return render_template(
         "dashboard.html", company=company, year=year, kpi=kpi, chart=_yearly_chart(rows), vat=vat,
         assets=_assets_card(cid, now.year, rows),
@@ -3726,7 +3867,9 @@ def dashboard():
         exp_total=exp_total, done_pct=done_pct, inc_st=inc_st,
         top=top, top_max=max([t["amount"] for t in top] + [1]),
         top_in=top_in, top_in_max=max([t["amount"] for t in top_in] + [1]), recent=recent,
-        type_names=INVOICE_TYPE_NAMES, today=today.strftime("%d/%m/%Y"), hour=now.hour,
+        type_names=INVOICE_TYPE_NAMES,
+        months=months, this_month=months[-1], monthly=db.company_month_counts(months[0] + "-01").get(cid, {}),
+        sankey=sankey,
     )
 
 
@@ -4549,8 +4692,12 @@ def parameters_automation():
 @app.route("/companies")
 def companies():
     comps = load_companies()
+    months = _last_12_months(datetime.now(ATHENS))
     return render_template(
         "companies.html",
+        months=months,
+        this_month=months[-1],
+        monthly=db.company_month_counts(months[0] + "-01"),
         companies=comps,
         # Σειρά εμφάνισης στο rack: αλφαβητικά. Οι διαδρομές (select/update/delete) μένουν με τη θέση στη λίστα.
         order=sorted(range(len(comps)), key=lambda i: _fold(comps[i].get("company_name") or "")),

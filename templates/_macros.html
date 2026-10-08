@@ -128,3 +128,20 @@
     {% endfor %}
   </div>
 {%- endmacro %}
+
+{# Μηνιαίος «καθρέφτης»: mc = {"yyyy-mm": {"income": n, "expense": n}}, months = 12 × "yyyy-mm".
+   Κοινή κλίμακα για έσοδα και έξοδα. Στυλ: .spark στο app.css. #}
+{% macro month_spark(mc, months, this_month, cls='') -%}
+{% set mnames = ['Ιαν', 'Φεβ', 'Μάρ', 'Απρ', 'Μάι', 'Ιούν', 'Ιούλ', 'Αύγ', 'Σεπ', 'Οκτ', 'Νοέ', 'Δεκ'] %}
+{% set ns = namespace(peak=1) %}
+{% for ym in months %}{% set st = mc.get(ym) or {} %}{% set ns.peak = [ns.peak, st.get('income', 0), st.get('expense', 0)]|max %}{% endfor %}
+<div class="spark {{ cls }}" role="img" aria-label="Παραστατικά ανά μήνα, τελευταίοι 12 μήνες">
+  {% for ym in months %}
+  {% set st = mc.get(ym) or {} %}{% set inc = st.get('income', 0) %}{% set ex = st.get('expense', 0) %}
+  {% set m = ym[5:]|int %}
+  <span class="{{ ['spark-m', 'is-now' if ym == this_month, 'is-empty' if not inc and not ex]|select|join(' ') }}"
+        style="--in:{{ inc / ns.peak }};--ex:{{ ex / ns.peak }};--j:{{ loop.index0 }}"
+        title="{{ mnames[m - 1] }} {{ ym[:4] }}: έσοδα {{ inc }} · έξοδα {{ ex }}"><i class="in"></i><i class="ex"></i><small>{{ mnames[m - 1][0] }}</small></span>
+  {% endfor %}
+</div>
+{%- endmacro %}
