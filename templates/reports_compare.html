@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+{% block title %}Σύγκριση ετών{% endblock %}
+{% set month_end = ['Ιανουαρίου','Φεβρουαρίου','Μαρτίου','Απριλίου','Μαΐου','Ιουνίου','Ιουλίου','Αυγούστου','Σεπτεμβρίου','Οκτωβρίου','Νοεμβρίου','Δεκεμβρίου'] %}
+{% set years = c.years %}
+{% set has_prev = c.prev is not none %}
+
+{# Τιμή κατά μορφή: amt = ποσό €, int = πλήθος, pct = ποσοστό. sign = «+» στα θετικά (μεταβολές). #}
+{% macro fmtv(v, fmt='amt', sign=false) -%}
+{%- if v is none %}—{% else -%}
+{{ '+' if sign and v > 0 }}{% if fmt == 'int' %}{{ '{:,}'.format(v|int).replace(',', '.') }}{% elif fmt == 'pct' %}{{ ('%.1f'|format(v))|replace('.', ',') }}{{ ' μ.' if sign else '%' }}{% else %}{{ v|el_amount }}{% endif %}
+{%- endif %}
+{%- endmacro %}
+
+{# Μεταβολή έναντι πέρσι: βέλος + διαφορά + %. Χρώμα κατά το αν η αύξηση είναι καλή (good_up), ουδέτερο αλλιώς. #}
+{% macro delta(d, good_up=none, fmt='amt') -%}
+{%- if d -%}
+{%- set tone = 'flat' if d.v == 0 or good_up is none else ('good' if (d.v > 0) == good_up else 'bad') -%}
+<span class="cmp-d cmp-d--{{ tone }}"><i aria-hidden="true">{{ '▲' if d.v > 0 else '▼' if d.v < 0 else '■' }}</i>{{ fmtv(d.v, fmt, true) }}{% if d.pct is not none and fmt != 'pct' %}<small>{{ ('%+.1f'|format(d.pct))|replace('.', ',') }}%</small>{% endif %}</span>
+{%- else %}<span class="cmp-d cmp-d--na">—</span>{% endif -%}
+{%- endmacro %}
+
+{# Κουκκίδα έτους στο χρώμα του (slot 0 = φέτος). #}
+{% macro ydot(slot) %}<i class="cmp-dot cmp-s{{ slot }}" aria-hidden="true"></i>{% endmacro %}
+
+{# Διάγραμμα: κοινό σκελετό (πλέγμα, μήνες, στήλες hover με tooltip). body = οι σημάνσεις. #}
+{% macro plot(ch, label, caller=none) %}
+<div class="yr-plot cmp-plot">
+  <svg viewBox="0 0 {{ ch.w }} {{ ch.h }}" role="img" aria-label="{{ label }} — αναλυτικά στους πίνακες παρακάτω">
+    {% for t in ch.ticks %}
+    <line class="yr-grid {{ 'yr-grid--base' if t.v == 0 }}" x1="{{ ch.left }}" x2="{{ ch.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
+    <text class="yr-tick" x="{{ ch.left - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ '{:,.0f}'.format(t.v).replace(',', '.') }}</text>
+    {% endfor %}
+    {% for m in ch.months %}
+    <text class="yr-month" x="{{ m.cx }}" y="{{ ch.h - 9 }}" text-anchor="middle">{{ m.label }}</text>
+    {% endfor %}
+    {{ caller() }}
+    {% for m in ch.months %}
+    {% set tip %}<b>{{ months[loop.index0] }} <small>{{ label }}</small></b>{% for y, s, v in m.vals %}<span>{{ ydot(s) }}{{ y }}<em>{{ v|el_amount }} €</em></span>{% endfor %}{% if m.vals|length > 1 %}{% set dd = m.vals[0][2] - m.vals[1][2] %}<span class="yr-tip-bal{{ ' is-neg' if dd < 0 }}">Μεταβολή έναντι {{ m.vals[1][0] }}<em>{{ fmtv(dd, 'amt', true) }} €</em></span>{% endif %}{% endset %}
+    <g class="cmp-col" tabindex="0" data-tip="{{ tip|forceescape }}" aria-label="{{ months[loop.index0] }}: {% for y, s, v in m.vals %}{{ y }} {{ v|el_amount }} €{{ ', ' if not loop.last }}{% endfor %}">
+      <rect class="yr-hit" x="{{ m.x }}" y="{{ ch.top }}" width="{{ m.w }}" height="{{ ch.base - ch.top }}" rx="6"/>
+    </g>
+    {% endfor %}
+  </svg>
+  <div class="yr-tip" role="status" hidden></div>
+</div>
+{% endmacro %}
+
+{# Πελάτες / προμηθευτές: κορυφαίοι, μεταβολές, νέοι-χαμένοι, συγκέντρωση. #}
+{% macro parties(p, title, icon, who, who_pl) %}
+<section class="card cmp-card">
+  <div class="cmp-card-head">
+    <h2>{{ icon }} {{ title }}</h2>
+    <ul class="cmp-chips">
+      {% for y in years %}<li>{{ ydot(years|length - loop.index) }}{{ y }} <b>{{ p.active[loop.index0] }}</b> ενεργοί</li>{% endfor %}
+    </ul>
+  </div>
+  {% if p.rows %}
+  <div class="yr-scroll">
+    <table class="yr-table cmp-table">
+      <thead><tr><th class="yr-sticky">Κορυφαίοι 10 · {{ years[-1] }}</th>
+        {% for y in years %}<th class="num {{ 'is-cur' if loop.last }}">{{ ydot(years|length - loop.index) }}{{ y }}</th>{% endfor %}
+        {% if has_prev %}<th class="num">Μεταβολή</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for r in p.rows %}
+        <tr>
+          <th class="yr-sticky cmp-name" scope="row"><span>{{ r.name }}</span><small>{{ r.vat }} · {{ r.n }} παρ.</small></th>
+          {% for v in r.vals %}<td class="num cmp-heat {{ 'is-cur' if loop.last }}" style="--h:{{ (v|abs / p.max * 100)|round(1) }}%">{{ v|el_amount if v else '—' }}</td>{% endfor %}
+          {% if has_prev %}<td class="num">{{ delta(r.d, true) }}</td>{% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p class="db-empty">Δεν υπάρχουν {{ who_pl }} στο διάστημα του {{ years[-1] }}.</p>{% endif %}
+
+  <div class="cmp-tri">
+    {% if has_prev %}
+    <div>
+      <h3>Μεγαλύτερες μεταβολές <small>έναντι {{ years[-2] }}</small></h3>
+      {% if p.movers %}
+      <ul class="cmp-div">
+        {% for m in p.movers %}
+        <li style="--i:{{ loop.index0 }}" title="{{ m.name }} ({{ m.vat }}): {{ fmtv(m.v, 'amt', true) }} €">
+          <span class="cmp-div-l">{{ m.name }}</span>
+          <span class="cmp-div-bar"><i class="{{ 'is-pos' if m.v > 0 else 'is-neg' }}" style="--w:{{ (m.v|abs / p.movers_max * 50)|round(2) }}%"></i></span>
+          <b class="cmp-div-v">{{ fmtv(m.v, 'amt', true) }}</b>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="muted small">Καμία μεταβολή.</p>{% endif %}
+    </div>
+    <div class="cmp-newlost">
+      <h3>Νέοι & χαμένοι <small>έναντι {{ years[-2] }}</small></h3>
+      <div class="cmp-nl">
+        <div class="cmp-nl-box is-new"><small>Νέοι {{ who_pl }}</small><b>{{ p.new_n }}</b><span>{{ p.new_sum|el_amount }} €</span></div>
+        <div class="cmp-nl-box is-lost"><small>Χωρίς κίνηση φέτος</small><b>{{ p.lost_n }}</b><span>{{ p.lost_sum|el_amount }} € πέρσι</span></div>
+      </div>
+      {% if p.new %}<p class="cmp-nl-h">Μεγαλύτεροι νέοι</p>
+      <ol class="cmp-mini">{% for t in p.new %}<li><span title="{{ t.vat }}">{{ t.name }}</span><b>{{ t.amount|el_amount }}</b></li>{% endfor %}</ol>{% endif %}
+      {% if p.lost %}<p class="cmp-nl-h">Μεγαλύτεροι χαμένοι <small>(ποσό {{ years[-2] }})</small></p>
+      <ol class="cmp-mini">{% for t in p.lost %}<li><span title="{{ t.vat }}">{{ t.name }}</span><b>{{ t.amount|el_amount }}</b></li>{% endfor %}</ol>{% endif %}
+    </div>
+    {% endif %}
+    <div>
+      <h3>Συγκέντρωση <small>μερίδιο στο σύνολο</small></h3>
+      <ul class="cmp-conc">
+        {% for k in p.conc|reverse %}
+        <li style="--i:{{ loop.index0 }}">
+          <span class="cmp-conc-y">{{ ydot(loop.index0) }}{{ k.year }}</span>
+          {% if k.empty %}<span class="cmp-conc-bar is-empty">χωρίς κίνηση</span>{% else %}
+          <span class="cmp-conc-bar" role="img" aria-label="{{ k.year }}: 1ος {{ k.top1 }}%, 2ος–5ος {{ k.next4 }}%, υπόλοιποι {{ k.rest }}%">
+            <i class="c1" style="--w:{{ k.top1 }}%" title="Μεγαλύτερος {{ who }}: {{ k.top1|replace('.', ',') }}%"></i><i class="c2" style="--w:{{ k.next4 }}%" title="2ος–5ος: {{ k.next4|replace('.', ',') }}%"></i><i class="c3" style="--w:{{ k.rest }}%" title="Υπόλοιποι: {{ k.rest|replace('.', ',') }}%"></i>
+          </span>
+          <b>{{ ((k.top1 + k.next4)|round|int) }}%</b>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      <ul class="yr-legend cmp-conc-legend">
+        <li><i class="yr-dot cmp-c1"></i>Μεγαλύτερος</li><li><i class="yr-dot cmp-c2"></i>2ος–5ος</li><li><i class="yr-dot cmp-c3"></i>Υπόλοιποι</li>
+      </ul>
+      <p class="muted small">Ο αριθμός δεξιά: μερίδιο των 5 μεγαλύτερων.</p>
+    </div>
+  </div>
+</section>
+{% endmacro %}
+
+{# Ανάλυση Ε3 (έσοδα ή έξοδα). #}
+{% macro e3card(e, title, icon, good_up) %}
+<section class="card cmp-card">
+  <div class="cmp-card-head"><h2>{{ icon }} {{ title }}</h2>
+    <a class="btn btn-ghost btn-sm" href="{{ url_for('reports_yearly_e3', year=years[-1], back=request.full_path) }}">Ανάλυση Ε3 {{ years[-1] }} →</a></div>
+  {% if e.rows %}
+  {% if has_prev and e.movers %}
+  <h3 class="cmp-sub">Μεγαλύτερες μεταβολές <small>έναντι {{ years[-2] }}</small></h3>
+  <ul class="cmp-div">
+    {% for r in e.movers %}{% set v = r.d.v %}
+    <li style="--i:{{ loop.index0 }}" title="{{ r.code }} {{ r.label }}: {{ fmtv(v, 'amt', true) }} €">
+      <span class="cmp-div-l"><code>{{ r.code|replace('category', 'κατ. ') }}</code> {{ r.label }}</span>
+      <span class="cmp-div-bar"><i class="{{ 'is-pos' if v > 0 else 'is-neg' }}" style="--w:{{ (v|abs / e.movers_max * 50)|round(2) }}%"></i></span>
+      <b class="cmp-div-v">{{ fmtv(v, 'amt', true) }}</b>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <div class="yr-scroll">
+    <table class="yr-table cmp-table">
+      <thead><tr><th class="yr-sticky">Λογαριασμός Ε3</th>
+        {% for y in years %}<th class="num {{ 'is-cur' if loop.last }}">{{ ydot(years|length - loop.index) }}{{ y }}</th>{% endfor %}
+        {% if has_prev %}<th class="num">Μεταβολή</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for r in e.rows %}
+        <tr>
+          <th class="yr-sticky cmp-name" scope="row"><span>{{ r.label or r.code }}</span><small>{{ r.code|replace('category', 'κατηγορία ') }}</small></th>
+          {% for v in r.vals %}<td class="num cmp-heat {{ 'is-cur' if loop.last }}" style="--h:{{ (v|abs / e.max * 100)|round(1) }}%">{{ v|el_amount if v else '—' }}</td>{% endfor %}
+          {% if has_prev %}<td class="num">{{ delta(r.d, good_up) }}</td>{% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr class="yr-total"><th class="yr-sticky">Σύνολο</th>
+        {% for v in e.totals %}<td class="num {{ 'is-cur' if loop.last }}">{{ v|el_amount }}</td>{% endfor %}
+        {% if has_prev %}<td class="num">{{ delta({'v': (e.totals[-1] - e.totals[-2])|round(2), 'pct': ((e.totals[-1] - e.totals[-2]) / e.totals[-2]|abs * 100)|round(1) if e.totals[-2] else none}, good_up) }}</td>{% endif %}
+      </tr></tfoot>
+    </table>
+  </div>
+  {% else %}<p class="db-empty">Δεν υπάρχουν χαρακτηρισμοί Ε3 στο διάστημα.</p>{% endif %}
+</section>
+{% endmacro %}
+
+{% block content %}
+<div class="yr yr2 cmp">
+  {# ================= Κεφαλίδα + KPI ================= #}
+  <section class="db-hero yr-hero cmp-hero">
+    <span class="db-blob b1"></span><span class="db-blob b2"></span><span class="db-blob b3"></span>
+    <div class="db-hero-in">
+      <div>
+        <a class="yr-hero-back" href="{{ url_for('dashboard') }}">← Πίνακας ελέγχου</a>
+        <h1>Σύγκριση ετών <span class="yr-hero-year">{{ years[0] }}{% if years|length > 1 %}–{{ years[-1] }}{% endif %}</span></h1>
+        <p class="db-hi">Ίδιο χρονικό σημείο κάθε έτους: <b>1 Ιανουαρίου – τέλος {{ month_end[c.cut - 1] }}</b>
+          {% if open_month %}(ο Ιανουάριος είναι ακόμα ανοιχτός){% else %}(ολοκληρωμένοι μήνες){% endif %} · κατάσταση {{ now_str }}</p>
+      </div>
+      <div class="cmp-hero-tools">
+        <ul class="cmp-ylegend" aria-label="Χρώμα ανά έτος">
+          {% for y in years|reverse %}<li>{{ ydot(loop.index0) }}{{ y }}</li>{% endfor %}
+        </ul>
+        <button type="button" class="btn btn-sm cmp-print" data-print>🖨 Εκτύπωση / PDF</button>
+      </div>
+    </div>
+    <div class="db-kpis">
+      {% for k in c.kpis %}
+      <div class="db-kpi" style="--i:{{ loop.index0 }}">
+        <small>{{ k.label }} {{ years[-1] }}</small>
+        <b><span class="{{ 'neg' if k.v < 0 }}">{{ k.v|el_amount }}</span><i>€</i></b>
+        {% if k.d %}<span class="cmp-hd">{{ delta(k.d, k.good_up) }}</span>{% endif %}
+        {% if k.spark %}<svg viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true"><polyline points="{{ k.spark }}" style="stroke:var(--hero-accent)"/></svg>{% endif %}
+        {% if k.prev is not none %}<span class="db-kpi-note">{{ years[-2] }}: {{ k.prev|el_amount }} €</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if not has_prev %}
+  <section class="card cmp-card"><p class="db-empty">Δεν υπάρχουν παραστατικά προηγούμενων ετών για σύγκριση — εμφανίζεται μόνο το {{ years[-1] }}.
+    Φέρε παλαιότερα παραστατικά από την <a href="{{ url_for('sync') }}">Ανάκτηση</a>.</p></section>
+  {% endif %}
+
+  {# ================= Σημεία-κλειδιά ================= #}
+  {% if c.insights %}
+  <section class="card cmp-card cmp-insights">
+    <h2>🧭 Σημεία-κλειδιά <small>{{ years[-1] }} έναντι {{ years[-2] }}</small></h2>
+    <ul>
+      {% for dir, good, text in c.insights %}
+      <li class="cmp-ins cmp-ins--{{ 'flat' if good is none else 'good' if good else 'bad' }}" style="--i:{{ loop.index0 }}">
+        <i aria-hidden="true">{{ '▲' if dir == 'up' else '▼' if dir == 'down' else '◆' }}</i><span>{{ text }}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {# ================= Σωρευτικό αποτέλεσμα ================= #}
+  <section class="card yr-chart">
+    <div class="yr-chart-head">
+      <h2>📈 Σωρευτικό αποτέλεσμα <small class="muted">έσοδα − έξοδα, χωρίς αγορές παγίων</small></h2>
+      <ul class="yr-legend">{% for y in years|reverse %}<li>{{ ydot(loop.index0) }}{{ y }}</li>{% endfor %}</ul>
+    </div>
+    {% set ch = c.cum %}
+    {% call plot(ch, 'Σωρευτικό αποτέλεσμα') %}
+      <g class="cmp-lines">
+        {% for ln in ch.lines %}
+        <path pathLength="1" class="cmp-line cmp-s{{ ln.slot }} {{ 'is-cur' if ln.slot == 0 }}" d="{{ ln.d }}"/>
+        {% endfor %}
+        {% for ln in ch.lines %}
+        <g class="cmp-end cmp-s{{ ln.slot }}" style="--i:{{ loop.index0 }}">
+          <circle cx="{{ ch.end_x }}" cy="{{ ln.ey }}" r="4.5"/>
+          <text x="{{ ch.end_x + 10 }}" y="{{ ln.ly + 4 }}"><tspan class="cmp-end-y">{{ ln.year }}</tspan> {{ '{:,.0f}'.format(ln.v).replace(',', '.') }}</text>
+        </g>
+        {% endfor %}
+      </g>
+    {% endcall %}
+  </section>
+
+  {# ================= Μηνιαία έσοδα / έξοδα ================= #}
+  <div class="cmp-stack">
+    {% for key, title, icon in (('bars_in', 'Έσοδα ανά μήνα', '💶'), ('bars_out', 'Έξοδα ανά μήνα', '🧾')) %}
+    <section class="card yr-chart">
+      <div class="yr-chart-head">
+        <h2>{{ icon }} {{ title }}</h2>
+        <ul class="yr-legend">{% for y in years|reverse %}<li>{{ ydot(loop.index0) }}{{ y }}</li>{% endfor %}</ul>
+      </div>
+      {% set ch = c[key] %}
+      {% call plot(ch, title) %}
+        <g class="cmp-bars">
+          {% for m in ch.months %}{% for b in m.bars %}{% if b.d %}<path class="cmp-bar cmp-s{{ b.slot }}" d="{{ b.d }}" style="--i:{{ loop.index0 }}"/>{% endif %}{% endfor %}{% endfor %}
+        </g>
+      {% endcall %}
+    </section>
+    {% endfor %}
+  </div>
+
+  {# ================= Αναλυτικός πίνακας μεγεθών ================= #}
+  <section class="card yr-table-card cmp-card cmp-metrics">
+    <div class="cmp-card-head"><h2>📊 Βασικά μεγέθη <small>{{ months[0] }}–{{ months[c.cut - 1] }} κάθε έτους</small></h2></div>
+    <div class="yr-scroll">
+      <table class="yr-table cmp-table">
+        <thead><tr><th class="yr-sticky">Μέγεθος</th>
+          {% for y in years %}<th class="num {{ 'is-cur' if loop.last }}">{{ ydot(years|length - loop.index) }}{{ y }}</th>{% endfor %}
+          {% if has_prev %}<th class="num">Μεταβολή έναντι {{ years[-2] }}</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for m in c.metrics %}
+          <tr class="{{ 'cmp-sep' if loop.index0 in (6, 12, 16) }}">
+            <th class="yr-sticky cmp-name" scope="row"><span>{{ m.label }}</span></th>
+            {% for v in m.vals %}<td class="num {{ 'is-cur' if loop.last }}{{ ' yneg' if v is not none and v < 0 }}">{{ fmtv(v, m.fmt) }}</td>{% endfor %}
+            {% if has_prev %}<td class="num">{{ delta(m.d, m.good_up, m.fmt) }}</td>{% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted small yr-note">Ποσά σε € (καθαρή αξία). Έσοδα = χαρακτηρισμένα του βιβλίου εσόδων· έξοδα = χαρακτηρισμένα / απεσταλμένα /
+      επιβεβαιωμένα. Τα πιστωτικά αφαιρούνται. Κέρδος Ε3 όπως στην «Ανάλυση Ε3» (κόστος πωληθέντων με αποθέματα, χωρίς αγορές παγίων).
+      Χρώμα μεταβολής: πράσινο όταν είναι ευνοϊκή, κόκκινο όταν όχι, ουδέτερο όταν δεν κρίνεται.</p>
+  </section>
+
+  {# ================= Ε3 ================= #}
+  <div class="cmp-stack">
+    {{ e3card(c.e3_in, 'Ε3 — έσοδα', '📗', true) }}
+    {{ e3card(c.e3_out, 'Ε3 — έξοδα', '📕', false) }}
+  </div>
+
+  {# ================= Πελάτες / Προμηθευτές ================= #}
+  {{ parties(c.customers, 'Πελάτες', '🤝', 'πελάτης', 'πελάτες') }}
+  {{ parties(c.suppliers, 'Προμηθευτές', '🏭', 'προμηθευτής', 'προμηθευτές') }}
+
+  {# ================= Πάγια + ΦΠΑ ================= #}
+  <div class="cmp-grid2 cmp-grid2--top">
+    <section class="card cmp-card">
+      <div class="cmp-card-head"><h2>🏗 Πάγια</h2>
+        <ul class="yr-legend"><li><i class="yr-dot cmp-k-buy"></i>Αγορές (2.7)</li><li><i class="yr-dot cmp-k-dep"></i>Αποσβέσεις (E3_587)</li></ul></div>
+      <ul class="cmp-hbars">
+        {% for y in years|reverse %}{% set r = c.Y[y] %}
+        <li style="--i:{{ loop.index0 }}">
+          <span class="cmp-hb-y">{{ ydot(loop.index0) }}{{ y }}</span>
+          <span class="cmp-hb-bars">
+            <span class="cmp-hb"><i class="cmp-k-buy" style="--w:{{ ([r.assets, 0]|max / c.assets_max * 100)|round(2) }}%"></i><b>{{ r.assets|el_amount }}</b></span>
+            <span class="cmp-hb"><i class="cmp-k-dep" style="--w:{{ ([r.depreciation, 0]|max / c.assets_max * 100)|round(2) }}%"></i><b>{{ r.depreciation|el_amount }}</b></span>
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% if c.asset_docs %}
+      <h3 class="cmp-sub">Αγορές παγίων {{ years[-1] }} <small>{{ c.asset_docs_n }} παραστατικ{{ 'ό' if c.asset_docs_n == 1 else 'ά' }}{% if c.asset_docs_n > 10 %} · τα 10 μεγαλύτερα{% endif %}</small></h3>
+      <ol class="cmp-mini">{% for a in c.asset_docs %}<li><span>{{ a.date|replace('-', '/') }} · {{ a.name }}</span><b>{{ a.amount|el_amount }}</b></li>{% endfor %}</ol>
+      {% else %}<p class="muted small">Καμία αγορά παγίων το {{ years[-1] }} στο διάστημα.</p>{% endif %}
+    </section>
+
+    <section class="card cmp-card">
+      <div class="cmp-card-head"><h2>🏛 ΦΠΑ</h2>
+        <ul class="yr-legend"><li><i class="yr-dot yr-dot--in"></i>Εκροών</li><li><i class="yr-dot yr-dot--out"></i>Εισροών</li></ul></div>
+      <ul class="cmp-hbars">
+        {% for y in years|reverse %}{% set r = c.Y[y] %}
+        <li style="--i:{{ loop.index0 }}">
+          <span class="cmp-hb-y">{{ ydot(loop.index0) }}{{ y }}</span>
+          <span class="cmp-hb-bars">
+            <span class="cmp-hb"><i class="cmp-k-out" style="--w:{{ ([r.vat_out, 0]|max / c.vat_max * 100)|round(2) }}%"></i><b>{{ r.vat_out|el_amount }}</b></span>
+            <span class="cmp-hb"><i class="cmp-k-in" style="--w:{{ ([r.vat_in, 0]|max / c.vat_max * 100)|round(2) }}%"></i><b>{{ r.vat_in|el_amount }}</b></span>
+          </span>
+          <span class="yr-bal {{ 'is-neg' if r.vat_net < 0 else 'is-zero' if r.vat_net == 0 else 'is-pos' }}" title="Καθαρός ΦΠΑ {{ y }}">{{ r.vat_net|el_amount }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="muted small">Δεξιά: καθαρός ΦΠΑ (εκροών − εισροών) του διαστήματος — θετικός = προς καταβολή, αρνητικός = πιστωτικό.
+        Από τα σύνολα των παραστατικών· η δήλωση Φ2 μετρά μόνο τον εκπιπτόμενο ΦΠΑ εισροών.</p>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+// Tooltip για όλα τα διαγράμματα: το περιεχόμενο είναι έτοιμο στο data-tip κάθε στήλης.
+document.querySelectorAll('.cmp-plot').forEach(plot => {
+  const tip = plot.querySelector('.yr-tip');
+  function show(g) {
+    const box = plot.getBoundingClientRect(), r = g.querySelector('.yr-hit').getBoundingClientRect();
+    tip.innerHTML = g.dataset.tip;
+    tip.hidden = false;
+    const x = r.left - box.left + r.width / 2;
+    tip.style.left = Math.min(Math.max(x, tip.offsetWidth / 2 + 4), box.width - tip.offsetWidth / 2 - 4) + 'px';
+    plot.querySelectorAll('.cmp-col').forEach(c => c.classList.toggle('is-active', c === g));
+  }
+  const hide = () => { tip.hidden = true; plot.querySelectorAll('.cmp-col').forEach(c => c.classList.remove('is-active')); };
+  plot.addEventListener('mouseover', e => { const g = e.target.closest('.cmp-col'); if (g) show(g); });
+  plot.addEventListener('focusin', e => { const g = e.target.closest('.cmp-col'); if (g) show(g); });
+  plot.addEventListener('mouseleave', hide);
+  plot.addEventListener('focusout', e => { if (!plot.contains(e.relatedTarget)) hide(); });
+});
+document.querySelector('[data-print]').addEventListener('click', () => print());
+})();
+</script>
+{% endblock %}

@@ -2121,3 +2121,156 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .db-spark-key i.ex{background:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));box-shadow:0 0 6px color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade))}
 @media (max-width:560px){.db-spark-key{display:none}}
 @media (prefers-reduced-motion:reduce){.spark-m i{animation:none}}
+
+/* =====================================================================
+   Σύγκριση ετών (Αναλύσεις → Σύγκριση ετών): ένα χρώμα ανά έτος — slot 0 = φέτος, 1 = πέρσι …
+   Κατηγορική παλέτα επικυρωμένη (validate_palette.js) σε light & dark· οι ετικέτες μένουν σε μελάνι κειμένου.
+   ===================================================================== */
+.cmp{--cmp-0:#2a78d6;--cmp-1:#eb6834;--cmp-2:#1baf7a;--cmp-3:#eda100;--cmp-4:#e87ba4;--cmp-5:#008300;
+  --cmp-pos:#2a78d6;--cmp-neg:#e34948;--cmp-mid:#f0efec}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .cmp{--cmp-0:#3987e5;--cmp-1:#d95926;--cmp-2:#199e70;--cmp-3:#c98500;--cmp-4:#d55181;--cmp-5:#008300;
+    --cmp-pos:#3987e5;--cmp-neg:#e66767;--cmp-mid:#383835}
+}
+:root[data-theme="dark"] .cmp{--cmp-0:#3987e5;--cmp-1:#d95926;--cmp-2:#199e70;--cmp-3:#c98500;--cmp-4:#d55181;--cmp-5:#008300;
+  --cmp-pos:#3987e5;--cmp-neg:#e66767;--cmp-mid:#383835}
+.cmp-s0{--c:var(--cmp-0)} .cmp-s1{--c:var(--cmp-1)} .cmp-s2{--c:var(--cmp-2)}
+.cmp-s3{--c:var(--cmp-3)} .cmp-s4{--c:var(--cmp-4)} .cmp-s5{--c:var(--cmp-5)}
+.cmp-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;flex:none;background:var(--c)}
+
+/* Κεφαλίδα */
+.cmp-hero-tools{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+.cmp-ylegend{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
+.cmp-ylegend li{display:flex;align-items:center;padding:4px 10px;border-radius:99px;font:600 .8rem var(--font-data);
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:var(--hero-ink-2)}
+.cmp-print{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);color:#fff}
+.cmp-hd{display:block;margin-top:8px}
+.cmp-hd .cmp-d{background:rgba(255,255,255,.1);color:#fff}
+.cmp-hd .cmp-d--good{background:rgba(79,209,160,.16);color:#7ef0c2}
+.cmp-hd .cmp-d--bad{background:rgba(255,138,128,.16);color:#ffb0a8}
+
+/* Μεταβολή ▲▼ */
+.cmp-d{display:inline-flex;align-items:baseline;gap:5px;padding:3px 9px;border-radius:99px;font:700 .8rem var(--font-data);white-space:nowrap;
+  background:var(--surface-3);color:var(--ink-2)}
+.cmp-d i{font-style:normal;font-size:.7em}
+.cmp-d small{font-weight:600;opacity:.8}
+.cmp-d--good{background:var(--ok-soft);color:var(--ok)}
+.cmp-d--bad{background:var(--err-soft);color:var(--err)}
+.cmp-d--na{background:none;color:var(--muted)}
+
+/* Κάρτες & διάταξη */
+.cmp-card{padding:var(--card-pad)}
+.cmp-card h2{margin:0;font-size:1rem}
+.cmp-card h2 small,.yr-chart-head h2 small,.cmp-sub small,.cmp-tri h3 small{font-weight:500;font-size:.78rem;color:var(--muted);margin-left:4px}
+.cmp-card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.cmp-grid2{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+@media (min-width:1280px){.cmp-grid2{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.cmp-grid2--top{align-items:start}
+.cmp-stack{display:flex;flex-direction:column;gap:18px}
+.cmp-sub{margin:4px 0 10px;font-size:.9rem}
+.cmp-chips{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
+.cmp-chips li{display:flex;align-items:center;gap:3px;padding:3px 10px;border-radius:99px;background:var(--surface-2);border:1px solid var(--line-soft);
+  font-size:.76rem;color:var(--muted)}
+.cmp-chips b{font-family:var(--font-data);color:var(--ink)}
+
+/* Σημεία-κλειδιά */
+.cmp-insights ul{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:10px;list-style:none;margin:12px 0 0;padding:0}
+.cmp-ins{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line-soft);
+  font-size:.88rem;color:var(--ink);animation:db-rise .5s var(--ease) both;animation-delay:calc(var(--i) * 60ms + 250ms)}
+.cmp-ins i{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;font-style:normal;font-size:.72rem;
+  background:var(--accent-soft);color:var(--accent)}
+.cmp-ins--good i{background:var(--ok-soft);color:var(--ok)}
+.cmp-ins--bad i{background:var(--err-soft);color:var(--err)}
+
+/* Διαγράμματα SVG */
+.cmp-line{fill:none;stroke:var(--c);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;opacity:.9;
+  stroke-dasharray:1;stroke-dashoffset:1;animation:db-draw 1.4s var(--ease) forwards .3s}
+.cmp-line.is-cur{stroke-width:3.5;opacity:1}
+.cmp-end{animation:db-rise .5s var(--ease) both;animation-delay:calc(var(--i) * 80ms + 1.2s)}
+.cmp-end circle{fill:var(--c);stroke:var(--surface);stroke-width:2}
+.cmp-end text{fill:var(--ink-2);font-size:11px}
+.cmp-end .cmp-end-y{font-weight:700;fill:var(--ink)}
+.cmp-bar{fill:var(--c);transform-box:fill-box;transform-origin:bottom;animation:cmp-grow .7s var(--ease) both;animation-delay:calc(var(--i) * 60ms + 200ms)}
+@keyframes cmp-grow{from{transform:scaleY(0)}}
+.cmp-col{outline:none}
+.cmp-col .yr-hit{fill:transparent}
+.cmp-col.is-active .yr-hit{fill:var(--ink);opacity:.05}
+.cmp-col:focus-visible .yr-hit{stroke:var(--accent);stroke-width:2;opacity:1;fill:transparent}
+
+/* Πίνακες */
+.cmp .cmp-table{min-width:560px}
+.cmp-table th.is-cur,.cmp-table td.is-cur{font-weight:700;background:color-mix(in oklab,var(--accent-soft) 60%,var(--surface))}
+.cmp-table thead th.num{white-space:nowrap}
+.cmp-name{max-width:280px;text-align:left;font-family:var(--font-ui);font-weight:600;font-size:.86rem;background:var(--surface);padding:8px 12px}
+.cmp-name span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmp-name small{display:block;font-weight:400;font-size:.72rem;color:var(--muted);font-family:var(--font-data)}
+.cmp-table td.cmp-heat{background-image:linear-gradient(color-mix(in oklab,var(--accent) 45%,transparent),color-mix(in oklab,var(--accent) 45%,transparent));
+  background-size:var(--h) 3px;background-position:right 12px bottom 4px;background-repeat:no-repeat}
+.cmp-sep th,.cmp-sep td{border-top:2px solid var(--line)}
+.cmp-metrics .cmp-card-head{padding:0 6px}
+
+/* Αποκλίνουσες μπάρες μεταβολής: + δεξιά (μπλε), − αριστερά (κόκκινο), ουδέτερη μέση */
+.cmp-div{display:flex;flex-direction:column;gap:7px;list-style:none;margin:0 0 16px;padding:0}
+.cmp-div li{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(90px,1.4fr) auto;align-items:center;gap:10px;font-size:.82rem;
+  animation:db-rise .45s var(--ease) both;animation-delay:calc(var(--i) * 50ms + 200ms)}
+.cmp-div-l{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)}
+.cmp-div-l code{font-size:.74rem;color:var(--muted)}
+.cmp-div-bar{position:relative;height:12px}
+.cmp-div-bar::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--cmp-mid);border-radius:1px}
+.cmp-div-bar i{position:absolute;top:0;bottom:0;width:var(--w);min-width:2px;animation:cmp-w .8s var(--ease) both .3s}
+.cmp-div-bar i.is-pos{left:calc(50% + 2px);background:var(--cmp-pos);border-radius:0 4px 4px 0}
+.cmp-div-bar i.is-neg{right:calc(50% + 2px);background:var(--cmp-neg);border-radius:4px 0 0 4px}
+@keyframes cmp-w{from{width:0}}
+.cmp-div-v{font:700 .8rem var(--font-data);text-align:right;min-width:92px;color:var(--ink)}
+
+/* Πελάτες / προμηθευτές: μεταβολές · νέοι-χαμένοι · συγκέντρωση */
+.cmp-tri{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:24px;margin-top:20px}
+.cmp-tri h3{margin:0 0 12px;font-size:.9rem}
+.cmp-nl{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cmp-nl-box{padding:12px 14px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line-soft);box-shadow:inset 3px 0 0 var(--k)}
+.cmp-nl-box.is-new{--k:var(--ok)} .cmp-nl-box.is-lost{--k:var(--err)}
+.cmp-nl-box small{display:block;font-size:.74rem;color:var(--muted)}
+.cmp-nl-box b{display:block;margin:2px 0;font:800 1.5rem/1.1 var(--font-data)}
+.cmp-nl-box span{font:600 .78rem var(--font-data);color:var(--ink-2)}
+.cmp-nl-h{margin:14px 0 6px;font-size:.78rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+.cmp-mini{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.cmp-mini li{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px dashed var(--line-soft);font-size:.83rem}
+.cmp-mini span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)}
+.cmp-mini b{font-family:var(--font-data);white-space:nowrap}
+.cmp-conc{list-style:none;margin:0 0 10px;padding:0;display:flex;flex-direction:column;gap:9px}
+.cmp-conc li{display:grid;grid-template-columns:64px minmax(0,1fr) 42px;align-items:center;gap:10px;font-size:.82rem;
+  animation:db-rise .45s var(--ease) both;animation-delay:calc(var(--i) * 60ms + 200ms)}
+.cmp-conc-y{display:flex;align-items:center;font:600 .8rem var(--font-data)}
+.cmp-conc-bar{display:flex;gap:2px;height:14px;border-radius:4px;overflow:hidden}
+.cmp-conc-bar.is-empty{height:auto;font-size:.76rem;color:var(--muted)}
+.cmp-conc-bar i{width:var(--w);animation:cmp-w .8s var(--ease) both .3s}
+.cmp-conc li > b{font:700 .8rem var(--font-data);text-align:right}
+.cmp-c1,.cmp-conc-bar .c1{background:var(--accent)}
+.cmp-c2,.cmp-conc-bar .c2{background:color-mix(in oklab,var(--accent) 50%,var(--surface))}
+.cmp-c3,.cmp-conc-bar .c3{background:var(--surface-3)}
+.cmp-conc-legend{flex-wrap:wrap;gap:12px;font-size:.76rem}
+
+/* Πάγια / ΦΠΑ: οριζόντιες μπάρες ανά έτος */
+.cmp-hbars{list-style:none;margin:0 0 14px;padding:0;display:flex;flex-direction:column;gap:12px}
+.cmp-hbars li{display:grid;grid-template-columns:64px minmax(0,1fr) auto;align-items:center;gap:10px;
+  animation:db-rise .45s var(--ease) both;animation-delay:calc(var(--i) * 60ms + 200ms)}
+.cmp-hb-y{display:flex;align-items:center;font:600 .82rem var(--font-data)}
+.cmp-hb-bars{display:flex;flex-direction:column;gap:3px;min-width:0}
+.cmp-hb{display:flex;align-items:center;gap:8px}
+.cmp-hb i{height:10px;width:var(--w);max-width:calc(100% - 100px);border-radius:0 4px 4px 0;animation:cmp-w .8s var(--ease) both .3s}
+.cmp-hb b{font:600 .76rem var(--font-data);color:var(--ink-2);white-space:nowrap}
+.cmp-k-buy{background:var(--accent)}
+.cmp-k-dep{background:repeating-linear-gradient(45deg,var(--accent) 0 2px,color-mix(in oklab,var(--accent) 25%,var(--surface)) 2px 4.5px)}
+.cmp-k-out{background:var(--yr-in)} .cmp-k-in{background:var(--yr-out)}
+.cmp-hbars .yr-bal{min-width:0;font:700 .8rem var(--font-data)}
+
+@media (prefers-reduced-motion:reduce){.cmp *{animation:none!important}.cmp-line{stroke-dashoffset:0}}
+:root[data-same-page] .cmp *{animation:none!important}
+:root[data-same-page] .cmp-line{stroke-dashoffset:0}
+@media print{
+  .cmp *{animation:none!important}
+  .cmp-line{stroke-dashoffset:0}
+  .cmp-print{display:none!important}
+  .cmp .card,.cmp .db-hero{break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .cmp .yr-scroll{overflow:visible}
+}

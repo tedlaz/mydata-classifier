@@ -1604,14 +1604,17 @@ def template_with_series(company_id: int | None, series: str, exclude_name: str)
 
 
 def yearly_documents(company_id: int | None, kind: str, statuses: list[str], year: str) -> list[dict]:
-    """Παραστατικά ενός έτους (κατά ημ/νία έκδοσης) με όλα τα σύνολα σύνοψης, για την ετήσια σύνοψη."""
+    """Παραστατικά ενός έτους (κατά ημ/νία έκδοσης) με όλα τα σύνολα σύνοψης και τον συναλλασσόμενο,
+    για την ετήσια σύνοψη και τη σύγκριση ετών."""
     if not company_id:
         return []
-    cols = ", ".join(("issue_date", "invoice_type", "total_net", "total_vat", "cls_json", "lines_json") + EXTRA_TOTALS)
+    cols = ", ".join(f"d.{c}" for c in ("issue_date", "invoice_type", "counterparty_vat", "total_net", "total_vat",
+                                         "cls_json", "lines_json") + EXTRA_TOTALS)
     with get_conn() as conn:
         rows = conn.execute(
-            f"SELECT {cols} FROM documents WHERE company_id = ? AND kind = ? "
-            f"AND status IN ({','.join('?' * len(statuses))}) AND substr(issue_date, 1, 4) = ?",
+            f"SELECT {cols}, s.name AS counterparty_name FROM documents AS d "
+            "LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat WHERE d.company_id = ? AND d.kind = ? "
+            f"AND d.status IN ({','.join('?' * len(statuses))}) AND substr(d.issue_date, 1, 4) = ?",
             [company_id, kind, *statuses, year],
         ).fetchall()
     return [dict(r) for r in rows]

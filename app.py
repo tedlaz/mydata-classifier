@@ -3059,6 +3059,293 @@ def reports_yearly_e3_docs():
     )
 
 
+# ---------------------------------------------------------------------------
+# Σύγκριση ετών: το τρέχον έτος απέναντι στα προηγούμενα, στο ίδιο χρονικό σημείο
+# (ολοκληρωμένοι μήνες: Ιαν. έως τον προηγούμενο μήνα, κάθε έτους).
+# ---------------------------------------------------------------------------
+_CMP_YEARS = 6  # τρέχον + έως 5 προηγούμενα (όσα έχουν παραστατικά)
+
+
+def _counterparty_totals(docs: list[dict], stock: bool = False) -> dict:
+    """{ΑΦΜ: {name, vat, amount, n}}: καθαρή αξία ανά συναλλασσόμενο (πιστωτικά αρνητικά).
+    stock=True αφαιρεί τα αποθέματα 2.13/2.14 — δεν είναι αγορά από τον συναλλασσόμενο."""
+    out: dict = {}
+    for d in docs:
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        net = (d["total_net"] or 0) - (_stock_amount(d["cls_json"]) if stock else 0)
+        if not net:  # μόνο αποθέματα: δεν είναι αγορά από τον συναλλασσόμενο
+            continue
+        t = out.setdefault(d["counterparty_vat"], {"name": d["counterparty_name"] or d["counterparty_vat"] or "—",
+                                                   "vat": d["counterparty_vat"], "amount": 0.0, "n": 0})
+        t["amount"] += sign * net
+        t["n"] += 1
+    return out
+
+
+def _cmp_delta(cur: float, prev: float | None) -> dict | None:
+    """Μεταβολή έναντι πέρσι: v = διαφορά, pct = % επί του |πέρσι| (None χωρίς βάση)."""
+    if prev is None:
+        return None
+    return {"v": round(cur - prev, 2), "pct": round((cur - prev) / abs(prev) * 100, 1) if prev else None}
+
+
+def _e3_groups(rows: list[dict]) -> dict:
+    """{λογαριασμός Ε3 (E3_561…) ή κατηγορία χωρίς τύπο: ποσό} από γραμμές του _e3_breakdown."""
+    out: dict = {}
+    for g in rows:
+        key = "_".join(g["type"].split("_")[:2]) if g["type"] else g["category"]
+        out[key] = out.get(key, 0.0) + g["amount"]
+    return out
+
+
+def _cmp_axis(lo: float, hi: float, base: float, top: float):
+    """Άξονας y με στρογγυλά βήματα που καλύπτει [lo, hi] (και το 0): (y(v), ticks)."""
+    step = _nice_step(max(hi, 0) - min(lo, 0))
+    ymin, ymax = (min(lo, 0) // step) * step, -(-max(hi, 0) // step) * step
+    ymax = ymax if ymax > ymin else ymin + step
+    y = lambda v: round(base - (v - ymin) / (ymax - ymin) * (base - top), 1)  # noqa: E731
+    n = int(round((ymax - ymin) / step))
+    return y, [{"v": ymin + step * k, "y": y(ymin + step * k)} for k in range(n + 1)]
+
+
+def _cmp_lines(years: list[str], series: list[list[float]], n: int) -> dict:
+    """Γεωμετρία SVG (viewBox 760×250): μία καμπύλη ανά έτος στους n πρώτους μήνες, με ετικέτα τέλους
+    (απομακρυσμένες ώστε να μη συμπίπτουν). slot = απόσταση από το τρέχον έτος (0 = φέτος)."""
+    W, H, left, right, top, bottom = 760, 250, 64, 92, 16, 30
+    base = H - bottom
+    vals = [v for s in series for v in s]
+    y, ticks = _cmp_axis(min(vals + [0]), max(vals + [0]), base, top)
+    x = lambda i: round(left + (i / (n - 1) if n > 1 else 0.5) * (W - left - right), 1)  # noqa: E731
+    lines = [{"year": yr, "slot": len(years) - 1 - k, "v": s[-1], "ey": y(s[-1]),
+              "d": "M" + " L".join(f"{x(i)},{y(v)}" for i, v in enumerate(s))} for k, (yr, s) in enumerate(zip(years, series))]
+    for i, ln in enumerate(sorted(lines, key=lambda ln: ln["ey"])):  # ετικέτες τέλους ≥ 14px μεταξύ τους
+        ln["ly"] = ln["ey"] if not i else max(ln["ey"], prev + 14)
+        prev = ln["ly"]
+    slot = (W - left - right) / max(n, 1)
+    months = [{"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(x(i) - slot / 2, 1), "w": round(slot, 1),
+               "vals": [(yr, len(years) - 1 - k, s[i]) for k, (yr, s) in enumerate(zip(years, series))][::-1]}
+              for i in range(n)]
+    return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "end_x": x(n - 1),
+            "lines": lines, "months": months, "ticks": ticks}
+
+
+def _bar_path(x: float, w: float, by: float, ty: float) -> str:
+    """Μπάρα από by (βάση) έως ty, με στρογγυλεμένη την άκρη δεδομένων (4px)."""
+    if abs(by - ty) < 0.5:
+        return ""
+    r = min(4.0, abs(by - ty), w / 2)
+    d = -1 if ty < by else 1  # προς τα πάνω (θετικό) ή κάτω (αρνητικό)
+    return (f"M{x:.1f},{by:.1f}V{ty - d * r:.1f}Q{x:.1f},{ty:.1f} {x + r:.1f},{ty:.1f}"
+            f"H{x + w - r:.1f}Q{x + w:.1f},{ty:.1f} {x + w:.1f},{ty - d * r:.1f}V{by:.1f}Z")
+
+
+def _cmp_bars(years: list[str], series: list[list[float]], n: int) -> dict:
+    """Γεωμετρία SVG (viewBox 760×250): ανά μήνα ομάδα μπαρών, μία ανά έτος (παλαιότερο αριστερά),
+    με 2px κενό ανάμεσα. Αρνητικοί μήνες (μόνο πιστωτικά) σχεδιάζονται κάτω από τη βάση."""
+    W, H, left, right, top, bottom = 760, 250, 64, 8, 16, 30
+    base = H - bottom
+    vals = [v for s in series for v in s]
+    y, ticks = _cmp_axis(min(vals + [0]), max(vals + [0]), base, top)
+    slot, k = (W - left - right) / max(n, 1), len(series)
+    bw = max(2.0, min(16.0, (slot * 0.8 - 2 * (k - 1)) / k))
+    group = k * bw + 2 * (k - 1)
+    months = []
+    for i in range(n):
+        cx = left + slot * (i + 0.5)
+        bars = [{"slot": len(years) - 1 - j, "d": _bar_path(cx - group / 2 + j * (bw + 2), bw, y(0), y(s[i]))}
+                for j, s in enumerate(series)]
+        months.append({"label": _GREEK_MONTHS[i], "cx": round(cx, 1), "x": round(left + slot * i, 1), "w": round(slot, 1),
+                       "bars": bars, "vals": [(yr, len(years) - 1 - j, s[i]) for j, (yr, s) in enumerate(zip(years, series))][::-1]})
+    return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "zero": y(0),
+            "months": months, "ticks": ticks}
+
+
+def _cmp_parties(Y: dict, years: list[str], key: str) -> dict:
+    """Πελάτες ή προμηθευτές: κορυφαίοι 10 φέτος με τα ποσά κάθε έτους, νέοι / χαμένοι έναντι πέρσι,
+    μεγαλύτερες μεταβολές, πλήθος ενεργών και συγκέντρωση (μερίδιο 1ου / 2ου–5ου / υπολοίπων) ανά έτος."""
+    cur = Y[years[-1]][key]
+    prev = Y[years[-2]][key] if len(years) > 1 else None
+    amount = lambda m, v: m.get(v, {}).get("amount", 0.0)  # noqa: E731
+    top = sorted(cur.values(), key=lambda t: -t["amount"])[:10]
+    rows = [dict(t, vals=[round(amount(Y[y][key], t["vat"]), 2) for y in years],
+                 d=_cmp_delta(t["amount"], amount(prev, t["vat"])) if prev is not None else None) for t in top]
+    out = {"rows": rows, "max": max([abs(v) for r in rows for v in r["vals"]] + [1]),
+           "active": [len(Y[y][key]) for y in years], "conc": [], "has_prev": prev is not None}
+    for y in years:
+        amts = sorted((t["amount"] for t in Y[y][key].values() if t["amount"] > 0), reverse=True)
+        total = sum(amts) or 1
+        top1, top5 = sum(amts[:1]) / total * 100, sum(amts[:5]) / total * 100
+        out["conc"].append({"year": y, "top1": round(top1, 1), "next4": round(top5 - top1, 1), "rest": round(100 - top5, 1),
+                            "empty": not amts})
+    if prev is not None:
+        pick = lambda src, other: sorted((t for v, t in src.items() if v not in other and t["amount"] > 0),  # noqa: E731
+                                         key=lambda t: -t["amount"])
+        new, lost = pick(cur, prev), pick(prev, cur)
+        out.update(new=new[:5], new_n=len(new), new_sum=round(sum(t["amount"] for t in new), 2),
+                   lost=lost[:5], lost_n=len(lost), lost_sum=round(sum(t["amount"] for t in lost), 2))
+        movers = []
+        for v in set(cur) | set(prev):
+            d = amount(cur, v) - amount(prev, v)
+            if abs(d) >= 0.01:
+                movers.append({"name": (cur.get(v) or prev.get(v))["name"], "vat": v, "v": round(d, 2)})
+        movers = sorted(movers, key=lambda m: -abs(m["v"]))[:8]
+        out["movers"], out["movers_max"] = movers, max([abs(m["v"]) for m in movers] + [1])
+    return out
+
+
+def _cmp_e3(Y: dict, years: list[str], key: str) -> dict:
+    """Ανάλυση Ε3 (έσοδα ή έξοδα) ανά λογαριασμό: ποσά κάθε έτους, μεταβολή, μεγαλύτερες μεταβολές."""
+    groups = sorted({g for y in years for g in Y[y][key]})
+    has_prev = len(years) > 1
+    rows = []
+    for g in groups:
+        vals = [round(Y[y][key].get(g, 0.0), 2) for y in years]
+        if not any(abs(v) >= 0.01 for v in vals):
+            continue
+        rows.append({"code": g, "label": _e3_group_label(g) or _CLASSIFICATION_CATEGORY_NAMES.get(g, ""), "vals": vals,
+                     "d": _cmp_delta(vals[-1], vals[-2]) if has_prev else None})
+    rows.sort(key=lambda r: -abs(r["vals"][-1]))
+    movers = sorted((r for r in rows if r["d"] and abs(r["d"]["v"]) >= 0.01), key=lambda r: -abs(r["d"]["v"]))[:8]
+    return {"rows": rows, "max": max([abs(v) for r in rows for v in r["vals"]] + [1]),
+            "totals": [round(sum(r["vals"][i] for r in rows), 2) for i in range(len(years))],
+            "movers": movers, "movers_max": max([abs(r["d"]["v"]) for r in movers] + [1])}
+
+
+def _compare(cid: int | None, now: datetime) -> dict:
+    """Όλα τα στοιχεία της σελίδας «Σύγκριση ετών» — ίδιοι υπολογισμοί με τον πίνακα ελέγχου
+    (_yearly_totals, αποθέματα κατά τη ρύθμιση του πίνακα ελέγχου) και την ανάλυση Ε3 (_pl)."""
+    cut = max(now.month - 1, 1)  # Ιανουάριος: δεν υπάρχει ολοκληρωμένος μήνας — συγκρίνεται ο ανοιχτός
+    have = set(db.document_years(cid))
+    years = [str(y) for y in range(now.year - _CMP_YEARS + 1, now.year + 1) if str(y) in have or y == now.year]
+    with_stock = stock_in("dashboard")
+    in_cut = lambda d: "01" <= (d["issue_date"] or "")[5:7] <= f"{cut:02d}"  # noqa: E731
+    Y = {}
+    for y in years:
+        inc = [d for d in db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, y) if in_cut(d)]
+        exp = [d for d in db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y) if in_cut(d)]
+        it, et = _yearly_totals(inc), _yearly_totals(exp, with_stock)
+        ms = range(1, cut + 1)
+        s = lambda t, c: round(sum(t[m][c] for m in ms), 2)  # noqa: E731
+        pl = _pl(inc, exp)
+        cum, acc = [], 0.0
+        for m in ms:  # σωρευτικό αποτέλεσμα: έσοδα − έξοδα χωρίς αγορές παγίων (κεφαλαιοποιούνται)
+            acc += it[m]["net"] - (et[m]["net"] - et[m]["assets"])
+            cum.append(round(acc, 2))
+        r = Y[y] = {
+            "income": s(it, "net"), "expense": s(et, "net"), "profit": pl["profit"], "gross": pl["gross"],
+            "cogs": pl["cogs"], "vat_out": s(it, "vat"), "vat_in": s(et, "vat"), "withheld": s(it, "withheld"),
+            "assets": s(et, "assets"), "depreciation": s(et, "depreciation"),
+            "m_in": [it[m]["net"] for m in ms], "m_out": [et[m]["net"] for m in ms], "cum": cum,
+            "n_in": len(inc), "n_out": len(exp),
+            "credits": sum(d["invoice_type"] in CREDIT_INVOICE_TYPES for d in inc + exp),
+            "customers": _counterparty_totals([d for d in inc if d["counterparty_vat"]]),  # λιανική: όχι πελάτης
+            "suppliers": _counterparty_totals(exp, not with_stock),
+            "e3_in": _e3_groups(pl["income"]), "e3_out": _e3_groups(pl["purchases"] + pl["expense"] + pl["assets"]),
+            "exp_docs": exp,
+        }
+        r["vat_net"] = round(r["vat_out"] - r["vat_in"], 2)
+        r["margin"] = round(r["profit"] / r["income"] * 100, 1) if r["income"] else None
+        r["avg_in"] = round(r["income"] / r["n_in"], 2) if r["n_in"] else 0.0
+        r["n_cust"], r["n_supp"] = len(r["customers"]), len(r["suppliers"])
+    cur = Y[years[-1]]
+    prev = Y[years[-2]] if len(years) > 1 else None
+
+    def kpi(key, label, good_up):
+        vals = [Y[y][key] for y in years]
+        return {"key": key, "label": label, "v": vals[-1], "prev": vals[-2] if prev else None,
+                "d": _cmp_delta(vals[-1], vals[-2]) if prev else None, "good_up": good_up,
+                "spark": _spark(vals) if len(vals) > 1 else ""}
+
+    kpis = [kpi("income", "Έσοδα", True), kpi("expense", "Έξοδα", False), kpi("profit", "Καθαρό κέρδος Ε3", True),
+            kpi("vat_net", "Καθαρός ΦΠΑ", None), kpi("assets", "Αγορές παγίων", None)]
+    # Αναλυτικός πίνακας μεγεθών: (κλειδί, τίτλος, μορφή, αύξηση = καλό;)
+    metrics = [(k, label, fmt, good, [Y[y][k] for y in years]) for k, label, fmt, good in (
+        ("income", "Έσοδα (καθαρή αξία)", "amt", True), ("expense", "Έξοδα (καθαρή αξία)", "amt", False),
+        ("cogs", "Κόστος πωληθέντων", "amt", False), ("gross", "Μικτό κέρδος", "amt", True),
+        ("profit", "Καθαρό κέρδος Ε3", "amt", True), ("margin", "Περιθώριο καθαρού κέρδους", "pct", True),
+        ("vat_out", "ΦΠΑ εκροών", "amt", None), ("vat_in", "ΦΠΑ εισροών", "amt", None),
+        ("vat_net", "Καθαρός ΦΠΑ (εκροών − εισροών)", "amt", None), ("withheld", "Παρακρατήσεις εσόδων", "amt", None),
+        ("assets", "Αγορές παγίων (2.7)", "amt", None), ("depreciation", "Αποσβέσεις (E3_587)", "amt", None),
+        ("n_in", "Παραστατικά εσόδων", "int", True), ("n_out", "Παραστατικά εξόδων", "int", None),
+        ("credits", "Πιστωτικά", "int", None), ("avg_in", "Μέση αξία παραστατικού εσόδου", "amt", True),
+        ("n_cust", "Ενεργοί πελάτες (με ΑΦΜ)", "int", True), ("n_supp", "Ενεργοί προμηθευτές", "int", None))]
+    metrics = [{"label": label, "fmt": fmt, "good_up": good, "vals": vals,
+                "d": _cmp_delta(vals[-1], vals[-2]) if prev and None not in vals[-2:] else None}
+               for _, label, fmt, good, vals in metrics]
+
+    customers, suppliers = _cmp_parties(Y, years, "customers"), _cmp_parties(Y, years, "suppliers")
+    e3_in, e3_out = _cmp_e3(Y, years, "e3_in"), _cmp_e3(Y, years, "e3_out")
+
+    # Πάγια: αγορές / αποσβέσεις ανά έτος + οι αγορές του τρέχοντος έτους ανά παραστατικό.
+    asset_docs = []
+    for d in cur["exp_docs"]:
+        amt = sum(e.get("amount") or 0 for e in json.loads(d["cls_json"] or "[]") if e.get("category") == ASSET_CATEGORY)
+        if amt:
+            sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+            asset_docs.append({"date": d["issue_date"], "name": d["counterparty_name"] or d["counterparty_vat"] or "—",
+                               "amount": round(sign * amt, 2)})
+    asset_docs.sort(key=lambda a: -abs(a["amount"]))
+
+    # Σημεία-κλειδιά: σύντομες προτάσεις από τα παραπάνω (μόνο με σύγκριση έναντι πέρσι).
+    insights = []
+    if prev:
+        amt = lambda v: format_el_amount(abs(v)) + " €"  # noqa: E731
+        pct = lambda d: f" ({'+' if d['pct'] > 0 else ''}{d['pct']:.1f}%)".replace(".", ",") if d["pct"] is not None else ""  # noqa: E731
+        for k in kpis[:3]:
+            d = k["d"]
+            if abs(d["v"]) >= 0.01:
+                good = (d["v"] > 0) == k["good_up"]
+                insights.append(("up" if d["v"] > 0 else "down", good,
+                                 f"{k['label']} {'αυξήθηκαν' if k['key'] != 'profit' else 'αυξήθηκε'} κατά {amt(d['v'])}{pct(d)}"
+                                 if d["v"] > 0 else
+                                 f"{k['label']} {'μειώθηκαν' if k['key'] != 'profit' else 'μειώθηκε'} κατά {amt(d['v'])}{pct(d)}"))
+        dv = kpis[0]["d"]["v"]
+        best = max(customers.get("movers", []), key=lambda m: m["v"] * (1 if dv >= 0 else -1), default=None)
+        if best and abs(dv) >= 0.01 and (best["v"] > 0) == (dv > 0):
+            insights.append(("up" if dv > 0 else "down", dv > 0,
+                             f"Ο πελάτης «{best['name']}» εξηγεί το {min(abs(best['v'] / dv) * 100, 999):.0f}% της μεταβολής των εσόδων "
+                             f"({'+' if best['v'] > 0 else '−'}{amt(best['v'])})"))
+        up = next((r for r in e3_out["movers"] if r["d"]["v"] > 0), None)
+        if up:
+            insights.append(("up", False, f"Μεγαλύτερη αύξηση εξόδου: {up['label'] or up['code']} +{amt(up['d']['v'])}{pct(up['d'])}"))
+        down = next((r for r in e3_out["movers"] if r["d"]["v"] < 0), None)
+        if down:
+            insights.append(("down", True, f"Μεγαλύτερη μείωση εξόδου: {down['label'] or down['code']} −{amt(down['d']['v'])}{pct(down['d'])}"))
+        n = customers.get("new_n")
+        if n:
+            insights.append(("up", True, f"{n} {'νέος πελάτης έφερε' if n == 1 else 'νέοι πελάτες έφεραν'} {amt(customers['new_sum'])}"))
+        n = customers.get("lost_n")
+        if n:
+            insights.append(("down", False, f"{n} {'περσινός πελάτης' if n == 1 else 'περσινοί πελάτες'} χωρίς κίνηση φέτος "
+                                            f"({amt(customers['lost_sum'])} πέρσι)"))
+        c1 = customers["conc"][-1]
+        if not c1["empty"] and c1["top1"] + c1["next4"] >= 60:
+            insights.append(("flat", None, f"Συγκέντρωση: οι 5 μεγαλύτεροι πελάτες φέρνουν το {c1['top1'] + c1['next4']:.0f}% των εσόδων"))
+        m0, m1 = prev["margin"], cur["margin"]
+        if m0 is not None and m1 is not None and abs(m1 - m0) >= 1:
+            insights.append(("up" if m1 > m0 else "down", m1 > m0,
+                             f"Περιθώριο καθαρού κέρδους {m1:.1f}% από {m0:.1f}% πέρσι".replace(".", ",")))
+
+    return {
+        "years": years, "cut": cut, "Y": Y, "cur": cur, "prev": prev, "kpis": kpis, "metrics": metrics,
+        "cum": _cmp_lines(years, [Y[y]["cum"] for y in years], cut),
+        "bars_in": _cmp_bars(years, [Y[y]["m_in"] for y in years], cut),
+        "bars_out": _cmp_bars(years, [Y[y]["m_out"] for y in years], cut),
+        "customers": customers, "suppliers": suppliers, "e3_in": e3_in, "e3_out": e3_out,
+        "assets_max": max([abs(Y[y][k]) for y in years for k in ("assets", "depreciation")] + [1]),
+        "vat_max": max([abs(Y[y][k]) for y in years for k in ("vat_out", "vat_in")] + [1]),
+        "asset_docs": asset_docs[:10], "asset_docs_n": len(asset_docs), "insights": insights,
+    }
+
+
+@app.route("/reports/compare")
+def reports_compare():
+    """Σύγκριση ετών: τρέχον έτος απέναντι στα προηγούμενα, στους ίδιους ολοκληρωμένους μήνες."""
+    now = datetime.now(ATHENS)
+    data = _compare(_active_company_id(), now)
+    return render_template("reports_compare.html", c=data, open_month=now.month == 1, months=_GREEK_MONTHS,
+                           now_str=now.strftime("%d/%m/%Y"))
+
 
 def _flow_docs(cid: int | None, year: str) -> tuple[list[dict], list[dict]]:
     """Χαρακτηρισμένα έσοδα/έξοδα ενός έτους για τις Ροές (ίδιες καταστάσεις με τις αναφορές)."""
@@ -3948,17 +4235,7 @@ def dashboard():
     inc_docs = db.period_documents(cid, "income", f"{year}-01-01", f"{year}-12-31")
 
     def top_of(docs, stock):
-        top: dict = {}
-        for d in docs:
-            sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
-            net = (d["total_net"] or 0) - (_stock_amount(d["cls_json"]) if stock else 0)
-            if not net:  # μόνο αποθέματα: δεν είναι αγορά από τον συναλλασσόμενο
-                continue
-            t = top.setdefault(d["counterparty_vat"], {"name": d["counterparty_name"] or d["counterparty_vat"] or "—",
-                                                       "vat": d["counterparty_vat"], "amount": 0.0, "n": 0})
-            t["amount"] += sign * net
-            t["n"] += 1
-        return sorted(top.values(), key=lambda t: -t["amount"])[:5]
+        return sorted(_counterparty_totals(docs, stock).values(), key=lambda t: -t["amount"])[:5]
 
     top = top_of(exp_docs, not with_stock)
     # Λιανική (χωρίς ΑΦΜ) δεν είναι πελάτης.
