@@ -45,8 +45,18 @@ cu = d["customers"]
 assert cu["new_n"] == 1 and cu["new"][0]["vat"] == "333" and cu["lost_n"] == 1 and cu["lost"][0]["vat"] == "222", cu
 assert cu["rows"][0]["vals"] == [1000.0, 1400.0] and cu["active"] == [2, 2]
 assert d["e3_out"]["rows"][0]["vals"] == [50.0, 200.0] and d["e3_out"]["rows"][0]["d"]["pct"] == 300.0
-assert d["cum"]["lines"][-1]["v"] == 1500.0  # φέτος: 1.700 − 200
+assert d["cum"]["lines"][-1]["v"] == 1500.0  # φέτος: 1.700 − 200 (= καθαρό κέρδος Ε3)
 assert any("Έσοδα αυξήθηκαν" in t for _, _, t in d["insights"]), d["insights"]
+
+# Αποθέματα έναρξης (1/1): μετρούν στο κόστος πωληθέντων και στα έξοδα, όπως στην «Ανάλυση Ε3».
+db.upsert_document(cid, "expense", {"mark": "S1", "issue_date": f"{y}-01-01", "invoice_type": "17.1", "total_net": 400,
+                                    "total_vat": 0, "total_gross": 400,
+                                    "cls_info": [{"type": "E3_101", "category": "category2_13", "amount": 400}]}, "classified")
+d = A._compare(cid, now)
+cur = d["cur"]
+assert cur["cogs"] == 400.0 and cur["expense"] == 600.0 and cur["profit"] == 1100.0, cur
+assert round(sum(cur["e3_out"].values()), 2) == cur["expense"] and cur["e3_out"]["category2_13"] == 400.0
+assert d["cum"]["lines"][-1]["v"] == cur["profit"] and sum(cur["m_out"]) == cur["expense"]
 
 html = c.get("/reports/compare").data.decode()
 assert "Σύγκριση ετών" in html and "cmp-line" in html and "1.700,00" in html and "Νέοι πελάτες" in html
@@ -58,4 +68,5 @@ with db.get_conn() as conn:
 d = A._compare(cid, now)
 assert d["years"] == [str(y)] and d["prev"] is None and d["kpis"][0]["d"] is None and not d["insights"]
 assert c.get("/reports/compare").status_code == 200
+assert "1.100,00" in c.get("/reports/compare").data.decode()
 print("ok single year")

@@ -3093,7 +3093,8 @@ def _e3_groups(rows: list[dict]) -> dict:
     """{λογαριασμός Ε3 (E3_561…) ή κατηγορία χωρίς τύπο: ποσό} από γραμμές του _e3_breakdown."""
     out: dict = {}
     for g in rows:
-        key = "_".join(g["type"].split("_")[:2]) if g["type"] else g["category"]
+        # Αποθέματα (2.13 / 2.14) ανά κατηγορία: χωριστά από τυχόν κοινό λογαριασμό με αγορές.
+        key = "_".join(g["type"].split("_")[:2]) if g["type"] and not g["stock"] else g["category"]
         out[key] = out.get(key, 0.0) + g["amount"]
     return out
 
@@ -3212,8 +3213,8 @@ def _cmp_e3(Y: dict, years: list[str], key: str) -> dict:
 
 
 def _compare(cid: int | None, now: datetime) -> dict:
-    """Όλα τα στοιχεία της σελίδας «Σύγκριση ετών» — ίδιοι υπολογισμοί με τον πίνακα ελέγχου
-    (_yearly_totals, αποθέματα κατά τη ρύθμιση του πίνακα ελέγχου) και την ανάλυση Ε3 (_pl)."""
+    """Όλα τα στοιχεία της σελίδας «Σύγκριση ετών». Έσοδα, έξοδα, κέρδος και Ε3: ίδιος υπολογισμός με την
+    «Ανάλυση Ε3» (_pl, με αποθέματα)· ΦΠΑ, πάγια, παρακρατήσεις: από τα σύνολα (_yearly_totals)."""
     cut = max(now.month - 1, 1)  # Ιανουάριος: δεν υπάρχει ολοκληρωμένος μήνας — συγκρίνεται ο ανοιχτός
     have = set(db.document_years(cid))
     years = [str(y) for y in range(now.year - _CMP_YEARS + 1, now.year + 1) if str(y) in have or y == now.year]
@@ -3223,24 +3224,32 @@ def _compare(cid: int | None, now: datetime) -> dict:
     for y in years:
         inc = [d for d in db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, y) if in_cut(d)]
         exp = [d for d in db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y) if in_cut(d)]
-        it, et = _yearly_totals(inc), _yearly_totals(exp, with_stock)
+        it, et = _yearly_totals(inc), _yearly_totals(exp)
         ms = range(1, cut + 1)
         s = lambda t, c: round(sum(t[m][c] for m in ms), 2)  # noqa: E731
+        # Έσοδα / έξοδα / κέρδος όπως η «Ανάλυση Ε3»: έξοδα = κόστος πωληθέντων (με αποθέματα έναρξης/λήξης)
+        # + έξοδα χρήσης, χωρίς αγορές παγίων. Ανά μήνα το ίδιο _pl (γραμμικό: οι μήνες αθροίζουν στο σύνολο).
         pl = _pl(inc, exp)
+        of = lambda docs, m: [d for d in docs if d["issue_date"][5:7] == f"{m:02d}"]  # noqa: E731
+        mpl = [_pl(of(inc, m), of(exp, m)) for m in ms]
         cum, acc = [], 0.0
-        for m in ms:  # σωρευτικό αποτέλεσμα: έσοδα − έξοδα χωρίς αγορές παγίων (κεφαλαιοποιούνται)
-            acc += it[m]["net"] - (et[m]["net"] - et[m]["assets"])
+        for p in mpl:
+            acc += p["profit"]
             cum.append(round(acc, 2))
         r = Y[y] = {
-            "income": s(it, "net"), "expense": s(et, "net"), "profit": pl["profit"], "gross": pl["gross"],
-            "cogs": pl["cogs"], "vat_out": s(it, "vat"), "vat_in": s(et, "vat"), "withheld": s(it, "withheld"),
+            "income": pl["inc_total"], "expense": round(pl["cogs"] + pl["exp_total"], 2), "opex": pl["exp_total"],
+            "profit": pl["profit"], "gross": pl["gross"], "cogs": pl["cogs"],
+            "vat_out": s(it, "vat"), "vat_in": s(et, "vat"), "withheld": s(it, "withheld"),
             "assets": s(et, "assets"), "depreciation": s(et, "depreciation"),
-            "m_in": [it[m]["net"] for m in ms], "m_out": [et[m]["net"] for m in ms], "cum": cum,
+            "m_in": [p["inc_total"] for p in mpl], "m_out": [round(p["cogs"] + p["exp_total"], 2) for p in mpl], "cum": cum,
             "n_in": len(inc), "n_out": len(exp),
             "credits": sum(d["invoice_type"] in CREDIT_INVOICE_TYPES for d in inc + exp),
             "customers": _counterparty_totals([d for d in inc if d["counterparty_vat"]]),  # λιανική: όχι πελάτης
             "suppliers": _counterparty_totals(exp, not with_stock),
-            "e3_in": _e3_groups(pl["income"]), "e3_out": _e3_groups(pl["purchases"] + pl["expense"] + pl["assets"]),
+            # Έξοδα Ε3 όπως στο κέρδος: αποθέματα λήξης αφαιρούνται, αγορές παγίων εκτός (ενότητα «Πάγια»).
+            "e3_in": _e3_groups(pl["income"]),
+            "e3_out": _e3_groups(pl["opening"] + pl["purchases"] + [dict(g, amount=-g["amount"]) for g in pl["closing"]]
+                                 + pl["expense"]),
             "exp_docs": exp,
         }
         r["vat_net"] = round(r["vat_out"] - r["vat_in"], 2)
@@ -3260,8 +3269,9 @@ def _compare(cid: int | None, now: datetime) -> dict:
             kpi("vat_net", "Καθαρός ΦΠΑ", None), kpi("assets", "Αγορές παγίων", None)]
     # Αναλυτικός πίνακας μεγεθών: (κλειδί, τίτλος, μορφή, αύξηση = καλό;)
     metrics = [(k, label, fmt, good, [Y[y][k] for y in years]) for k, label, fmt, good in (
-        ("income", "Έσοδα (καθαρή αξία)", "amt", True), ("expense", "Έξοδα (καθαρή αξία)", "amt", False),
-        ("cogs", "Κόστος πωληθέντων", "amt", False), ("gross", "Μικτό κέρδος", "amt", True),
+        ("income", "Έσοδα Ε3", "amt", True), ("cogs", "Κόστος πωληθέντων (με αποθέματα)", "amt", False),
+        ("gross", "Μικτό κέρδος", "amt", True), ("opex", "Έξοδα χρήσης", "amt", False),
+        ("expense", "Σύνολο εξόδων Ε3", "amt", False),
         ("profit", "Καθαρό κέρδος Ε3", "amt", True), ("margin", "Περιθώριο καθαρού κέρδους", "pct", True),
         ("vat_out", "ΦΠΑ εκροών", "amt", None), ("vat_in", "ΦΠΑ εισροών", "amt", None),
         ("vat_net", "Καθαρός ΦΠΑ (εκροών − εισροών)", "amt", None), ("withheld", "Παρακρατήσεις εσόδων", "amt", None),
