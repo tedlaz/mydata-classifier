@@ -55,9 +55,9 @@
         <span class="db-kpi-note">Όλα τα έξοδα, μαζί με τα πάγια</span>
       </div>
       <a class="btn db-kpi" style="--i:3" href="{{ url_for('reports_yearly_e3', year=year, back=url_for('reports_yearly', year=year)) }}" title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">
-        <small>📈 Καθαρό κέρδος</small>
+        <small>📈 Καθαρό κέρδος{{ ' ?' if stock_chk.unsure }}</small>
         <b><span class="{{ 'neg' if real_profit < 0 }}" data-num="{{ real_profit }}">{{ real_profit|el_amount }}</span><i>€</i></b>
-        <span class="db-kpi-note">Ανάλυση ανά Ε3 →</span>
+        <span class="db-kpi-note">{{ '⚠ Επισφαλές: ' ~ stock_chk.why if stock_chk.unsure else 'Ανάλυση ανά Ε3 →' }}</span>
       </a>
       <div class="db-kpi" style="--i:4">
         <small>🧮 ΦΠΑ εκροών − εισροών</small>
@@ -95,7 +95,7 @@
             <path class="fc-area fc-area--in" d="{{ c.in.area }}"/>
             <path class="fc-area fc-area--out" d="{{ c.out.area }}"/>
             {% if has_prev %}<path class="fc-prev" d="{{ c.prev }}"/>{% endif %}
-            {% for key in ('in', 'out', 'res') %}<path class="fc-line fc-line--{{ key }}" d="{{ c[key].actual or c[key].future }}"/>{% endfor %}
+            {% for key in ('in', 'out', 'res') %}<path class="fc-line fc-line--{{ key }}{{ ' is-unsure' if key == 'res' and stock_chk.unsure }}" d="{{ c[key].actual or c[key].future }}"/>{% endfor %}
           </g>
           {% for e in c.ends %}
           <g class="fc-end fc-end--{{ e.key }}" style="--i:{{ loop.index0 }}">

@@ -368,7 +368,7 @@
           </li>
           {% endif %}
           {{ wf('Έξοδα χρήσης', pl.exp_total, 5) }}
-          {{ wf('Καθαρό κέρδος', pl.profit, 6, 'yr-wf-res is-neg' if pl.profit < 0 else 'yr-wf-res') }}
+          {{ wf('Καθαρό κέρδος' ~ (' ?' if stock_chk.unsure else ''), pl.profit, 6, 'yr-wf-res is-neg' if pl.profit < 0 else 'yr-wf-res') }}
           {% if pl.assets %}
           {{ wf('Αγορές παγίων', pl.assets_total, 7, 'yr-wf-aside') }}
           {% endif %}
@@ -379,6 +379,7 @@
           <span>Περιθώριο κέρδους</span><b class="{{ 'yneg' if margin < 0 }}">{{ margin }}%</b>
         </div>
         {% endif %}
+{% include "_stock_warn.html" %}
         {% if pl.assets_total and not pl.depreciation %}
         <p class="note note--warn yr-pl-warn">
           ⚠ Αγορές παγίων χωρίς <strong>καμία απόσβεση</strong> στο {{ year }} — πέρασέ τες με

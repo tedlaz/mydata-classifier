@@ -238,7 +238,7 @@
         {% if loop.first %}<text class="cmp-cut-lbl" x="{{ ch.cut_x + 6 }}" y="{{ ch.top + 6 }}">σήμερα · προβολή →</text>{% endif %}
         <g class="cmp-lines">
           {% for ln in ch.lines|reverse %}{# παλαιότερα από κάτω, φέτος από πάνω #}
-          <path pathLength="1" class="cmp-line cmp-s{{ ln.slot }} {{ 'is-cur' if ln.slot == 0 }}" d="{{ ln.d }}"/>
+          <path {% if not ln.unsure %}pathLength="1" {% endif %}class="cmp-line cmp-s{{ ln.slot }}{{ ' is-cur' if ln.slot == 0 }}{{ ' is-unsure' if ln.unsure }}" d="{{ ln.d }}"/>
           {% endfor %}
           {% if ch.proj %}<path class="cmp-proj cmp-s0" d="{{ ch.proj }}"/>{% endif %}
           <g class="cmp-end cmp-s0 cmp-today"><circle cx="{{ ch.today.x }}" cy="{{ ch.today.y }}" r="5">
@@ -246,13 +246,15 @@
           {% for ln in ch.lines %}
           <g class="cmp-end cmp-s{{ ln.slot }}" style="--i:{{ loop.index0 }}">
             <circle class="{{ 'is-proj' if ln.proj }}" cx="{{ ln.ex }}" cy="{{ ln.ey }}" r="4.5"/>
-            <text x="{{ ch.right + 10 }}" y="{{ ln.ly + 4 }}"><tspan class="cmp-end-y">{{ ln.year }}{{ '*' if ln.proj }}</tspan> {{ '{:,.0f}'.format(ln.v).replace(',', '.') }}</text>
+            <text x="{{ ch.right + 10 }}" y="{{ ln.ly + 4 }}"><tspan class="cmp-end-y">{{ ln.year }}{{ '*' if ln.proj }}{{ '?' if ln.unsure }}</tspan> {{ '{:,.0f}'.format(ln.v).replace(',', '.') }}</text>
           </g>
           {% endfor %}
         </g>
       {% endcall %}
     </div>
     {% endfor %}
+    {% if c.unsure %}<p class="muted small cmp-method"><i class="cmp-dash" aria-hidden="true"></i>? Επισφαλές αποτέλεσμα {{ c.unsure|join(', ') }}:
+      η εταιρεία έχει κόστος πωληθέντων, αλλά η χρήση δεν έχει αποθέματα έναρξης και λήξης — δες την ενότητα «Αποθέματα».</p>{% endif %}
     <p class="muted small cmp-method">* Προβολή — {{ c.proj_method }}. Ενδεικτική· αναλυτικά σενάρια στην <a href="{{ url_for('reports_forecast') }}">Πρόβλεψη έτους</a>.</p>
   </section>
 

@@ -29,7 +29,7 @@
         {% if sc %}<span class="db-kpi-note">Εύρος σεναρίων {{ sc['out'].p10|el_amount }} – {{ sc['out'].p90|el_amount }} €</span>{% endif %}
       </div>
       <div class="db-kpi fc-kpi-res" style="--i:2">
-        <small><i class="db-dot" style="background:var(--fc-res)"></i>Αποτέλεσμα έτους (πρόβλεψη)</small>
+        <small><i class="db-dot" style="background:var(--fc-res)"></i>Αποτέλεσμα έτους (πρόβλεψη){{ " ?" if stock_chk.unsure }}</small>
         <b><span class="{{ 'neg' if expected < 0 }}" data-num="{{ expected }}">{{ expected|el_amount }}</span><i>€</i></b>
         {% if plan_result is not none and sc %}<span class="db-kpi-note">Πρόγραμμα {{ plan_result|el_amount }} € · μετά τον κίνδυνο απόκλισης</span>{% endif %}
         {% if sc %}
@@ -161,7 +161,7 @@
           {% for key, d in c.fans.items() %}<path class="fc-fan fc-fan--{{ key }}" d="{{ d }}"/>{% endfor %}
           {% if has_prev %}<path class="fc-prev" d="{{ c.prev }}"/>{% endif %}
           {% for key in ('in', 'out', 'res') %}
-          {% if c[key].actual %}<path class="fc-line fc-line--{{ key }}" d="{{ c[key].actual }}"/>{% endif %}
+          {% if c[key].actual %}<path class="fc-line fc-line--{{ key }}{{ ' is-unsure' if key == 'res' and stock_chk.unsure }}" d="{{ c[key].actual }}"/>{% endif %}
           <path class="fc-line fc-line--{{ key }} is-fc" d="{{ c[key].future }}"/>
           {% endfor %}
         </g>
@@ -207,6 +207,7 @@
       <datalist id="fc-vol-ticks"><option value="0"></option><option value="100"></option><option value="200"></option></datalist>
       <datalist id="fc-shift-ticks"><option value="-100"></option><option value="0"></option><option value="100"></option></datalist>
     </div>
+{% include "_stock_warn.html" %}
     <p class="muted small fc-method">
       Μέθοδος — έσοδα: {{ labels.income }} · μεταβλητά έξοδα: {{ labels.expense }} · σταθερά έξοδα: ίδια κάθε μήνα · αποσβέσεις: κατά τον κανόνα, τον Δεκέμβριο.
       {% if sc %}Σενάρια: 5.000 προσομοιώσεις όπου κάθε υπόλοιπος μήνας συμπεριφέρεται σαν έναν τυχαίο ολοκληρωμένο μήνα του {{ year }}·

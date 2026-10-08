@@ -1966,6 +1966,7 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .yr-month.is-fc{fill:var(--muted);opacity:.65;font-style:italic}
 .fc-line{fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
 .fc-line.is-fc{stroke-dasharray:6 5;stroke-width:2}
+.fc-line.is-unsure{stroke-dasharray:5 6}  /* επισφαλές αποτέλεσμα: χρήση χωρίς αποθέματα έναρξης και λήξης */
 .fc-line--in{stroke:var(--yr-in)} .fc-line--out{stroke:var(--yr-out)} .fc-line--res{stroke:var(--fc-res);stroke-width:3}
 .fc-area{stroke:none;opacity:0;animation:fc-fade .8s var(--ease) forwards .5s}
 .fc-area--in{fill:var(--yr-in-soft)} .fc-area--out{fill:var(--yr-out-soft)}
@@ -2186,6 +2187,8 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .cmp-line{fill:none;stroke:var(--c);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;opacity:.9;
   stroke-dasharray:1;stroke-dashoffset:1;animation:db-draw 1.4s var(--ease) forwards .3s}
 .cmp-line.is-cur{stroke-width:3.5;opacity:1}
+/* Επισφαλές αποτέλεσμα (χρήση χωρίς αποθέματα έναρξης και λήξης): διακεκομμένη, εμφάνιση χωρίς «σχεδίαση». */
+.cmp-line.is-unsure{stroke-dasharray:5 6;stroke-dashoffset:0;animation:db-rise .6s var(--ease) both .3s}
 /* Σωρευτικά: τρία γραφήματα (έσοδα / έξοδα / αποτέλεσμα) στην ίδια κάρτα */
 .cmp-cum + .cmp-cum{margin-top:14px;padding-top:14px;border-top:1px solid var(--line-soft)}
 .cmp-cum-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 14px;margin:4px 0 2px}
@@ -2216,6 +2219,9 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .cmp .cmp-table{min-width:560px}
 .cmp-table th.is-cur,.cmp-table td.is-cur{font-weight:700;background:color-mix(in oklab,var(--accent-soft) 60%,var(--surface))}
 .cmp-table thead th.num{white-space:nowrap}
+/* Χωρίς χρώμα στο hover (κληρονομείται από το .yr-table του συνοπτικού βιβλίου). */
+.cmp .cmp-table tbody:hover td,.cmp .cmp-table tbody:hover th{background:var(--surface)}
+.cmp .cmp-table tbody:hover .is-cur{background:color-mix(in oklab,var(--accent-soft) 60%,var(--surface))}
 .cmp-name{max-width:280px;text-align:left;font-family:var(--font-ui);font-weight:600;font-size:.86rem;background:var(--surface);padding:8px 12px}
 .cmp-name span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cmp-name small{display:block;font-weight:400;font-size:.72rem;color:var(--muted);font-family:var(--font-data)}

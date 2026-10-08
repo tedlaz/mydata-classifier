@@ -88,12 +88,17 @@ assert p["expense"] == 230.0 and p["profit"] == 1270.0 and p["n_out"] == 1
 assert p["e3_out"]["category2_13"] == 300.0 and p["e3_out"]["category2_14"] == -120.0
 assert p["cum"][-1] == 1270.0 and p["cum_full"][0] == 1270.0 and p["cum_full"][-1] == 1270.0 + 9999  # χωρίς διπλομέτρηση
 assert any("Αποθέματα εκτός υπολογισμού: " + str(y) in t for _, _, t in d["insights"]), d["insights"]
+# Εταιρεία με αποθέματα: φέτος χωρίς λήξης → επισφαλές αποτέλεσμα, διακεκομμένη καμπύλη (μόνο στο γράφημα αποτελέσματος).
+C = {cc["key"]: cc for cc in d["cums"]}
+assert [ln["unsure"] for ln in C["res"]["chart"]["lines"]] == [False, True] and d["unsure"] == [str(y)]
+assert not any(ln["unsure"] for ln in C["in"]["chart"]["lines"] + C["out"]["chart"]["lines"])
 # Προβολή εξόδων: λόγος χωρίς αποθέματα (200 / 50), όχι 200 / 230.
 assert "έξοδα ×4,00" in d["proj_method"], d["proj_method"]
 bars = {m["label"]: m["vals"] for m in d["totals"]["months"]}  # αθροιστικά ανά μέγεθος: (έτος, slot, ποσό), φέτος πρώτο
 assert bars["Σύνολο εξόδων"][1] == (str(y - 1), 1, 230.0, False, None), bars
 html = c.get("/reports/compare").data.decode()
 assert "Σύγκριση ετών" in html and "cmp-line" in html and "1.700,00" in html and "Νέοι πελάτες" in html
+assert "is-unsure" in html and "Επισφαλές αποτέλεσμα " + str(y) in html
 assert "✓ Μετρούν" in html and "Αγνοούνται" in html and "= Κόστος πωληθέντων" in html
 print("ok")
 
@@ -148,3 +153,15 @@ assert cur["cogs"] == 70.0 and cur["expense"] == cur["exp_ns"] + 70.0
 assert not p["stock_used"] and p["stock_why"] == f"χωρίς αποθέματα έναρξης (ούτε λήξης στο {y - 2})", p
 assert "λήξης " + str(y - 1) in c.get("/reports/compare").data.decode()
 print("ok stock chain")
+
+# Οι άλλες αναφορές: χρήση χωρίς αποθέματα λήξης (έναρξης = λήξης περσινά) → προειδοποίηση «Επισφαλές αποτέλεσμα».
+with db.get_conn() as conn:
+    conn.execute("DELETE FROM documents WHERE mark = 'S7'")
+chk = A._stock_check(cid, str(y))
+assert chk["unsure"] and chk["src"] == "prev" and chk["open"] == 120.0 and "ανοιχτή χρήση" in chk["why"], chk
+for url in (f"/reports/yearly/e3?year={y}", f"/reports/yearly/e3?year={y}&print=1", "/dashboard", "/reports/forecast",
+            f"/reports/yearly?year={y}"):
+    h = c.get(url).data.decode()
+    assert "Επισφαλές αποτέλεσμα " + str(y) in h or "⚠ Επισφαλές:" in h, url
+assert "fc-line--res is-unsure" in c.get("/reports/forecast").data.decode()
+print("ok stock warn")

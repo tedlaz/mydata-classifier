@@ -81,8 +81,9 @@
   <dt class="is-sub">= Μικτό κέρδος</dt><dd class="is-sub">{{ pl.gross|el_amount }} €</dd>
   {% endif %}
   <dt>− Έξοδα χρήσης <small>({{ n_exp }})</small></dt><dd>− {{ pl.exp_total|el_amount }} €</dd>
-  <dt class="is-total">= Καθαρό κέρδος</dt><dd class="is-total">{{ pl.profit|el_amount }} €</dd>
+  <dt class="is-total">= Καθαρό κέρδος{{ ' ?' if stock_chk and stock_chk.unsure }}</dt><dd class="is-total">{{ pl.profit|el_amount }} €</dd>
 </dl>
+{% include "_stock_warn.html" %}
 {% include "_tax.html" %}
 {% set exp_e3 = pl.opening_total + pl.purchases_total + pl.closing_total + pl.exp_total + pl.assets_total %}
 {% if (pl.inc_total - inc_net)|abs >= 0.01 or (exp_e3 - exp_net)|abs >= 0.01 %}

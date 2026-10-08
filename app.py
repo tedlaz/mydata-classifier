@@ -2879,6 +2879,7 @@ def reports_yearly():
     # Όλες οι στήλες, πάντα — ίδιες με το συνοπτικό βιβλίο του myDATA.
     return render_template(
         "reports_yearly.html", year=year, years=years, rows=rows, cols=YEARLY_TABLE_COLS, pl=pl,
+        stock_chk=_stock_check(cid, year),
         unc=unc, unc_count=unc_count, per_q=per_q, table_rows=table_rows,
         income_total=total("income"), expense_total=total("expense"),
         chart=_yearly_chart(rows), cum=cum, has_prev=has_prev, prev_year=prev_y,
@@ -2966,6 +2967,24 @@ def _pl(inc_docs: list[dict], exp_docs: list[dict]) -> dict:
     return pl
 
 
+def _stock_check(cid: int | None, year: str, exp_docs: list[dict] | None = None) -> dict:
+    """Αποθέματα μιας χρήσης για το κόστος πωληθέντων. Έναρξης = η εγγραφή 2.13 της χρήσης ή, αν λείπει, τα
+    αποθέματα λήξης (2.14) της προηγούμενης· λήξης = η εγγραφή 2.14 της χρήσης. used = υπάρχουν και τα δύο.
+    unsure = η χρήση έχει κόστος πωληθέντων (αγορές 2.1/2.2 ή αποθέματα) χωρίς και τα δύο: το αποτέλεσμα είναι
+    επισφαλές (π.χ. απόθεμα που αγοράστηκε για την επόμενη χρήση)· why = τι λείπει."""
+    load = lambda y: db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y)  # noqa: E731
+    st, pst = _pl([], load(year) if exp_docs is None else exp_docs), _pl([], load(str(int(year) - 1)))
+    s_open, src = ((st["opening_total"], "own") if st["opening"] else
+                   (pst["closing_total"], "prev") if pst["closing"] else (0.0, None))
+    used = bool(src and st["closing"])
+    why = None if used else (
+        "χωρίς εγγραφές αποθεμάτων" if not src and not st["closing"] else
+        "ανοιχτή χρήση: τα αποθέματα λήξης δηλώνονται στο κλείσιμο" if src and year == str(datetime.now(ATHENS).year) else
+        "χωρίς αποθέματα λήξης" if src else f"χωρίς αποθέματα έναρξης (ούτε λήξης στο {int(year) - 1})")
+    return {"open": round(s_open, 2), "src": src, "close": st["closing_total"], "has_close": bool(st["closing"]),
+            "used": used, "why": why, "unsure": not used and bool(src or st["closing"] or st["purchases"])}
+
+
 def _nondeductible_vat(exp_docs: list[dict]) -> dict:
     """Πληροφοριακά: ΦΠΑ εξόδων που δεν εκπίπτει (χωρίς χαρακτηρισμό ΦΠΑ 361–366, όπως στο OLAP / Φ2)
     και πόσος από αυτόν έχει ήδη μπει στα ποσά Ε3 (in_e3) ή όχι (out_e3). Δεν αλλάζει το κέρδος."""
@@ -3015,7 +3034,7 @@ def reports_yearly_e3():
     # ?print=1: αυτόνομη σελίδα A4 για «Αποθήκευση ως PDF» από τον browser.
     return render_template(
         "yearly_e3_print.html" if request.args.get("print") else "reports_yearly_e3.html",
-        year=year, pl=pl, tax=_year_tax(cid, int(year), pl["profit"], withheld),
+        year=year, pl=pl, tax=_year_tax(cid, int(year), pl["profit"], withheld), stock_chk=_stock_check(cid, year, exp_docs),
         years=sorted(set(db.document_years(cid)) | {year}, reverse=True),
         back=_safe_back(request.args.get("back")) or url_for("dashboard"),  # από όπου άνοιξε (συνοπτικό βιβλίο / πίνακας ελέγχου)
         inc_net=net(inc_docs), exp_net=net(exp_docs), now_str=datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -3136,11 +3155,13 @@ def _smooth(pts: list[tuple[float, float]]) -> str:
     return "".join(out)
 
 
-def _cmp_lines(years: list[str], series: list[list[float]], proj: list[float], ytd: float, done: int, today: float) -> dict:
+def _cmp_lines(years: list[str], series: list[list[float]], proj: list[float], ytd: float, done: int, today: float,
+               unsure: list[bool] | None = None) -> dict:
     """Γεωμετρία SVG (viewBox 760×160), άξονας 12 μηνών (σημείο i = τέλος του μήνα i+1), ένα σωρευτικό μέγεθος:
     ανά έτος μία καμπύλη (τα προηγούμενα όλο το έτος, το τρέχον στους done ολοκληρωμένους μήνες + σημείο ytd στη
     θέση today) και η προβολή του τρέχοντος (proj, 12 τιμές) από σήμερα έως τον Δεκέμβριο. Ομαλές καμπύλες
-    (_smooth). Ετικέτες τέλους απομακρυσμένες ώστε να μη συμπίπτουν. slot = απόσταση από το τρέχον έτος (0 = φέτος)."""
+    (_smooth). Ετικέτες τέλους απομακρυσμένες ώστε να μη συμπίπτουν. slot = απόσταση από το τρέχον έτος (0 = φέτος).
+    unsure = ανά έτος, επισφαλής καμπύλη (διακεκομμένη)."""
     W, H, left, right, top, bottom = 760, 160, 64, 110, 12, 26
     base = H - bottom
     vals = [v for s in series for v in s] + proj + [ytd]
@@ -3153,7 +3174,7 @@ def _cmp_lines(years: list[str], series: list[list[float]], proj: list[float], y
         pts = list(enumerate(s)) + ([(today, ytd)] if cur else [])
         end, v = (11, proj[-1]) if cur and proj else pts[-1]
         lines.append({"year": yr, "slot": len(years) - 1 - k, "v": v, "ex": x(end), "ey": y(v), "proj": cur and bool(proj),
-                      "d": path(pts)})
+                      "d": path(pts), "unsure": bool(unsure and unsure[k])})
     for i, ln in enumerate(sorted(lines, key=lambda ln: ln["ey"])):  # ετικέτες τέλους ≥ 14px μεταξύ τους
         ln["ly"] = ln["ey"] if not i else max(ln["ey"], prev + 14)
         prev = ln["ly"]
@@ -3264,33 +3285,16 @@ def _compare(cid: int | None, now: datetime) -> dict:
     years = [str(y) for y in range(now.year - _CMP_YEARS + 1, now.year + 1) if str(y) in have or y == now.year]
     with_stock = stock_in("dashboard")
     in_cut = lambda d: "01-01" <= (d["issue_date"] or "")[5:10] <= md  # noqa: E731
-    closes: dict = {}  # αποθέματα λήξης ανά χρήση: (ποσό, υπάρχει εγγραφή;)
-
-    def close_of(y):
-        if y not in closes:
-            st = _pl([], db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y))
-            closes[y] = (st["closing_total"], bool(st["closing"]))
-        return closes[y]
-
     Y = {}
     for y in years:
         all_inc = db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, y)
         inc = [d for d in all_inc if in_cut(d)]
         raw = db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y)
-        # Αποθέματα: έναρξης = η εγγραφή 2.13 της χρήσης ή, αν λείπει, τα αποθέματα λήξης της προηγούμενης·
-        # λήξης = η εγγραφή 2.14 της χρήσης. Μετρούν μόνο με ΚΑΙ τα δύο (αλλιώς το αποτέλεσμα «κρέμεται»:
-        # π.χ. απόθεμα που αγοράστηκε για την επόμενη χρήση) και τότε λογίζονται στην αρχή της χρήσης, ώστε η
-        # μεταβολή τους να μετρά και στο year to date (η εγγραφή γίνεται οποτεδήποτε, συνήθως στο κλείσιμο).
-        st = _pl([], raw)
-        closes[y] = (st["closing_total"], bool(st["closing"]))
-        prev_close, had_close = close_of(str(int(y) - 1))
-        s_open, src = ((st["opening_total"], "own") if st["opening"] else
-                       (prev_close, "prev") if had_close else (0.0, None))
-        used = src is not None and bool(st["closing"])
-        why = None if used else (
-            "χωρίς εγγραφές αποθεμάτων" if src is None and not st["closing"] else
-            "ανοιχτή χρήση: τα αποθέματα λήξης δηλώνονται στο κλείσιμο" if src and y == years[-1] else
-            "χωρίς αποθέματα λήξης" if src else f"χωρίς αποθέματα έναρξης (ούτε λήξης στο {int(y) - 1})")
+        # Αποθέματα (_stock_check): μετρούν μόνο με έναρξης ΚΑΙ λήξης (αλλιώς το αποτέλεσμα «κρέμεται») και τότε
+        # λογίζονται στην αρχή της χρήσης, ώστε η μεταβολή τους να μετρά και στο year to date (η εγγραφή γίνεται
+        # οποτεδήποτε, συνήθως στο κλείσιμο).
+        sc = _stock_check(cid, y, raw)
+        used = sc["used"]
         all_exp = [dict(d, cls_json=json.dumps([e for e in json.loads(d["cls_json"] or "[]")
                                                  if e.get("category") not in STOCK_CATEGORIES])) for d in raw]
         exp = [d for d in all_exp if in_cut(d)]
@@ -3299,7 +3303,7 @@ def _compare(cid: int | None, now: datetime) -> dict:
         opening = [{"issue_date": f"{y}-01-01", "invoice_type": "", "counterparty_vat": "", "counterparty_name": None,
                     "total_net": amt, "total_vat": 0, "lines_json": "[]", **dict.fromkeys(db.EXTRA_TOTALS, 0),
                     "cls_json": json.dumps([{"type": "", "category": cat, "amount": amt}])}
-                   for cat, amt in ((OPENING_STOCK, s_open), (CLOSING_STOCK, st["closing_total"]))] if used else []
+                   for cat, amt in ((OPENING_STOCK, sc["open"]), (CLOSING_STOCK, sc["close"]))] if used else []
         late = [d for d in all_exp if not in_cut(d)]
         it, et = _yearly_totals(inc), _yearly_totals(exp)
         s = lambda t, c: round(sum(t[m][c] for m in range(1, 13)), 2)  # noqa: E731  (inc/exp ήδη έως σήμερα)
@@ -3340,9 +3344,10 @@ def _compare(cid: int | None, now: datetime) -> dict:
             # Ανάλυση κόστους πωληθέντων (year to date): έναρξης + αγορές − λήξης.
             "s_open": pl["opening_total"], "purchases": pl["purchases_total"], "s_close": pl["closing_total"],
             # Αποθέματα όλης της χρήσης (ενότητα «Αποθέματα»).
-            "stock_open": round(s_open, 2), "stock_src": src, "stock_close": st["closing_total"],
-            "has_close": bool(st["closing"]), "stock_used": used, "stock_why": why,
+            "stock_open": sc["open"], "stock_src": sc["src"], "stock_close": sc["close"],
+            "has_close": sc["has_close"], "stock_used": used, "stock_why": sc["why"],
             "exp_ns": round(pl["purchases_total"] + pl["exp_total"], 2),  # χωρίς αποθέματα: βάση της προβολής
+            "purch_full": round(sum(p["purchases_total"] for p in mpl), 2),
         }
         r["vat_net"] = round(r["vat_out"] - r["vat_in"], 2)
         r["margin"] = round(r["profit"] / r["income"] * 100, 1) if r["income"] else None
@@ -3378,13 +3383,18 @@ def _compare(cid: int | None, now: datetime) -> dict:
         proj_out.append(round(acc_out if i >= done else cur["expense"], 2))
     today = max(done - 1 + now.day / calendar.monthrange(now.year, now.month)[1], 0)  # θέση της σημερινής ημέρας
 
-    def cum_chart(key, series_key, title, good_up, pr, ytd):
+    # Εταιρεία με κόστος πωληθέντων (αγορές αποθεμάτων ή αποθέματα): σε χρήση χωρίς αποθέματα έναρξης και λήξης
+    # το αποτέλεσμα είναι επισφαλές σε όλη τη διάρκεια του έτους → διακεκομμένη καμπύλη.
+    trade = any(Y[y]["purch_full"] or Y[y]["stock_src"] or Y[y]["has_close"] for y in years)
+    unsure = [trade and not Y[y]["stock_used"] for y in years]
+
+    def cum_chart(key, series_key, title, good_up, pr, ytd, uns=None):
         """Ένα από τα τρία σωρευτικά γραφήματα + η προβολή του έναντι όλου του περσινού έτους."""
         prev_full = prev[series_key][-1] if prev else None
         return {"key": key, "title": title, "good_up": good_up, "proj_v": pr[-1], "prev_full": prev_full,
                 "d": _cmp_delta(pr[-1], prev_full) if prev else None,
                 "chart": _cmp_lines(years, [Y[y][series_key] for y in years[:-1]] + [cur[series_key][:done]],
-                                    pr, ytd, done, today)}
+                                    pr, ytd, done, today, uns)}
     proj_method = f"{m_in} · {m_out}"
 
     def kpi(key, label, good_up):
@@ -3475,7 +3485,8 @@ def _compare(cid: int | None, now: datetime) -> dict:
         # Τρία σωρευτικά γραφήματα το ένα κάτω από το άλλο (ίδια χρώματα ετών με όλη την αναφορά).
         "cums": [cum_chart("in", "cum_in_full", "Σωρευτικά έσοδα", True, proj_in, cur["income"]),
                  cum_chart("out", "cum_out_full", "Σωρευτικά έξοδα", False, proj_out, cur["expense"]),
-                 cum_chart("res", "cum_full", "Σωρευτικό αποτέλεσμα", True, proj, cur["profit"])],
+                 cum_chart("res", "cum_full", "Σωρευτικό αποτέλεσμα", True, proj, cur["profit"], unsure)],
+        "unsure": [y for y, u in zip(years, unsure) if u],
         "proj_method": proj_method,
         # Αθροιστικά της περιόδου (όχι ανά μήνα: ίδια έσοδα/έξοδα καταχωρούνται σε άλλο μήνα κάθε χρόνο).
         "totals": _cmp_bars(years, [[Y[y][k] for k in _CMP_TOTALS] for y in years], list(_CMP_TOTALS.values())),
@@ -4005,6 +4016,7 @@ def reports_forecast():
                withheld_span=f"{_GREEK_MONTHS[0]}–{_GREEK_MONTHS[done - 1]}" if done else "")
     return render_template(
         "reports_forecast.html", year=year, prev_year=year - 1, done=done, rows=rows, total=total, ytd=ytd,
+        stock_chk=_stock_check(cid, str(year)),
         history=history, sc=sc, start=start, expected=expected, tax=tax, plan_result=total["result"] if planned else None, labels={"income": label_in, "expense": label_var},
         has_prev=any(prev_in) or any(prev_op), prev_in_total=tot(prev_in), errors=errors,
         fixed=[{"label": EXPENSE_TYPES.get(t, t), "code": t, "amount": v} for t, v in fixed.items()],
@@ -4399,6 +4411,7 @@ def dashboard():
         assets=_assets_card(cid, now.year, rows),
         pl=_pl(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year),
                db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year)),  # όπως στο συνοπτικό βιβλίο
+        stock_chk=_stock_check(cid, year),
         vat_periods=_yearly_vat_periods(rows, year, now),
         todos=todos, segments=segments,
         exp_total=exp_total, done_pct=done_pct, inc_st=inc_st,
