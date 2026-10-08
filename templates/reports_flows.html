@@ -248,7 +248,10 @@ html[data-flows-vt="same"]{--fl-dx:0px}
     const vt = document.startViewTransition(once);
     vt.ready.catch(() => {});  // παράλειψη μετάβασης: όχι σφάλμα
     vt.finished.then(clear, clear);
-    setTimeout(() => { if (!swapped) { vt.skipTransition(); once(); } clear(); }, 400);
+    setTimeout(() => { if (!swapped) { vt.skipTransition(); once(); } }, 400);
+    // Εφεδρικό καθάρισμα αρκετά μετά τη διάρκεια της μετάβασης (~0,52s): ποτέ στη μέση της,
+    // αλλιώς χάνονται οι κανόνες του animation και η εικόνα «πηδάει» στο τέλος.
+    setTimeout(clear, 1500);
   }
   let vtId = 0;
   document.addEventListener('click', e => {
