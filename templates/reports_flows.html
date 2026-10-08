@@ -19,17 +19,15 @@ html[data-flows-vt]::view-transition-old(root){display:none}
 html[data-flows-vt]::view-transition-new(root){animation:none}
 html[data-flows-vt] [data-swap="title"]{view-transition-name:flows-title}
 html[data-flows-vt] [data-swap="tools"]{view-transition-name:flows-tools}
-html[data-flows-vt] [data-swap="kpis"]{view-transition-name:flows-kpis}
 html[data-flows-vt] [data-swap="body"]{view-transition-name:flows-body}
 html[data-flows-vt]::view-transition-group(flows-title),html[data-flows-vt]::view-transition-group(flows-tools),
-html[data-flows-vt]::view-transition-group(flows-kpis),html[data-flows-vt]::view-transition-group(flows-body){animation-duration:.42s;animation-timing-function:cubic-bezier(.2,.7,.2,1)}
+html[data-flows-vt]::view-transition-group(flows-body){animation-duration:.42s;animation-timing-function:cubic-bezier(.2,.7,.2,1)}
 html[data-flows-vt]::view-transition-old(flows-title),html[data-flows-vt]::view-transition-old(flows-tools),
-html[data-flows-vt]::view-transition-old(flows-kpis),html[data-flows-vt]::view-transition-old(flows-body){animation:fl-out .2s ease-in both}
+html[data-flows-vt]::view-transition-old(flows-body){animation:fl-out .2s ease-in both}
 html[data-flows-vt]::view-transition-new(flows-title),html[data-flows-vt]::view-transition-new(flows-tools),
-html[data-flows-vt]::view-transition-new(flows-kpis),html[data-flows-vt]::view-transition-new(flows-body){animation:fl-in .42s cubic-bezier(.2,.7,.2,1) both}
+html[data-flows-vt]::view-transition-new(flows-body){animation:fl-in .42s cubic-bezier(.2,.7,.2,1) both}
 html[data-flows-vt]::view-transition-new(flows-tools){animation-delay:.03s}
-html[data-flows-vt]::view-transition-new(flows-kpis){animation-delay:.06s}
-html[data-flows-vt]::view-transition-new(flows-body){animation-delay:.1s}
+html[data-flows-vt]::view-transition-new(flows-body){animation-delay:.07s}
 html[data-flows-vt="older"]{--fl-dx:-28px}
 html[data-flows-vt="newer"]{--fl-dx:28px}
 html[data-flows-vt="same"]{--fl-dx:0px}
@@ -82,24 +80,6 @@ html[data-flows-vt="same"]{--fl-dx:0px}
           {{ month_spark(monthly, months, this_month) }}
         </div>
       </div>
-    </div>
-    <div data-swap="kpis">
-    {% if sankey %}
-    <div class="db-kpis">
-      <div class="db-kpi" style="--i:0">
-        <small><i class="db-dot" style="background:var(--yr-in)"></i>Έσοδα {{ year }}</small>
-        <b>{{ sankey.inc|el_amount }}<i>€</i></b>
-      </div>
-      <div class="db-kpi" style="--i:1">
-        <small><i class="db-dot" style="background:var(--yr-out)"></i>Έξοδα {{ year }}</small>
-        <b>{{ sankey.exp|el_amount }}<i>€</i></b>
-      </div>
-      <div class="db-kpi" style="--i:2">
-        <small>📈 {{ 'Κέρδος' if sankey.profit >= 0 else 'Ζημία' }}</small>
-        <b><span class="{{ 'neg' if sankey.profit < 0 }}">{{ sankey.profit|el_amount }}</span><i>€</i></b>
-      </div>
-    </div>
-    {% endif %}
     </div>
   </section>
 
