@@ -962,9 +962,12 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], pick: tuple | None = Non
                 g = out.setdefault(label, [0.0, []])
                 g[0] += amount * share
                 g[1].append((d, amount * share))
+        # Τα αποθέματα λήξης μένουν πάντα χωριστός κόμβος (ποτέ στα «Λοιποί»), σε κάθε ομαδοποίηση.
+        fixed = [(CLOSING_LABEL, round(out[CLOSING_LABEL][0], 2), out.pop(CLOSING_LABEL)[1])] if CLOSING_LABEL in out else []
+        fixed = [t for t in fixed if t[1] > 0.005]
         items = sorted(((k, round(v, 2), m) for k, (v, m) in out.items()), key=lambda t: -t[1])
-        floor = _SK_MIN_SHARE * sum(t[1] for t in items)
-        keep = [t for t in items[:_SK_MAX] if t[1] > 0 and t[1] >= floor]
+        floor = _SK_MIN_SHARE * (sum(t[1] for t in items) + sum(t[1] for t in fixed))
+        keep = [t for t in items[:_SK_MAX - len(fixed)] if t[1] > 0 and t[1] >= floor]
         rest = round(sum(t[1] for t in items) - sum(t[1] for t in keep), 2)
         # Ομάδες με αρνητικό υπόλοιπο (πιστωτικά) πάνε στα «Λοιποί»· αν αυτά βγουν αρνητικά, τα συμψηφίζουν
         # οι μικρότερες ομάδες, ώστε το άθροισμα να μένει ακριβώς το σύνολο.
@@ -972,7 +975,7 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], pick: tuple | None = Non
             rest = round(rest + keep.pop()[1], 2)
         kept = {t[0] for t in keep}
         others = [m for t in items if t[0] not in kept for m in t[2]]
-        return keep + ([("Λοιποί", rest, others)] if rest > 0.005 else [])
+        return keep + fixed + ([("Λοιποί", rest, others)] if rest > 0.005 else [])
 
     inc_rows, _ = items(inc_docs, "income")
     closing_rows, exp_rows = items(exp_docs, "expense")
@@ -1001,8 +1004,10 @@ def _sankey(inc_docs: list[dict], exp_docs: list[dict], pick: tuple | None = Non
                                ("dst", ("Κέρδος", max(profit, 0), "var(--ok)"), True)):
         for key, (title, nodes) in sides[side].items():
             # 7 διακριτά χρώματα (σταθερή σειρά, χωρίς ανακύκλωση)· από τον 8ο ουδέτερο γκρι, «Λοιποί» πιο ανοιχτό.
-            nodes = [(lbl, v, "var(--s-other)" if lbl == "Λοιποί" else f"var(--s{i + 1})" if i < 7 else "var(--s-rest)")
-                     for i, (lbl, v, _m) in enumerate(nodes)]
+            # Τα αποθέματα λήξης έχουν πάντα το 7ο χρώμα (ίδιο σε κάθε ομαδοποίηση)· τότε οι υπόλοιποι παίρνουν 6.
+            n_col = 6 if any(lbl == CLOSING_LABEL for lbl, _v, _m in nodes) else 7
+            nodes = [(lbl, v, "var(--s-other)" if lbl == "Λοιποί" else "var(--s7)" if lbl == CLOSING_LABEL
+                      else f"var(--s{i + 1})" if i < n_col else "var(--s-rest)") for i, (lbl, v, _m) in enumerate(nodes)]
             if extra:
                 nodes = [extra, *nodes] if first else [*nodes, extra]
             sides[side][key] = (title, nodes)
