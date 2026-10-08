@@ -3112,38 +3112,71 @@ def _cmp_axis(lo: float, hi: float, base: float, top: float):
     return y, [{"v": ymin + step * k, "y": y(ymin + step * k)} for k in range(n + 1)]
 
 
-def _cmp_lines(years: list[str], series: list[list[float]], proj: list[float], done: int, today: float, ytd: float) -> dict:
-    """Γεωμετρία SVG (viewBox 760×250), άξονας 12 μηνών (σημείο i = τέλος του μήνα i+1): μία καμπύλη ανά έτος
+def _smooth(pts: list[tuple[float, float]]) -> str:
+    """Path SVG με ομαλή καμπύλη από σημεία (x, y σε pixels): μονότονη κυβική Hermite (Fritsch–Carlson) ως bezier —
+    περνά από όλα τα σημεία χωρίς υπερβάσεις (σωρευτικό που μένει ίδιο δεν «φουσκώνει»)."""
+    n = len(pts)
+    if n < 3:
+        return "M" + " L".join(f"{px:.1f},{py:.1f}" for px, py in pts)
+    d = [(pts[i + 1][1] - pts[i][1]) / ((pts[i + 1][0] - pts[i][0]) or 1e-9) for i in range(n - 1)]
+    m = [d[0]] + [0.0 if d[i - 1] * d[i] <= 0 else (d[i - 1] + d[i]) / 2 for i in range(1, n - 1)] + [d[-1]]
+    for i in range(n - 1):
+        if d[i] == 0:
+            m[i] = m[i + 1] = 0.0
+            continue
+        a, b = m[i] / d[i], m[i + 1] / d[i]
+        if a * a + b * b > 9:  # περιορισμός κλίσεων: διατηρεί τη μονοτονία
+            t = 3 / (a * a + b * b) ** 0.5
+            m[i], m[i + 1] = t * a * d[i], t * b * d[i]
+    out = [f"M{pts[0][0]:.1f},{pts[0][1]:.1f}"]
+    for i in range(n - 1):
+        (x0, y0), (x1, y1) = pts[i], pts[i + 1]
+        h = (x1 - x0) / 3
+        out.append(f"C{x0 + h:.1f},{y0 + m[i] * h:.1f} {x1 - h:.1f},{y1 - m[i + 1] * h:.1f} {x1:.1f},{y1:.1f}")
+    return "".join(out)
+
+
+def _cmp_lines(years: list[str], layers: list[dict], done: int, today: float) -> dict:
+    """Γεωμετρία SVG (viewBox 760×280), άξονας 12 μηνών (σημείο i = τέλος του μήνα i+1). layers = σωρευτικά
+    μεγέθη ({key: "res" αποτέλεσμα | "in" έσοδα, series ανά έτος, proj 12 τιμές, ytd}): ανά έτος μία καμπύλη
     (τα προηγούμενα όλο το έτος, το τρέχον στους done ολοκληρωμένους μήνες + σημείο ytd στη θέση today) και η
-    προβολή του τρέχοντος (proj, 12 σωρευτικές τιμές) από σήμερα έως τον Δεκέμβριο. Ετικέτες τέλους
+    προβολή του τρέχοντος από σήμερα έως τον Δεκέμβριο. Ομαλές καμπύλες (_smooth). Ετικέτες τέλους
     απομακρυσμένες ώστε να μη συμπίπτουν. slot = απόσταση από το τρέχον έτος (0 = φέτος)."""
-    W, H, left, right, top, bottom = 760, 250, 64, 120, 16, 30
+    W, H, left, right, top, bottom = 760, 280, 64, 130, 16, 30
     base = H - bottom
-    vals = [v for s in series for v in s] + proj + [ytd]
+    vals = [v for L in layers for s in L["series"] for v in s] + [v for L in layers for v in L["proj"] + [L["ytd"]]]
     y, ticks = _cmp_axis(min(vals + [0]), max(vals + [0]), base, top)
     x = lambda i: round(left + i / 11 * (W - left - right), 1)  # noqa: E731
-    path = lambda pts: "M" + " L".join(f"{x(i)},{y(v)}" for i, v in pts)  # noqa: E731
-    lines = []
-    for k, (yr, s) in enumerate(zip(years, series)):
-        cur = k == len(years) - 1
-        pts = list(enumerate(s)) + ([(today, ytd)] if cur else [])
-        end, v = (11, proj[-1]) if cur and proj else pts[-1]
-        lines.append({"year": yr, "slot": len(years) - 1 - k, "v": v, "ex": x(end), "ey": y(v), "proj": cur and bool(proj),
-                      "d": path(pts)})
+    path = lambda pts: _smooth([(x(i), y(v)) for i, v in pts])  # noqa: E731
+    lines, projs, todays = [], [], []
+    for L in layers:
+        for k, (yr, s) in enumerate(zip(years, L["series"])):
+            cur = k == len(years) - 1
+            pts = list(enumerate(s)) + ([(today, L["ytd"])] if cur else [])
+            end, v = (11, L["proj"][-1]) if cur and L["proj"] else pts[-1]
+            lines.append({"key": L["key"], "year": yr, "slot": len(years) - 1 - k, "v": v, "ex": x(end), "ey": y(v),
+                          "proj": cur and bool(L["proj"]), "d": path(pts)})
+        if L["proj"]:
+            projs.append({"key": L["key"], "d": path([(today, L["ytd"])] + [(i, L["proj"][i]) for i in range(done, 12)])})
+        todays.append({"key": L["key"], "x": x(today), "y": y(L["ytd"]), "v": L["ytd"]})
     for i, ln in enumerate(sorted(lines, key=lambda ln: ln["ey"])):  # ετικέτες τέλους ≥ 14px μεταξύ τους
         ln["ly"] = ln["ey"] if not i else max(ln["ey"], prev + 14)
         prev = ln["ly"]
     slot = (W - left - right) / 11
     months = []
     for i in range(12):
-        vals_i = [(yr, len(years) - 1 - k, s[i], False) for k, (yr, s) in enumerate(zip(years, series)) if i < len(s)]
-        if proj and i >= done:
-            vals_i.append((years[-1], 0, proj[i], True))
+        # Ανά έτος: (έτος, slot, αποτέλεσμα, προβολή;, έσοδα) — φέτος από τη στιγμή που ξεκινά η προβολή.
+        at = lambda L, k, s: s[i] if i < len(s) else (L["proj"][i] if k == len(years) - 1 and L["proj"] and i >= done else None)  # noqa: E731
+        vals_i = []
+        for k, yr in enumerate(years):
+            got = {L["key"]: at(L, k, L["series"][k]) for L in layers}
+            if got.get("res") is not None:
+                vals_i.append((yr, len(years) - 1 - k, got["res"], k == len(years) - 1 and i >= len(layers[0]["series"][k]),
+                               got.get("in")))
         months.append({"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(x(i) - slot / 2, 1), "w": round(slot, 1),
                        "vals": vals_i[::-1]})
     return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "lines": lines, "months": months,
-            "ticks": ticks, "cut_x": x(today), "today": (x(today), y(ytd), ytd),
-            "proj": path([(today, ytd)] + [(i, proj[i]) for i in range(done, 12)]) if proj else ""}
+            "ticks": ticks, "cut_x": x(today), "projs": projs, "todays": todays}
 
 
 def _bar_path(x: float, w: float, by: float, ty: float) -> str:
@@ -3173,7 +3206,7 @@ def _cmp_bars(years: list[str], series: list[list[float]], labels: list[str]) ->
         bars = [{"slot": len(years) - 1 - j, "d": _bar_path(cx - group / 2 + j * (bw + 2), bw, y(0), y(s[i]))}
                 for j, s in enumerate(series)]
         months.append({"label": labels[i], "cx": round(cx, 1), "x": round(left + slot * i, 1), "w": round(slot, 1),
-                       "bars": bars, "vals": [(yr, len(years) - 1 - j, s[i], False) for j, (yr, s) in enumerate(zip(years, series))][::-1]})
+                       "bars": bars, "vals": [(yr, len(years) - 1 - j, s[i], False, None) for j, (yr, s) in enumerate(zip(years, series))][::-1]})
     return {"w": W, "h": H, "left": left, "right": W - right, "top": top, "base": base, "zero": y(0),
             "months": months, "ticks": ticks}
 
@@ -3267,10 +3300,11 @@ def _compare(cid: int | None, now: datetime) -> dict:
         # Όλοι οι μήνες του έτους (οι ολοκληρωμένοι ταυτίζονται με τη σύγκριση): καμπύλη + βάση της προβολής.
         of = lambda docs, m: [d for d in docs if (d["issue_date"] or "")[5:7] == f"{m:02d}"]  # noqa: E731
         mpl = [_pl(of(all_inc, m), of(exp + opening + late, m)) for m in range(1, 13)]
-        cum_full, acc = [], 0.0
+        cum_full, cum_in_full, acc, acc_in = [], [], 0.0, 0.0  # σωρευτικό αποτέλεσμα / σωρευτικά έσοδα
         for p in mpl:
-            acc += p["profit"]
+            acc, acc_in = acc + p["profit"], acc_in + p["inc_total"]
             cum_full.append(round(acc, 2))
+            cum_in_full.append(round(acc_in, 2))
         cum = cum_full[:done]
         # Μετά τη σημερινή ημερομηνία, ανά μήνα (έσοδα / έξοδα Ε3): βάση της αναλογικής προβολής.
         rest = [_pl(of([d for d in all_inc if not in_cut(d)], m), of(late, m)) for m in range(1, 13)]
@@ -3281,7 +3315,7 @@ def _compare(cid: int | None, now: datetime) -> dict:
             "assets": s(et, "assets"), "depreciation": s(et, "depreciation"),
             # Όλο το έτος (για τα προηγούμενα): αγορές / αποσβέσεις συχνά καταχωρούνται μετά τη σημερινή ημερομηνία.
             **{k + "_full": round(sum(v[k] for v in _yearly_totals(all_exp).values()), 2) for k in ("assets", "depreciation")},
-            "cum": cum, "cum_full": cum_full,
+            "cum": cum, "cum_full": cum_full, "cum_in_full": cum_in_full,
             "r_in": [p["inc_total"] for p in rest], "r_out": [p["cogs"] + p["exp_total"] for p in rest],
             "n_in": len(inc), "n_out": len(exp),
             "credits": sum(d["invoice_type"] in CREDIT_INVOICE_TYPES for d in inc + exp),
@@ -3318,10 +3352,11 @@ def _compare(cid: int | None, now: datetime) -> dict:
 
     r_in, m_in = rest_of("income", "in", "έσοδα")
     r_out, m_out = rest_of("expense", "out", "έξοδα")
-    proj, acc = [], cur["profit"]
+    proj, proj_in, acc, acc_in = [], [], cur["profit"], cur["income"]
     for i in range(12):
-        acc += r_in[i] - r_out[i]
+        acc, acc_in = acc + r_in[i] - r_out[i], acc_in + r_in[i]
         proj.append(round(acc if i >= done else cur["profit"], 2))
+        proj_in.append(round(acc_in if i >= done else cur["income"], 2))
     proj_method = f"{m_in} · {m_out}"
 
     def kpi(key, label, good_up):
@@ -3404,8 +3439,12 @@ def _compare(cid: int | None, now: datetime) -> dict:
     return {
         "years": years, "span": f"1/1 – {now.day}/{now.month}", "Y": Y, "cur": cur, "prev": prev, "kpis": kpis, "metrics": metrics,
         # Θέση της σημερινής ημέρας στον άξονα (σημείο i = τέλος του μήνα i+1): το YTD σημείο της φετινής καμπύλης.
-        "cum": _cmp_lines(years, [Y[y]["cum_full"] for y in years[:-1]] + [cur["cum"]], proj, done,
-                          max(done - 1 + now.day / calendar.monthrange(now.year, now.month)[1], 0), cur["profit"]),
+        "cum": _cmp_lines(years, [
+            {"key": "res", "series": [Y[y]["cum_full"] for y in years[:-1]] + [cur["cum"]], "proj": proj, "ytd": cur["profit"]},
+            {"key": "in", "series": [Y[y]["cum_in_full"] for y in years[:-1]] + [cur["cum_in_full"][:done]],
+             "proj": proj_in, "ytd": cur["income"]},
+        ], done, max(done - 1 + now.day / calendar.monthrange(now.year, now.month)[1], 0)),
+        "proj_in": proj_in[-1],
         "proj": {"v": proj[-1], "method": proj_method,
                  "prev_full": prev["cum_full"][-1] if prev else None, "d": _cmp_delta(proj[-1], prev["cum_full"][-1]) if prev else None},
         # Αθροιστικά της περιόδου (όχι ανά μήνα: ίδια έσοδα/έξοδα καταχωρούνται σε άλλο μήνα κάθε χρόνο).

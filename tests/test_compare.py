@@ -49,6 +49,9 @@ assert d["e3_out"]["rows"][0]["vals"] == [50.0, 200.0] and d["e3_out"]["rows"][0
 assert d["cur"]["cum"][-1] == 1500.0  # φέτος: 1.700 − 200 (= καθαρό κέρδος Ε3)
 # Πέρσι όλο το έτος (μαζί με τον Δεκέμβριο: P3 9.999)· προβολή = φετινό YTD + περσινά μετά τις 8/10 × 1.700 / 1.500 (έσοδα), × 200 / 50 (έξοδα).
 assert d["cum"]["lines"][0]["v"] == 1500.0 + 9999 - 50
+inc_prev = next(ln for ln in d["cum"]["lines"] if ln["key"] == "in" and ln["year"] == str(y - 1))
+assert inc_prev["v"] == 1500.0 + 9999 and "C" in inc_prev["d"]  # σωρευτικά έσοδα όλο το έτος, ομαλή καμπύλη
+assert abs(d["proj_in"] - (1700.0 + 9999 * 1700 / 1500)) < 0.05, d["proj_in"]
 assert abs(d["proj"]["v"] - (1500.0 + 9999 * 1700 / 1500)) < 0.05, d["proj"]
 assert "έσοδα ×1,13" in d["proj"]["method"] and "έξοδα ×4,00" in d["proj"]["method"], d["proj"]["method"]
 assert any("Έσοδα αυξήθηκαν" in t for _, _, t in d["insights"]), d["insights"]
@@ -63,7 +66,7 @@ assert cur["cogs"] == 400.0 and cur["expense"] == 600.0 and cur["profit"] == 110
 assert round(sum(cur["e3_out"].values()), 2) == cur["expense"] and cur["e3_out"]["category2_13"] == 400.0
 assert cur["cum"][-1] == cur["profit"]
 bars = {m["label"]: m["vals"] for m in d["totals"]["months"]}  # αθροιστικά ανά μέγεθος: (έτος, slot, ποσό), φέτος πρώτο
-assert bars["Σύνολο εξόδων"][0] == (str(y), 0, 600.0, False) and bars["Καθαρό κέρδος"][0][2] == 1100.0, bars
+assert bars["Σύνολο εξόδων"][0] == (str(y), 0, 600.0, False, None) and bars["Καθαρό κέρδος"][0][2] == 1100.0, bars
 
 # Περσινά αποθέματα έναρξης καταχωρημένα τον Δεκέμβριο (μετά το σημείο σύγκρισης): μετρούν, στον Ιανουάριο·
 # ο Δεκέμβριος των υπόλοιπων εγγραφών (P3) μένει εκτός.
@@ -97,7 +100,7 @@ doc("income", "T2", y, 10, "444", 30, day=20)
 doc("income", "T3", y - 1, 10, "444", 40, day=8)
 d = A._compare(cid, now)
 assert d["cur"]["income"] == before + 70 and d["prev"]["income"] == 40.0, (d["cur"]["income"], d["prev"]["income"])
-assert d["cum"]["today"][2] == d["cur"]["profit"] and len(d["cur"]["cum"]) == 9  # σημείο «σήμερα» = YTD
+assert [t["v"] for t in d["cum"]["todays"]] == [d["cur"]["profit"], d["cur"]["income"]] and len(d["cur"]["cum"]) == 9  # σημείο «σήμερα» = YTD
 print("ok ytd")
 # Προβολή από το YTD: έσοδα — πέρσι τίποτα μετά τις 8/10, άρα μόνο το ήδη καταχωρημένο 20/10 (T2 30, ελάχιστο)·
 # έξοδα — πέρσι 0 έως 8/10 (χωρίς βάση) → ημερήσιος ρυθμός φετινού YTD × μέρες που απομένουν.
@@ -112,3 +115,10 @@ doc("expense", "A0", y - 1, 11, "555", 1000, e3=("E3_882_001", "category2_7"), d
 d = A._compare(cid, now)
 assert d["prev"]["assets"] == 0 and d["prev"]["assets_full"] == 1000.0, d["prev"]
 print("ok assets full")
+
+# Ομαλή καμπύλη: περνά από τα σημεία και δεν ξεπερνά επίπεδο τμήμα (μονότονη).
+p = A._smooth([(0, 100), (10, 50), (20, 50), (30, 0)])
+assert p.startswith("M0.0,100.0") and p.endswith("30.0,0.0") and "C" in p
+seg = p.split("C")[2]  # 2ο τμήμα (10,50)→(20,50): οριζόντια σημεία ελέγχου
+assert seg.startswith("13.3,50.0 16.7,50.0"), seg
+print("ok smooth")
