@@ -74,7 +74,7 @@
           {% else %}
           <td data-label="MARK" class="mark"><a href="{{ doc_url }}" title="Λεπτομέρειες">{{ inv.mark }}</a>{% if view == 'sent' %}<span class="sub-mark" title="MARK χαρακτηρισμού">χαρ. {{ inv.classification_mark or '—' }}</span>{% endif %}</td>
           {% endif %}
-          <td data-label="Ημ/νία" class="doc-date">{{ inv.issue_date or "—" }}</td>
+          <td data-label="Ημ/νία" class="doc-date">{{ inv.issue_date or "—" }}{% if inv.late and view == 'unclassified' %}<span class="pill" title="Ανέβηκε στο myDATA μετά τον μήνα έκδοσης">⏰ εκπρόθεσμο</span>{% endif %}</td>
           <td data-label="Εκδότης">
             <span class="issuer" data-vat="{{ inv.issuer_vat or '' }}">
               {{ issuer_name(inv) }}

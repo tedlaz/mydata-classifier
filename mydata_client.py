@@ -365,6 +365,43 @@ class MyDataClient:
 
         return self_invoices, cls_map, cancelled_marks
 
+    def new_since(self, endpoint: str, mark: int) -> tuple[int, list[tuple[str, str]], set[str]]:
+        """
+        Ό,τι διαβιβάστηκε με MARK > mark (RequestDocs ή RequestTransmittedDocs) ΧΩΡΙΣ φίλτρο
+        ημερομηνίας έκδοσης: πιάνει και τα εκπρόθεσμα. Τα MARK του myDATA είναι χρονολογικά.
+
+        Επιστρέφει (top, docs, refs):
+        - top: μέγιστο MARK όλων των εγγραφών (παραστατικά, χαρακτηρισμοί, ακυρώσεις) ή mark αν δεν ήρθε τίποτα.
+        - docs: [(MARK, issue_date)] των παραστατικών.
+        - refs: MARK παραστατικών στα οποία αναφέρονται νέοι χαρακτηρισμοί/ακυρώσεις.
+        """
+        top, docs, refs = int(mark), [], set()
+        params = self._params({"mark": str(mark)})
+        while True:
+            resp = self.session.get(self.base_url + endpoint, params=params, timeout=60)
+            if resp.status_code == 401:
+                raise MyDataError(
+                    "Μη έγκυρα credentials (401). Έλεγξε aade-user-id / subscription key."
+                )
+            if resp.status_code != 200:
+                raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
+
+            root = ET.fromstring(resp.content)
+            docs += [(i.mark, i.issue_date or "") for i in self._parse_requested_doc(root)]
+            for el in root.iter():
+                tag, txt = _local(el.tag), (el.text or "").strip()
+                if tag in ("mark", "classificationMark", "cancellationMark") and txt.isdigit():
+                    top = max(top, int(txt))
+                elif tag == "invoiceMark" and txt:
+                    refs.add(txt)
+
+            npk = root.findtext(".//req:continuationToken/req:nextPartitionKey", namespaces=NS)
+            nrk = root.findtext(".//req:continuationToken/req:nextRowKey", namespaces=NS)
+            if not (npk and nrk):
+                return top, docs, refs
+            params["nextPartitionKey"] = npk
+            params["nextRowKey"] = nrk
+
     def request_unclassified_expenses(
         self, date_from: str, date_to: str
     ) -> list[ExpenseInvoice]:

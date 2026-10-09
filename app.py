@@ -658,6 +658,7 @@ def _row_to_invoice(row: dict, names: dict | None = None) -> ExpenseInvoice:
     inv.classification_mark = row.get("classification_mark") or ""
     inv.local_action = row.get("local_action") or "classify"
     inv.source = row.get("source") or "rest"
+    inv.late = bool(row.get("late_since"))
     inv.extra_totals = {c: row.get(c) or 0.0 for c in db.EXTRA_TOTALS}
     # None = δεν έχει αναλυθεί ακόμη (παλιά ανάκτηση) → η σελίδα δείχνει μόνο τα σύνολα.
     inv.taxes = json.loads(row["taxes_json"]) if row.get("taxes_json") is not None else None
@@ -769,15 +770,68 @@ _SYNC_SCOPES = {"both": ("income", "expense"), "income": ("income",), "expense":
 _SYNC_NOUNS = {"both": "εσόδων & εξόδων", "income": "εσόδων", "expense": "εξόδων"}
 
 
+# «Νέα από την τελευταία φορά»: τα endpoints κάθε βιβλίου. Τα έξοδα παίρνουν και από τις δικές μας
+# διαβιβάσεις (αυτοτιμολογούμενα, δικοί μας χαρακτηρισμοί).
+_MARK_ENDPOINTS = {"income": ("RequestTransmittedDocs",), "expense": ("RequestDocs", "RequestTransmittedDocs")}
+
+
+def _wm_key(kind: str, endpoint: str, cid: int) -> str:
+    """Τελευταίο MARK ως το οποίο έχουμε ΟΛΑ τα παραστατικά του βιβλίου (ανά endpoint και εταιρεία)."""
+    return f"mark_wm:{kind}:{endpoint}:{cid}"
+
+
+def _init_watermarks(cid: int, kind: str) -> None:
+    """Μετά από ανάκτηση με «Έως» σήμερα: ό,τι υπήρχε στο myDATA για το διάστημα το έχουμε, άρα το
+    μέγιστο τοπικό MARK είναι ασφαλές σημείο εκκίνησης. Μόνο αν δεν υπάρχει ήδη: μια μεταγενέστερη
+    ανάκτηση διαστήματος δεν εγγυάται ότι ήρθαν τα εκπρόθεσμα άλλων μηνών."""
+    top = max((int(r["mark"]) for r in db.get_documents(cid, kind) if (r["mark"] or "").isdigit()), default=None)
+    for ep in _MARK_ENDPOINTS[kind]:
+        if top and not db.get_setting(_wm_key(kind, ep, cid)):
+            db.set_setting(_wm_key(kind, ep, cid), top)
+
+
+def _fetch_new(cid: int, kind: str) -> str:
+    """Ό,τι ανέβηκε στο myDATA μετά το τελευταίο MARK, όποια κι αν είναι η ημερομηνία έκδοσης (εκπρόθεσμα,
+    ακυρώσεις και χαρακτηρισμοί παλιών). Ξανατρέχει την κανονική ανάκτηση για το διάστημα που επηρεάζεται.
+    Το MARK προχωρά μόνο μετά από επιτυχή ανάκτηση (σφάλμα → εξαίρεση, μένει ως είχε)."""
+    keys = {ep: _wm_key(kind, ep, cid) for ep in _MARK_ENDPOINTS[kind]}
+    if not all(db.get_setting(k) for k in keys.values()):
+        raise MyDataError("Δεν υπάρχει ακόμη σημείο αναφοράς: κάνε πρώτα μια «Ανάκτηση» με «Έως» σήμερα.")
+    client = get_client()
+    tops, dates, cand = {}, [], set()
+    for ep, key in keys.items():
+        tops[key], docs, refs = client.new_since(ep, int(db.get_setting(key)))
+        cand |= {m for m, _ in docs}
+        dates += [d[:10] for _, d in docs if d]
+        dates += [r["issue_date"][:10] for m in refs
+                  if (r := db.get_document(cid, m)) and r["kind"] == kind and r["issue_date"]]
+    fresh = {m for m in cand if not db.get_document(cid, m)}
+    if dates:
+        gr = lambda s: date.fromisoformat(s).strftime("%d/%m/%Y")  # noqa: E731
+        # ponytail: ένα διάστημα min–max· αν τα εκπρόθεσμα απλώνονται σε πολλά έτη, ανά μήνα
+        (_fetch_income_range if kind == "income" else _fetch_expense_range)(cid, gr(min(dates)), gr(max(dates)))
+    for key, top in tops.items():
+        db.set_setting(key, top)
+    new = [r for m in fresh if (r := db.get_document(cid, m)) and r["kind"] == kind]
+    this_month = datetime.now(ATHENS).strftime("%Y-%m")
+    late = [r for r in new if (r["issue_date"] or "")[:7] < this_month]
+    db.mark_late(cid, [r["mark"] for r in late])
+    # Μόνο τα αχαρακτήριστα θέλουν προσοχή· τα ήδη χαρακτηρισμένα εκπρόθεσμα δεν αναφέρονται.
+    todo = sorted(f"{r['mark']} ({r['issue_date'][:10]})" for r in late if r["status"] == "unclassified")
+    return (f"✔ Νέα από την τελευταία φορά: {len(new)} παραστατικά"
+            + (f" · ⏰ {len(todo)} αχαρακτήριστα εκπρόθεσμα: {', '.join(todo)}" if todo else "") + ".")
+
+
 @app.route("/sync", methods=["POST"])
 def sync_run():
-    """Ανάκτηση / Διαγραφή / Διαγραφή και ανάκτηση για έσοδα, έξοδα ή και τα δύο. Κάθε βιβλίο
-    ανεξάρτητα: αποτυχία του ενός δεν σταματά το άλλο."""
+    """Ανάκτηση / Νέα από την τελευταία φορά / Διαγραφή / Διαγραφή και ανάκτηση για έσοδα, έξοδα ή και
+    τα δύο. Κάθε βιβλίο ανεξάρτητα: αποτυχία του ενός δεν σταματά το άλλο."""
     scope = request.form.get("scope") if request.form.get("scope") in _SYNC_SCOPES else "both"
-    action = request.form.get("action") if request.form.get("action") in ("fetch", "delete", "refetch") else "fetch"
+    action = request.form.get("action") if request.form.get("action") in ("fetch", "new", "delete", "refetch") else "fetch"
     df, dt, cid, bad = _fetch_dates(scope)
     if bad:
         return bad
+    to_today = request.form["date_to"] == datetime.now(ATHENS).strftime("%Y-%m-%d")
     ok = 0
     for kind in _SYNC_SCOPES[scope]:
         label = "Έσοδα" if kind == "income" else "Έξοδα"
@@ -789,8 +843,13 @@ def sync_run():
                 ok += 1
                 continue
         try:
-            run = _fetch_income_range if kind == "income" else _fetch_expense_range
-            flash(prefix + run(cid, df, dt), "ok")
+            if action == "new":
+                flash(prefix + _fetch_new(cid, kind), "ok")
+            else:
+                run = _fetch_income_range if kind == "income" else _fetch_expense_range
+                flash(prefix + run(cid, df, dt), "ok")
+                if to_today:
+                    _init_watermarks(cid, kind)
             ok += 1
         except Exception as e:  # noqa: BLE001 — network κ.λπ., δεν θέλουμε 500 στο route
             flash(prefix + _fetch_error(e), "error")

@@ -166,6 +166,11 @@ body.is-busy .sy-busy{display:flex}
       <span class="e">📥</span><b>Ανάκτηση</b>
       <small>Φέρνει από το myDATA τα παραστατικά {{ noun }} του διαστήματος. Όσα υπάρχουν ήδη ενημερώνονται, χωρίς διπλότυπα.</small>
     </button>
+    <button type="submit" class="sy-act sy-act--re" style="--i:1" name="action" value="new">
+      <span class="e">🆕</span><b>Νέα από την τελευταία φορά</b>
+      <small>Αγνοεί το διάστημα: φέρνει ό,τι ανέβηκε στο myDATA μετά το τελευταίο MARK, <strong>και τα εκπρόθεσμα</strong> με
+        παλιά ημερομηνία έκδοσης, ακυρώσεις και χαρακτηρισμούς. Προϋπόθεση: μία «Ανάκτηση» με «Έως» σήμερα.</small>
+    </button>
     <button type="submit" class="sy-act sy-act--del" style="--i:1" name="action" value="delete"
             data-confirm="Θα διαγραφούν οριστικά τα τοπικά παραστατικά {{ noun }} της ενεργής εταιρείας για το επιλεγμένο διάστημα. Συνέχεια;">
       <span class="e">🗑️</span><b>Διαγραφή</b>

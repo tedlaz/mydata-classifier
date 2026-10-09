@@ -262,6 +262,8 @@ _DOCUMENT_COLUMNS = {
     "period": "TEXT",
     # Ολόκληρο το XML του παραστατικού από το myDATA (προβολή «Όλα τα στοιχεία»).
     "raw_xml": "TEXT",
+    # Ημερομηνία που εντοπίστηκε ως εκπρόθεσμο («Νέα από την τελευταία φορά»).
+    "late_since": "TEXT",
 }
 EXTRA_TOTALS = ("total_withheld", "total_other_taxes", "total_stamp_duty", "total_fees", "total_deductions")
 # Ανά παραστατικό, ο χαρακτηρισμός ΦΠΑ κρατά κατηγορία ΦΠΑ + ποσό ΦΠΑ της ομάδας.
@@ -1174,6 +1176,15 @@ def mark_sent(doc_id: int, classification_mark: str | None) -> None:
             "UPDATE documents SET status = 'sent', classification_mark = ?, sent_at = ? "
             "WHERE id = ?",
             (classification_mark or "", now, doc_id),
+        )
+
+
+def mark_late(company_id: int, marks) -> None:
+    """Σήμανση εκπρόθεσμων: ανέβηκαν στο myDATA μετά τον μήνα έκδοσής τους."""
+    with get_conn() as conn:
+        conn.executemany(
+            "UPDATE documents SET late_since = date('now') WHERE company_id = ? AND mark = ?",
+            [(company_id, m) for m in marks],
         )
 
 
