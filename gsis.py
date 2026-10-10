@@ -42,7 +42,7 @@ def gsis_available() -> bool:
     return bool(os.getenv("GSIS_USERNAME") and os.getenv("GSIS_PASSWORD"))
 
 
-def lookup_name(afm: str, timeout: int = 15) -> str | None:
+def lookup_name(afm: str, timeout: int = 15, hooks: dict | None = None) -> str | None:
     """
     Επιστρέφει την επωνυμία (onomasia) για το ΑΦΜ, ή None αν δεν βρεθεί /
     δεν υπάρχουν credentials / αποτύχει η κλήση. Δεν σηκώνει exceptions -
@@ -61,6 +61,7 @@ def lookup_name(afm: str, timeout: int = 15) -> str | None:
             data=body.encode("utf-8"),
             headers={"Content-Type": "text/xml; charset=utf-8"},
             timeout=timeout,
+            hooks=hooks,  # log του app (app._log_hooks)
         )
         if resp.status_code != 200:
             return None

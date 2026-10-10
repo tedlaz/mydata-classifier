@@ -26,6 +26,8 @@ from flask import (
     Response,
     abort,
     flash,
+    g,
+    has_request_context,
     redirect,
     render_template,
     request,
@@ -466,14 +468,15 @@ def enrich_names(invoices, vat_attr="issuer_vat", name_attr="issuer_name"):
 
         workers = min(8, len(missing))
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            found = dict(zip(missing, pool.map(vies.lookup_name, missing)))
+            hooks = _log_hooks()  # οι κλήσεις γράφονται στο log της ενέργειας (Ανάκτηση → Ιστορικό συνδέσεων)
+            found = dict(zip(missing, pool.map(lambda v: vies.lookup_name(v, hooks=hooks), missing)))
 
         # fallback στο Μητρώο ΑΑΔΕ/GSIS για όσα δεν βρέθηκαν (επίσης παράλληλα)
         if gsis.gsis_available():
             rest = [v for v, n in found.items() if not n]
             if rest:
                 with ThreadPoolExecutor(max_workers=min(4, len(rest))) as pool:
-                    for v, n in zip(rest, pool.map(gsis.lookup_name, rest)):
+                    for v, n in zip(rest, pool.map(lambda v: gsis.lookup_name(v, hooks=hooks), rest)):
                         found[v] = n
 
         for vat, name in found.items():
@@ -502,6 +505,88 @@ def enrich_counterpart_names(invoices):
 
 
 def get_client() -> MyDataClient:
+    """Client της ενεργής εταιρείας, ένας ανά request: οι ίδιες κλήσεις (π.χ. RequestTransmittedDocs για
+    έσοδα, έξοδα και «Νέα από MARK») γίνονται μία φορά (cache στο MyDataClient._pages). Κάθε απάντηση
+    του myDATA γράφεται στο log της τρέχουσας ενέργειας."""
+    if has_request_context() and "mydata_client" in g:
+        return g.mydata_client
+    client = _make_client()
+    client.session.hooks["response"].append(_log_mydata)
+    if has_request_context():
+        g.mydata_client = client
+    return client
+
+
+# ------------------------------------------------------------------ #
+# Log συνδέσεων με το myDATA: ένα αρχείο ανά ενέργεια της εφαρμογής (όλες οι κλήσεις της + τα μηνύματα
+# αποτελέσματος), στο <data>/mydata_logs. Κρατιούνται τα τελευταία MYDATA_LOG_KEEP.
+# ------------------------------------------------------------------ #
+_LOG_DIR = os.path.join(_DATA_DIR, "mydata_logs")
+MYDATA_LOG_KEEP = 10
+_LOG_SECRET = ("pass", "key", "token", "secret")
+
+
+def _log_mydata(resp, *args, **kwargs):
+    """requests response hook (client του myDATA)."""
+    if has_request_context():
+        g.setdefault("mydata_log", []).append(_log_line(resp))
+
+
+def _log_hooks() -> dict:
+    """hooks για requests που τρέχουν σε thread pool (VIES/GSIS επωνυμίες), όπου δεν υπάρχει το g:
+    η λίστα του τρέχοντος request δεσμεύεται εδώ, στο κύριο thread."""
+    if not has_request_context():
+        return {}
+    calls = g.setdefault("mydata_log", [])
+    return {"response": lambda resp, *a, **k: calls.append(_log_line(resp))}
+
+
+def _log_line(resp) -> str:
+    """Μία γραμμή ανά κλήση· στα σφάλματα και η αρχή της απάντησης.
+    Δεν γράφονται headers ούτε σώμα αιτήματος (εκεί είναι τα credentials)."""
+    line = (f"{datetime.now(ATHENS):%H:%M:%S}  {resp.request.method} "
+            f"{urlparse(resp.url).netloc}{resp.request.path_url}  →  "
+            f"{'✓' if resp.ok else '✗'} {resp.status_code}  {resp.elapsed.total_seconds():.1f}s  "
+            f"{len(resp.content) / 1024:.0f} KB")
+    if not resp.ok:
+        line += "\n      " + resp.text[:2000].replace("\n", "\n      ")
+    return line
+
+
+@app.after_request
+def _write_mydata_log(response):
+    calls = g.pop("mydata_log", None)
+    if not calls:
+        return response
+    company = get_active_company() or {}
+    form = "  ".join(f"{k}={v}" for k, v in request.form.items() if v and not any(x in k.lower() for x in _LOG_SECRET))
+    msgs = [f"{'✗' if cat == 'error' else '•'} [{cat}] {msg}" for cat, msg in session.get("_flashes", [])]
+    text = "\n".join([f"{datetime.now(ATHENS):%d/%m/%Y %H:%M:%S} · {request.method} {request.path} · "
+                      f"{company.get('company_name', '—')}"] + ([form] if form else [])
+                     + ["", f"Κλήσεις ({len(calls)}) — myDATA και επωνυμίες συναλλασσομένων (VIES/ΑΑΔΕ):"] + calls
+                     + (["", "Αποτέλεσμα:"] + msgs if msgs else []))
+    try:
+        os.makedirs(_LOG_DIR, exist_ok=True)
+        with open(os.path.join(_LOG_DIR, f"{datetime.now(ATHENS):%Y%m%d-%H%M%S-%f}.log"), "w", encoding="utf-8") as f:
+            f.write(text + "\n")
+        for old in sorted(os.listdir(_LOG_DIR))[:-MYDATA_LOG_KEEP]:
+            os.remove(os.path.join(_LOG_DIR, old))
+    except OSError:
+        app.logger.exception("mydata log")  # το log δεν σταματά ποτέ την ενέργεια
+    return response
+
+
+def mydata_logs() -> list[dict]:
+    """Τα αποθηκευμένα logs, νεότερο πρώτα: {title, body, failed}."""
+    out = []
+    for name in sorted(os.listdir(_LOG_DIR), reverse=True) if os.path.isdir(_LOG_DIR) else []:
+        with open(os.path.join(_LOG_DIR, name), encoding="utf-8") as f:
+            title, _, body = f.read().partition("\n")
+        out.append({"title": title, "body": body.strip(), "failed": "✗" in body})
+    return out
+
+
+def _make_client() -> MyDataClient:
     """Client με τα credentials της ενεργής εταιρείας - fallback στο .env
     αν δεν έχει οριστεί καμία εταιρεία (συμβατότητα με παλιά εγκατάσταση)."""
     company = get_active_company()
@@ -701,11 +786,12 @@ def _fetch_error(e: Exception) -> str:
     return str(e) if isinstance(e, MyDataError) else f"Σφάλμα επικοινωνίας: {e}"
 
 
-def _fetch_expense_range(cid: int, df: str, dt: str) -> str:
-    """Ανάκτηση εξόδων διαστήματος στο τοπικό βιβλίο· επιστρέφει το μήνυμα επιτυχίας (σφάλματα ανεβαίνουν)."""
+def _fetch_expense_range(cid: int, df: str | None, dt: str | None, marks: dict | None = None) -> str:
+    """Ανάκτηση εξόδων διαστήματος (ή, με marks={endpoint: MARK}, ό,τι ανέβηκε μετά) στο τοπικό βιβλίο·
+    επιστρέφει το μήνυμα επιτυχίας (σφάλματα ανεβαίνουν)."""
     client = get_client()
-    unclassified = client.request_unclassified_expenses(df, dt)
-    classified = client.request_classified_expenses(df, dt)
+    unclassified = client.request_unclassified_expenses(df, dt, marks)
+    classified = client.request_classified_expenses(df, dt, marks)
 
     enrich_issuer_names(unclassified)
     enrich_issuer_names(classified)
@@ -727,7 +813,8 @@ def _fetch_expense_range(cid: int, df: str, dt: str) -> str:
         db.upsert_document(cid, "expense", _invoice_to_doc(inv), "confirmed")
     n0 = _classify_zero_docs(cid, [inv.mark for inv in unclassified])
 
-    db.set_setting(_range_key("expense"), f"{df} – {dt}")
+    if df:
+        db.set_setting(_range_key("expense"), f"{df} – {dt}")
     return (
         f"✔ Ανακτήθηκαν και αποθηκεύτηκαν {len(unclassified) + len(classified)} "
         "παραστατικά."
@@ -736,9 +823,11 @@ def _fetch_expense_range(cid: int, df: str, dt: str) -> str:
     )
 
 
-def _fetch_income_range(cid: int, df: str, dt: str) -> str:
-    """Ανάκτηση εσόδων διαστήματος στο τοπικό βιβλίο· επιστρέφει το μήνυμα επιτυχίας (σφάλματα ανεβαίνουν)."""
-    unclassified, classified, cancelled_marks = get_client().request_income(df, dt)
+def _fetch_income_range(cid: int, df: str | None, dt: str | None, marks: dict | None = None) -> str:
+    """Ανάκτηση εσόδων διαστήματος (ή, με marks, ό,τι ανέβηκε μετά το MARK) στο τοπικό βιβλίο·
+    επιστρέφει το μήνυμα επιτυχίας (σφάλματα ανεβαίνουν)."""
+    unclassified, classified, cancelled_marks = get_client().request_income(
+        df, dt, marks["RequestTransmittedDocs"] if marks else None)
 
     # Επωνυμίες πελατών: ίδια τεχνική & ίδιος κοινός πίνακας (suppliers) με τους
     # προμηθευτές — εκμάθηση + cache + VIES/GSIS για άγνωστα ΑΦΜ.
@@ -757,7 +846,8 @@ def _fetch_income_range(cid: int, df: str, dt: str) -> str:
     for inv in classified:
         db.upsert_document(cid, "income", _income_to_doc(inv), "classified")
 
-    db.set_setting(_range_key("income"), f"{df} – {dt}")
+    if df:
+        db.set_setting(_range_key("income"), f"{df} – {dt}")
     return (
         f"✔ Ανακτήθηκαν {len(unclassified) + len(classified)} παραστατικά εσόδων "
         f"({len(unclassified)} αχαρακτήριστα, {len(classified)} χαρακτηρισμένα)"
@@ -786,11 +876,6 @@ def _start_key(kind: str, cid: int) -> str:
     return f"mark_start:{kind}:{cid}"
 
 
-def _gaps_key(kind: str, cid: int) -> str:
-    """Διαστήματα [από, έως] (yyyy-mm-dd) που διαγράφηκαν μέσα στο [Αρχή, σήμερα] και πρέπει να ξανάρθουν."""
-    return f"mark_gaps:{kind}:{cid}"
-
-
 def _mark_ready(cid: int, kind: str) -> bool:
     """Έχει γίνει το πρώτο πάτημα του «Νέα παραστατικά από MARK» για το βιβλίο."""
     return bool(db.get_setting(_start_key(kind, cid))) and all(
@@ -798,7 +883,7 @@ def _mark_ready(cid: int, kind: str) -> bool:
 
 
 def _mark_reset(cid: int, kind: str) -> None:
-    for key in [_wm_key(kind, ep, cid) for ep in _MARK_ENDPOINTS[kind]] + [_start_key(kind, cid), _gaps_key(kind, cid)]:
+    for key in [_wm_key(kind, ep, cid) for ep in _MARK_ENDPOINTS[kind]] + [_start_key(kind, cid)]:
         db.delete_setting(key)
 
 
@@ -819,37 +904,38 @@ def _gr(iso: str) -> str:
 
 def _fetch_new(cid: int, kind: str, start: str) -> str:
     """«Νέα παραστατικά από MARK». Πρώτη φορά: ανάκτηση από `start` («Από» της φόρμας) έως σήμερα και ορισμός W.
-    Μετά: (α) ξαναφέρνει τα κενά από διαγραφές, (β) ό,τι ανέβηκε με MARK > W, όποια κι αν είναι η ημερομηνία
-    έκδοσης (εκπρόθεσμα, ακυρώσεις και χαρακτηρισμοί παλιών), με κανονική ανάκτηση του διαστήματος που επηρεάζεται.
-    W και κενά αλλάζουν μόνο μετά από επιτυχία (σφάλμα → εξαίρεση, μένουν ως είχαν)."""
+    Μετά: ό,τι ανέβηκε με MARK > W, όποια κι αν είναι η ημερομηνία έκδοσης (εκπρόθεσμα, ακυρώσεις,
+    χαρακτηρισμοί). Οι σελίδες του new_since περνούν απευθείας από την κανονική ανάκτηση (cache του client,
+    καμία δεύτερη κλήση)· ανάκτηση διαστήματος μόνο για χαρακτηρισμούς παλιών τοπικών παραστατικών.
+    Το W αλλάζει μόνο μετά από επιτυχία (σφάλμα → εξαίρεση, μένουν ως είχαν)."""
     run = _fetch_income_range if kind == "income" else _fetch_expense_range
     today = datetime.now(ATHENS).date().isoformat()
     if not _mark_ready(cid, kind):
         run(cid, _gr(start), _gr(today))
         _init_watermarks(cid, kind)
         db.set_setting(_start_key(kind, cid), start)
-        db.set_setting(_gaps_key(kind, cid), "[]")
         return (f"✔ Νέα παραστατικά από MARK, πρώτη φορά: ανακτήθηκαν τα παραστατικά από {_gr(start)} έως σήμερα. "
                 "Από εδώ και πέρα έρχεται μόνο ό,τι νέο ανεβαίνει.")
-    gaps = json.loads(db.get_setting(_gaps_key(kind, cid)) or "[]")
-    for a, b in gaps:
-        run(cid, _gr(a), _gr(b))
     keys = {ep: _wm_key(kind, ep, cid) for ep in _MARK_ENDPOINTS[kind]}
+    marks = {ep: int(db.get_setting(key)) for ep, key in keys.items()}
     client = get_client()
-    tops, dates, cand = {}, [], set()
+    tops, cand, refs = {}, set(), set()
     for ep, key in keys.items():
-        tops[key], docs, refs = client.new_since(ep, int(db.get_setting(key)))
+        tops[key], docs, r = client.new_since(ep, marks[ep])
         cand |= {m for m, _ in docs}
-        dates += [d[:10] for _, d in docs if d]
-        dates += [r["issue_date"][:10] for m in refs
-                  if (r := db.get_document(cid, m)) and r["kind"] == kind and r["issue_date"]]
+        refs |= r
     fresh = {m for m in cand if not db.get_document(cid, m)}
+    if cand or refs:
+        run(cid, None, None, marks)
+    # Χαρακτηρισμοί παλιών τοπικών παραστατικών (δεν ήρθαν στη δέλτα): ανάκτηση του διαστήματός τους.
+    # Τα ακυρωμένα έχουν ήδη αφαιρεθεί από το run.
+    dates = [r["issue_date"][:10] for m in refs - cand
+             if (r := db.get_document(cid, m)) and r["kind"] == kind and r["issue_date"]]
     if dates:
-        # ponytail: ένα διάστημα min–max· αν τα εκπρόθεσμα απλώνονται σε πολλά έτη, ανά μήνα
+        # ponytail: ένα διάστημα min–max· αν απλώνονται σε πολλά έτη, ανά μήνα
         run(cid, _gr(min(dates)), _gr(max(dates)))
     for key, top in tops.items():
         db.set_setting(key, top)
-    db.set_setting(_gaps_key(kind, cid), "[]")
     new = [r for m in fresh if (r := db.get_document(cid, m)) and r["kind"] == kind]
     this_month = datetime.now(ATHENS).strftime("%Y-%m")
     late = [r for r in new if (r["issue_date"] or "")[:7] < this_month]
@@ -857,19 +943,17 @@ def _fetch_new(cid: int, kind: str, start: str) -> str:
     # Μόνο τα αχαρακτήριστα θέλουν προσοχή· τα ήδη χαρακτηρισμένα εκπρόθεσμα δεν αναφέρονται.
     todo = sorted(f"{r['mark']} ({r['issue_date'][:10]})" for r in late if r["status"] == "unclassified")
     return (f"✔ Νέα παραστατικά από MARK: {len(new)}"
-            + (f" · ξαναήρθαν {len(gaps)} διαστήματα που είχαν διαγραφεί" if gaps else "")
             + (f" · ⏰ {len(todo)} αχαρακτήριστα εκπρόθεσμα: {', '.join(todo)}" if todo else "") + ".")
 
 
-def _record_gap(cid: int, kind: str, date_from: str, date_to: str) -> None:
-    """Διαγραφή μέσα στο [Αρχή, σήμερα]: το κομμάτι αυτό ξανάρχεται στο επόμενο «Νέα παραστατικά από MARK»."""
+def _reset_if_overlap(cid: int, kind: str, date_from: str, date_to: str) -> bool:
+    """Διαγραφή μέσα στο [Αρχή, σήμερα]: το βιβλίο δεν είναι πια πλήρες από την Αρχή, άρα μηδενίζεται η Αρχή/W
+    και ζητείται ξανά αρχική ανάκτηση. Πριν από την Αρχή: τίποτα."""
     start = db.get_setting(_start_key(kind, cid))
-    if not start:
-        return
-    a, b = max(date_from, start), min(date_to, datetime.now(ATHENS).date().isoformat())
-    if a <= b:
-        gaps = json.loads(db.get_setting(_gaps_key(kind, cid)) or "[]")
-        db.set_setting(_gaps_key(kind, cid), json.dumps(gaps + [[a, b]]))
+    if not start or max(date_from, start) > min(date_to, datetime.now(ATHENS).date().isoformat()):
+        return False
+    _mark_reset(cid, kind)
+    return True
 
 
 @app.route("/sync/mark-reset", methods=["POST"])
@@ -909,8 +993,9 @@ def sync_run():
         prefix = f"{label}: " if scope == "both" else ""
         if action == "delete":
             n = db.delete_documents_range(cid, kind, request.form["date_from"], request.form["date_to"])
-            flash(f"{prefix}Διαγράφηκαν {n} παραστατικά {_SYNC_NOUNS[kind]} για το διάστημα {df} – {dt}.", "ok")
-            _record_gap(cid, kind, request.form["date_from"], request.form["date_to"])
+            reset = _reset_if_overlap(cid, kind, request.form["date_from"], request.form["date_to"])
+            flash(f"{prefix}Διαγράφηκαν {n} παραστατικά {_SYNC_NOUNS[kind]} για το διάστημα {df} – {dt}."
+                  + (" Χρειάζεται ξανά αρχική ανάκτηση." if reset else ""), "ok")
             ok += 1
             continue
         try:
@@ -1232,6 +1317,7 @@ def sync():
     mode = db.get_setting("sync_mode") or "mark"
     tabs = [("main", "📥 Ανάκτηση")] + ([] if empty else (
         [("past", "🗓️ Ανάκτηση προηγούμενων περιόδων")] if mode == "mark" else []) + [("delete", "🗑️ Διαγραφή")])
+    tabs.append(("log", "📜 Ιστορικό συνδέσεων"))
     tab = request.args.get("tab") if request.args.get("tab") in dict(tabs) else "main"
     return render_template(
         "sync.html",
@@ -1241,16 +1327,17 @@ def sync():
         tabs=tabs,
         tab=tab,
         mode=mode,
+        logs=mydata_logs() if tab == "log" else [],
+        log_keep=MYDATA_LOG_KEEP,
         mark_pending=bool(cid) and not all(_mark_ready(cid, k) for k in kinds),
         range_date_from=request.args.get("date_from", "").strip()
         or (f"{now.year - 1}-01-01" if tab == "past" else now.strftime("%Y-01-01" if empty else "%Y-%m-01")),
         range_date_to=request.args.get("date_to", "").strip() or (f"{now.year - 1}-12-31" if tab == "past" else today),
         date_range=min(ranges, key=end) if ranges else None,
-        # «Νέα παραστατικά από MARK» ανά βιβλίο: (ετικέτα, Αρχή dd/mm/yyyy ή None, W, εκκρεμή κενά).
+        # «Νέα παραστατικά από MARK» ανά βιβλίο: (ετικέτα, Αρχή dd/mm/yyyy ή None, W).
         mark_info=[(("Έσοδα" if k == "income" else "Έξοδα"),
                     _gr(db.get_setting(_start_key(k, cid))) if cid and _mark_ready(cid, k) else None,
-                    db.get_setting(_wm_key(k, _MARK_ENDPOINTS[k][0], cid)) if cid else None,
-                    len(json.loads(db.get_setting(_gaps_key(k, cid)) or "[]")) if cid else 0)
+                    db.get_setting(_wm_key(k, _MARK_ENDPOINTS[k][0], cid)) if cid else None)
                    for k in kinds],
         # Τελευταία ανάκτηση + τελευταίο MARK ανά βιβλίο (τα MARK του myDATA είναι χρονολογικά).
         last=[(label, db.get_setting(_range_key(k)),

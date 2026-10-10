@@ -24,13 +24,13 @@ def inv(mark, **kw):
 fail_income = False
 
 
-def request_income(df, dt):
+def request_income(df, dt, *_):
     if fail_income:
         raise MyDataError("έσοδα: κάτι πήγε στραβά")
     return [inv("5001", counterpart_vat="987654321")], [], set()
 
 
-fake = NS(request_unclassified_expenses=lambda df, dt: [inv("4001")], request_classified_expenses=lambda df, dt: [],
+fake = NS(request_unclassified_expenses=lambda df, dt, *_: [inv("4001")], request_classified_expenses=lambda df, dt, *_: [],
           last_cancelled=set(), request_income=request_income)
 A.get_client = lambda *a, **k: fake
 A.enrich_issuer_names = A.enrich_counterpart_names = lambda invs: invs  # χωρίς VIES/GSIS στα tests
@@ -46,7 +46,7 @@ assert db.get_setting(A._range_key("income")) == db.get_setting(A._range_key("ex
 
 # (β) Σφάλμα στα έσοδα: τα έξοδα αποθηκεύονται κανονικά, μήνυμα σφάλματος για τα έσοδα.
 fail_income = True
-fake.request_unclassified_expenses = lambda df, dt: [inv("4002")]
+fake.request_unclassified_expenses = lambda df, dt, *_: [inv("4002")]
 with c:
     c.post("/sync", data=dict(form, scope="both", action="fetch"))
     flashes = A.session.get("_flashes", [])
@@ -59,7 +59,7 @@ assert c.post("/sync", data=dict(form, scope="income")).headers["Location"].ends
 assert c.post("/sync", data=dict(form, scope="expense")).headers["Location"].endswith("/invoices")
 
 # (δ) Διαγραφή μόνο εσόδων: τα έξοδα μένουν· καμία ανάκτηση.
-fake.request_income = lambda df, dt: (_ for _ in ()).throw(AssertionError("δεν έπρεπε να γίνει ανάκτηση"))
+fake.request_income = lambda df, dt, *_: (_ for _ in ()).throw(AssertionError("δεν έπρεπε να γίνει ανάκτηση"))
 c.post("/sync", data=dict(form, scope="income", action="delete"))
 assert db.get_document(cid, "5001") is None and db.get_document(cid, "4001") is not None
 
@@ -109,11 +109,11 @@ c.post("/parameters/automation", data={"sync_mode": "dates"})
 page = c.get("/sync").get_data(as_text=True)
 assert 'value="fetch"' in page and "Νέα παραστατικά από MARK" not in page and "tab=past" not in page
 assert 'value="delete"' in c.get("/sync?tab=delete").get_data(as_text=True)
-# Διαγραφή «Όλα τα δεδομένα»: άδεια βιβλία → μόνο «Ανάκτηση», από 1/1 του έτους.
+# Διαγραφή «Όλα τα δεδομένα»: άδεια βιβλία → μόνο «Ανάκτηση» (+ ιστορικό συνδέσεων), από 1/1 του έτους.
 c.post("/sync", data={"scope": "both", "action": "delete", "all": "1"})
 assert not db.count_by_status(cid, "income") and not db.count_by_status(cid, "expense")
 assert db.get_setting(A._range_key("expense")) is None
 page = c.get("/sync?tab=delete").get_data(as_text=True)
 year = A.datetime.now(A.ATHENS).year
-assert 'class="tabs"' not in page and 'value="delete"' not in page and f'value="{year}-01-01"' in page
+assert 'Διαγραφή</a>' not in page and 'περιόδων</a>' not in page and 'value="delete"' not in page and f'value="{year}-01-01"' in page
 print("ok")

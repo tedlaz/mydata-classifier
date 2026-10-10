@@ -17,3 +17,6 @@ wheels/
 *.db
 *.db-wal
 *.db-shm
+
+# Log συνδέσεων με το myDATA
+mydata_logs/

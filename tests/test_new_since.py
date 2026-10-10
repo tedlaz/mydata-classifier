@@ -35,7 +35,6 @@ yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
 start = now.strftime("%Y-%m-01")
 gr = lambda iso: "/".join(reversed(iso.split("-")))  # noqa: E731
 W = lambda kind="expense", ep="RequestDocs": db.get_setting(A._wm_key(kind, ep, cid))  # noqa: E731
-gaps = lambda: json.loads(db.get_setting(A._gaps_key("expense", cid)) or "[]")  # noqa: E731
 
 
 def inv(mark, issue):
@@ -51,8 +50,8 @@ def post(**kw):
 
 book = [inv("400", today)]
 ranges = []
-fake = NS(request_unclassified_expenses=lambda df, dt: ranges.append((df, dt)) or book, last_cancelled=set(),
-          request_classified_expenses=lambda df, dt: [], request_income=lambda df, dt: ([], [], set()),
+fake = NS(request_unclassified_expenses=lambda df, dt, *_: ranges.append((df, dt)) or book, last_cancelled=set(),
+          request_classified_expenses=lambda df, dt, *_: [], request_income=lambda df, dt, *_: ([], [], set()),
           new_since=lambda ep, mark: (_ for _ in ()).throw(AssertionError("όχι new_since την πρώτη φορά")))
 A.get_client = lambda *a, **k: fake
 A.enrich_issuer_names = A.enrich_counterpart_names = lambda invs: invs
@@ -78,7 +77,7 @@ assert W("income", "RequestTransmittedDocs") == "400"
 fake.new_since = lambda ep, mark: (450, [("450", "2025-03-15")], set()) if ep == "RequestDocs" else (mark, [], set())
 book = [inv("450", "2025-03-15")]
 flashes = post(action="new")
-assert ranges[-1] == ("15/03/2025", "15/03/2025"), ranges
+assert ranges[-1] == (None, None), ranges  # μέσω MARK: χωρίς δεύτερη ανάκτηση με ημερομηνίες
 assert db.get_document(cid, "450")["kind"] == "expense"
 assert any("1 αχαρακτήριστα εκπρόθεσμα" in m and "450 (2025-03-15)" in m for _, m in flashes), flashes
 assert W() == "450" and W("expense", "RequestTransmittedDocs") == "400"
@@ -88,35 +87,41 @@ assert t.get("/invoices?view=unclassified").get_data(as_text=True).count("⏰ ε
 # Εκπρόθεσμο που έρχεται ήδη χαρακτηρισμένο: καμία αναφορά στο μήνυμα.
 fake.new_since = lambda ep, mark: (460, [("460", "2025-05-01")], set()) if ep == "RequestDocs" else (mark, [], set())
 book = []
-fake.request_classified_expenses = lambda df, dt: [inv("460", "2025-05-01")]
+fake.request_classified_expenses = lambda df, dt, *_: [inv("460", "2025-05-01")]
 flashes = post(action="new")
 assert db.get_document(cid, "460")["status"] == "confirmed"
 assert any("MARK: 1" in m for _, m in flashes) and not any("εκπρόθεσμα" in m for _, m in flashes), flashes
 
+# Νέος χαρακτηρισμός παλιού τοπικού παραστατικού (δεν έρχεται στη δέλτα): ανάκτηση μόνο του διαστήματός του.
+fake.new_since = lambda ep, mark: (470, [], {"450"}) if ep == "RequestDocs" else (mark, [], set())
+fake.request_classified_expenses = lambda df, dt, *_: []
+post(action="new")
+assert ranges[-2:] == [(None, None), ("15/03/2025", "15/03/2025")], ranges
+
 # «Ανάκτηση» με Έως χθες: το W δεν αλλάζει.
 post(action="fetch", date_from=yesterday, date_to=yesterday)
-assert W() == "460"
+assert W() == "470"
 
-# Διαγραφή μετά την Αρχή → κενό· πριν από την Αρχή → τίποτα. Το επόμενο πάτημα ξαναφέρνει το κενό.
-fake.new_since = lambda ep, mark: (mark, [], set())
-post(action="delete", date_from=start, date_to=today)
+# Διαγραφή πριν από την Αρχή → τίποτα· μετά την Αρχή → μηδενισμός, ζητείται ξανά αρχική ανάκτηση.
 post(action="delete", date_from="2020-01-01", date_to="2020-01-31")
-assert gaps() == [[start, today]], gaps()
-flashes = post(action="new")
-assert (gr(start), gr(today)) in ranges[-2:] and gaps() == [], (ranges, gaps())
-assert any("ξαναήρθαν 1 διαστήματα" in m for _, m in flashes), flashes
+assert W() == "470"
+flashes = post(action="delete", date_from=today, date_to=today)
+assert W() is None and db.get_setting(A._start_key("expense", cid)) is None, W()
+assert any("ξανά αρχική ανάκτηση" in m for _, m in flashes), flashes
+post(action="new", date_from=start)
+assert ranges[-1] == (gr(start), gr(today)) and W() is not None, ranges
 
-# (γ) Αποτυχία: W και κενά μένουν ως είχαν (αλλιώς τα παραστατικά θα χάνονταν).
-post(action="delete", date_from=today, date_to=today)
+# Αποτυχία: το W μένει ως είχε (αλλιώς τα παραστατικά θα χάνονταν).
+w = W()
 fake.new_since = lambda ep, mark: (500, [("500", "2025-04-01")], set())
-fake.request_unclassified_expenses = lambda df, dt: (_ for _ in ()).throw(MyDataError("δίκτυο"))
+fake.request_unclassified_expenses = lambda df, dt, *_: (_ for _ in ()).throw(MyDataError("δίκτυο"))
 post(action="new")
-assert W() == "460" and gaps() == [[today, today]], (W(), gaps())
+assert W() == w, (W(), w)
 
 # «Αλλαγή αρχής»: το επόμενο πάτημα ξεκινά από το νέο «Από».
-fake.request_unclassified_expenses = lambda df, dt: ranges.append((df, dt)) or []
+fake.request_unclassified_expenses = lambda df, dt, *_: ranges.append((df, dt)) or []
 post(url="/sync/mark-reset")
-assert W() is None and db.get_setting(A._start_key("expense", cid)) is None and gaps() == []
+assert W() is None and db.get_setting(A._start_key("expense", cid)) is None
 post(action="new", date_from=yesterday)
 assert ranges[-1] == (gr(yesterday), gr(today)) and db.get_setting(A._start_key("expense", cid)) == yesterday
 print("OK")

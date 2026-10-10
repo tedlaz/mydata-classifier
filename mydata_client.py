@@ -262,11 +262,45 @@ class MyDataClient:
     # RequestDocs: επιστρέφει παραστατικά που διαβίβασαν ΑΛΛΟΙ και μας
     # αφορούν ως λήπτες (δηλ. τα έξοδά μας).
     # ------------------------------------------------------------------ #
+    def _pages(self, endpoint: str, params: dict) -> list[ET.Element]:
+        """GET με pagination (continuationToken) → οι σελίδες XML. Ίδιο endpoint + ίδια params στο ίδιο
+        client (ένας ανά request της εφαρμογής) = μία κλήση: π.χ. το RequestTransmittedDocs το χρειάζονται
+        έσοδα, έξοδα και «Νέα από MARK»."""
+        key = (endpoint, tuple(sorted(params.items())))
+        cache = self.__dict__.setdefault("_page_cache", {})
+        if key in cache:
+            return cache[key]
+        params, roots = dict(params), []
+        while True:
+            resp = self.session.get(self.base_url + endpoint, params=params, timeout=60)
+            if resp.status_code == 401:
+                raise MyDataError(
+                    "Μη έγκυρα credentials (401). Έλεγξε aade-user-id / subscription key."
+                )
+            if resp.status_code != 200:
+                raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
+            root = ET.fromstring(resp.content)
+            roots.append(root)
+            npk = root.findtext(".//req:continuationToken/req:nextPartitionKey", namespaces=NS)
+            nrk = root.findtext(".//req:continuationToken/req:nextRowKey", namespaces=NS)
+            if not (npk and nrk):
+                break
+            params["nextPartitionKey"] = npk
+            params["nextRowKey"] = nrk
+        cache[key] = roots
+        return roots
+
+    def _query(self, date_from: str | None, date_to: str | None, mark=None) -> dict:
+        """Params ανάκτησης: διάστημα ημερομηνιών, ή (mark) ό,τι ανέβηκε μετά το MARK, όπως το new_since."""
+        if mark is not None:
+            return self._params({"mark": str(mark)})
+        return self._params({"mark": "0", "dateFrom": date_from, "dateTo": date_to})
+
     def request_docs(
-        self, date_from: str, date_to: str
+        self, date_from: str | None, date_to: str | None, mark=None
     ) -> tuple[list[ExpenseInvoice], dict[str, dict], set[str]]:
         """
-        date_from / date_to σε μορφή dd/MM/yyyy. Χειρίζεται pagination με continuationToken.
+        date_from / date_to σε μορφή dd/MM/yyyy (ή mark: μετά το MARK, χωρίς ημερομηνίες).
 
         Επιστρέφει (invoices, cls_map, cancelled_marks):
         - cls_map: MARK -> {"entries": χαρακτηρισμοί από το expensesClassificationsDoc
@@ -277,40 +311,13 @@ class MyDataClient:
         invoices: list[ExpenseInvoice] = []
         cls_map: dict[str, dict] = {}
         cancelled_marks: set[str] = set()
-        params = self._params({"mark": "0", "dateFrom": date_from, "dateTo": date_to})
-
-        while True:
-            resp = self.session.get(
-                self.base_url + "RequestDocs", params=params, timeout=60
-            )
-            if resp.status_code == 401:
-                raise MyDataError(
-                    "Μη έγκυρα credentials (401). Έλεγξε aade-user-id / subscription key."
-                )
-            if resp.status_code != 200:
-                raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
-
-            root = ET.fromstring(resp.content)
+        for root in self._pages("RequestDocs", self._query(date_from, date_to, mark)):
             invoices.extend(self._parse_requested_doc(root))
             cls_map.update(self._parse_expenses_classifications(root))
             cancelled_marks |= self._parse_cancelled_invoices(root)
-
-            # pagination
-            npk = root.findtext(
-                ".//req:continuationToken/req:nextPartitionKey", namespaces=NS
-            )
-            nrk = root.findtext(
-                ".//req:continuationToken/req:nextRowKey", namespaces=NS
-            )
-            if npk and nrk:
-                params["nextPartitionKey"] = npk
-                params["nextRowKey"] = nrk
-            else:
-                break
-
         return invoices, cls_map, cancelled_marks
 
-    def request_transmitted(self, date_from: str, date_to: str):
+    def request_transmitted(self, date_from: str | None, date_to: str | None, mark=None):
         """
         Στοιχεία από τις διαβιβάσεις ΤΟΥ ΙΔΙΟΥ του χρήστη (RequestTransmittedDocs):
 
@@ -329,20 +336,7 @@ class MyDataClient:
         self_invoices: list[ExpenseInvoice] = []
         cls_map: dict[str, dict] = {}
         cancelled_marks: set[str] = set()
-        params = self._params({"mark": "0", "dateFrom": date_from, "dateTo": date_to})
-
-        while True:
-            resp = self.session.get(
-                self.base_url + "RequestTransmittedDocs", params=params, timeout=60
-            )
-            if resp.status_code == 401:
-                raise MyDataError(
-                    "Μη έγκυρα credentials (401). Έλεγξε aade-user-id / subscription key."
-                )
-            if resp.status_code != 200:
-                raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
-
-            root = ET.fromstring(resp.content)
+        for root in self._pages("RequestTransmittedDocs", self._query(date_from, date_to, mark)):
             for inv in self._parse_requested_doc(root):
                 if (inv.invoice_type or "") in SELF_EXPENSE_DOC_TYPES or (
                     self._recipient_transmitted(inv) and not inv.is_movement_doc
@@ -350,19 +344,6 @@ class MyDataClient:
                     self_invoices.append(inv)
             cls_map.update(self._parse_expenses_classifications(root))
             cancelled_marks |= self._parse_cancelled_invoices(root)
-
-            npk = root.findtext(
-                ".//req:continuationToken/req:nextPartitionKey", namespaces=NS
-            )
-            nrk = root.findtext(
-                ".//req:continuationToken/req:nextRowKey", namespaces=NS
-            )
-            if npk and nrk:
-                params["nextPartitionKey"] = npk
-                params["nextRowKey"] = nrk
-            else:
-                break
-
         return self_invoices, cls_map, cancelled_marks
 
     def new_since(self, endpoint: str, mark: int) -> tuple[int, list[tuple[str, str]], set[str]]:
@@ -376,17 +357,7 @@ class MyDataClient:
         - refs: MARK παραστατικών στα οποία αναφέρονται νέοι χαρακτηρισμοί/ακυρώσεις.
         """
         top, docs, refs = int(mark), [], set()
-        params = self._params({"mark": str(mark)})
-        while True:
-            resp = self.session.get(self.base_url + endpoint, params=params, timeout=60)
-            if resp.status_code == 401:
-                raise MyDataError(
-                    "Μη έγκυρα credentials (401). Έλεγξε aade-user-id / subscription key."
-                )
-            if resp.status_code != 200:
-                raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
-
-            root = ET.fromstring(resp.content)
+        for root in self._pages(endpoint, self._query(None, None, mark)):
             docs += [(i.mark, i.issue_date or "") for i in self._parse_requested_doc(root)]
             for el in root.iter():
                 tag, txt = _local(el.tag), (el.text or "").strip()
@@ -394,16 +365,10 @@ class MyDataClient:
                     top = max(top, int(txt))
                 elif tag == "invoiceMark" and txt:
                     refs.add(txt)
-
-            npk = root.findtext(".//req:continuationToken/req:nextPartitionKey", namespaces=NS)
-            nrk = root.findtext(".//req:continuationToken/req:nextRowKey", namespaces=NS)
-            if not (npk and nrk):
-                return top, docs, refs
-            params["nextPartitionKey"] = npk
-            params["nextRowKey"] = nrk
+        return top, docs, refs
 
     def request_unclassified_expenses(
-        self, date_from: str, date_to: str
+        self, date_from: str | None, date_to: str | None, marks: dict | None = None
     ) -> list[ExpenseInvoice]:
         """
         Παραστατικά εξόδων ΧΩΡΙΣ κανέναν τρόπο χαρακτηρισμού:
@@ -414,7 +379,7 @@ class MyDataClient:
           (RequestTransmittedDocs, με διάστημα μέχρι σήμερα)
         Εξαιρούνται ακυρωμένα παραστατικά και παραστατικά διακίνησης (9.3).
         """
-        invoices, cls_map, cancelled_marks = self._fetch_all(date_from, date_to)
+        invoices, cls_map, cancelled_marks = self._fetch_all(date_from, date_to, marks)
         return [
             i
             for i in invoices
@@ -425,7 +390,7 @@ class MyDataClient:
         ]
 
     def request_classified_expenses(
-        self, date_from: str, date_to: str
+        self, date_from: str | None, date_to: str | None, marks: dict | None = None
     ) -> list[ExpenseInvoice]:
         """
         Παραστατικά εξόδων που ΕΧΟΥΝ χαρακτηριστεί με οποιονδήποτε τρόπο.
@@ -433,7 +398,7 @@ class MyDataClient:
         (από γραμμές, από ξεχωριστές υποβολές, ή απόρριψη/απόκλιση) για εμφάνιση.
         Εξαιρούνται ακυρωμένα και παραστατικά διακίνησης (9.3).
         """
-        invoices, cls_map, cancelled_marks = self._fetch_all(date_from, date_to)
+        invoices, cls_map, cancelled_marks = self._fetch_all(date_from, date_to, marks)
         result = []
         for i in invoices:
             if i.is_movement_doc or i.mark in cancelled_marks:
@@ -456,7 +421,7 @@ class MyDataClient:
         return result
 
     def request_income(
-        self, date_from: str, date_to: str
+        self, date_from: str | None, date_to: str | None, mark=None
     ) -> tuple[list[ExpenseInvoice], list[ExpenseInvoice], set[str]]:
         """
         Παραστατικά ΕΣΟΔΩΝ, δηλαδή αυτά που έχει διαβιβάσει Ο ΙΔΙΟΣ ο χρήστης ως
@@ -469,24 +434,12 @@ class MyDataClient:
         classified το cls_info γεμίζει με τους χαρακτηρισμούς για εμφάνιση. Τα
         cancelled_marks (ακυρωμένα) εξαιρούνται από τις λίστες και επιστρέφονται
         ώστε ο caller να τα αφαιρέσει και από το τοπικό βιβλίο. date_to έως σήμερα.
+        Με mark: ό,τι ανέβηκε μετά το MARK (χωρίς ημερομηνίες), όπως το new_since.
         """
         invoices: list[ExpenseInvoice] = []
         cls_map: dict[str, list[dict]] = {}
         cancelled_marks: set[str] = set()
-        params = self._params({"mark": "0", "dateFrom": date_from, "dateTo": date_to})
-
-        while True:
-            resp = self.session.get(
-                self.base_url + "RequestTransmittedDocs", params=params, timeout=60
-            )
-            if resp.status_code == 401:
-                raise MyDataError(
-                    "Μη έγκυρα credentials (401). Έλεγξε aade-user-id / subscription key."
-                )
-            if resp.status_code != 200:
-                raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
-
-            root = ET.fromstring(resp.content)
+        for root in self._pages("RequestTransmittedDocs", self._query(date_from, date_to, mark)):
             for inv in self._parse_requested_doc(root):
                 itype = inv.invoice_type or ""
                 if itype in SELF_EXPENSE_DOC_TYPES or inv.is_movement_doc or self._recipient_transmitted(inv):
@@ -499,18 +452,6 @@ class MyDataClient:
                 invoices.append(inv)
             cls_map.update(self._parse_income_classifications(root))
             cancelled_marks |= self._parse_cancelled_invoices(root)
-
-            npk = root.findtext(
-                ".//req:continuationToken/req:nextPartitionKey", namespaces=NS
-            )
-            nrk = root.findtext(
-                ".//req:continuationToken/req:nextRowKey", namespaces=NS
-            )
-            if npk and nrk:
-                params["nextPartitionKey"] = npk
-                params["nextRowKey"] = nrk
-            else:
-                break
 
         unclassified: list[ExpenseInvoice] = []
         classified: list[ExpenseInvoice] = []
@@ -573,11 +514,33 @@ class MyDataClient:
                     result[mark] = entries
         return result
 
-    def _fetch_all(self, date_from: str, date_to: str):
+    def _fetch_all(self, date_from: str | None, date_to: str | None, marks: dict | None = None):
         """
         Κοινός κορμός: RequestDocs (παραστατικά τρίτων) + RequestTransmittedDocs
         έως σήμερα (δικοί μας χαρακτηρισμοί + αυτοτιμολογούμενα έξοδα π.χ. 17.1).
+        marks={endpoint: MARK}: ό,τι ανέβηκε μετά το MARK κάθε endpoint, χωρίς ημερομηνίες (Νέα από MARK)·
+        οι σελίδες είναι ήδη στην cache του _pages από το new_since.
         """
+        if marks:
+            invoices, cls_map, cancelled_marks = self.request_docs(None, None, marks["RequestDocs"])
+            self_invoices, t_cls_map, t_cancelled = self.request_transmitted(
+                None, None, marks["RequestTransmittedDocs"])
+            seen = {i.mark for i in invoices}
+            invoices += [i for i in self_invoices if i.mark not in seen]
+            cls_map.update(t_cls_map)
+            cancelled_marks |= t_cancelled
+            pending = [i for i in invoices if i.mark not in cls_map and not i.has_embedded_classification]
+            dates = sorted(i.issue_date[:10] for i in pending if i.issue_date)
+            if dates:
+                try:
+                    portal = self.request_portal_classifications(*("/".join(d.split("-")[::-1])
+                                                                   for d in (dates[0], dates[-1])))
+                except MyDataError:
+                    portal = {}
+                cls_map.update({m: v for m, v in portal.items() if m in {i.mark for i in pending}})
+            cancelled_marks |= {i.mark for i in invoices if i.is_cancelled}
+            self.last_cancelled = cancelled_marks
+            return invoices, cls_map, cancelled_marks
 
         from datetime import date as _date
         from datetime import datetime as _dt
@@ -639,7 +602,15 @@ class MyDataClient:
 
     def _request_info(self, endpoint: str, date_from: str, date_to: str) -> list[dict]:
         """Εγγραφές RequestE3Info / RequestVatInfo ανά παραστατικό (GroupedPerDay=false),
-        ως {tag: text}, με pagination (continuationToken)."""
+        ως {tag: text}, με pagination (continuationToken). Ίδιο διάστημα στο ίδιο client = μία κλήση
+        (αχαρακτήριστα + χαρακτηρισμένα μιας ανάκτησης ελέγχουν και τα δύο την πύλη)."""
+        key = ("info", endpoint, date_from, date_to)
+        cache = self.__dict__.setdefault("_page_cache", {})
+        if key not in cache:
+            cache[key] = self._request_info_uncached(endpoint, date_from, date_to)
+        return cache[key]
+
+    def _request_info_uncached(self, endpoint: str, date_from: str, date_to: str) -> list[dict]:
         records: list[dict] = []
         params = self._params({"dateFrom": date_from, "dateTo": date_to, "GroupedPerDay": "false"})
         while True:

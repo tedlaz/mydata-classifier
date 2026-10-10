@@ -32,7 +32,7 @@ def normalize(country: str, number: str) -> tuple[str, str]:
     return country, number
 
 
-def check_vat(country: str, number: str, timeout: int = 15) -> dict | None:
+def check_vat(country: str, number: str, timeout: int = 15, hooks: dict | None = None) -> dict | None:
     """
     Επιστρέφει {"valid": bool, "name": str|None, "address": str|None}
     ή None αν η υπηρεσία δεν απάντησε (σφάλμα δικτύου / μη διαθέσιμη).
@@ -45,6 +45,7 @@ def check_vat(country: str, number: str, timeout: int = 15) -> dict | None:
         resp = requests.get(
             BASE_URL.format(country=country, number=number),
             timeout=timeout,
+            hooks=hooks,  # log του app (app._log_hooks)
             headers={"Accept": "application/json"},
         )
         if resp.status_code != 200:
@@ -68,9 +69,9 @@ def check_vat(country: str, number: str, timeout: int = 15) -> dict | None:
     return {"valid": valid, "name": name, "address": address}
 
 
-def lookup_name(afm: str, country: str = "EL", timeout: int = 15) -> str | None:
+def lookup_name(afm: str, country: str = "EL", timeout: int = 15, hooks: dict | None = None) -> str | None:
     """Επωνυμία για έγκυρο ΑΦΜ, αλλιώς None."""
-    result = check_vat(country, afm, timeout=timeout)
+    result = check_vat(country, afm, timeout=timeout, hooks=hooks)
     if result and result["valid"]:
         return result["name"]
     return None
