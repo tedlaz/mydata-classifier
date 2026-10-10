@@ -98,11 +98,17 @@ body.is-busy .sy-busy{display:flex}
 .sy-act--go{--c:var(--accent);--c-soft:var(--accent-soft);background:linear-gradient(var(--surface),var(--surface)) padding-box,var(--accent-grad) border-box;border:2px solid transparent}
 .sy-act--del{--c:var(--err);--c-soft:var(--err-soft)}
 .sy-act--re{--c:var(--info);--c-soft:var(--info-soft)}
+.sy-mark-info{display:flex;flex-direction:column;gap:2px;color:var(--muted)}
+.sy-mark-info .mono{font-family:var(--font-data)}
+.sy-mark-reset{margin:10px 0 0;text-align:right}
+.sy-mark-reset .linklike{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;font:inherit;font-size:.85rem;text-decoration:underline}
 .sy-act.is-loading{pointer-events:none}
 .sy-act.is-loading .e{animation:sy-spin 1s linear infinite}
 .sy-note{margin-top:16px}
-.sy-scope{margin-top:16px}
-.sy-scope legend{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:0;margin-bottom:6px}
+.sy-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px}
+.sy-today{display:block;padding:10px 0}
+.sy-card > .seg{margin:10px 0 4px}
+.sy-card:has(input[name=all][value="1"]:checked) :is(.sy-dates,.sy-presets){opacity:.35;pointer-events:none}
 
 /* Προηγούμενο και τρέχον έτος (μία σειρά ανά έτος): πλήθος παραστατικών στο τοπικό βιβλίο· κλικ = διάστημα του μήνα. */
 
@@ -112,35 +118,78 @@ body.is-busy .sy-busy{display:flex}
 @media (prefers-reduced-motion:reduce){ .sy-grid *,.sy-acts *,.sy-card,.sy-act{animation:none!important;transition:none!important} }
 </style>
 
+<div class="sy-top">
+  <fieldset class="seg" aria-label="Βιβλία" id="sy-scope">
+    {% for v, label in (('both', 'Έσοδα & Έξοδα'), ('income', 'Έσοδα μόνο'), ('expense', 'Έξοδα μόνο')) %}
+    <label><input type="radio" name="scope" value="{{ v }}" {{ 'checked' if scope == v }}> {{ label }}</label>
+    {% endfor %}
+  </fieldset>
+  {% if tabs | length > 1 %}
+  <nav class="tabs" aria-label="Ενέργειες">
+    {% for k, label in tabs %}<a class="tab {{ 'is-active' if tab == k }}" href="{{ url_for('sync', scope=scope, tab=k) }}">{{ label }}</a>{% endfor %}
+  </nav>
+  {% endif %}
+</div>
+
+{#- Κύρια καρτέλα σε τρόπο MARK: μετά την αρχική ανάκτηση δεν χρειάζονται ημερομηνίες. #}
+{%- set mark_main = tab == 'main' and mode == 'mark' %}
 <form method="post" action="{{ url_for('sync_run') }}" id="sy-form">
+  <input type="hidden" name="scope" value="{{ scope }}">
+  <input type="hidden" name="tab" value="{{ tab }}">
   <div class="sy-grid">
+    {% if mark_main and not mark_pending %}
+    <section class="sy-card" style="--i:0">
+      <h2>🆕 Νέα παραστατικά από MARK</h2>
+      <p class="muted small">Η αρχική ανάκτηση έχει γίνει. Από εδώ και πέρα έρχεται μόνο ό,τι νέο ανέβηκε στο myDATA,
+        όποια κι αν είναι η ημερομηνία έκδοσής του. Για παλαιότερα διαστήματα: «Ανάκτηση προηγούμενων περιόδων».</p>
+      <p class="sy-mark-info">
+        {%- for label, start, wm, gaps in mark_info %}
+        <span>{{ label }}: αρχή <span class="mono">{{ start }}</span> · MARK <span class="mono">{{ wm }}</span>
+          {%- if gaps %} · {{ gaps }} διαγραμμένα διαστήματα θα ξανάρθουν{% endif %}</span>
+        {%- endfor %}
+      </p>
+      <input type="hidden" name="date_from" value="{{ range_date_from }}">
+      <input type="hidden" name="date_to" value="{{ range_date_to }}">
+    </section>
+    {% else %}
     <section class="sy-card" style="--i:0">
       <h2>📅 Διάστημα</h2>
+      {% if tab == 'delete' %}
+      <fieldset class="seg" aria-label="Τι διαγράφεται">
+        <label><input type="radio" name="all" value="" checked> Διάστημα</label>
+        <label><input type="radio" name="all" value="1"> Όλα τα δεδομένα</label>
+      </fieldset>
+      {% endif %}
+      {% if mark_main %}
+      <p class="muted small">Αρχική ανάκτηση: από την ημερομηνία «Από» έως σήμερα. Μετά θα έρχονται μόνο τα νέα με βάση το MARK.</p>
+      {% else %}
       <p class="muted small">Ημερομηνία έκδοσης των παραστατικών. Διάλεξε έτοιμο διάστημα ή όρισε δικό σου.</p>
+      {% endif %}
       <div class="sy-dates">
         <div><label for="date_from">Από</label><input type="date" id="date_from" name="date_from" value="{{ range_date_from }}" required></div>
         <span class="sy-dash">→</span>
+        {% if mark_main %}
+        <div><label>Έως</label><b class="sy-today">Σήμερα</b><input type="hidden" name="date_to" value="{{ range_date_to }}"></div>
+        {% else %}
         <div><label for="date_to">Έως</label><input type="date" id="date_to" name="date_to" value="{{ range_date_to }}" required></div>
+        {% endif %}
       </div>
-      <div class="sy-scope">
-        <legend>Βιβλία</legend>
-        <fieldset class="seg" aria-label="Βιβλία">
-          {% for v, label in (('both', 'Έσοδα & Έξοδα'), ('income', 'Έσοδα μόνο'), ('expense', 'Έξοδα μόνο')) %}
-          <label><input type="radio" name="scope" value="{{ v }}" {{ 'checked' if scope == v }}> {{ label }}</label>
-          {% endfor %}
-        </fieldset>
-      </div>
+      {% if not mark_main %}
       <div class="sy-presets" role="group" aria-label="Έτοιμα διαστήματα">
-        {% if date_range %}<button type="button" class="sy-chip sy-chip--last" data-preset="since" data-last="{{ date_range }}"
+        {% if date_range and tab != 'past' %}<button type="button" class="sy-chip sy-chip--last" data-preset="since" data-last="{{ date_range }}"
           title="Από την τελευταία ημερομηνία της προηγούμενης ανάκτησης ως σήμερα">↻ Από την τελευταία ανάκτηση</button>{% endif %}
+        {% if tab != 'past' %}
         <button type="button" class="sy-chip" data-preset="today">Σήμερα</button>
         <button type="button" class="sy-chip" data-preset="month">Αυτός ο μήνας</button>
+        {% endif %}
         <button type="button" class="sy-chip" data-preset="prev">Προηγ. μήνας</button>
-        <button type="button" class="sy-chip" data-preset="quarter">Τρίμηνο</button>
-        <button type="button" class="sy-chip" data-preset="year">Φέτος</button>
+        {% if tab != 'past' %}<button type="button" class="sy-chip" data-preset="quarter">Τρίμηνο</button>
+        <button type="button" class="sy-chip" data-preset="year">Φέτος</button>{% endif %}
         <button type="button" class="sy-chip" data-preset="lastyear">Πέρσι</button>
       </div>
+      {% endif %}
     </section>
+    {% endif %}
 
     <section class="sy-card sy-flow" style="--i:1" aria-hidden="true">
       <svg viewBox="0 0 420 210">
@@ -162,32 +211,46 @@ body.is-busy .sy-busy{display:flex}
   </div>
 
   <div class="sy-acts">
+    {% if tab == 'delete' %}
+    <button type="submit" class="sy-act sy-act--del" style="--i:0" name="action" value="delete"
+            data-confirm="Θα διαγραφούν οριστικά τα τοπικά παραστατικά {{ noun }} της ενεργής εταιρείας (όλα ή του διαστήματος, όπως επέλεξες). Συνέχεια;">
+      <span class="e">🗑️</span><b>Διαγραφή</b>
+      <small>Αφαιρεί <strong>μόνο από το τοπικό βιβλίο</strong> τα παραστατικά και τους τοπικούς χαρακτηρισμούς τους. Στο myDATA δεν αλλάζει τίποτα.
+        Με «Όλα τα δεδομένα» η εταιρεία ξεκινά από την αρχή (και η αρχή του MARK μηδενίζεται).
+        {%- if mode == 'mark' and mark_info | rejectattr(1, "none") | list %} Διάστημα μετά την αρχή του MARK θα ξανάρθει με το επόμενο «Νέα παραστατικά από MARK».{% endif %}</small>
+    </button>
+    {% elif mark_main and mark_pending %}
+    <button type="submit" class="sy-act sy-act--go" style="--i:0" name="action" value="new">
+      <span class="e">📥</span><b>Ανάκτηση</b>
+      <small>Φέρνει από το myDATA τα παραστατικά {{ noun }} από την ημερομηνία «Από» έως σήμερα και ορίζει την αρχή του
+        «Νέα παραστατικά από MARK».</small>
+    </button>
+    {% elif mark_main %}
+    <button type="submit" class="sy-act sy-act--go" style="--i:0" name="action" value="new">
+      <span class="e">🆕</span><b>Νέα παραστατικά από MARK</b>
+      <small>Φέρνει ό,τι ανέβηκε στο myDATA μετά το τελευταίο MARK, <strong>και τα εκπρόθεσμα</strong> με παλιά ημερομηνία έκδοσης,
+        ακυρώσεις και χαρακτηρισμούς.</small>
+    </button>
+    {% else %}
     <button type="submit" class="sy-act sy-act--go" style="--i:0" name="action" value="fetch">
       <span class="e">📥</span><b>Ανάκτηση</b>
       <small>Φέρνει από το myDATA τα παραστατικά {{ noun }} του διαστήματος. Όσα υπάρχουν ήδη ενημερώνονται, χωρίς διπλότυπα.</small>
     </button>
-    <button type="submit" class="sy-act sy-act--re" style="--i:1" name="action" value="new">
-      <span class="e">🆕</span><b>Νέα από την τελευταία φορά</b>
-      <small>Αγνοεί το διάστημα: φέρνει ό,τι ανέβηκε στο myDATA μετά το τελευταίο MARK, <strong>και τα εκπρόθεσμα</strong> με
-        παλιά ημερομηνία έκδοσης, ακυρώσεις και χαρακτηρισμούς. Προϋπόθεση: μία «Ανάκτηση» με «Έως» σήμερα.</small>
-    </button>
-    <button type="submit" class="sy-act sy-act--del" style="--i:1" name="action" value="delete"
-            data-confirm="Θα διαγραφούν οριστικά τα τοπικά παραστατικά {{ noun }} της ενεργής εταιρείας για το επιλεγμένο διάστημα. Συνέχεια;">
-      <span class="e">🗑️</span><b>Διαγραφή</b>
-      <small>Αφαιρεί <strong>μόνο από το τοπικό βιβλίο</strong> τα παραστατικά του διαστήματος και τους τοπικούς χαρακτηρισμούς τους. Στο myDATA δεν αλλάζει τίποτα.</small>
-    </button>
-    <button type="submit" class="sy-act sy-act--re" style="--i:2" name="action" value="refetch"
-            data-confirm="Θα διαγραφούν τα τοπικά παραστατικά {{ noun }} του διαστήματος και θα ξαναφορτωθούν από το myDATA. Ό,τι υπάρχει μόνο τοπικά (χαρακτηρισμοί που δεν έχουν σταλεί{{ ', νέες εγγραφές που δεν έχουν διαβιβαστεί' if scope != 'income' }}) θα χαθεί. Συνέχεια;">
-      <span class="e">♻️</span><b>Διαγραφή και ανάκτηση</b>
-      <small>«Καθαρή» επαναφόρτωση: πρώτα διαγράφει τα τοπικά και μετά τα ξαναφέρνει όπως είναι στο myDATA (π.χ. μετά από αλλαγές στην πύλη).</small>
-    </button>
+    {% endif %}
   </div>
+  {%- if mark_main and mark_info | rejectattr(1, "none") | list %}
+  <p class="sy-mark-reset"><button type="submit" class="linklike" formaction="{{ url_for('sync_mark_reset') }}" formnovalidate
+      data-confirm="Η αρχή του «Νέα παραστατικά από MARK» θα μηδενιστεί για {{ noun }}. Θα ζητηθεί ξανά αρχική ανάκτηση από την ημερομηνία «Από» έως σήμερα. Τα τοπικά παραστατικά δεν αλλάζουν. Συνέχεια;">
+    ↺ Αλλαγή αρχής του «Νέα παραστατικά από MARK»</button></p>
+  {%- endif %}
 </form>
 
+{% if tab == 'delete' %}
 <p class="note note--warn sy-note">
   ⚠ Με τη διαγραφή χάνονται οριστικά ό,τι υπήρχε <strong>μόνο τοπικά</strong>: χαρακτηρισμοί που δεν έχουν σταλεί
   {%- if scope != 'income' %} και «Νέες εγγραφές» που δεν έχουν διαβιβαστεί{% endif %}.
 </p>
+{% endif %}
 
 <script>
 (function(){
@@ -197,10 +260,8 @@ body.is-busy .sy-busy{display:flex}
     var el = form.querySelector('input[name=' + name + ']');
     if (el._flatpickr) el._flatpickr.setDate(d, true); else el.value = iso(d);
   }
-  form.addEventListener('change', function(e){
-    if (e.target.name !== 'scope') return;
-    var q = new URLSearchParams({scope: e.target.value, date_from: form.date_from.value, date_to: form.date_to.value});
-    location.href = '?' + q;
+  document.getElementById('sy-scope').addEventListener('change', function(e){
+    location.href = '?' + new URLSearchParams({scope: e.target.value, tab: form.tab.value});
   });
   // Ποια ενέργεια τρέχει: για την κατεύθυνση της ροής στο animation.
   form.addEventListener('submit', function(e){ form.dataset.run = (e.submitter && e.submitter.value) || 'fetch'; });

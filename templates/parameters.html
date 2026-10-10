@@ -128,8 +128,17 @@
 </div>
 
 <div class="card">
-  <h2>🤖 Αυτόματος χαρακτηρισμός μετά τη λήψη</h2>
+  <h2>🤖 Ανάκτηση & αυτόματος χαρακτηρισμός</h2>
   <form method="post" action="{{ url_for('parameters_automation') }}">
+    <fieldset class="pm-seg">
+      <legend>Τρόπος ανάκτησης</legend>
+      {% for val, icon, lbl in [('mark', '🆕', 'Αρχική ανάκτηση και μετά χρήση MARK'), ('dates', '📅', 'Ανάκτηση μόνο με ημερομηνίες')] %}
+      <label>
+        <input type="radio" name="sync_mode" value="{{ val }}" {{ 'checked' if sync_mode == val }}>
+        <span>{{ icon }} {{ lbl }}</span>
+      </label>
+      {% endfor %}
+    </fieldset>
     <div class="pm-toggles">
       <label class="pm-toggle">
         <span class="pm-toggle-icon" aria-hidden="true">⚡</span>

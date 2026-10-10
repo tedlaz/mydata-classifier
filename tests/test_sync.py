@@ -1,4 +1,4 @@
-"""Σελίδα «Ανάκτηση»: έσοδα/έξοδα/και τα δύο × ανάκτηση/διαγραφή/διαγραφή και ανάκτηση (python -m tests.test_sync)."""
+"""Σελίδα «Ανάκτηση»: έσοδα/έξοδα/και τα δύο × ανάκτηση/διαγραφή (python -m tests.test_sync)."""
 import os
 import tempfile
 from types import SimpleNamespace as NS
@@ -63,8 +63,9 @@ fake.request_income = lambda df, dt: (_ for _ in ()).throw(AssertionError("δε�
 c.post("/sync", data=dict(form, scope="income", action="delete"))
 assert db.get_document(cid, "5001") is None and db.get_document(cid, "4001") is not None
 
-# (ε) Διαγραφή και ανάκτηση εξόδων: σβήνει ό,τι δεν ξαναέρχεται (4001) και φέρνει το τρέχον (4002).
-c.post("/sync", data=dict(form, scope="expense", action="refetch"))
+# (ε) Διαγραφή και μετά ανάκτηση εξόδων: σβήνει ό,τι δεν ξαναέρχεται (4001) και φέρνει το τρέχον (4002).
+assert "tab=delete" in c.post("/sync", data=dict(form, scope="expense", action="delete", tab="delete")).headers["Location"]
+c.post("/sync", data=dict(form, scope="expense", action="fetch"))
 assert db.get_document(cid, "4001") is None and db.get_document(cid, "4002") is not None
 
 # (στ) Λάθος διάστημα: πίσω στη σελίδα με τις ίδιες επιλογές.
@@ -98,4 +99,21 @@ page = c.get("/sync").get_data(as_text=True)
 last = page[page.index('class="sy-hero-last"'):page.index('</header>', page.index('class="sy-hero-last"'))]
 assert last.count("01/10/2026 – 31/10/2026") == 2 and "5001" in last and "4002" in last, last
 assert "Τελευταία ανάκτηση" not in c.get("/invoices?view=unclassified").get_data(as_text=True)
+
+# (ι) Καρτέλες. Τρόπος MARK (προεπιλογή), χωρίς αρχή: αρχική ανάκτηση «Από» → σήμερα (action=new)· και οι 3 καρτέλες.
+page = c.get("/sync").get_data(as_text=True)
+assert 'value="new"' in page and 'value="fetch"' not in page and "tab=past" in page and "tab=delete" in page
+assert 'value="refetch"' not in page
+# Μόνο με ημερομηνίες: διάστημα + «Ανάκτηση», χωρίς MARK και χωρίς καρτέλα προηγούμενων περιόδων.
+c.post("/parameters/automation", data={"sync_mode": "dates"})
+page = c.get("/sync").get_data(as_text=True)
+assert 'value="fetch"' in page and "Νέα παραστατικά από MARK" not in page and "tab=past" not in page
+assert 'value="delete"' in c.get("/sync?tab=delete").get_data(as_text=True)
+# Διαγραφή «Όλα τα δεδομένα»: άδεια βιβλία → μόνο «Ανάκτηση», από 1/1 του έτους.
+c.post("/sync", data={"scope": "both", "action": "delete", "all": "1"})
+assert not db.count_by_status(cid, "income") and not db.count_by_status(cid, "expense")
+assert db.get_setting(A._range_key("expense")) is None
+page = c.get("/sync?tab=delete").get_data(as_text=True)
+year = A.datetime.now(A.ATHENS).year
+assert 'class="tabs"' not in page and 'value="delete"' not in page and f'value="{year}-01-01"' in page
 print("ok")

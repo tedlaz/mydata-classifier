@@ -3,7 +3,7 @@
   const root = document.documentElement;
 
   // ---- Θέμα (μενού #theme-menu). Οι παλέτες πατάνε σε light/dark βάση. ----
-  const PALETTE_BASE = { tokyo: 'dark', nord: 'dark', neon: 'dark', paper: 'light', solar: 'light', neonl: 'light' };
+  const PALETTE_BASE = { tokyo: 'dark', nord: 'dark', neon: 'dark', paper: 'light', solar: 'light', neonl: 'light', art: 'dark', artl: 'light' };
   function currentTheme() {
     return root.dataset.theme ||
       (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');

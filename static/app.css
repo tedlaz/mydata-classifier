@@ -60,7 +60,7 @@
   color-scheme:dark;
 }
 
-/* Παλέτες πάνω στο light/dark: tokyo, nord, neon → dark· paper, solar, neonl → light. */
+/* Παλέτες πάνω στο light/dark: tokyo, nord, neon, art → dark· paper, solar, neonl, artl → light. */
 :root[data-palette="tokyo"]{
   --bg:#1a1b26; --surface:#24283b; --surface-2:#1f2335; --surface-3:#292e42;
   --ink:#c0caf5; --ink-2:#a9b1d6; --muted:#737aa2;
@@ -160,6 +160,41 @@
   --shadow:0 1px 0 rgba(0,0,0,.08),0 6px 18px -10px rgba(122,0,255,.35);
   --shadow-hi:0 2px 0 rgba(0,0,0,.08),0 14px 34px -14px rgba(122,0,255,.45);
 }
+/* ArtCraft (getartcraft.com): ζεστό γκρι, σχεδόν μαύρο μελάνι, μπλε #2d81ff, λεπτές γραμμές, επίπεδες σκιές. */
+:root[data-palette="art"]{
+  --bg:#121316; --surface:#18191d; --surface-2:#101014; --surface-3:#1f2025;
+  --ink:#f2f1ee; --ink-2:#d6d5d1; --muted:#9a9995;
+  --line:#2f3033; --line-soft:#232427;
+  --accent:#74aaff; --accent-deep:#9cc2ff; --accent-soft:#16233a; --accent-glow:#1f4a8c;
+  --accent-grad:linear-gradient(135deg,#2d81ff 0%,#1659c4 100%);
+  --ok:#3fd6b8; --ok-soft:#0f2a25; --ok-line:#1d5a4e;
+  --warn:#ffc14d; --warn-soft:#2e2510; --warn-line:#5e4a1c;
+  --err:#ff6259; --err-soft:#341716; --err-line:#6a2b28;
+  --info:#b69cff; --info-soft:#241d3d; --info-line:#45397a;
+  --side:#060607; --side-2:#18191d; --side-ink:#a8a7a3;
+  --hero-mid:#101014; --hero-end:#060607; --hero-fade:40%;
+  --hero-glow:#2d81ff; --hero-ink:#a8a7a3; --hero-ink-2:#d6d5d1;
+  --hero-accent:#74aaff; --hero-tile:#1f2025;
+  --shadow:0 0 0 1px rgba(242,241,238,.06);
+  --shadow-hi:0 0 0 1px rgba(242,241,238,.12),0 12px 28px -14px rgba(0,0,0,.7);
+}
+:root[data-palette="artl"]{
+  --bg:#f2f1ee; --surface:#faf9f7; --surface-2:#f5f4f1; --surface-3:#e9e8e4;
+  --ink:#101014; --ink-2:#3a3a3f; --muted:#6b6b70;
+  --line:#d4d3cf; --line-soft:#e3e2de;
+  --accent:#1659c4; --accent-deep:#0f4596; --accent-soft:#e2ecfb; --accent-glow:#b9d2fb;
+  --accent-grad:linear-gradient(135deg,#2d81ff 0%,#1659c4 100%);
+  --ok:#0a7563; --ok-soft:#e0f2ee; --ok-line:#a8dbd0;
+  --warn:#8a5800; --warn-soft:#fbf0d9; --warn-line:#ecd29a;
+  --err:#b3261e; --err-soft:#f8e4e2; --err-line:#ebbcb8;
+  --info:#6a3fd6; --info-soft:#eee8fb; --info-line:#d3c6f5;
+  --side:#101014; --side-2:#1f2025; --side-ink:#b8b7b3;
+  --hero-mid:#18191d; --hero-end:#101014; --hero-fade:40%;
+  --hero-glow:#2d81ff; --hero-ink:#b8b7b3; --hero-ink-2:#e0dfdb;
+  --hero-accent:#74aaff; --hero-tile:#2a2b30;
+  --shadow:0 0 0 1px rgba(16,16,20,.05);
+  --shadow-hi:0 0 0 1px rgba(16,16,20,.08),0 12px 28px -16px rgba(16,16,20,.3);
+}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;font-family:var(--font-ui);background:var(--bg);color:var(--ink);
@@ -227,6 +262,8 @@ a{color:var(--accent)}
 [data-palette="solar"] .theme-name::after{content:"Solarized"}
 [data-palette="neon"] .theme-name::after{content:"Neon"}
 [data-palette="neonl"] .theme-name::after{content:"Neon Light"}
+[data-palette="art"] .theme-name::after{content:"ArtCraft"}
+[data-palette="artl"] .theme-name::after{content:"ArtCraft Light"}
 .theme-menu{position:fixed;inset:auto auto 64px 12px;margin:0;padding:6px;min-width:200px;display:none;flex-direction:column;gap:2px;
   background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-hi)}
 .theme-menu:popover-open{display:flex}

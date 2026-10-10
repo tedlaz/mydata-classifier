@@ -262,7 +262,7 @@ _DOCUMENT_COLUMNS = {
     "period": "TEXT",
     # Ολόκληρο το XML του παραστατικού από το myDATA (προβολή «Όλα τα στοιχεία»).
     "raw_xml": "TEXT",
-    # Ημερομηνία που εντοπίστηκε ως εκπρόθεσμο («Νέα από την τελευταία φορά»).
+    # Ημερομηνία που εντοπίστηκε ως εκπρόθεσμο («Νέα παραστατικά από MARK»).
     "late_since": "TEXT",
 }
 EXTRA_TOTALS = ("total_withheld", "total_other_taxes", "total_stamp_duty", "total_fees", "total_deductions")
@@ -387,6 +387,11 @@ def get_setting(key: str, default=None):
             "SELECT value FROM settings WHERE key = ?", (key,)
         ).fetchone()
     return row["value"] if row else default
+
+
+def delete_setting(key: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM settings WHERE key = ?", (key,))
 
 
 def set_setting(key: str, value) -> None:

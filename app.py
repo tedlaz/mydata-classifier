@@ -770,33 +770,71 @@ _SYNC_SCOPES = {"both": ("income", "expense"), "income": ("income",), "expense":
 _SYNC_NOUNS = {"both": "εσόδων & εξόδων", "income": "εσόδων", "expense": "εξόδων"}
 
 
-# «Νέα από την τελευταία φορά»: τα endpoints κάθε βιβλίου. Τα έξοδα παίρνουν και από τις δικές μας
-# διαβιβάσεις (αυτοτιμολογούμενα, δικοί μας χαρακτηρισμοί).
+# «Νέα παραστατικά από MARK». Αμετάβλητο: το βιβλίο έχει ΟΛΑ τα παραστατικά με έκδοση ≥ «Αρχή» και MARK ≤ W,
+# εκτός από τα καταγεγραμμένα κενά (διαγραφές), που ξανάρχονται στο επόμενο πάτημα.
+# Τα endpoints κάθε βιβλίου: τα έξοδα παίρνουν και από τις δικές μας διαβιβάσεις (αυτοτιμολογούμενα, χαρακτηρισμοί).
 _MARK_ENDPOINTS = {"income": ("RequestTransmittedDocs",), "expense": ("RequestDocs", "RequestTransmittedDocs")}
 
 
 def _wm_key(kind: str, endpoint: str, cid: int) -> str:
-    """Τελευταίο MARK ως το οποίο έχουμε ΟΛΑ τα παραστατικά του βιβλίου (ανά endpoint και εταιρεία)."""
+    """Τελευταίο MARK (W) ως το οποίο έχουμε ΟΛΑ τα παραστατικά του βιβλίου (ανά endpoint και εταιρεία)."""
     return f"mark_wm:{kind}:{endpoint}:{cid}"
 
 
+def _start_key(kind: str, cid: int) -> str:
+    """«Αρχή» (yyyy-mm-dd): το «Από» του πρώτου πατήματος."""
+    return f"mark_start:{kind}:{cid}"
+
+
+def _gaps_key(kind: str, cid: int) -> str:
+    """Διαστήματα [από, έως] (yyyy-mm-dd) που διαγράφηκαν μέσα στο [Αρχή, σήμερα] και πρέπει να ξανάρθουν."""
+    return f"mark_gaps:{kind}:{cid}"
+
+
+def _mark_ready(cid: int, kind: str) -> bool:
+    """Έχει γίνει το πρώτο πάτημα του «Νέα παραστατικά από MARK» για το βιβλίο."""
+    return bool(db.get_setting(_start_key(kind, cid))) and all(
+        db.get_setting(_wm_key(kind, ep, cid)) for ep in _MARK_ENDPOINTS[kind])
+
+
+def _mark_reset(cid: int, kind: str) -> None:
+    for key in [_wm_key(kind, ep, cid) for ep in _MARK_ENDPOINTS[kind]] + [_start_key(kind, cid), _gaps_key(kind, cid)]:
+        db.delete_setting(key)
+
+
 def _init_watermarks(cid: int, kind: str) -> None:
-    """Μετά από ανάκτηση με «Έως» σήμερα: ό,τι υπήρχε στο myDATA για το διάστημα το έχουμε, άρα το
-    μέγιστο τοπικό MARK είναι ασφαλές σημείο εκκίνησης. Μόνο αν δεν υπάρχει ήδη: μια μεταγενέστερη
-    ανάκτηση διαστήματος δεν εγγυάται ότι ήρθαν τα εκπρόθεσμα άλλων μηνών."""
-    top = max((int(r["mark"]) for r in db.get_documents(cid, kind) if (r["mark"] or "").isdigit()), default=None)
+    """Μετά από ανάκτηση «Αρχή» → σήμερα: ό,τι υπήρχε στο myDATA από την Αρχή το έχουμε, άρα κάθε MARK που έχουμε
+    ήδη δει είναι ασφαλές W. Τα MARK είναι κοινή αρίθμηση της ΑΑΔΕ: άδειο βιβλίο παίρνει το μέγιστο MARK του άλλου
+    βιβλίου της εταιρείας (ίδιο περιβάλλον prod/dev)· χωρίς κανένα παραστατικό, 0."""
+    # ponytail: με 0 το επόμενο πάτημα φέρνει όλο το ιστορικό του ΑΦΜ· αποδεκτό για εταιρεία χωρίς κανένα παραστατικό
+    top = max((int(r["mark"]) for k in _MARK_ENDPOINTS for r in db.get_documents(cid, k)
+               if (r["mark"] or "").isdigit()), default=0)
     for ep in _MARK_ENDPOINTS[kind]:
-        if top and not db.get_setting(_wm_key(kind, ep, cid)):
-            db.set_setting(_wm_key(kind, ep, cid), top)
+        db.set_setting(_wm_key(kind, ep, cid), top)
 
 
-def _fetch_new(cid: int, kind: str) -> str:
-    """Ό,τι ανέβηκε στο myDATA μετά το τελευταίο MARK, όποια κι αν είναι η ημερομηνία έκδοσης (εκπρόθεσμα,
-    ακυρώσεις και χαρακτηρισμοί παλιών). Ξανατρέχει την κανονική ανάκτηση για το διάστημα που επηρεάζεται.
-    Το MARK προχωρά μόνο μετά από επιτυχή ανάκτηση (σφάλμα → εξαίρεση, μένει ως είχε)."""
+def _gr(iso: str) -> str:
+    return date.fromisoformat(iso).strftime("%d/%m/%Y")
+
+
+def _fetch_new(cid: int, kind: str, start: str) -> str:
+    """«Νέα παραστατικά από MARK». Πρώτη φορά: ανάκτηση από `start` («Από» της φόρμας) έως σήμερα και ορισμός W.
+    Μετά: (α) ξαναφέρνει τα κενά από διαγραφές, (β) ό,τι ανέβηκε με MARK > W, όποια κι αν είναι η ημερομηνία
+    έκδοσης (εκπρόθεσμα, ακυρώσεις και χαρακτηρισμοί παλιών), με κανονική ανάκτηση του διαστήματος που επηρεάζεται.
+    W και κενά αλλάζουν μόνο μετά από επιτυχία (σφάλμα → εξαίρεση, μένουν ως είχαν)."""
+    run = _fetch_income_range if kind == "income" else _fetch_expense_range
+    today = datetime.now(ATHENS).date().isoformat()
+    if not _mark_ready(cid, kind):
+        run(cid, _gr(start), _gr(today))
+        _init_watermarks(cid, kind)
+        db.set_setting(_start_key(kind, cid), start)
+        db.set_setting(_gaps_key(kind, cid), "[]")
+        return (f"✔ Νέα παραστατικά από MARK, πρώτη φορά: ανακτήθηκαν τα παραστατικά από {_gr(start)} έως σήμερα. "
+                "Από εδώ και πέρα έρχεται μόνο ό,τι νέο ανεβαίνει.")
+    gaps = json.loads(db.get_setting(_gaps_key(kind, cid)) or "[]")
+    for a, b in gaps:
+        run(cid, _gr(a), _gr(b))
     keys = {ep: _wm_key(kind, ep, cid) for ep in _MARK_ENDPOINTS[kind]}
-    if not all(db.get_setting(k) for k in keys.values()):
-        raise MyDataError("Δεν υπάρχει ακόμη σημείο αναφοράς: κάνε πρώτα μια «Ανάκτηση» με «Έως» σήμερα.")
     client = get_client()
     tops, dates, cand = {}, [], set()
     for ep, key in keys.items():
@@ -807,56 +845,87 @@ def _fetch_new(cid: int, kind: str) -> str:
                   if (r := db.get_document(cid, m)) and r["kind"] == kind and r["issue_date"]]
     fresh = {m for m in cand if not db.get_document(cid, m)}
     if dates:
-        gr = lambda s: date.fromisoformat(s).strftime("%d/%m/%Y")  # noqa: E731
         # ponytail: ένα διάστημα min–max· αν τα εκπρόθεσμα απλώνονται σε πολλά έτη, ανά μήνα
-        (_fetch_income_range if kind == "income" else _fetch_expense_range)(cid, gr(min(dates)), gr(max(dates)))
+        run(cid, _gr(min(dates)), _gr(max(dates)))
     for key, top in tops.items():
         db.set_setting(key, top)
+    db.set_setting(_gaps_key(kind, cid), "[]")
     new = [r for m in fresh if (r := db.get_document(cid, m)) and r["kind"] == kind]
     this_month = datetime.now(ATHENS).strftime("%Y-%m")
     late = [r for r in new if (r["issue_date"] or "")[:7] < this_month]
     db.mark_late(cid, [r["mark"] for r in late])
     # Μόνο τα αχαρακτήριστα θέλουν προσοχή· τα ήδη χαρακτηρισμένα εκπρόθεσμα δεν αναφέρονται.
     todo = sorted(f"{r['mark']} ({r['issue_date'][:10]})" for r in late if r["status"] == "unclassified")
-    return (f"✔ Νέα από την τελευταία φορά: {len(new)} παραστατικά"
+    return (f"✔ Νέα παραστατικά από MARK: {len(new)}"
+            + (f" · ξαναήρθαν {len(gaps)} διαστήματα που είχαν διαγραφεί" if gaps else "")
             + (f" · ⏰ {len(todo)} αχαρακτήριστα εκπρόθεσμα: {', '.join(todo)}" if todo else "") + ".")
+
+
+def _record_gap(cid: int, kind: str, date_from: str, date_to: str) -> None:
+    """Διαγραφή μέσα στο [Αρχή, σήμερα]: το κομμάτι αυτό ξανάρχεται στο επόμενο «Νέα παραστατικά από MARK»."""
+    start = db.get_setting(_start_key(kind, cid))
+    if not start:
+        return
+    a, b = max(date_from, start), min(date_to, datetime.now(ATHENS).date().isoformat())
+    if a <= b:
+        gaps = json.loads(db.get_setting(_gaps_key(kind, cid)) or "[]")
+        db.set_setting(_gaps_key(kind, cid), json.dumps(gaps + [[a, b]]))
+
+
+@app.route("/sync/mark-reset", methods=["POST"])
+def sync_mark_reset():
+    """«Αλλαγή αρχής»: ξεχνά Αρχή/W/κενά· το επόμενο «Νέα παραστατικά από MARK» ξεκινά από το νέο «Από»."""
+    scope = request.form.get("scope") if request.form.get("scope") in _SYNC_SCOPES else "both"
+    cid = _active_company_id()
+    if cid:
+        for kind in _SYNC_SCOPES[scope]:
+            _mark_reset(cid, kind)
+        flash("Η αρχή του «Νέα παραστατικά από MARK» μηδενίστηκε. Το επόμενο πάτημα ξεκινά από την ημερομηνία «Από».", "ok")
+    return redirect(url_for("sync", scope=scope, date_from=request.form.get("date_from"),
+                            date_to=request.form.get("date_to")))
 
 
 @app.route("/sync", methods=["POST"])
 def sync_run():
-    """Ανάκτηση / Νέα από την τελευταία φορά / Διαγραφή / Διαγραφή και ανάκτηση για έσοδα, έξοδα ή και
+    """Ανάκτηση / Νέα παραστατικά από MARK / Διαγραφή (διαστήματος ή όλων) για έσοδα, έξοδα ή και
     τα δύο. Κάθε βιβλίο ανεξάρτητα: αποτυχία του ενός δεν σταματά το άλλο."""
     scope = request.form.get("scope") if request.form.get("scope") in _SYNC_SCOPES else "both"
-    action = request.form.get("action") if request.form.get("action") in ("fetch", "new", "delete", "refetch") else "fetch"
+    action = request.form.get("action") if request.form.get("action") in ("fetch", "new", "delete") else "fetch"
+    if action == "delete" and request.form.get("all"):
+        cid = _active_company_id()
+        for kind in _SYNC_SCOPES[scope] if cid else ():
+            # ponytail: σβήνει όσα έχουν issue_date (όλα τα ανακτημένα/τοπικά έχουν)
+            n = db.delete_documents_range(cid, kind, "", "9999-12-31")
+            _mark_reset(cid, kind)
+            db.delete_setting(_range_key(kind))
+            flash(f"Διαγράφηκαν όλα τα παραστατικά {_SYNC_NOUNS[kind]} ({n}).", "ok")
+        return redirect(url_for("sync", scope=scope))
     df, dt, cid, bad = _fetch_dates(scope)
     if bad:
         return bad
-    to_today = request.form["date_to"] == datetime.now(ATHENS).strftime("%Y-%m-%d")
     ok = 0
     for kind in _SYNC_SCOPES[scope]:
         label = "Έσοδα" if kind == "income" else "Έξοδα"
         prefix = f"{label}: " if scope == "both" else ""
-        if action in ("delete", "refetch"):
+        if action == "delete":
             n = db.delete_documents_range(cid, kind, request.form["date_from"], request.form["date_to"])
             flash(f"{prefix}Διαγράφηκαν {n} παραστατικά {_SYNC_NOUNS[kind]} για το διάστημα {df} – {dt}.", "ok")
-            if action == "delete":
-                ok += 1
-                continue
+            _record_gap(cid, kind, request.form["date_from"], request.form["date_to"])
+            ok += 1
+            continue
         try:
             if action == "new":
-                flash(prefix + _fetch_new(cid, kind), "ok")
+                flash(prefix + _fetch_new(cid, kind, request.form["date_from"]), "ok")
             else:
                 run = _fetch_income_range if kind == "income" else _fetch_expense_range
                 flash(prefix + run(cid, df, dt), "ok")
-                if to_today:
-                    _init_watermarks(cid, kind)
             ok += 1
         except Exception as e:  # noqa: BLE001 — network κ.λπ., δεν θέλουμε 500 στο route
             flash(prefix + _fetch_error(e), "error")
-    if not ok:
+    if not ok or action == "delete":
         return redirect(url_for("sync", scope=scope, date_from=request.form["date_from"],
-                                date_to=request.form["date_to"]))
-    if action != "delete" and "expense" in _SYNC_SCOPES[scope]:
+                                date_to=request.form["date_to"], tab=request.form.get("tab")))
+    if "expense" in _SYNC_SCOPES[scope]:
         if db.get_setting("auto_classify") == "1" and _auto_classify_candidates(cid):
             return redirect(url_for("auto_classify"))
     return redirect(url_for({"income": "income", "expense": "invoices"}.get(scope, "sync"),
@@ -1158,14 +1227,31 @@ def sync():
     # «Από την τελευταία ανάκτηση»: η παλαιότερη από τις τελευταίες των επιλεγμένων βιβλίων, για να μη χαθεί τίποτα.
     ranges = [r for r in (db.get_setting(_range_key(k)) for k in kinds) if r]
     end = lambda r: datetime.strptime(r.split("–")[-1].strip(), "%d/%m/%Y")  # noqa: E731
+    # Άδεια βιβλία → μόνο η καρτέλα «Ανάκτηση», από 1/1 του έτους.
+    empty = not cid or not any(db.count_by_status(cid, k) for k in kinds)
+    mode = db.get_setting("sync_mode") or "mark"
+    tabs = [("main", "📥 Ανάκτηση")] + ([] if empty else (
+        [("past", "🗓️ Ανάκτηση προηγούμενων περιόδων")] if mode == "mark" else []) + [("delete", "🗑️ Διαγραφή")])
+    tab = request.args.get("tab") if request.args.get("tab") in dict(tabs) else "main"
     return render_template(
         "sync.html",
         scope=scope,
         noun=_SYNC_NOUNS[scope],
         **_month_strip(cid, kinds),
-        range_date_from=request.args.get("date_from", "").strip() or today,
-        range_date_to=request.args.get("date_to", "").strip() or today,
+        tabs=tabs,
+        tab=tab,
+        mode=mode,
+        mark_pending=bool(cid) and not all(_mark_ready(cid, k) for k in kinds),
+        range_date_from=request.args.get("date_from", "").strip()
+        or (f"{now.year - 1}-01-01" if tab == "past" else now.strftime("%Y-01-01" if empty else "%Y-%m-01")),
+        range_date_to=request.args.get("date_to", "").strip() or (f"{now.year - 1}-12-31" if tab == "past" else today),
         date_range=min(ranges, key=end) if ranges else None,
+        # «Νέα παραστατικά από MARK» ανά βιβλίο: (ετικέτα, Αρχή dd/mm/yyyy ή None, W, εκκρεμή κενά).
+        mark_info=[(("Έσοδα" if k == "income" else "Έξοδα"),
+                    _gr(db.get_setting(_start_key(k, cid))) if cid and _mark_ready(cid, k) else None,
+                    db.get_setting(_wm_key(k, _MARK_ENDPOINTS[k][0], cid)) if cid else None,
+                    len(json.loads(db.get_setting(_gaps_key(k, cid)) or "[]")) if cid else 0)
+                   for k in kinds],
         # Τελευταία ανάκτηση + τελευταίο MARK ανά βιβλίο (τα MARK του myDATA είναι χρονολογικά).
         last=[(label, db.get_setting(_range_key(k)),
                max((r["mark"] for r in db.get_documents(cid, k) if (r["mark"] or "").isdigit()), key=int, default=None)
@@ -5190,6 +5276,7 @@ def parameters():
         combinations_version=db.get_setting("combos_version"),
         stock_reports=[(k, title, desc, stock_in(k)) for k, title, _, desc in STOCK_REPORTS],
         auto_classify=db.get_setting("auto_classify") == "1",
+        sync_mode=db.get_setting("sync_mode") or "mark",
         # Όλα τα tabs αποδίδονται μαζί· η εναλλαγή γίνεται στον browser χωρίς reload.
         safety_backups=db.list_safety_backups(),
         keep_safety=db.keep_safety(),
@@ -5293,7 +5380,8 @@ def parameters_tax():
 @app.route("/parameters/automation", methods=["POST"])
 def parameters_automation():
     db.set_setting("auto_classify", "1" if request.form.get("auto_classify") else "0")
-    flash("✔ Αποθηκεύτηκε η ρύθμιση αυτόματου χαρακτηρισμού.", "ok")
+    db.set_setting("sync_mode", "dates" if request.form.get("sync_mode") == "dates" else "mark")
+    flash("✔ Αποθηκεύτηκαν οι ρυθμίσεις ανάκτησης και αυτόματου χαρακτηρισμού.", "ok")
     return redirect(url_for("parameters", tab="reports"))
 
 
