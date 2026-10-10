@@ -97,7 +97,19 @@ assert "έσοδα</span>" in strip and "έξοδα</span>" not in strip
 # (θ) Τελευταία ανάκτηση + MARK ανά βιβλίο: στη σελίδα Ανάκτησης, όχι στα βιβλία.
 page = c.get("/sync").get_data(as_text=True)
 last = page[page.index('class="sy-hero-last"'):page.index('</header>', page.index('class="sy-hero-last"'))]
-assert last.count("01/10/2026 – 31/10/2026") == 2 and "5001" in last and "4002" in last, last
+assert last.count("Περίοδος 01/10/2026 – 31/10/2026") == 2 and "5001" in last and "4002" in last, last
+assert re.search(r"\d\d/\d\d/\d{4} \d\d:\d\d", last), last  # ημερομηνία & ώρα ανάκτησης
+# «Νέα από MARK» (αρχή ήδη ορισμένη): ο τύπος αλλάζει, η περίοδος δεν φαίνεται πια ως τελευταία στα έσοδα.
+db.set_setting(A._start_key("income", cid), "2026-10-01")
+db.set_setting(A._wm_key("income", "RequestTransmittedDocs", cid), 5001)
+assert "MARK myDATA" not in last and "MARK τελευταίου παραστατικού" in last, last
+fake.new_since = lambda ep, mark: (9000, [], set())  # π.χ. μόνο χαρακτηρισμός: W > MARK παραστατικού
+c.post("/sync", data=dict(form, scope="income", action="new"))
+page = c.get("/sync").get_data(as_text=True)
+last = page[page.index('class="sy-hero-last"'):page.index('</header>', page.index('class="sy-hero-last"'))]
+assert "Νέα από MARK" in last and last.count("Περίοδος 01/10/2026 – 31/10/2026") == 1, last
+assert last.count("MARK myDATA") == 1 and '<span class="mono">9000</span>' in last, last
+A._mark_reset(cid, "income")
 assert "Τελευταία ανάκτηση" not in c.get("/invoices?view=unclassified").get_data(as_text=True)
 
 # (ι) Καρτέλες. Τρόπος MARK (προεπιλογή), χωρίς αρχή: αρχική ανάκτηση «Από» → σήμερα (action=new)· και οι 3 καρτέλες.

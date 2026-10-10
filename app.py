@@ -763,6 +763,11 @@ def _range_key(kind: str) -> str:
     return f"last_{'income_' if kind == 'income' else ''}range:{_active_company_id()}"
 
 
+def _last_key(kind: str, cid: int) -> str:
+    """Τελευταία επιτυχημένη ανάκτηση του βιβλίου (JSON {kind: τύπος, at: dd/mm/yyyy HH:MM}) για το header."""
+    return f"last_sync:{kind}:{cid}"
+
+
 def _fetch_dates(scope: str):
     """Ημερομηνίες της φόρμας ανάκτησης (yyyy-mm-dd → dd/MM/yyyy) + ενεργή εταιρεία.
     Επιστρέφει (df, dt, cid, None) ή (…, redirect) όταν κάτι λείπει."""
@@ -985,6 +990,7 @@ def sync_run():
             n = db.delete_documents_range(cid, kind, "", "9999-12-31")
             _mark_reset(cid, kind)
             db.delete_setting(_range_key(kind))
+            db.delete_setting(_last_key(kind, cid))
             flash(f"Διαγράφηκαν όλα τα παραστατικά {_SYNC_NOUNS[kind]} ({n}).", "ok")
         return redirect(url_for("sync", scope=scope))
     df, dt, cid, bad = _fetch_dates(scope)
@@ -1003,10 +1009,14 @@ def sync_run():
             continue
         try:
             if action == "new":
+                what = "Νέα από MARK" if _mark_ready(cid, kind) else f"Αρχική από MARK: {df} – σήμερα"
                 flash(prefix + _fetch_new(cid, kind, request.form["date_from"]), "ok")
             else:
+                what = f"Περίοδος {df} – {dt}"
                 run = _fetch_income_range if kind == "income" else _fetch_expense_range
                 flash(prefix + run(cid, df, dt), "ok")
+            db.set_setting(_last_key(kind, cid), json.dumps(
+                {"kind": what, "at": f"{datetime.now(ATHENS):%d/%m/%Y %H:%M}"}, ensure_ascii=False))
             ok += 1
         except Exception as e:  # noqa: BLE001 — network κ.λπ., δεν θέλουμε 500 στο route
             flash(prefix + _fetch_error(e), "error")
@@ -1342,8 +1352,13 @@ def sync():
                     _gr(db.get_setting(_start_key(k, cid))) if cid and _mark_ready(cid, k) else None,
                     db.get_setting(_wm_key(k, _MARK_ENDPOINTS[k][0], cid)) if cid else None)
                    for k in kinds],
-        # Τελευταία ανάκτηση + τελευταίο MARK ανά βιβλίο (τα MARK του myDATA είναι χρονολογικά).
-        last=[(label, db.get_setting(_range_key(k)),
+        # Ανά βιβλίο: τελευταία ανάκτηση (τύπος + πότε), MARK myDATA (W: ως εκεί ελέγχθηκε, και στα δύο endpoints
+        # των εξόδων) και MARK τελευταίου παραστατικού (τα MARK του myDATA είναι χρονολογικά).
+        # Παλιές εγκαταστάσεις χωρίς last_sync: μόνο το τελευταίο διάστημα.
+        last=[(label, (json.loads(db.get_setting(_last_key(k, cid)) or "null") if cid else None)
+               or ({"kind": f"Περίοδος {r}", "at": None} if (r := db.get_setting(_range_key(k))) else None),
+               min(int(db.get_setting(_wm_key(k, ep, cid))) for ep in _MARK_ENDPOINTS[k])
+               if cid and _mark_ready(cid, k) else None,
                max((r["mark"] for r in db.get_documents(cid, k) if (r["mark"] or "").isdigit()), key=int, default=None)
                if cid else None)
               for k, label in (("income", "Έσοδα"), ("expense", "Έξοδα"))],

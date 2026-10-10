@@ -24,10 +24,14 @@
   <i class="blob b1"></i><i class="blob b2"></i>
   <h1>⇅ Ανάκτηση</h1>
   <div class="sy-hero-last">
-    {% for label, rng, mark in last %}
+    {% for label, info, wm, mark in last %}
     <div style="--c:{{ '#4fd1a0' if loop.first else '#9aa2ff' }}"><b>{{ label }}</b>
-      <span>Τελευταία ανάκτηση: <span class="mono">{{ rng or '—' }}</span></span>
-      <span title="Τα MARK του myDATA είναι χρονολογικά — έχουμε δεδομένα ως εδώ">Τελευταίο MARK: <span class="mono">{{ mark or '—' }}</span></span></div>
+      <span>Τελευταία ανάκτηση: <span class="mono">{{ info.kind if info else '—' }}</span>
+        {%- if info and info.at %} · <span class="mono">{{ info.at }}</span>{% endif %}</span>
+      {%- if wm is not none %}
+      <span title="Έως εδώ έχει ελεγχθεί το myDATA· το επόμενο «Νέα από MARK» ζητά μόνο νεότερα">MARK myDATA: <span class="mono">{{ wm }}</span></span>
+      {%- endif %}
+      <span title="Τα MARK του myDATA είναι χρονολογικά — έχουμε παραστατικά ως εδώ">MARK τελευταίου παραστατικού: <span class="mono">{{ mark or '—' }}</span></span></div>
     {% endfor %}
   </div>
   {# Λωρίδα μηνών (2 έτη): κλικ σε μήνα = διάστημα της φόρμας. #}
