@@ -35,9 +35,6 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
 {# Παραστατικό εσόδου: ενεργό το «Βιβλίο εσόδων» (η σελίδα document είναι κοινή με τα έξοδα). #}
 {% if ep == 'document' and is_income %}{% set ep = 'income' %}{% endif %}
 {% set nav = [
-  ('Επισκόπηση', [
-    ('dashboard', 'Πίνακας ελέγχου', 'home', ['dashboard'], False),
-  ]),
   ('Βιβλία', [
     ('sync', 'Ανάκτηση', 'sync', ['sync'], False),
     ('income', 'Βιβλίο εσόδων', 'in', ['income'], False),
@@ -46,6 +43,7 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
     ('recurring', 'Μηνιαίες εγγραφές', 'calendar', ['recurring'], True),
   ]),
   ('Αναλύσεις', [
+    ('dashboard', 'Πίνακας ελέγχου', 'home', ['dashboard'], False),
     ('reports_yearly', 'Συνοπτικό βιβλίο', 'calendar', ['reports_yearly'], False),
     ('reports_vat', 'Δήλωση ΦΠΑ (Φ2)', 'receipt', ['reports_vat', 'reports_vat_reconcile'], False),
     ('reports', 'OLAP', 'chart', ['reports'], False),
