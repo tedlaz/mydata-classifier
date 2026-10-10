@@ -12,7 +12,9 @@ import re
 import statistics
 import sys
 import textwrap
+import shutil
 import threading
+import time
 import tomllib
 import unicodedata
 from datetime import date, datetime, timedelta
@@ -466,18 +468,26 @@ def enrich_names(invoices, vat_attr="issuer_vat", name_attr="issuer_name"):
     if missing:
         from concurrent.futures import ThreadPoolExecutor
 
+        t0 = time.monotonic()
         workers = min(8, len(missing))
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            hooks = _log_hooks()  # οι κλήσεις γράφονται στο log της ενέργειας (Ανάκτηση → Ιστορικό συνδέσεων)
-            found = dict(zip(missing, pool.map(lambda v: vies.lookup_name(v, hooks=hooks), missing)))
+            found = dict(zip(missing, pool.map(vies.lookup_name, missing)))
+        n_vies = sum(1 for n in found.values() if n)
 
         # fallback στο Μητρώο ΑΑΔΕ/GSIS για όσα δεν βρέθηκαν (επίσης παράλληλα)
         if gsis.gsis_available():
             rest = [v for v, n in found.items() if not n]
             if rest:
                 with ThreadPoolExecutor(max_workers=min(4, len(rest))) as pool:
-                    for v, n in zip(rest, pool.map(lambda v: gsis.lookup_name(v, hooks=hooks), rest)):
+                    for v, n in zip(rest, pool.map(gsis.lookup_name, rest)):
                         found[v] = n
+        ok = sum(1 for n in found.values() if n)
+        if has_request_context():  # μία συγκεντρωτική γραμμή στο log της ενέργειας (Ιστορικό συνδέσεων)
+            g.setdefault("mydata_log", []).append(
+                f"{datetime.now(ATHENS):%H:%M:%S}  Επωνυμίες "
+                f"{'πελατών' if vat_attr == 'counterpart_vat' else 'προμηθευτών'} (VIES/ΑΑΔΕ): "
+                f"{len(found)} ΑΦΜ ελέγχθηκαν → ✓ {ok} επιβεβαιώθηκαν (VIES {n_vies}, ΑΑΔΕ {ok - n_vies}), "
+                f"{len(found) - ok} χωρίς επωνυμία  {time.monotonic() - t0:.1f}s")
 
         for vat, name in found.items():
             if name:
@@ -519,26 +529,18 @@ def get_client() -> MyDataClient:
 
 # ------------------------------------------------------------------ #
 # Log συνδέσεων με το myDATA: ένα αρχείο ανά ενέργεια της εφαρμογής (όλες οι κλήσεις της + τα μηνύματα
-# αποτελέσματος), στο <data>/mydata_logs. Κρατιούνται τα τελευταία MYDATA_LOG_KEEP.
+# αποτελέσματος), στο <data>/mydata_logs/<εταιρεία>. Κρατιούνται τα τελευταία MYDATA_LOG_KEEP ανά εταιρεία.
 # ------------------------------------------------------------------ #
 _LOG_DIR = os.path.join(_DATA_DIR, "mydata_logs")
 MYDATA_LOG_KEEP = 10
 _LOG_SECRET = ("pass", "key", "token", "secret")
+_log_dir = lambda cid: os.path.join(_LOG_DIR, str(cid or 0))  # noqa: E731
 
 
 def _log_mydata(resp, *args, **kwargs):
     """requests response hook (client του myDATA)."""
     if has_request_context():
         g.setdefault("mydata_log", []).append(_log_line(resp))
-
-
-def _log_hooks() -> dict:
-    """hooks για requests που τρέχουν σε thread pool (VIES/GSIS επωνυμίες), όπου δεν υπάρχει το g:
-    η λίστα του τρέχοντος request δεσμεύεται εδώ, στο κύριο thread."""
-    if not has_request_context():
-        return {}
-    calls = g.setdefault("mydata_log", [])
-    return {"response": lambda resp, *a, **k: calls.append(_log_line(resp))}
 
 
 def _log_line(resp) -> str:
@@ -563,24 +565,25 @@ def _write_mydata_log(response):
     msgs = [f"{'✗' if cat == 'error' else '•'} [{cat}] {msg}" for cat, msg in session.get("_flashes", [])]
     text = "\n".join([f"{datetime.now(ATHENS):%d/%m/%Y %H:%M:%S} · {request.method} {request.path} · "
                       f"{company.get('company_name', '—')}"] + ([form] if form else [])
-                     + ["", f"Κλήσεις ({len(calls)}) — myDATA και επωνυμίες συναλλασσομένων (VIES/ΑΑΔΕ):"] + calls
+                     + ["", "Κλήσεις — myDATA και επωνυμίες συναλλασσομένων (VIES/ΑΑΔΕ):"] + calls
                      + (["", "Αποτέλεσμα:"] + msgs if msgs else []))
+    d = _log_dir(company.get("id"))
     try:
-        os.makedirs(_LOG_DIR, exist_ok=True)
-        with open(os.path.join(_LOG_DIR, f"{datetime.now(ATHENS):%Y%m%d-%H%M%S-%f}.log"), "w", encoding="utf-8") as f:
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, f"{datetime.now(ATHENS):%Y%m%d-%H%M%S-%f}.log"), "w", encoding="utf-8") as f:
             f.write(text + "\n")
-        for old in sorted(os.listdir(_LOG_DIR))[:-MYDATA_LOG_KEEP]:
-            os.remove(os.path.join(_LOG_DIR, old))
+        for old in sorted(os.listdir(d))[:-MYDATA_LOG_KEEP]:
+            os.remove(os.path.join(d, old))
     except OSError:
         app.logger.exception("mydata log")  # το log δεν σταματά ποτέ την ενέργεια
     return response
 
 
-def mydata_logs() -> list[dict]:
-    """Τα αποθηκευμένα logs, νεότερο πρώτα: {title, body, failed}."""
-    out = []
-    for name in sorted(os.listdir(_LOG_DIR), reverse=True) if os.path.isdir(_LOG_DIR) else []:
-        with open(os.path.join(_LOG_DIR, name), encoding="utf-8") as f:
+def mydata_logs(cid) -> list[dict]:
+    """Τα αποθηκευμένα logs της εταιρείας, νεότερο πρώτα: {title, body, failed}."""
+    out, d = [], _log_dir(cid)
+    for name in sorted(os.listdir(d), reverse=True) if os.path.isdir(d) else []:
+        with open(os.path.join(d, name), encoding="utf-8") as f:
             title, _, body = f.read().partition("\n")
         out.append({"title": title, "body": body.strip(), "failed": "✗" in body})
     return out
@@ -1327,7 +1330,7 @@ def sync():
         tabs=tabs,
         tab=tab,
         mode=mode,
-        logs=mydata_logs() if tab == "log" else [],
+        logs=mydata_logs(cid) if tab == "log" else [],
         log_keep=MYDATA_LOG_KEEP,
         mark_pending=bool(cid) and not all(_mark_ready(cid, k) for k in kinds),
         range_date_from=request.args.get("date_from", "").strip()
@@ -5624,6 +5627,7 @@ def companies_delete(idx):
     db.delete_company(
         removed["id"]
     )  # cascade: παραστατικά της εταιρείας (οι προμηθευτές είναι κοινοί)
+    shutil.rmtree(_log_dir(removed["id"]), ignore_errors=True)
     # Αν διαγράφηκε η ενεργή, όρισε την πρώτη που απομένει (αν υπάρχει).
     if was_active:
         remaining = load_companies()

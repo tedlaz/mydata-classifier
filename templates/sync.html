@@ -86,29 +86,24 @@ body.is-busy #sy-form[data-run=fetch] .sy-dot--out{visibility:hidden}
 @keyframes sy-spin{to{transform:rotate(360deg)}}
 body.is-busy .sy-busy{display:flex}
 
-/* Ενέργειες ως μεγάλες κάρτες-κουμπιά. */
-.sy-acts{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:18px}
-.sy-act{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:6px;text-align:left;padding:20px;border-radius:18px;
-  background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:var(--shadow);font-weight:400;overflow:hidden;
-  animation:sy-rise .55s var(--ease) both;animation-delay:calc(var(--i) * 90ms + 400ms)}
-.sy-act::after{content:"";position:absolute;inset:auto -30% -70% auto;width:180px;height:180px;border-radius:50%;
-  background:radial-gradient(var(--c-soft),transparent 70%);opacity:.0;transition:opacity .35s}
-.sy-act:hover{transform:translateY(-4px);border-color:var(--c);box-shadow:var(--shadow-hi);filter:none}
-.sy-act:hover::after{opacity:1}
-.sy-act .e{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;font-size:1.5rem;background:var(--c-soft);
-  transition:transform .4s var(--ease)}
-.sy-act:hover .e{transform:scale(1.1) rotate(-6deg)}
-.sy-act b{font-size:1.02rem;color:var(--c)}
-.sy-act small{font-size:.84rem;color:var(--ink-2);line-height:1.45}
-.sy-act--go{--c:var(--accent);--c-soft:var(--accent-soft);background:linear-gradient(var(--surface),var(--surface)) padding-box,var(--accent-grad) border-box;border:2px solid transparent}
-.sy-act--del{--c:var(--err);--c-soft:var(--err-soft)}
-.sy-act--re{--c:var(--info);--c-soft:var(--info-soft)}
+/* Η ροή ως κουμπί εκτέλεσης (ακυρώνει το γενικό στυλ των button και τον spinner του .is-loading). */
+.sy-run{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;text-align:center;color:var(--ink);font-weight:400;cursor:pointer;
+  background:radial-gradient(90% 90% at 50% 0%,var(--c-soft),transparent 70%) padding-box,var(--surface) padding-box,var(--accent-grad) border-box;
+  border:2px solid transparent;border-radius:18px;--c:var(--accent);--c-soft:var(--accent-soft)}
+.sy-run--del{--c:var(--err);--c-soft:var(--err-soft);background:radial-gradient(90% 90% at 50% 0%,var(--c-soft),transparent 70%),var(--surface);border-color:var(--err)}
+.sy-run:hover{transform:translateY(-4px);box-shadow:var(--shadow-hi);filter:none}
+.sy-run:hover svg{transform:scale(1.03)}
+.sy-run svg{transition:transform .4s var(--ease)}
+.sy-run.is-loading{color:var(--ink) !important}
+.sy-run.is-loading::after{content:none}
+.sy-run-cap{display:flex;flex-direction:column;gap:4px;max-width:46ch}
+.sy-run-cap b{font-size:1.1rem;color:var(--c)}
+.sy-run-cap small{font-size:.84rem;color:var(--ink-2);line-height:1.45}
+body.is-busy .sy-run-cap{visibility:hidden}
 .sy-mark-info{display:flex;flex-direction:column;gap:2px;color:var(--muted)}
 .sy-mark-info .mono{font-family:var(--font-data)}
 .sy-mark-reset{margin:10px 0 0;text-align:right}
 .sy-mark-reset .linklike{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;font:inherit;font-size:.85rem;text-decoration:underline}
-.sy-act.is-loading{pointer-events:none}
-.sy-act.is-loading .e{animation:sy-spin 1s linear infinite}
 .sy-note{margin-top:16px}
 .sy-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px}
 .sy-today{display:block;padding:10px 0}
@@ -119,8 +114,8 @@ body.is-busy .sy-busy{display:flex}
 
 
 
-@media (max-width:900px){ .sy-grid,.sy-acts{grid-template-columns:1fr} }
-@media (prefers-reduced-motion:reduce){ .sy-grid *,.sy-acts *,.sy-card,.sy-act{animation:none!important;transition:none!important} }
+@media (max-width:900px){ .sy-grid{grid-template-columns:1fr} }
+@media (prefers-reduced-motion:reduce){ .sy-grid *,.sy-card{animation:none!important;transition:none!important} }
 </style>
 
 <div class="sy-top">
@@ -140,7 +135,7 @@ body.is-busy .sy-busy{display:flex}
 {#- Ιστορικό συνδέσεων: ένα log ανά ενέργεια που μίλησε με το myDATA (app.py: _write_mydata_log). #}
 <section class="sy-card sy-log">
   <h2>📜 Ιστορικό συνδέσεων με το myDATA</h2>
-  <p class="muted small">Οι τελευταίες {{ log_keep }} ενέργειες που επικοινώνησαν με το myDATA (ανάκτηση, χαρακτηρισμοί, αναφορές κ.λπ.):
+  <p class="muted small">Οι τελευταίες {{ log_keep }} ενέργειες αυτής της εταιρείας που επικοινώνησαν με το myDATA (ανάκτηση, χαρακτηρισμοί, αναφορές κ.λπ.):
     κάθε κλήση με αποτέλεσμα, χρόνο και μέγεθος, και τα μηνύματα της ενέργειας. Περιλαμβάνονται και οι κλήσεις
     για επωνυμίες συναλλασσομένων που λείπουν (VIES, Μητρώο ΑΑΔΕ). Τα παλαιότερα διαγράφονται αυτόματα.</p>
   {% for lg in logs %}
@@ -231,10 +226,16 @@ body.is-busy .sy-busy{display:flex}
     </section>
     {% endif %}
 
-    <section class="sy-card sy-flow" style="--i:1" aria-hidden="true">
+    {#- Η ροή είναι και το κουμπί εκτέλεσης της καρτέλας: κινείται όσο τρέχει η ενέργεια. #}
+    {%- if tab == 'delete' %}
+    <button type="submit" class="sy-card sy-flow sy-run sy-run--del" style="--i:1" name="action" value="delete"
+            data-confirm="Θα διαγραφούν οριστικά τα τοπικά παραστατικά {{ noun }} της ενεργής εταιρείας (όλα ή του διαστήματος, όπως επέλεξες). Συνέχεια;">
+    {%- else %}
+    <button type="submit" class="sy-card sy-flow sy-run" style="--i:1" name="action" value="{{ 'new' if mark_main else 'fetch' }}">
+    {%- endif %}
       {% if tab == 'delete' %}
       {#- Διαγραφή: μόνο τοπικά, βιβλίο → κάδος· το myDATA μένει εκτός. #}
-      <svg viewBox="0 0 420 210">
+      <svg viewBox="0 0 420 210" aria-hidden="true">
         <path class="ln" d="M130 92 C 190 52, 230 52, 290 92"/>
         <text class="lbl" x="210" y="44" text-anchor="middle" style="fill:var(--err)">διαγραφή (μόνο τοπικά)</text>
         <rect class="box" x="10" y="55" width="120" height="100" rx="16"/>
@@ -248,7 +249,7 @@ body.is-busy .sy-busy{display:flex}
       </svg>
       <span class="sy-busy sy-busy--del"><i></i>Διαγραφή από το τοπικό βιβλίο…</span>
       {% else %}
-      <svg viewBox="0 0 420 210">
+      <svg viewBox="0 0 420 210" aria-hidden="true">
         <path class="ln" d="M130 78 C 190 40, 230 40, 290 78"/>
         <path class="ln" d="M290 132 C 230 170, 190 170, 130 132"/>
         <text class="lbl" x="210" y="36" text-anchor="middle" fill="#1fbf8a" style="fill:#1fbf8a">ανάκτηση</text>
@@ -264,36 +265,26 @@ body.is-busy .sy-busy{display:flex}
       </svg>
       <span class="sy-busy"><i></i>Επικοινωνία με το myDATA…</span>
       {% endif %}
-    </section>
-  </div>
-
-  <div class="sy-acts">
-    {% if tab == 'delete' %}
-    <button type="submit" class="sy-act sy-act--del" style="--i:0" name="action" value="delete"
-            data-confirm="Θα διαγραφούν οριστικά τα τοπικά παραστατικά {{ noun }} της ενεργής εταιρείας (όλα ή του διαστήματος, όπως επέλεξες). Συνέχεια;">
-      <span class="e">🗑️</span><b>Διαγραφή</b>
-      <small>Αφαιρεί <strong>μόνο από το τοπικό βιβλίο</strong> τα παραστατικά και τους τοπικούς χαρακτηρισμούς τους. Στο myDATA δεν αλλάζει τίποτα.
-        Με «Όλα τα δεδομένα» η εταιρεία ξεκινά από την αρχή (και η αρχή του MARK μηδενίζεται).
-        {%- if mode == 'mark' and mark_info | rejectattr(1, "none") | list %} Διαγραφή μετά την αρχή του MARK τη μηδενίζει: θα ζητηθεί ξανά αρχική ανάκτηση.{% endif %}</small>
+      <span class="sy-run-cap">
+      {%- if tab == 'delete' %}
+        <b>🗑️ Διαγραφή</b>
+        <small>Αφαιρεί <strong>μόνο από το τοπικό βιβλίο</strong> τα παραστατικά και τους τοπικούς χαρακτηρισμούς τους. Στο myDATA δεν αλλάζει τίποτα.
+          Με «Όλα τα δεδομένα» η εταιρεία ξεκινά από την αρχή (και η αρχή του MARK μηδενίζεται).
+          {%- if mode == 'mark' and mark_info | rejectattr(1, "none") | list %} Διαγραφή μετά την αρχή του MARK τη μηδενίζει: θα ζητηθεί ξανά αρχική ανάκτηση.{% endif %}</small>
+      {%- elif mark_main and mark_pending %}
+        <b>📥 Ανάκτηση</b>
+        <small>Φέρνει από το myDATA τα παραστατικά {{ noun }} από την ημερομηνία «Από» έως σήμερα και ορίζει την αρχή του
+          «Νέα παραστατικά από MARK».</small>
+      {%- elif mark_main %}
+        <b>🆕 Νέα παραστατικά από MARK</b>
+        <small>Φέρνει ό,τι ανέβηκε στο myDATA μετά το τελευταίο MARK, <strong>και τα εκπρόθεσμα</strong> με παλιά ημερομηνία έκδοσης,
+          ακυρώσεις και χαρακτηρισμούς.</small>
+      {%- else %}
+        <b>📥 Ανάκτηση</b>
+        <small>Φέρνει από το myDATA τα παραστατικά {{ noun }} του διαστήματος. Όσα υπάρχουν ήδη ενημερώνονται, χωρίς διπλότυπα.</small>
+      {%- endif %}
+      </span>
     </button>
-    {% elif mark_main and mark_pending %}
-    <button type="submit" class="sy-act sy-act--go" style="--i:0" name="action" value="new">
-      <span class="e">📥</span><b>Ανάκτηση</b>
-      <small>Φέρνει από το myDATA τα παραστατικά {{ noun }} από την ημερομηνία «Από» έως σήμερα και ορίζει την αρχή του
-        «Νέα παραστατικά από MARK».</small>
-    </button>
-    {% elif mark_main %}
-    <button type="submit" class="sy-act sy-act--go" style="--i:0" name="action" value="new">
-      <span class="e">🆕</span><b>Νέα παραστατικά από MARK</b>
-      <small>Φέρνει ό,τι ανέβηκε στο myDATA μετά το τελευταίο MARK, <strong>και τα εκπρόθεσμα</strong> με παλιά ημερομηνία έκδοσης,
-        ακυρώσεις και χαρακτηρισμούς.</small>
-    </button>
-    {% else %}
-    <button type="submit" class="sy-act sy-act--go" style="--i:0" name="action" value="fetch">
-      <span class="e">📥</span><b>Ανάκτηση</b>
-      <small>Φέρνει από το myDATA τα παραστατικά {{ noun }} του διαστήματος. Όσα υπάρχουν ήδη ενημερώνονται, χωρίς διπλότυπα.</small>
-    </button>
-    {% endif %}
   </div>
   {%- if mark_main and mark_info | rejectattr(1, "none") | list %}
   <p class="sy-mark-reset"><button type="submit" class="linklike" formaction="{{ url_for('sync_mark_reset') }}" formnovalidate
