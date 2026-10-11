@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_months.html" import month_style, month_legend, month_grid %}
+{% from "_months.html" import month_style, month_legend, year_strip %}
 {% block title %}Ανάκτηση{% endblock %}
 {% block content %}
 <style>
@@ -34,10 +34,10 @@
       <span title="Τα MARK του myDATA είναι χρονολογικά — έχουμε παραστατικά ως εδώ">MARK τελευταίου παραστατικού: <span class="mono">{{ mark or '—' }}</span></span></div>
     {% endfor %}
   </div>
-  {# Λωρίδα μηνών (2 έτη): κλικ σε μήνα = διάστημα της φόρμας. #}
+  {# Λωρίδα ετών/μηνών: κλικ σε έτος ή μήνα = διάστημα της φόρμας. #}
   <div class="sy-hero-strip sy-strip sy-strip--dark" aria-label="Παραστατικά ανά μήνα">
     {{ month_legend(scope) }}
-    {{ month_grid(months, this_month, scope) }}
+    {{ year_strip(strip, scope) }}
   </div>
 </header>
 
@@ -351,6 +351,7 @@ body.is-busy .sy-run-cap{visibility:hidden}
   document.addEventListener('submit', function(e){
     if (e.target.id === 'sy-form') e.target.dataset.run = (e.submitter && e.submitter.value) || 'fetch';
   });
+  var anchor = null;  // τελευταίος μήνας της λωρίδας χωρίς Shift: αρχή του διαστήματος με Shift+κλικ
   document.addEventListener('click', function(e){
     var a = e.target.closest('.sy-top .tabs a');
     if (a && !(e.ctrlKey || e.metaKey || e.shiftKey || e.button)) { e.preventDefault(); load(a.href, true); return; }
@@ -368,17 +369,29 @@ body.is-busy .sy-run-cap{visibility:hidden}
       // Ημερολογιακό τρίμηνο/εξάμηνο πριν από το τρέχον (αρνητικός μήνας → προηγούμενο έτος).
       case 'prevquarter': from = new Date(y, m - m % 3 - 3, 1); to = new Date(y, m - m % 3, 0); break;
       case 'prevhalf': from = new Date(y, m - m % 6 - 6, 1); to = new Date(y, m - m % 6, 0); break;
-      case 'month-of': {  // κελί της λωρίδας μηνών: data-ym="yyyy-mm"
-        var ym = b.dataset.ym.split('-');
-        from = new Date(+ym[0], ym[1] - 1, 1); to = new Date(+ym[0], +ym[1], 0); break;
+      case 'month-of': {  // κελί της λωρίδας: data-ym="yyyy-mm"· Shift = διάστημα από τον προηγούμενο μήνα
+        var r = (e.shiftKey && anchor ? [anchor, b.dataset.ym].sort() : [b.dataset.ym, b.dataset.ym]).map(function(v){ return v.split('-'); });
+        if (!e.shiftKey) anchor = b.dataset.ym;
+        from = new Date(+r[0][0], r[0][1] - 1, 1); to = new Date(+r[1][0], +r[1][1], 0); break;
       }
+      case 'quarter-of': {  // τίτλος τριμήνου στη λωρίδα: data-y, data-q (1–4)
+        var q3 = 3 * b.dataset.q;
+        from = new Date(+b.dataset.y, q3 - 3, 1); to = new Date(+b.dataset.y, q3, 0); break;
+      }
+      case 'year-of': from = new Date(+b.dataset.y, 0, 1); to = new Date(+b.dataset.y, 11, 31); break;  // κελί έτους
       case 'since': {  // «ηη/μμ/εεεε – ηη/μμ/εεεε»: η τελευταία ημερομηνία ως σήμερα
         var p = (b.dataset.last.match(/\d{2}\/\d{2}\/\d{4}/g) || []).pop();
         if (p) { var a = p.split('/'); from = new Date(+a[2], +a[1] - 1, +a[0]); }
       }
     }
     set('date_from', from); set('date_to', to);
-    document.querySelectorAll('[data-preset]').forEach(function(x){ x.classList.toggle('is-on', x === b); });
+    // Επιλεγμένο: το κουμπί + όλοι οι μήνες της λωρίδας μέσα στο διάστημα (τρίμηνο → οι 3 μήνες του).
+    var lo = iso(from).slice(0, 7), hi = iso(to).slice(0, 7);
+    if (b.dataset.preset !== 'month-of') anchor = null;
+    document.querySelectorAll('[data-preset]').forEach(function(x){
+      var ym = x.dataset.preset === 'month-of' && x.dataset.ym;
+      x.classList.toggle('is-on', x === b || !!ym && lo <= ym && ym <= hi);
+    });
   });
 })();
 </script>

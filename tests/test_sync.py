@@ -79,20 +79,20 @@ nav = page[page.index('<nav class="nav">'):]
 assert nav.index('href="/sync"') < nav.index('href="/income"') < nav.index('href="/invoices"'), nav[:2000]
 assert c.get("/invoices/sync").status_code == 404 and c.post("/fetch", data=form).status_code == 404
 
-# (η) Βιβλία: η λωρίδα μηνών μόνο με τα δικά τους παραστατικά· κλικ = φίλτρο στον μήνα (ξανά κλικ = χωρίς φίλτρο).
+# (η) Βιβλία: η λωρίδα μόνο με τα δικά τους παραστατικά, ανά κατάσταση· κλικ = φίλτρο στον μήνα (ξανά κλικ = χωρίς φίλτρο).
 import re  # noqa: E402
 
 fake.request_income = request_income
 c.post("/sync", data=dict(form, scope="income"))  # ξανά έσοδα στο βιβλίο (τα έσβησε το (δ))
 page = c.get("/invoices?view=unclassified&f_date=2026-10").get_data(as_text=True).replace("&amp;", "&")
 strip = page[page.index('class="lh-sums'):page.index('<div class="card ledger-card"')]
-assert "έσοδα</span>" not in strip and "έξοδα</span>" in strip and "Καθαρή αξία<b>" not in page
+assert "έσοδα</span>" not in strip and "απεσταλμένα</span>" in strip and "Καθαρή αξία<b>" not in page  # γραμμές καταστάσεων εξόδων
 on = re.findall(r'<a class="[^"]*is-on[^"]*"[^>]*href="([^"]+)"', strip)
 assert len(on) == 1 and "f_date" not in on[0] and "view=unclassified" in on[0], on  # επιλεγμένος μήνας → χωρίς φίλτρο
 assert re.search(r'href="/invoices\?[^"]*f_date=2026-09', strip)
 page = c.get("/income").get_data(as_text=True)
 strip = page[page.index('class="lh-sums'):page.index('<div class="card ledger-card"')]
-assert "έσοδα</span>" in strip and "έξοδα</span>" not in strip
+assert "χαρακτηρισμένα</span>" in strip and "απεσταλμένα</span>" not in strip  # έσοδα: μόνο 2 καταστάσεις
 
 # (θ) Τελευταία ανάκτηση + MARK ανά βιβλίο: στη σελίδα Ανάκτησης, όχι στα βιβλία.
 page = c.get("/sync").get_data(as_text=True)

@@ -4,7 +4,7 @@
 {{ "{:,.2f}".format(v or 0).replace(",", "X").replace(".", ",").replace("X", ".") }}
 {%- endmacro %}
 
-{% from "_months.html" import month_style, month_legend, month_grid %}
+{% from "_months.html" import month_style, month_legend, year_strip %}
 {% macro ledger_hero(ep, q, title, tabs, done, strip, tone) -%}
 {% set all = counts.values()|sum %}
 {% set pct = (counts[done] * 100 / all)|round|int if all else 0 %}
@@ -99,8 +99,8 @@
 
   {% set scope = 'income' if ep == 'income' else 'expense' %}
   <div class="lh-sums sy-strip sy-strip--dark" aria-label="Παραστατικά ανά μήνα">
-    {{ month_legend(scope) }}
-    {{ month_grid(strip.months, strip.this_month, scope, ep, q) }}
+    {{ month_legend(scope, true) }}
+    {{ year_strip(strip, scope, ep, q) }}
   </div>
 </header>
 
@@ -162,6 +162,8 @@
         if (now && next) now.replaceWith(next);
       });
       document.title = doc.title;
+      var g = document.querySelector('.lh-sums .sy-mgrid');
+      if (g) g.classList.add('no-anim');  // ίδιο ανοικτό έτος: χωρίς ξανά animation τριμήνων
       activate(document.querySelector('[data-lh-body]'));
       watchToolbar();
       if (push) history.pushState(null, '', url);
@@ -171,7 +173,24 @@
     });
   }
 
+  // Λωρίδα ετών: Shift+κλικ σε μήνα = διάστημα από την αρχή του τρέχοντος φίλτρου έως τον μήνα (AJAX, όπως τα κλικ).
+  function rangeUrl(ym){
+    var u = new URL(location.href), cur = (u.searchParams.get('f_date') || '').slice(0, 7);
+    var r = /^\d{4}-\d{2}$/.test(cur) ? [cur, ym].sort() : [ym, ym];
+    u.searchParams.set('f_date', r[0] === r[1] ? r[0] : r[0] + ':' + r[1]);
+    u.searchParams.delete('page');
+    return u.href;
+  }
+  document.addEventListener('change', function(e){
+    if (e.target.name === 'sy-yr') e.target.closest('.sy-mgrid').classList.remove('no-anim');
+  });
   document.addEventListener('click', function(e){
+    var m = e.shiftKey && e.button === 0 && e.target.closest('.lh-sums a[data-ym]');
+    if (m) {
+      e.preventDefault();
+      if (document.querySelector('[data-lh-body]')) load(rangeUrl(m.dataset.ym), true, false); else location.href = rangeUrl(m.dataset.ym);
+      return;
+    }
     var a = e.target.closest('.lh-tiles a, .lh-sums a, [data-lh-body] a');
     if (!a || !document.querySelector('[data-lh-body]') || !samePath(a.href) || a.target
         || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;

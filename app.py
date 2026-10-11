@@ -1113,11 +1113,6 @@ def page_numbers(page: int, total: int, edge: int = 2, around: int = 1) -> list:
 
 
 
-def _two_years(today: date) -> list[str]:
-    """Όλοι οι μήνες του προηγούμενου και του τρέχοντος έτους, ως "yyyy-mm" (Ιαν προηγ. έτους πρώτος)."""
-    return [f"{y}-{m:02d}" for y in (today.year - 1, today.year) for m in range(1, 13)]
-
-
 _SK_W, _SK_H, _SK_PAD, _SK_GAP, _SK_BAR = 1000, 340, 12, 8, 12  # _SK_H: ελάχιστο ύψος
 _SK_LINE, _SK_WRAP, _SK_LGAP = 14, 26, 6  # ετικέτες: ύψος γραμμής, χαρακτήρες ανά γραμμή, κενό μεταξύ τους
 CLOSING_LABEL = "Αποθέματα λήξης"  # κόμβος εσόδου στις Ροές (μειώνουν το κόστος πωληθέντων)
@@ -1298,20 +1293,38 @@ def _last_12_months(now: datetime) -> list[str]:
     return [f"{(now.year * 12 + now.month - 1 - k) // 12}-{(now.month - 1 - k) % 12 + 1:02d}" for k in range(11, -1, -1)]
 
 
+STRIP_FROM_YEAR = "2024"  # προεπιλογή της παραμέτρου «Λωρίδα ετών από»
+_STRIP_STATUSES = ("unclassified", "classified", "sent", "confirmed")
+
+
+def _strip_from_year() -> int:
+    return int(db.get_setting("strip_from_year") or STRIP_FROM_YEAR)
+
+
 def _month_strip(cid: int | None, kinds) -> dict:
-    """Λωρίδα μηνών (προηγούμενο + τρέχον έτος): ανά μήνα έσοδα, έξοδα (χαρακτηρισμένα) και
-    αχαρακτήριστα των βιβλίων `kinds`. Για την Ανάκτηση και την κεφαλίδα των βιβλίων."""
+    """Λωρίδα ετών (από την παράμετρο «strip_from_year» έως το τρέχον): ανά έτος και ανά μήνα έσοδα, έξοδα
+    (χαρακτηρισμένα) και αχαρακτήριστα ανά πλευρά, για τα βιβλία `kinds`. Για την Ανάκτηση και την κεφαλίδα των
+    βιβλίων."""
     now = datetime.now(ATHENS)
-    months = _two_years(now.date())
-    per_month = {ym: {"income": 0, "expense": 0, "pending": 0, "total": 0} for ym in months}
+    first = min(_strip_from_year(), now.year)
+    zero = lambda: {"income": 0, "expense": 0, "in_pending": 0, "ex_pending": 0, "total": 0,  # noqa: E731
+                    **dict.fromkeys(_STRIP_STATUSES, 0)}  # ανά κατάσταση: γραμμές της λωρίδας στα βιβλία
+    per_month = {f"{y}-{m:02d}": zero() for y in range(first, now.year + 1) for m in range(1, 13)}
     for kind in kinds:
-        for ym, st in (db.month_counts(cid, kind, months[0] + "-01") if cid else {}).items():
+        pend = "in_pending" if kind == "income" else "ex_pending"
+        for ym, st in (db.month_counts(cid, kind, f"{first}-01-01") if cid else {}).items():
             if ym in per_month:
                 pending = st.get("unclassified", 0)
                 per_month[ym][kind] += sum(st.values()) - pending
-                per_month[ym]["pending"] += pending
+                per_month[ym][pend] += pending
                 per_month[ym]["total"] += sum(st.values())
-    return {"months": [(ym, per_month[ym]) for ym in months], "this_month": now.strftime("%Y-%m")}
+                for k in _STRIP_STATUSES:
+                    per_month[ym][k] += st.get(k, 0)
+    years = []
+    for y in range(first, now.year + 1):
+        months = [(ym, st) for ym, st in per_month.items() if ym.startswith(f"{y}-")]
+        years.append({"y": str(y), "months": months, "tot": {k: sum(st[k] for _, st in months) for k in zero()}})
+    return {"years": years, "this_month": now.strftime("%Y-%m")}
 
 
 @app.route("/sync")
@@ -1336,7 +1349,7 @@ def sync():
         "sync.html",
         scope=scope,
         noun=_SYNC_NOUNS[scope],
-        **_month_strip(cid, kinds),
+        strip=_month_strip(cid, kinds),
         tabs=tabs,
         tab=tab,
         mode=mode,
@@ -5382,6 +5395,7 @@ def parameters():
         stock_reports=[(k, title, desc, stock_in(k)) for k, title, _, desc in STOCK_REPORTS],
         auto_classify=db.get_setting("auto_classify") == "1",
         sync_mode=db.get_setting("sync_mode") or "mark",
+        strip_from_year=_strip_from_year(), this_year=datetime.now(ATHENS).year,
         # Όλα τα tabs αποδίδονται μαζί· η εναλλαγή γίνεται στον browser χωρίς reload.
         safety_backups=db.list_safety_backups(),
         keep_safety=db.keep_safety(),
@@ -5486,6 +5500,12 @@ def parameters_tax():
 def parameters_automation():
     db.set_setting("auto_classify", "1" if request.form.get("auto_classify") else "0")
     db.set_setting("sync_mode", "dates" if request.form.get("sync_mode") == "dates" else "mark")
+    y, this_year = request.form.get("strip_from_year", "").strip(), datetime.now(ATHENS).year
+    if y:
+        if not (y.isdigit() and 2000 <= int(y) <= this_year):
+            flash(f"Μη έγκυρο έτος λωρίδας: {y} (2000 – {this_year}).", "error")
+            return redirect(url_for("parameters", tab="reports"))
+        db.set_setting("strip_from_year", y)
     flash("✔ Αποθηκεύτηκαν οι ρυθμίσεις ανάκτησης και αυτόματου χαρακτηρισμού.", "ok")
     return redirect(url_for("parameters", tab="reports"))
 
