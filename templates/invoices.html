@@ -43,7 +43,7 @@
      αποστολή (χαρακτηρισμένα), ενημέρωση (απεσταλμένα). #}
   {% set selectable = view in ('unclassified', 'classified') %}
   <form method="post" action="{{ url_for('bulk_classify') if view == 'unclassified' else url_for('send') }}">
-    <div class="table-wrap {{ 'table-wrap--wide' if view == 'sent' }}">
+    <div class="table-wrap {{ 'table-wrap--wide' if view == 'sent' else 'tw-books' }}">
     <table class="ledger">
       <thead>
         <tr>
@@ -61,18 +61,17 @@
       <tbody>
         {% for inv in invoices %}
         {% set rule = rules.get(inv.issuer_vat or '') %}
-        {% set doc_url = url_for('document', mark=inv.mark, back=request.full_path) %}
-        <tr>
+        <tr data-href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}" tabindex="0">
           {% if selectable %}
           <td class="row-head" data-label="">
             <div class="row-sel">
               <input type="checkbox" class="sel" name="marks" value="{{ inv.mark }}" aria-label="Επιλογή {{ inv.mark }}">
-              <span class="mark"><a href="{{ doc_url }}" title="Λεπτομέρειες παραστατικού">{{ inv.mark }}</a></span>
+              <span class="mark" title="MARK {{ inv.mark }}">{{ inv.mark|mark5 }}</span>
             </div>
           </td>
-          <td data-label="MARK" class="mark hide-sm"><a href="{{ doc_url }}" title="Λεπτομέρειες">{{ inv.mark }}</a></td>
+          <td data-label="MARK" class="mark hide-sm" title="MARK {{ inv.mark }}">{{ inv.mark|mark5 }}</td>
           {% else %}
-          <td data-label="MARK" class="mark"><a href="{{ doc_url }}" title="Λεπτομέρειες">{{ inv.mark }}</a>{% if view == 'sent' %}<span class="sub-mark" title="MARK χαρακτηρισμού">χαρ. {{ inv.classification_mark or '—' }}</span>{% endif %}</td>
+          <td data-label="MARK" class="mark" title="MARK {{ inv.mark }}">{{ inv.mark|mark5 }}{% if view == 'sent' %}<span class="sub-mark" title="MARK χαρακτηρισμού {{ inv.classification_mark or '' }}">χαρ. {{ inv.classification_mark|mark5 or '—' }}</span>{% endif %}</td>
           {% endif %}
           <td data-label="Ημ/νία" class="doc-date">{{ '/'.join(inv.issue_date[:10].split('-')[::-1]) if inv.issue_date else "—" }}{% if inv.late and view == 'unclassified' %}<span class="pill" title="Ανέβηκε στο myDATA μετά τον μήνα έκδοσης">⏰ εκπρόθεσμο</span>{% endif %}</td>
           <td data-label="Εκδότης">
@@ -85,7 +84,7 @@
             </span>
           </td>
           <td data-label="Τύπος">{{ type_badge(inv) }}{% if view == 'sent' %}<span class="sub-mark series">{{ inv.series or "" }}/{{ inv.aa or "" }}</span>{% endif %}</td>
-          {% if view != 'sent' %}<td data-label="Σειρά/ΑΑ" class="series">{{ inv.series or "" }}/{{ inv.aa or "" }}</td>{% endif %}
+          {% if view != 'sent' %}<td data-label="Σειρά/ΑΑ" class="series" title="{{ inv.series or "" }}/{{ inv.aa or "" }}"><span>{{ inv.series or "" }}/{{ inv.aa or "" }}</span></td>{% endif %}
           {% if view != 'sent' %}
           <td data-label="Καθαρή αξία" class="num">{{ "%.2f"|format(inv.total_net or 0) }} €</td>
           <td data-label="ΦΠΑ" class="num">{{ "%.2f"|format(inv.total_vat or 0) }} €</td>

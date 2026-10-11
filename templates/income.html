@@ -18,7 +18,7 @@
   {% if total == 0 %}
     {{ empty_state('income', q, 'εσόδων σε αυτή την κατάσταση. Κάνε ανάκτηση από τη σελίδα «Ανάκτηση» του μενού.') }}
   {% else %}
-  <div class="table-wrap">
+  <div class="table-wrap tw-books">
   <table class="ledger">
     <thead>
       <tr>
@@ -32,8 +32,8 @@
     </thead>
     <tbody>
       {% for inv in invoices %}
-      <tr>
-        <td data-label="MARK" class="mark"><a href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}" title="Λεπτομέρειες">{{ inv.mark }}</a></td>
+      <tr data-href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}" tabindex="0">
+        <td data-label="MARK" class="mark" title="MARK {{ inv.mark }}">{{ inv.mark|mark5 }}</td>
         <td data-label="Ημ/νία" class="doc-date">{{ '/'.join(inv.issue_date[:10].split('-')[::-1]) if inv.issue_date else "—" }}{% if inv.late and view == 'unclassified' %}<span class="pill" title="Ανέβηκε στο myDATA μετά τον μήνα έκδοσης">⏰ εκπρόθεσμο</span>{% endif %}</td>
         <td data-label="Πελάτης">
           <span class="issuer" data-vat="{{ inv.issuer_vat or '' }}">
@@ -42,7 +42,7 @@
           </span>
         </td>
         <td data-label="Τύπος">{{ type_badge(inv) }}</td>
-        <td data-label="Σειρά/ΑΑ" class="series">{{ inv.series or "" }}/{{ inv.aa or "" }}</td>
+        <td data-label="Σειρά/ΑΑ" class="series" title="{{ inv.series or "" }}/{{ inv.aa or "" }}"><span>{{ inv.series or "" }}/{{ inv.aa or "" }}</span></td>
         <td data-label="Καθαρή αξία" class="num">{{ "%.2f"|format(inv.total_net or 0) }} €</td>
         <td data-label="ΦΠΑ" class="num">{{ "%.2f"|format(inv.total_vat or 0) }} €</td>
         <td data-label="Σύνολο" class="num"><strong>{{ "%.2f"|format(inv.total_gross or 0) }} €</strong></td>

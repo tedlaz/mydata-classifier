@@ -59,15 +59,19 @@
       .observe(toolbar);
   }
 
-  // ---- Βιβλία: κλικ οπουδήποτε στη γραμμή = άνοιγμα παραστατικού (όπως το MARK) ----
+  // ---- Βιβλία: κλικ οπουδήποτε στη γραμμή (data-href) = άνοιγμα παραστατικού· Enter στη γραμμή το ίδιο ----
   // Τα στοιχεία ελέγχου της γραμμής (επιλογή, ✎, κουμπιά) και η επιλογή κειμένου δεν ανοίγουν τίποτα.
+  const openRow = (e, tr) => {
+    if (e.ctrlKey || e.metaKey) window.open(tr.dataset.href, '_blank');
+    else location.href = tr.dataset.href;
+  };
   document.addEventListener('click', e => {
-    const tr = e.target.closest('.ledger-card .ledger tbody tr');
+    const tr = e.target.closest('.ledger-card .ledger tbody tr[data-href]');
     if (!tr || e.target.closest('a,button,input,textarea,select,label') || String(getSelection())) return;
-    const a = tr.querySelector('.mark a');
-    if (!a) return;
-    if (e.ctrlKey || e.metaKey) window.open(a.href, '_blank');
-    else a.click();
+    openRow(e, tr);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.matches('.ledger-card .ledger tbody tr[data-href]')) openRow(e, e.target);
   });
 
   // ---- Διόρθωση επωνυμίας από τους πίνακες (κοινός κατάλογος ΑΦΜ → επωνυμία) ----

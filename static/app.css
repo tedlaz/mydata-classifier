@@ -532,30 +532,56 @@ table.ledger{width:100%;border-collapse:collapse;font-size:.9rem}
 .actions .btn,.actions button{padding:7px 13px;font-size:.82rem;white-space:nowrap}
 .row-sel{display:flex;align-items:center;gap:10px}
 @container (min-width:1001px){
-  .ledger td.mark{word-break:normal;white-space:nowrap}
-  td.row-head .mark{display:none}
+  :where(.table-wrap:not(.tw-books)) .ledger td.mark{word-break:normal;white-space:nowrap}
+  :where(.table-wrap:not(.tw-books)) td.row-head .mark{display:none}
 }
 
 /* Responsive: οι γραμμές γίνονται κάρτες */
 @container (max-width:1000px){
-  .hide-sm{display:none !important}
-  .ledger thead{display:none}
-  .ledger,.ledger tbody,.ledger tr,.ledger td{display:block;width:100%}
-  .ledger tbody tr{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  :where(.table-wrap:not(.tw-books)) .hide-sm{display:none !important}
+  :where(.table-wrap:not(.tw-books)) .ledger thead{display:none}
+  :where(.table-wrap:not(.tw-books)) .ledger,:where(.table-wrap:not(.tw-books)) .ledger tbody,:where(.table-wrap:not(.tw-books)) .ledger tr,:where(.table-wrap:not(.tw-books)) .ledger td{display:block;width:100%}
+  :where(.table-wrap:not(.tw-books)) .ledger tbody tr{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
     margin-bottom:12px;padding:6px 0 10px;box-shadow:var(--shadow);overflow:hidden}
-  .ledger tbody tr:hover{background:var(--surface)}
-  .ledger tbody td{border:none;padding:7px 16px;display:flex;justify-content:space-between;align-items:baseline;gap:14px}
-  .ledger tbody td::before{content:attr(data-label);font-family:var(--font-ui);font-size:.68rem;font-weight:700;text-transform:uppercase;
+  :where(.table-wrap:not(.tw-books)) .ledger tbody tr:hover{background:var(--surface)}
+  :where(.table-wrap:not(.tw-books)) .ledger tbody td{border:none;padding:7px 16px;display:flex;justify-content:space-between;align-items:baseline;gap:14px}
+  :where(.table-wrap:not(.tw-books)) .ledger tbody td::before{content:attr(data-label);font-family:var(--font-ui);font-size:.68rem;font-weight:700;text-transform:uppercase;
     letter-spacing:.07em;color:var(--muted);flex:0 0 auto}
-  .ledger tbody td[data-label=""]::before{display:none}
-  .ledger tbody td.row-head{background:var(--surface-2);border-bottom:1px solid var(--line-soft);padding:10px 16px;margin-bottom:4px}
-  .ledger td .issuer{text-align:right}
-  .ledger td.cell-cls{display:block}
-  .ledger td.cell-cls::before{display:block;margin-bottom:6px}
-  .ledger td.cell-cls .chip{max-width:none}
-  .actions{justify-content:stretch;width:100%}
-  .actions .btn,.actions button,.actions form{flex:1;text-align:center}
-  .actions form button{width:100%}
+  :where(.table-wrap:not(.tw-books)) .ledger tbody td[data-label=""]::before{display:none}
+  :where(.table-wrap:not(.tw-books)) .ledger tbody td.row-head{background:var(--surface-2);border-bottom:1px solid var(--line-soft);padding:10px 16px;margin-bottom:4px}
+  :where(.table-wrap:not(.tw-books)) .ledger td .issuer{text-align:right}
+  :where(.table-wrap:not(.tw-books)) .ledger td.cell-cls{display:block}
+  :where(.table-wrap:not(.tw-books)) .ledger td.cell-cls::before{display:block;margin-bottom:6px}
+  :where(.table-wrap:not(.tw-books)) .ledger td.cell-cls .chip{max-width:none}
+  :where(.table-wrap:not(.tw-books)) .actions{justify-content:stretch;width:100%}
+  :where(.table-wrap:not(.tw-books)) .actions .btn,:where(.table-wrap:not(.tw-books)) .actions button,:where(.table-wrap:not(.tw-books)) .actions form{flex:1;text-align:center}
+  :where(.table-wrap:not(.tw-books)) .actions form button{width:100%}
+}
+@container (min-width:701px){
+  :where(.tw-books) .ledger td.mark{word-break:normal;white-space:nowrap}
+  :where(.tw-books) td.row-head .mark{display:none}
+}
+
+/* Βιβλία (.tw-books): πίνακας έως τα 700px, κάρτες μόνο κάτω από αυτά. */
+@container (max-width:700px){
+  :where(.tw-books) .hide-sm{display:none !important}
+  :where(.tw-books) .ledger thead{display:none}
+  :where(.tw-books) .ledger,:where(.tw-books) .ledger tbody,:where(.tw-books) .ledger tr,:where(.tw-books) .ledger td{display:block;width:100%}
+  :where(.tw-books) .ledger tbody tr{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    margin-bottom:12px;padding:6px 0 10px;box-shadow:var(--shadow);overflow:hidden}
+  :where(.tw-books) .ledger tbody tr:hover{background:var(--surface)}
+  :where(.tw-books) .ledger tbody td{border:none;padding:7px 16px;display:flex;justify-content:space-between;align-items:baseline;gap:14px}
+  :where(.tw-books) .ledger tbody td::before{content:attr(data-label);font-family:var(--font-ui);font-size:.68rem;font-weight:700;text-transform:uppercase;
+    letter-spacing:.07em;color:var(--muted);flex:0 0 auto}
+  :where(.tw-books) .ledger tbody td[data-label=""]::before{display:none}
+  :where(.tw-books) .ledger tbody td.row-head{background:var(--surface-2);border-bottom:1px solid var(--line-soft);padding:10px 16px;margin-bottom:4px}
+  :where(.tw-books) .ledger td .issuer{text-align:right}
+  :where(.tw-books) .ledger td.cell-cls{display:block}
+  :where(.tw-books) .ledger td.cell-cls::before{display:block;margin-bottom:6px}
+  :where(.tw-books) .ledger td.cell-cls .chip{max-width:none}
+  :where(.tw-books) .actions{justify-content:stretch;width:100%}
+  :where(.tw-books) .actions .btn,:where(.tw-books) .actions button,:where(.tw-books) .actions form{flex:1;text-align:center}
+  :where(.tw-books) .actions form button{width:100%}
 }
 
 /* ---------- Panels / sections ---------- */
@@ -739,6 +765,21 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
   .table-wrap--wide .cls-stack li{padding:1px 5px;font-size:.72rem}
   .table-wrap--wide .actions .btn{padding:6px 9px}
 }
+/* Βιβλία σε μεσαίο πλάτος: πιο σφιχτά κελιά, ώστε η γραμμή να μένει πίνακας όσο γίνεται. */
+@container (min-width:701px) and (max-width:1100px){
+  .tw-books .ledger{font-size:.84rem}
+  .tw-books .ledger th,.tw-books .ledger td{padding-left:5px;padding-right:5px}
+  .tw-books .ledger thead th{letter-spacing:.03em}
+  .tw-books .num{font-size:.8rem}
+  .tw-books .actions .btn,.tw-books .actions button{padding:6px 9px}
+}
+/* Βιβλία σε πίνακα: η Σειρά/ΑΑ κόβεται με «…» (ολόκληρη στο title), για να μη σπρώχνει τις στήλες εκτός ορίων. */
+@container (min-width:701px){
+  .tw-books .ledger td.series > span{display:block;max-width:14ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+@container (min-width:701px) and (max-width:1100px){
+  .tw-books .ledger td.series > span{max-width:10ch}
+}
 .doc-head .btn-row{margin:0}
 
 /* Υπο-στοιχείο μενού (π.χ. «Νέα εγγραφή» μέσα στα Έξοδα) */
@@ -817,22 +858,43 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .ledger-card .ledger tbody td:first-child{box-shadow:inset 3px 0 0 var(--view)}
 .ledger-card .ledger tbody tr:hover{background:color-mix(in srgb,var(--view-soft) 45%,transparent)}
 .ledger-card .ledger tbody tr{cursor:pointer}
+.ledger-card .ledger tbody tr:focus-visible{outline:2px solid var(--view);outline-offset:-2px}
+.ledger-card .ledger .mark{color:var(--accent);font-weight:600}
 .ledger-card .result-info{color:var(--view)}
 @container (max-width:1000px){
-  .ledger-card .ledger tbody tr{border-left:4px solid var(--view)}
-  .ledger-card .ledger tbody td:first-child{box-shadow:none}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody tr{border-left:4px solid var(--view)}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody td:first-child{box-shadow:none}
   /* Συμπαγής κάρτα: ετικέτα πάνω από την τιμή, στήλες όσο το περιεχόμενο (όλα σε μία γραμμή)· τα φαρδιά πιάνουν όλο το πλάτος. */
-  .ledger-card .ledger tbody tr{display:grid;grid-template-columns:repeat(7,fit-content(220px)) 1fr;padding:2px 0 6px;margin-bottom:8px}
-  .ledger-card .ledger tbody td{display:block;width:auto;min-width:0;padding:5px 12px;overflow-wrap:anywhere}
-  .ledger-card .ledger tbody td:not([data-label=""])::before{display:block;font-size:.6rem;margin-bottom:1px}
-  .ledger-card .ledger tbody td:is(.row-head,.cell-cls,[data-label=""],:has(.issuer)){grid-column:1/-1;contain:inline-size}
-  .ledger-card .ledger tbody td.row-head{padding:7px 12px;margin-bottom:2px;order:-1}
-  .ledger-card .ledger tbody td:is(.cell-cls,:has(.issuer)){order:1}
-  .ledger-card .ledger tbody td.num{order:2}
-  .ledger-card .ledger tbody td[data-label=""]:not(.row-head){order:3}
-  .ledger-card .ledger td .issuer,.ledger-card .ledger tbody td.num{text-align:left}
-  .ledger-card .ledger tbody td.mark{overflow-wrap:normal;white-space:nowrap}
-  .ledger-card .ledger tbody td.series{overflow-wrap:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody tr{display:grid;grid-template-columns:repeat(7,fit-content(220px)) 1fr;padding:2px 0 6px;margin-bottom:8px}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody td{display:block;width:auto;min-width:0;padding:5px 12px;overflow-wrap:anywhere}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody td:not([data-label=""])::before{display:block;font-size:.6rem;margin-bottom:1px}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody td:is(.row-head,.cell-cls,[data-label=""],:has(.issuer)){grid-column:1/-1;contain:inline-size}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody td.row-head{padding:7px 12px;margin-bottom:2px;order:-1}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody td:is(.cell-cls,:has(.issuer)){order:1}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody td.num{order:2}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody td[data-label=""]:not(.row-head){order:3}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger td .issuer,.ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody td.num{text-align:left}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody td.mark{overflow-wrap:normal;white-space:nowrap}
+  .ledger-card :where(.table-wrap:not(.tw-books)) .ledger tbody td.series{overflow-wrap:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
+/* Βιβλία κάτω από 700px: κάρτα τριών γραμμών — MARK (5 ψηφία) · ημ/νία · τύπος · σειρά / πελάτης-εκδότης /
+   καθαρή αξία · ΦΠΑ · σύνολο (με μικρή ετικέτα)· οι ενέργειες, όπου υπάρχουν, από κάτω. */
+@container (max-width:700px){
+  .ledger-card .tw-books .ledger tbody tr{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:12px;row-gap:3px;
+    padding:7px 12px 8px;margin-bottom:8px;border-left:4px solid var(--view)}
+  .ledger-card .tw-books .ledger tbody td{display:block;flex:none;width:auto;min-width:0;padding:0;box-shadow:none;text-align:left}
+  .ledger-card .tw-books .ledger tbody td::before{display:none}
+  .ledger-card .tw-books .ledger tbody td.row-head{order:1;background:none;border:0;margin:0;padding:0}
+  .ledger-card .tw-books .ledger tbody td.mark{order:1;white-space:nowrap}
+  .ledger-card .tw-books .ledger tbody td[data-label="Ημ/νία"]{order:2}
+  .ledger-card .tw-books .ledger tbody td[data-label="Τύπος"]{order:3}
+  .ledger-card .tw-books .ledger tbody td.series{order:4;flex:1 1 0;overflow:hidden}
+  .ledger-card .tw-books .ledger tbody td.series > span{max-width:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ledger-card .tw-books .ledger tbody td:has(.issuer){order:5;flex-basis:100%}
+  .ledger-card .tw-books .ledger td .issuer{text-align:left}
+  .ledger-card .tw-books .ledger tbody td.num{order:6;flex:1 1 0}
+  .ledger-card .tw-books .ledger tbody td.num::before{display:block;font-size:.58rem;margin-bottom:1px}
+  .ledger-card .tw-books .ledger tbody td[data-label=""]:not(.row-head){order:9;flex-basis:100%;margin-top:4px}
 }
 @container (max-width:860px){
   .ledger-card .ledger tbody tr{grid-template-columns:repeat(4,fit-content(200px)) 1fr}

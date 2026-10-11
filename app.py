@@ -194,6 +194,13 @@ def change_password():
     return back
 
 
+@app.template_filter("mark5")
+def short_mark(mark) -> str:
+    """MARK στα βιβλία: μόνο τα τελευταία 5 ψηφία (ολόκληρο στο title), για στενότερη στήλη."""
+    mark = str(mark or "")
+    return "…" + mark[-5:] if len(mark) > 5 else mark
+
+
 @app.template_filter("el_amount")
 def format_el_amount(value) -> str:
     """Ποσό με ελληνικά διαχωριστικά χιλιάδων και δεκαδικών."""
