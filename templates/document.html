@@ -71,6 +71,13 @@
 .dc-sec--lines .line-taxes > td{background:var(--warn-soft)}
 .dc-sec--lines .line-taxes .kicker{color:var(--warn)}
 .dc-sec--lines .line-taxes .tax-table thead th{background:color-mix(in srgb,var(--warn-soft) 60%,var(--surface));color:var(--warn)}
+/* Χαρακτηρισμός γραμμής: δικό του φόντο (info) ώστε να ξεχωρίζει από τα στοιχεία της γραμμής. */
+.dc-sec--lines .doc-lines :is(td.c-cls,td.cls){background:var(--info-soft)}
+.dc-sec--lines .doc-lines thead :is(th.c-cls,th.cls){background:color-mix(in srgb,var(--info-soft) 70%,var(--info-line));color:var(--info)}
+/* Εναλλάξ χρώμα ανά γραμμή παραστατικού (όχι ανά <tr>: μια γραμμή μπορεί να έχει πολλούς χαρακτηρισμούς). */
+.dc-sec--lines .doc-lines tr.line-alt > td{background:var(--surface-3)}
+.dc-sec--lines .doc-lines tr.line-alt > :is(td.c-cls,td.cls){background:color-mix(in srgb,var(--info-soft) 75%,var(--info-line))}
+.vat-exempt{display:block;margin-top:5px;font-size:.74rem;line-height:1.3;color:var(--muted)}
 .dc-sec--lines .line-tax-btn{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)}
 .dc.is-loading{opacity:.55;pointer-events:none;transition:opacity .2s}
 [data-same-page] :is(.dc,.dc-av,.dc-tot,.dc > .card){animation:none}
@@ -164,14 +171,14 @@
 </header>
 
 {# Ένα κελί χαρακτηρισμού: περιγραφή + κωδικός. #}
-{% macro cls_cell(code, labels) -%}
-<td class="c-cls">{% if code %}<b>{{ labels.get(code, code) }}</b><span class="code">{{ code }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+{% macro cls_cell(code, labels, label) -%}
+<td class="c-cls" data-label="{{ label }}">{% if code %}<b>{{ labels.get(code, code) }}</b><span class="code">{{ code }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
 {%- endmacro %}
 {% macro cls_cells(r) -%}
-  {{ cls_cell(r.category, categories) }}
-  {{ cls_cell(r.type, types) }}
-  {{ cls_cell(r.vat_type, vat_types) }}
-  <td class="num">{{ "%.2f"|format(r.amount) ~ ' €' if r.amount is not none else '—' }}</td>
+  {{ cls_cell(r.category, categories, 'Κατηγορία') }}
+  {{ cls_cell(r.type, types, 'Τύπος' ~ ('' if is_income else ' Ε3')) }}
+  {{ cls_cell(r.vat_type, vat_types, 'Χαρακτηρισμός ΦΠΑ') }}
+  <td class="num cls" data-label="Ποσό">{{ "%.2f"|format(r.amount) ~ ' €' if r.amount is not none else '—' }}</td>
 {%- endmacro %}
 {# Πίνακας φόρων/κρατήσεων: [{type, category, base?, amount}]. #}
 {% macro tax_table(rows, with_base=true) -%}
@@ -193,7 +200,7 @@
   <th class="c-cls">Κατηγορία</th>
   <th class="c-cls">Τύπος{{ '' if is_income else ' Ε3' }}</th>
   <th class="c-cls">Χαρακτηρισμός ΦΠΑ</th>
-  <th class="num">Ποσό</th>
+  <th class="num cls">Ποσό</th>
 {% endset %}
 
 <div class="card dc-sec dc-sec--lines">
@@ -208,11 +215,11 @@
   {% if flags %}<div class="chips">{{ cls_chips(flags) }}</div>{% endif %}
 
   <div class="table-scroll">
-  <table class="doc-lines">
+  <table class="doc-lines doc-lines--stack">
     <thead>
       <tr class="th-group">
         <th colspan="4">Γραμμή παραστατικού</th>
-        <th colspan="4">Χαρακτηρισμός γραμμής</th>
+        <th colspan="4" class="cls">Χαρακτηρισμός γραμμής</th>
       </tr>
       <tr>
         <th class="c-no">#</th>
@@ -224,25 +231,28 @@
     </thead>
     <tbody>
       {% for line in inv.lines %}
+      {% set alt = loop.index is even %}
       {% set rows = line_cls.get(line.line_number) or [none] %}
       {% for r in rows %}
-      <tr class="{{ 'line-first' if loop.first }}">
+      <tr class="{{ 'line-first' if loop.first }}{{ ' line-alt' if alt }}">
         {% if loop.first %}
-        <td class="c-no mono" rowspan="{{ rows|length }}">{{ line.line_number }}
+        <td class="c-no mono" data-label="Γραμμή" rowspan="{{ rows|length }}">{{ line.line_number }}
           {%- if line.taxes %}
           <button type="button" class="btn-ghost btn-sm line-tax-btn" data-toggle="#ltx-{{ line.line_number }}" aria-expanded="false"
                   aria-controls="ltx-{{ line.line_number }}" title="Φόροι & κρατήσεις της γραμμής">🧾 {{ line.taxes|length }}</button>
           {%- endif %}</td>
-        <td class="num" rowspan="{{ rows|length }}">{{ "%.2f"|format(line.net_value or 0) }} €</td>
-        <td class="num" rowspan="{{ rows|length }}">{{ "%.2f"|format(line.vat_amount or 0) }} €</td>
-        <td class="c-vat" rowspan="{{ rows|length }}">
+        <td class="num" data-label="Καθαρή αξία" rowspan="{{ rows|length }}">{{ "%.2f"|format(line.net_value or 0) }} €</td>
+        <td class="num" data-label="ΦΠΑ" rowspan="{{ rows|length }}">{{ "%.2f"|format(line.vat_amount or 0) }} €</td>
+        <td class="c-vat" data-label="Κατηγ. ΦΠΑ" rowspan="{{ rows|length }}">
           {% if line.vat_category %}
           <span class="vat-badge">{{ line.vat_category }}{% if vat_rates.get(line.vat_category|string) %} · {{ vat_rates[line.vat_category|string] }}{% endif %}</span>
           {% else %}<span class="mono">—</span>{% endif %}
+          {% set ex = exemptions.get(line.line_number) %}
+          {% if ex %}<span class="vat-exempt" title="Κατηγορία εξαίρεσης ΦΠΑ">Εξαίρεση {{ ex }} · {{ exemption_labels.get(ex, '') }}</span>{% endif %}
         </td>
         {% endif %}
         {% if r %}{{ cls_cells(r) }}
-        {% else %}<td colspan="4" class="muted">{{ '— βλ. χαρακτηρισμό σε επίπεδο παραστατικού —' if doc_cls else '—' }}</td>{% endif %}
+        {% else %}<td colspan="4" class="muted cls">{{ '— βλ. χαρακτηρισμό σε επίπεδο παραστατικού —' if doc_cls else '—' }}</td>{% endif %}
       </tr>
       {% endfor %}
       {% if line.taxes %}
@@ -262,8 +272,8 @@
     <tfoot>
       <tr>
         <td class="c-no">Σύνολο</td>
-        <td class="num">{{ "%.2f"|format(inv.total_net or 0) }} €</td>
-        <td class="num">{{ "%.2f"|format(inv.total_vat or 0) }} €</td>
+        <td class="num" data-label="Καθαρή αξία">{{ "%.2f"|format(inv.total_net or 0) }} €</td>
+        <td class="num" data-label="ΦΠΑ">{{ "%.2f"|format(inv.total_vat or 0) }} €</td>
         <td colspan="5"></td>
       </tr>
     </tfoot>
@@ -295,7 +305,7 @@
   <h2><span class="dc-ico">📑</span>Χαρακτηρισμός σε επίπεδο παραστατικού</h2>
   <p class="muted small">Αφορά ολόκληρο το παραστατικό — δεν αντιστοιχίζεται σε συγκεκριμένη γραμμή.</p>
   <div class="table-scroll">
-  <table class="doc-lines">
+  <table class="doc-lines doc-lines--stack">
     <thead><tr>{{ cls_head }}</tr></thead>
     <tbody>
       {% for r in doc_cls %}<tr class="line-first">{{ cls_cells(r) }}</tr>{% endfor %}

@@ -750,6 +750,29 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .doc-lines td.c-vat + td.c-cls,.doc-lines tr:not(.line-first) td.c-cls:first-child,.doc-lines thead tr:last-child th.c-vat + th{border-left:2px solid var(--line)}
 .doc-lines tbody td{vertical-align:top}
 .doc-lines th{font-family:var(--font-ui)}
+/* Στενή οθόνη: σφίξιμο στηλών ώστε να χωράνε οι χαρακτηρισμοί χωρίς οριζόντια κύλιση */
+@media (max-width:1100px){
+  .doc-lines th,.doc-lines td{padding-left:7px;padding-right:7px}
+  .doc-lines th{white-space:normal}
+  .doc-lines td.num{white-space:nowrap}
+  .doc-lines .c-cls{min-width:90px}
+  .doc-lines .c-no{width:auto}
+  .doc-lines .c-vat{width:auto}
+  .doc-lines .vat-badge{white-space:normal;padding:2px 7px}
+}
+/* Κινητό: κάθε κελί γίνεται «ετικέτα — τιμή» (ετικέτα από data-label), χωρίς οριζόντια κύλιση */
+@media (max-width:640px){
+  .doc-lines--stack thead{display:none}
+  .doc-lines--stack,.doc-lines--stack tbody,.doc-lines--stack tfoot,.doc-lines--stack tr,.doc-lines--stack td{display:block;width:auto}
+  .doc-lines--stack td{border:0 !important;padding:5px 10px}
+  .doc-lines--stack td:empty{display:none}
+  .doc-lines--stack td[data-label]{display:grid;grid-template-columns:40% 1fr;column-gap:10px;text-align:right}
+  .doc-lines--stack td[data-label]::before{content:attr(data-label);grid-row:span 2;text-align:left;font-family:var(--font-ui);
+    font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .doc-lines--stack tbody tr.line-first{border-top:2px solid var(--line);padding-top:6px}
+  .doc-lines--stack tbody tr:not(.line-first){border-top:1px dashed var(--line-soft)}
+  .doc-lines--stack tfoot{border-top:2px solid var(--line);padding-top:6px}
+}
 
 /* Λίστα «Απεσταλμένα»: στήλες χαρακτηρισμού, μία τιμή ανά γραμμή */
 .cls-stack{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}

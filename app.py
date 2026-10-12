@@ -1551,6 +1551,8 @@ def document(mark):
         xml_tree=(xml_tree := _xml_tree(row.get("raw_xml"))),
         xml_links=_xml_links(xml_tree),
         has_xml=bool(row.get("raw_xml")),
+        exemptions=vat_return._parse_exempt(row)[1],  # {γραμμή: κατηγορία εξαίρεσης ΦΠΑ}
+        exemption_labels=XML_EXTRA_CODES["vatExemptionCategory"],
     )
 
 
