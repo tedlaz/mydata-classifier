@@ -376,6 +376,10 @@ def init_db() -> None:
         )
         if "monthly_day" not in {r["name"] for r in conn.execute("PRAGMA table_info(expense_templates)")}:
             conn.execute("ALTER TABLE expense_templates ADD COLUMN monthly_day INTEGER")
+        # Διαβιβασμένες «Νέες εγγραφές» που έμειναν σημειωμένες ως πρόχειρα (παλιό finalize_created).
+        if "status" in doc_cols:
+            conn.execute("UPDATE documents SET local_action = 'classify' "
+                         "WHERE local_action = 'create' AND status IN ('sent', 'confirmed')")
 
 
 # --------------------------------------------------------------------- #
@@ -1307,11 +1311,12 @@ def create_local_expense(
 
 
 def finalize_created(doc_id: int, new_mark: str | None) -> None:
-    """Μετά από επιτυχή διαβίβαση Νέας εγγραφής: πραγματικό mark + «Απεσταλμένο»."""
+    """Μετά από επιτυχή διαβίβαση Νέας εγγραφής: πραγματικό mark + «Απεσταλμένο»· από εδώ και πέρα κανονικό
+    παραστατικό (όχι πρόχειρο): χαρακτηρίζεται, δεν διαγράφεται/επεξεργάζεται. Το draft_json μένει για «Αντιγραφή»."""
     now = datetime.now(UTC).isoformat(timespec="seconds")
     with get_conn() as conn:
         conn.execute(
-            "UPDATE documents SET mark = ?, status = 'sent', classification_mark = ?, "
+            "UPDATE documents SET mark = ?, status = 'sent', local_action = 'classify', classification_mark = ?, "
             "sent_at = ? WHERE id = ?",
             (new_mark or ("SENT-" + str(doc_id)), new_mark or "", now, doc_id),
         )

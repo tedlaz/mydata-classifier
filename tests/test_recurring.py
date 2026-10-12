@@ -67,3 +67,18 @@ print("OK")
 c.post("/unclassify", data={"marks": [m3["mark"]]})
 assert db.get_document(cid, m3["mark"]) is None
 print("OK unclassify")
+
+# 7) Διαβιβασμένη εγγραφή = κανονικό παραστατικό: «Χαρακτηρισμός», όχι διαγραφή/επεξεργασία/επαναφορά ως πρόχειρο.
+(d,) = [x for x in docs() if x["period"] == "2026-02"]
+db.finalize_created(d["id"], "400000777")
+assert db.get_document(cid, "400000777")["local_action"] == "classify"
+assert "✏️ Χαρακτηρισμός" in c.get("/document/400000777").get_data(as_text=True)
+c.post("/draft/400000777/delete")
+c.post("/unclassify", data={"marks": ["400000777"]})
+assert db.get_document(cid, "400000777")["status"] == "sent"
+# Μετάπτωση: παλιά απεσταλμένη που έμεινε 'create' → 'classify' στην εκκίνηση.
+with db.get_conn() as conn:
+    conn.execute("UPDATE documents SET local_action = 'create' WHERE mark = '400000777'")
+db.init_db()
+assert db.get_document(cid, "400000777")["local_action"] == "classify"
+print("OK sent")

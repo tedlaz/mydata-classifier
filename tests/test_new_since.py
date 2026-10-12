@@ -124,4 +124,25 @@ post(url="/sync/mark-reset")
 assert W() is None and db.get_setting(A._start_key("expense", cid)) is None
 post(action="new", date_from=yesterday)
 assert ranges[-1] == (gr(yesterday), gr(today)) and db.get_setting(A._start_key("expense", cid)) == yesterday
+
+# Ποτέ W = 0 (θα έφερνε όλο το ιστορικό του ΑΦΜ). Νέα εταιρεία, άδεια βιβλία, «Έσοδα & Έξοδα».
+cid = db.add_company({"company_name": "Άδεια"})
+db.set_active_company_id(cid)
+since = []
+fake.new_since = lambda ep, mark: since.append((ep, mark)) or (mark, [], set())
+fake.request_income = lambda df, dt, *_: ranges.append(("income", df, dt)) or ([], [], set())
+book = []
+fake.request_unclassified_expenses = lambda df, dt, *_: ranges.append((df, dt)) or book
+flashes = post(action="new", scope="both", date_from=start)
+assert W() is None and W("income", "RequestTransmittedDocs") is None, (W(), W("income", "RequestTransmittedDocs"))
+assert sum("Κανένα παραστατικό ακόμα" in m for _, m in flashes) == 2, flashes
+# Επόμενο πάτημα: πάλι διάστημα από την (αποθηκευμένη) Αρχή, όχι new_since από 0· άδεια έσοδα παίρνουν το MARK των εξόδων.
+book = [inv("900", today)]
+post(action="new", scope="both", date_from=yesterday)
+assert not since and ranges[-2:] == [("income", gr(start), gr(today)), (gr(start), gr(today))], ranges
+assert W() == W("income", "RequestTransmittedDocs") == "900"
+# Παλιό W = "0" στα έσοδα: ξανά αρχική ανάκτηση και MARK των εξόδων — κανένα new_since(0).
+db.set_setting(A._wm_key("income", "RequestTransmittedDocs", cid), 0)
+post(action="new", scope="both")
+assert W("income", "RequestTransmittedDocs") == "900" and all(m == 900 for _, m in since), since
 print("OK")

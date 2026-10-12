@@ -805,6 +805,7 @@ def _fetch_expense_range(cid: int, df: str | None, dt: str | None, marks: dict |
     # Αποθήκευση στο μόνιμο ledger (SQLite). Το upsert ΔΕΝ χαμηλώνει την τοπική
     # πρόοδο: αχαρακτήριστα που τοπικά είναι classified/sent μένουν ως έχουν,
     # ενώ όσα το myDATA δείχνει χαρακτηρισμένα περνούν σε «Ολοκληρωμένα».
+    _note_new_cls(cid, "expense", classified, "confirmed")
     for inv in unclassified:
         db.upsert_document(cid, "expense", _invoice_to_doc(inv), "unclassified")
     for inv in classified:
@@ -819,6 +820,17 @@ def _fetch_expense_range(cid: int, df: str | None, dt: str | None, marks: dict |
         + (f" {n0} με μηδενική αξία χαρακτηρίστηκαν τοπικά (2.5 / E3_585_016)." if n0 else "")
         + (f" Αφαιρέθηκαν {removed} ακυρωμένα." if removed else "")
     )
+
+
+def _note_new_cls(cid: int, kind: str, invoices, status: str) -> None:
+    """Όσα υπήρχαν ήδη τοπικά σε άλλη κατάσταση και το myDATA δείχνει πλέον χαρακτηρισμένα → g, για μία γραμμή
+    «Χαρακτηρισμοί …» ανά ενέργεια (το «Νέα από MARK» μπορεί να τρέξει την ανάκτηση δύο φορές). Πριν το upsert."""
+    if not has_request_context():
+        return
+    for inv in invoices:
+        prev = db.get_document(cid, inv.mark)
+        if prev and prev["status"] != status:
+            g.setdefault("new_cls", {}).setdefault(kind, []).append(f"{inv.mark} ({(inv.issue_date or '')[:10]})")
 
 
 def _fetch_income_range(cid: int, df: str | None, dt: str | None, marks: dict | None = None) -> str:
@@ -839,6 +851,7 @@ def _fetch_income_range(cid: int, df: str | None, dt: str | None, marks: dict | 
             db.delete_document(cid, mark)
             removed += 1
 
+    _note_new_cls(cid, "income", classified, "classified")
     for inv in unclassified:
         db.upsert_document(cid, "income", _income_to_doc(inv), "unclassified")
     for inv in classified:
@@ -876,8 +889,8 @@ def _start_key(kind: str, cid: int) -> str:
 
 def _mark_ready(cid: int, kind: str) -> bool:
     """Έχει γίνει το πρώτο πάτημα του «Νέα παραστατικά από MARK» για το βιβλίο."""
-    return bool(db.get_setting(_start_key(kind, cid))) and all(
-        db.get_setting(_wm_key(kind, ep, cid)) for ep in _MARK_ENDPOINTS[kind])
+    return bool(db.get_setting(_start_key(kind, cid))) and all(  # W "0" (παλιές βάσεις) = χωρίς W
+        db.get_setting(_wm_key(kind, ep, cid)) not in (None, "", "0") for ep in _MARK_ENDPOINTS[kind])
 
 
 def _mark_reset(cid: int, kind: str) -> None:
@@ -885,15 +898,19 @@ def _mark_reset(cid: int, kind: str) -> None:
         db.delete_setting(key)
 
 
-def _init_watermarks(cid: int, kind: str) -> None:
+def _init_watermarks(cid: int, kind: str) -> bool:
     """Μετά από ανάκτηση «Αρχή» → σήμερα: ό,τι υπήρχε στο myDATA από την Αρχή το έχουμε, άρα κάθε MARK που έχουμε
     ήδη δει είναι ασφαλές W. Τα MARK είναι κοινή αρίθμηση της ΑΑΔΕ: άδειο βιβλίο παίρνει το μέγιστο MARK του άλλου
-    βιβλίου της εταιρείας (ίδιο περιβάλλον prod/dev)· χωρίς κανένα παραστατικό, 0."""
-    # ponytail: με 0 το επόμενο πάτημα φέρνει όλο το ιστορικό του ΑΦΜ· αποδεκτό για εταιρεία χωρίς κανένα παραστατικό
-    top = max((int(r["mark"]) for k in _MARK_ENDPOINTS for r in db.get_documents(cid, k)
-               if (r["mark"] or "").isdigit()), default=0)
+    βιβλίου της εταιρείας — παραστατικά ή W του (ίδιο περιβάλλον prod/dev). Χωρίς κανένα, ΔΕΝ γράφεται W (με 0 το
+    επόμενο πάτημα θα έφερνε όλο το ιστορικό του ΑΦΜ): το βιβλίο μένει σε αρχική ανάκτηση. Επιστρέφει αν γράφτηκε."""
+    wms = [db.get_setting(_wm_key(k, ep, cid)) or "" for k, eps in _MARK_ENDPOINTS.items() for ep in eps]
+    top = max([int(r["mark"]) for k in _MARK_ENDPOINTS for r in db.get_documents(cid, k) if (r["mark"] or "").isdigit()]
+              + [int(w) for w in wms if w.isdigit()], default=0)
+    if not top:
+        return False
     for ep in _MARK_ENDPOINTS[kind]:
         db.set_setting(_wm_key(kind, ep, cid), top)
+    return True
 
 
 def _gr(iso: str) -> str:
@@ -901,7 +918,8 @@ def _gr(iso: str) -> str:
 
 
 def _fetch_new(cid: int, kind: str, start: str) -> str:
-    """«Νέα παραστατικά από MARK». Πρώτη φορά: ανάκτηση από `start` («Από» της φόρμας) έως σήμερα και ορισμός W.
+    """«Νέα παραστατικά από MARK». Πρώτη φορά: ανάκτηση από την Αρχή (αλλιώς `start`, το «Από» της φόρμας) έως
+    σήμερα· το W ορίζει μετά το sync_run (_init_watermarks), όταν έχουν ανακτηθεί όλα τα βιβλία του πατήματος.
     Μετά: ό,τι ανέβηκε με MARK > W, όποια κι αν είναι η ημερομηνία έκδοσης (εκπρόθεσμα, ακυρώσεις,
     χαρακτηρισμοί). Οι σελίδες του new_since περνούν απευθείας από την κανονική ανάκτηση (cache του client,
     καμία δεύτερη κλήση)· ανάκτηση διαστήματος μόνο για χαρακτηρισμούς παλιών τοπικών παραστατικών.
@@ -909,11 +927,10 @@ def _fetch_new(cid: int, kind: str, start: str) -> str:
     run = _fetch_income_range if kind == "income" else _fetch_expense_range
     today = datetime.now(ATHENS).date().isoformat()
     if not _mark_ready(cid, kind):
+        start = db.get_setting(_start_key(kind, cid)) or start
         run(cid, _gr(start), _gr(today))
-        _init_watermarks(cid, kind)
         db.set_setting(_start_key(kind, cid), start)
-        return (f"✔ Νέα παραστατικά από MARK, πρώτη φορά: ανακτήθηκαν τα παραστατικά από {_gr(start)} έως σήμερα. "
-                "Από εδώ και πέρα έρχεται μόνο ό,τι νέο ανεβαίνει.")
+        return f"✔ Νέα παραστατικά από MARK, αρχική ανάκτηση: ανακτήθηκαν τα παραστατικά από {_gr(start)} έως σήμερα."
     keys = {ep: _wm_key(kind, ep, cid) for ep in _MARK_ENDPOINTS[kind]}
     marks = {ep: int(db.get_setting(key)) for ep, key in keys.items()}
     client = get_client()
@@ -986,7 +1003,7 @@ def sync_run():
     df, dt, cid, bad = _fetch_dates(scope)
     if bad:
         return bad
-    ok = 0
+    ok, done = 0, []
     for kind in _SYNC_SCOPES[scope]:
         label = "Έσοδα" if kind == "income" else "Έξοδα"
         prefix = f"{label}: " if scope == "both" else ""
@@ -1005,11 +1022,20 @@ def sync_run():
                 what = f"Περίοδος {df} – {dt}"
                 run = _fetch_income_range if kind == "income" else _fetch_expense_range
                 flash(prefix + run(cid, df, dt), "ok")
+            if new := g.get("new_cls", {}).pop(kind, None):
+                flash(f"Χαρακτηρισμοί {_SYNC_NOUNS[kind]}: {len(new)} νέοι στο myDATA: {', '.join(new)}.", "ok")
             db.set_setting(_last_key(kind, cid), json.dumps(
                 {"kind": what, "at": f"{datetime.now(ATHENS):%d/%m/%Y %H:%M}"}, ensure_ascii=False))
             ok += 1
+            done.append(kind)
         except Exception as e:  # noqa: BLE001 — network κ.λπ., δεν θέλουμε 500 στο route
             flash(prefix + _fetch_error(e), "error")
+    # W μετά από ΟΛΑ τα βιβλία του πατήματος: στο «Έσοδα & Έξοδα» άδεια έσοδα παίρνουν το MARK των εξόδων.
+    for kind in done if action == "new" else ():
+        if not _mark_ready(cid, kind) and db.get_setting(_start_key(kind, cid)) and not _init_watermarks(cid, kind):
+            flash(("Έσοδα: " if kind == "income" else "Έξοδα: ") * (scope == "both")
+                  + f"Κανένα παραστατικό ακόμα — το επόμενο πάτημα ξαναελέγχει από "
+                  f"{_gr(db.get_setting(_start_key(kind, cid)))}.", "ok")
     if not ok or action == "delete":
         return redirect(url_for("sync", scope=scope, date_from=request.form["date_from"],
                                 date_to=request.form["date_to"], tab=request.form.get("tab")))

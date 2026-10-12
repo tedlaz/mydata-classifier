@@ -128,4 +128,24 @@ assert db.get_setting(A._range_key("expense")) is None
 page = c.get("/sync?tab=delete").get_data(as_text=True)
 year = A.datetime.now(A.ATHENS).year
 assert 'Διαγραφή</a>' not in page and 'περιόδων</a>' not in page and 'value="delete"' not in page and f'value="{year}-01-01"' in page
+
+# (κ) Νέοι χαρακτηρισμοί από το myDATA: μία γραμμή ανά βιβλίο, αμέσως μετά το μήνυμα του βιβλίου· μόνο την πρώτη φορά.
+db.upsert_document(cid, "expense", A._invoice_to_doc(inv("4100")), "sent")
+db.upsert_document(cid, "income", A._income_to_doc(inv("5100", counterpart_vat="987654321")), "unclassified")
+fake.request_income = lambda *a: ([], [inv("5100", counterpart_vat="987654321")], set())
+fake.request_unclassified_expenses = lambda *a: []
+fake.request_classified_expenses = lambda *a: [inv("4100")]
+for first in (True, False):
+    c.get("/sync")  # καταναλώνει τα παλιά flash
+    with c:
+        c.post("/sync", data=dict(form, scope="both", action="fetch"))
+        msgs = [m for _, m in A.session.get("_flashes", [])]
+    cls = [m for m in msgs if m.startswith("Χαρακτηρισμοί")]
+    if first:
+        assert cls == ["Χαρακτηρισμοί εσόδων: 1 νέοι στο myDATA: 5100 (2026-10-01).",
+                       "Χαρακτηρισμοί εξόδων: 1 νέοι στο myDATA: 4100 (2026-10-01)."], msgs
+        assert [m.split(":")[0] for m in msgs] == ["Έσοδα", "Χαρακτηρισμοί εσόδων", "Έξοδα", "Χαρακτηρισμοί εξόδων"], msgs
+    else:
+        assert not cls, msgs
+assert db.get_document(cid, "4100")["status"] == "confirmed" and db.get_document(cid, "5100")["status"] == "classified"
 print("ok")
