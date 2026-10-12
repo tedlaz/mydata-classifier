@@ -656,23 +656,6 @@ def _make_client() -> MyDataClient:
     return MyDataClient(user_id, sub_key, env)
 
 
-def _norm_cls(entries) -> set:
-    """Κανονικοποίηση χαρακτηρισμών σε σύνολο για σύγκριση (αγνοεί σειρά/γραμμή)."""
-    s = set()
-    for e in entries or []:
-        if e.get("transaction_mode"):
-            s.add(("__TM__", str(e["transaction_mode"])))
-        else:
-            s.add(
-                (
-                    e.get("type") or "",
-                    e.get("category") or "",
-                    round(float(e.get("amount") or 0), 2),
-                )
-            )
-    return s
-
-
 def _invoice_to_doc(inv) -> dict:
     """Σειριοποιεί ExpenseInvoice σε dict για αποθήκευση στον πίνακα documents."""
     return {
@@ -2687,59 +2670,6 @@ def send():
     return redirect(url_for("invoices", view="sent" if ok else "classified"))
 
 
-@app.route("/refresh", methods=["POST"])
-def refresh():
-    """Ενημέρωση: ζητά από το myDATA το διάστημα των «Απεσταλμένων» (από τη
-    μικρότερη έως τη μεγαλύτερη ημερομηνία έκδοσης). Όσα το myDATA δείχνει πλέον
-    με τον ίδιο χαρακτηρισμό περνούν σε «Ολοκληρωμένα»."""
-    cid = _active_company_id()
-    sent = db.get_documents(cid, "expense", ["sent"]) if cid else []
-    if not sent:
-        flash("Δεν υπάρχουν απεσταλμένα παραστατικά προς ενημέρωση.", "error")
-        return redirect(url_for("invoices", view="sent"))
-
-    dates = [r["issue_date"] for r in sent if r["issue_date"]]
-    if not dates:
-        flash("Τα απεσταλμένα παραστατικά δεν έχουν ημερομηνία έκδοσης.", "error")
-        return redirect(url_for("invoices", view="sent"))
-    df = date.fromisoformat(min(dates)).strftime("%d/%m/%Y")
-    dt = date.fromisoformat(max(dates)).strftime("%d/%m/%Y")
-
-    try:
-        classified = get_client().request_classified_expenses(df, dt)
-    except MyDataError as e:
-        flash(str(e), "error")
-        return redirect(url_for("invoices", view="sent"))
-    except Exception as e:  # noqa: BLE001 — network κ.λπ.
-        flash(f"Σφάλμα επικοινωνίας: {e}", "error")
-        return redirect(url_for("invoices", view="sent"))
-
-    by_mark = {i.mark: i for i in classified}
-    confirmed = 0
-    for row in sent:
-        inv = by_mark.get(row["mark"])
-        if inv is None:
-            continue
-        remote = _norm_cls(getattr(inv, "cls_info", []))
-        local = _norm_cls(json.loads(row.get("cls_json") or "[]"))
-        # Επιβεβαίωση όταν το myDATA δείχνει τον ίδιο χαρακτηρισμό (ή την απόρριψη).
-        if remote and (remote == local or local == {("__TM__", "1")}):
-            db.mark_confirmed(
-                row["id"], getattr(inv, "classification_mark", "") or None
-            )
-            confirmed += 1
-
-    if confirmed:
-        flash(f"✔ Επιβεβαιώθηκαν {confirmed} παραστατικά από το myDATA.", "ok")
-    else:
-        flash(
-            "Το myDATA δεν έχει δείξει ακόμη τους χαρακτηρισμούς. Δοκίμασε ξανά "
-            "αργότερα (μπορεί να χρειαστεί έως ~8 ώρες).",
-            "ok",
-        )
-    return redirect(url_for("invoices", view="sent"))
-
-
 # ------------------------------------------------------------------ #
 # ΒΙΒΛΙΟ ΕΣΟΔΩΝ (φάση ανάκτησης/προβολής): κατεβάζουμε τα παραστατικά που έχουμε
 # εκδώσει εμείς και τα δείχνουμε ως «Αχαρακτήριστα» / «Χαρακτηρισμένα». Δεν
@@ -4634,7 +4564,7 @@ def dashboard():
          url_for("invoices", view="unclassified"), "warn")
     todo(exp_st.get("classified", 0), "📤", "Χαρακτηρισμοί προς αποστολή", "Έτοιμοι τοπικά — αποστολή στο myDATA",
          url_for("invoices", view="classified"), "accent")
-    todo(exp_st.get("sent", 0), "⏳", "Αναμένουν επιβεβαίωση", "Απεσταλμένα — ανανέωση από το myDATA",
+    todo(exp_st.get("sent", 0), "⏳", "Αναμένουν επιβεβαίωση", "Απεσταλμένα — επιβεβαιώνονται στην επόμενη ανάκτηση",
          url_for("invoices", view="sent"), "info")
     todo(inc_st.get("unclassified", 0), "💶", "Έσοδα προς χαρακτηρισμό", "Αχαρακτήριστα παραστατικά εσόδων",
          url_for("income", view="unclassified"), "warn")

@@ -191,12 +191,6 @@
     {% endif %}
   </form>
 
-  {% if view == 'sent' %}
-  <form method="post" action="{{ url_for('refresh') }}" class="btn-row">
-    <button type="submit">🔄 Ενημέρωση κατάστασης από το myDATA</button>
-  </form>
-  {% endif %}
-
   {% endif %}
   <script>
   // Κατηγορία 2.5 (χωρίς δικαίωμα έκπτωσης ΦΠΑ) → «Χωρίς χαρακτηρισμό ΦΠΑ».
