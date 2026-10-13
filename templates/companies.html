@@ -166,15 +166,19 @@
 @keyframes co-bob{50%{transform:translateY(-10px)}}
 .co-none b{display:block;color:var(--rk-ink);font-size:1.15rem;margin:10px 0 4px}
 
-/* Σε κάθε πλάτος η φέτα μένει μία σειρά: τα tags γίνονται μόνο εικονίδια (το κείμενο στο title), μετά κρύβονται τα νούμερα και το εικονίδιο της εταιρείας. */
+/* Τα tags γίνονται μόνο εικονίδια (το κείμενο στο title), μετά κρύβονται τα νούμερα, και στο στενό η φέτα σπάει σε δύο σειρές. */
 @container (max-width:1250px){
-  .co-card{grid-template-columns:minmax(0,1fr) auto auto auto;grid-template-areas:"top tags body act";gap:12px}
+  .co-card{grid-template-columns:minmax(12em,1fr) auto auto auto;grid-template-areas:"top tags body act";gap:12px}
   .co-tags{flex-wrap:nowrap;gap:4px}
   .co-tag{padding:3px 6px}
   .co-tag-t{display:none}
 }
-@container (max-width:720px){.co-body{display:none}}
-@container (max-width:470px){.co-av{display:none}.co-tags{flex-wrap:wrap;max-width:96px}.co-card{gap:8px}}
+@container (max-width:1000px){.co-body{display:none}}
+/* Στενό: το όνομα παίρνει όλη τη γραμμή, tags και χειριστήρια από κάτω. */
+@container (max-width:700px){
+  .co-card{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"top top" "tags act";gap:10px}
+  .co-tags{flex-wrap:wrap}
+}
 @media (max-width:560px){
   .co-hero .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%}
   .co-hero .btn-row form{display:contents}
