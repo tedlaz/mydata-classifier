@@ -1073,6 +1073,12 @@ PAYMENT_METHODS = {
 # εσωτερικού) — όταν η γραμμή δεν ορίζει δικό της «vat_type».
 VAT_EXPENSE_TYPE = "VAT_361"
 
+
+def needs_vat_cls(vat_category) -> bool:
+    """Γραμμή με κατηγορία ΦΠΑ (και 0%, π.χ. 7 με εξαίρεση) θέλει χαρακτηρισμό ΦΠΑ (σφάλμα 230)·
+    μόνο η 8 (εγγραφές χωρίς ΦΠΑ) δεν θέλει."""
+    return str(vat_category or "8") != "8"
+
 # Μισθοδοσία (17.1): φόροι ΣΕ ΕΠΙΠΕΔΟ ΠΑΡΑΣΤΑΤΙΚΟΥ (taxesTotals, όχι στις γραμμές).
 # taxType 1 = παρακράτηση φόρου, κατηγορία 11 = μισθωτών υπηρεσιών (αρ. 15 παρ. 1
 # ν. 4172/2013)· taxType 5 = κρατήσεις (ΕΦΚΑ εργαζομένου), χωρίς κατηγορία.
@@ -1162,8 +1168,8 @@ def build_self_expense_invoice_xml(
         total_net += amount
         total_vat += vat_amount
         aggregates[key] = aggregates.get(key, 0.0) + amount
-        # Γραμμή με ΦΠΑ (λιανικές 13.1/13.2/13.31): υποχρεωτικός χαρακτηρισμός ΦΠΑ (σφάλμα 230).
-        if vat_amount > 0:
+        # Γραμμή με κατηγορία ΦΠΑ (και 0%): υποχρεωτικός χαρακτηρισμός ΦΠΑ (σφάλμα 230).
+        if needs_vat_cls(line.get("vat_category")):
             vkey = (line.get("vat_type") or VAT_EXPENSE_TYPE, "")
             aggregates[vkey] = aggregates.get(vkey, 0.0) + amount
     # ΑΑΔΕ: μικτή = καθαρή + ΦΠΑ − παρακρατήσεις − κρατήσεις (το πληρωτέο).
@@ -1189,12 +1195,14 @@ def build_self_expense_invoice_xml(
         ET.SubElement(det, f"{{{INV_NS}}}netValue").text = f"{amount:.2f}"
         ET.SubElement(det, f"{{{INV_NS}}}vatCategory").text = vat_category
         ET.SubElement(det, f"{{{INV_NS}}}vatAmount").text = f"{vat_amount:.2f}"
+        if vat_category == "7" and line.get("vat_exemption"):  # 0%: υποχρεωτική αιτία εξαίρεσης
+            ET.SubElement(det, f"{{{INV_NS}}}vatExemptionCategory").text = str(line["vat_exemption"])
         ecls = ET.SubElement(det, f"{{{INV_NS}}}expensesClassification")
         ET.SubElement(ecls, f"{{{ECLS_NS}}}classificationType").text = ctype
         ET.SubElement(ecls, f"{{{ECLS_NS}}}classificationCategory").text = ccat
         ET.SubElement(ecls, f"{{{ECLS_NS}}}amount").text = f"{amount:.2f}"
         ET.SubElement(ecls, f"{{{ECLS_NS}}}id").text = "1"
-        if vat_amount > 0:
+        if needs_vat_cls(vat_category):
             vcls = ET.SubElement(det, f"{{{INV_NS}}}expensesClassification")
             ET.SubElement(vcls, f"{{{ECLS_NS}}}classificationType").text = (
                 line.get("vat_type") or VAT_EXPENSE_TYPE

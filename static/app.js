@@ -168,19 +168,18 @@
     if (b && !confirm(b.dataset.confirm)) { e.preventDefault(); e.stopImmediatePropagation(); }
   }, true);
 
-  // ---- Απαιτεί επιλεγμένα: data-require=".sel" ----
-  document.addEventListener('click', e => {
-    const b = e.target.closest('button[data-require]');
-    if (b && !document.querySelector(b.dataset.require + ':checked')) {
-      e.preventDefault();
-      alert('Επίλεξε τουλάχιστον ένα παραστατικό.');
-    }
+  // ---- Απαιτεί επιλεγμένα: data-require=".sel" → ανενεργό όσο δεν υπάρχει επιλογή ----
+  const syncRequire = () => document.querySelectorAll('button[data-require]').forEach(b => {
+    b.disabled = !document.querySelector(b.dataset.require + ':checked');
   });
+  syncRequire();
+  window.addEventListener('pageshow', syncRequire);  // «Πίσω»: ο browser επαναφέρει τα τσεκαρισμένα
 
   // ---- Επιλογή όλων: data-check-all=".sel" ----
   document.addEventListener('change', e => {
     const all = e.target.closest('[data-check-all]');
     if (all) document.querySelectorAll(all.dataset.checkAll).forEach(c => { c.checked = all.checked; });
+    syncRequire();
     // Αυτόματη υποβολή (π.χ. επιλογή αρχείου εισαγωγής).
     if (e.target.matches('[data-autosubmit]')) e.target.form.requestSubmit();
   });

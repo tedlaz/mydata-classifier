@@ -63,6 +63,7 @@ from mydata_client import (
     InvoiceLine,
     MyDataClient,
     MyDataError,
+    needs_vat_cls,
 )
 
 ensure_env()  # δημιουργεί .env με ασφαλές FLASK_SECRET στην πρώτη εκκίνηση
@@ -1551,7 +1552,10 @@ def document(mark):
         xml_tree=(xml_tree := _xml_tree(row.get("raw_xml"))),
         xml_links=_xml_links(xml_tree),
         has_xml=bool(row.get("raw_xml")),
-        exemptions=vat_return._parse_exempt(row)[1],  # {γραμμή: κατηγορία εξαίρεσης ΦΠΑ}
+        # {γραμμή: κατηγορία εξαίρεσης ΦΠΑ}· τοπικό draft (χωρίς XML) → από τις γραμμές του draft.
+        exemptions=vat_return._parse_exempt(row)[1] or {
+            n: ln.get("vat_exemption") for n, ln in
+            enumerate(json.loads(row.get("draft_json") or "{}").get("lines") or [], start=1) if ln},
         exemption_labels=XML_EXTRA_CODES["vatExemptionCategory"],
     )
 
@@ -2597,7 +2601,7 @@ def unclassify():
 
 @app.route("/send", methods=["POST"])
 def send():
-    """Μαζική αποστολή στο myDATA των τοπικά χαρακτηρισμένων (όλων ή επιλεγμένων).
+    """Μαζική αποστολή στο myDATA των ΕΠΙΛΕΓΜΕΝΩΝ τοπικά χαρακτηρισμένων (χωρίς επιλογή: τίποτα).
     Επιτυχία ανά παραστατικό → κατάσταση «Απεσταλμένο»."""
     cid = _active_company_id()
     if not cid:
@@ -2608,9 +2612,10 @@ def send():
         return redirect(url_for("invoices", view="classified"))
 
     selected = set(request.form.getlist("marks"))
-    rows = db.get_documents(cid, "expense", ["classified"])
-    if selected:
-        rows = [r for r in rows if r["mark"] in selected]
+    if not selected:
+        flash("Επίλεξε τα παραστατικά που θα σταλούν στο myDATA.", "error")
+        return redirect(url_for("invoices", view="classified"))
+    rows = [r for r in db.get_documents(cid, "expense", ["classified"]) if r["mark"] in selected]
     if not rows:
         flash("Δεν υπάρχουν χαρακτηρισμένα παραστατικά για αποστολή.", "error")
         return redirect(url_for("invoices", view="classified"))
@@ -4656,7 +4661,7 @@ def reports():
     return render_template("reports.html", cube=_olap_cube(_active_company_id()))
 
 
-def _copy_lines(inv, local: list[dict]) -> list[dict]:
+def _copy_lines(inv, local: list[dict], exemptions: dict | None = None) -> list[dict]:
     """Γραμμές φόρμας «Νέας εγγραφής» από υπάρχον παραστατικό: μία γραμμή ανά E3
     χαρακτηρισμό. Σε split γραμμή ο ΦΠΑ μοιράζεται αναλογικά (υπόλοιπο στην τελευταία)."""
     line_rows, doc_rows = _document_cls_rows(local, inv)
@@ -4678,7 +4683,8 @@ def _copy_lines(inv, local: list[dict]) -> list[dict]:
                     "classification_type": r["type"],
                     "vat_category": str(ln.vat_category or "8"),
                     "vat_amount": round(v, 2),
-                    "vat_type": r.get("vat_type", "") if v > 0 else "",
+                    "vat_type": (r.get("vat_type") or "VAT_361") if needs_vat_cls(ln.vat_category) else "",
+                    "vat_exemption": (exemptions or {}).get(ln.line_number, ""),
                 }
             )
     if not out:  # χωρίς αναλυτικές γραμμές: από τον συγκεντρωτικό χαρακτηρισμό
@@ -4707,7 +4713,7 @@ def _copy_draft(row: dict) -> dict:
             "series": inv.series or "",
             "issuer_vat": "" if (inv.invoice_type or "").startswith("17.") else inv.issuer_vat or "",
             "issuer_country": "GR",
-            "lines": _copy_lines(inv, db.get_local_classification(row["id"])),
+            "lines": _copy_lines(inv, db.get_local_classification(row["id"]), vat_return._parse_exempt(row)[1]),
         }
     draft["issue_date"] = datetime.now(ATHENS).strftime("%Y-%m-%d")
     draft["aa"] = ""  # ο Α/Α πληκτρολογείται από τον χρήστη
@@ -4830,6 +4836,7 @@ def _render_new_expense(draft: dict | None, edit_mark: str = "", copy_mark: str 
         categories=EXPENSE_CATEGORIES,
         types=EXPENSE_TYPES,
         vat_categories=VAT_CATEGORIES,
+        exemption_labels=XML_EXTRA_CODES["vatExemptionCategory"],
         vat_types={k: v for k, v in VAT_TYPES.items() if k},  # χαρακτηρισμοί ΦΠΑ γραμμής
         payment_methods=PAYMENT_METHODS,
         today=datetime.now(ATHENS).strftime("%Y-%m-%d"),
@@ -4863,7 +4870,7 @@ def _draft_from_form() -> dict:
 
     cols = [f.getlist(k) for k in
             ("line_amount", "line_category", "line_type", "line_vat_category", "line_vat_amount",
-             "line_vat_type")]
+             "line_vat_type", "line_vat_exemption")]
     at = lambda col, i, default="": col[i] if i < len(col) else default  # noqa: E731
     lines = [
         {
@@ -4873,6 +4880,7 @@ def _draft_from_form() -> dict:
             "vat_category": at(cols[3], i, "8") or "8",
             "vat_amount": num(at(cols[4], i)) or 0.0,
             "vat_type": at(cols[5], i),
+            "vat_exemption": at(cols[6], i),
         }
         for i in range(len(cols[0]))
     ]
@@ -4936,6 +4944,7 @@ def new_expense_submit():
     vat_cats = request.form.getlist("line_vat_category")
     vat_amts = request.form.getlist("line_vat_amount")
     vat_types = request.form.getlist("line_vat_type")
+    vat_exs = request.form.getlist("line_vat_exemption")
     lines = []
     for i, (amt, cat, typ) in enumerate(zip(amounts, cats, typs)):
         if not amt.strip():
@@ -4948,7 +4957,7 @@ def new_expense_submit():
         except ValueError:
             flash(f"Μη έγκυρο ποσό ΦΠΑ στη γραμμή {i + 1}.", "error")
             return again()
-        # Χαρακτηρισμός ΦΠΑ της γραμμής (μόνο αν έχει ΦΠΑ· προεπιλογή VAT_361).
+        # Χαρακτηρισμός ΦΠΑ της γραμμής (όταν έχει κατηγορία ΦΠΑ, και 0%· προεπιλογή VAT_361).
         vat_type = (vat_types[i] if i < len(vat_types) else "") or "VAT_361"
         if not vat_type.startswith("VAT_") or vat_type not in VAT_TYPES:
             flash(f"Μη έγκυρος χαρακτηρισμός ΦΠΑ στη γραμμή {i + 1}.", "error")
@@ -4961,7 +4970,8 @@ def new_expense_submit():
                     "classification_type": typ,
                     "vat_category": (vat_cats[i] if i < len(vat_cats) else "8") or "8",
                     "vat_amount": vat_amount,
-                    "vat_type": vat_type if vat_amount > 0 else "",
+                    "vat_type": vat_type if needs_vat_cls(vat_cats[i] if i < len(vat_cats) else "") else "",
+                    "vat_exemption": vat_exs[i] if i < len(vat_exs) else "",
                 }
             )
         except ValueError:
@@ -5009,6 +5019,13 @@ def new_expense_submit():
         flash(f"Ο τύπος {invoice_type} θέλει κατηγορία ΦΠΑ (π.χ. 24%) με τον ΦΠΑ της αυτοπαράδοσης "
               "— όχι «Χωρίς ΦΠΑ».", "error")
         return again()
+    # Κατηγορία ΦΠΑ 7 (0%): η ΑΑΔΕ θέλει και κατηγορία εξαίρεσης ΦΠΑ· στις άλλες δεν δηλώνεται.
+    for n, ln in enumerate(lines, start=1):
+        if ln["vat_category"] != "7":
+            ln["vat_exemption"] = ""
+        elif ln["vat_exemption"] not in XML_EXTRA_CODES["vatExemptionCategory"]:
+            flash(f"Γραμμή {n}: με κατηγορία ΦΠΑ 0% συμπλήρωσε και την κατηγορία εξαίρεσης ΦΠΑ.", "error")
+            return again()
 
     # Το δικό μας ΑΦΜ χρειάζεται πάντα: ως εκδότης στα 17.x, ως αντισυμβαλλόμενος
     # (λήπτης) στα 14.x/15.1/16.1 - error 204 "Counterpart is mandatory".
@@ -5183,7 +5200,7 @@ def _draft_for_month(cid: int, template: dict, period: str) -> dict | None:
             continue
         vat_amount = ln.get("vat_amount") or 0.0
         lines.append(dict(ln, vat_amount=vat_amount, vat_category=ln.get("vat_category") or "8",
-                          vat_type=(ln.get("vat_type") or "VAT_361") if vat_amount > 0 else ""))
+                          vat_type=(ln.get("vat_type") or "VAT_361") if needs_vat_cls(ln.get("vat_category")) else ""))
     if not lines:
         return None
     counterparty = _self_counterparty(d)

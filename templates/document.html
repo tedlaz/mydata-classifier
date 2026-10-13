@@ -209,7 +209,7 @@
       {% if status == 'confirmed' %}<span class="pill" title="Πηγή χαρακτηρισμού">{{ 'Manually (τοπικά)' if source == 'manual' else 'rest (myDATA)' }}</span>{% endif %}
     </h2>
     {% if local_action != 'create' and not is_income and active_company.allow_classify %}
-    <a class="btn" href="{{ url_for('classify', mark=inv.mark, back=back) }}">✏️ Χαρακτηρισμός</a>
+    <a class="btn" href="{{ url_for('classify', mark=inv.mark, back=back) }}">✏️ {{ 'Αλλαγή χαρακτηρισμού' if line_cls or doc_cls else 'Χαρακτηρισμός' }}</a>
     {% endif %}
   </div>
   {% if flags %}<div class="chips">{{ cls_chips(flags) }}</div>{% endif %}

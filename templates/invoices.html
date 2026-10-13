@@ -25,7 +25,7 @@
   <div class="ledger-toolbar">
 
   {% if view == 'classified' %}
-    <p class="muted">Χαρακτηρισμένα <strong>τοπικά</strong> (δεν έχουν σταλεί ακόμη στο myDATA). Επίλεξε και πάτα «Αποστολή στο myDATA» — χωρίς επιλογή στέλνονται όλα.</p>
+    <p class="muted">Χαρακτηρισμένα <strong>τοπικά</strong> (δεν έχουν σταλεί ακόμη στο myDATA). Επίλεξε και πάτα «Αποστολή επιλεγμένων στο myDATA».</p>
   {% elif view == 'sent' %}
     <p class="muted">Στάλθηκαν στο myDATA και αναμένουν επιβεβαίωση (έως ~8 ώρες). Πάτα «Ενημέρωση» για να ελεγχθεί αν τα έδειξε το myDATA.</p>
   {% elif view == 'confirmed' %}
@@ -180,7 +180,7 @@
     {% elif view == 'classified' %}
     <div class="btn-row">
       {% if active_company.allow_send %}
-      <button type="submit" class="btn-send">📤 Αποστολή στο myDATA (επιλεγμένα ή όλα)</button>
+      <button type="submit" class="btn-send" data-require=".sel">📤 Αποστολή επιλεγμένων στο myDATA</button>
       {% else %}
       <button type="button" class="btn-send" disabled title="Η αποστολή στο myDATA είναι απενεργοποιημένη">🔒 Αποστολή στο myDATA</button>
       <span class="muted">Μόνο ανάγνωση — ενεργοποίησε την αποστολή στις <a href="{{ url_for('companies') }}">Παραμέτρους εταιρείας</a>.</span>
