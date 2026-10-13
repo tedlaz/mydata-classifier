@@ -371,4 +371,6 @@ assert _row_to_invoice(dict(base, classification_mark="9"), {}).cls_source == ""
 assert _row_to_invoice(base, {}).cls_source == "Πύλη myDATA"
 assert _row_to_invoice(dict(base, lines_json='[{"line_number": 1, "has_expenses_classification": true}]'),
                        {}).cls_source == "Από εκδότη"
-assert _row_to_invoice(dict(base, is_self_issued=1), {}).cls_source == "Από εκδότη"
+emb = '[{"line_number": 1, "has_expenses_classification": true}]'
+assert _row_to_invoice(dict(base, is_self_issued=1, lines_json=emb), {}).cls_source == "Πύλη myDATA"
+assert _row_to_invoice(dict(base, source="manual", lines_json=emb), {}).cls_source == ""
