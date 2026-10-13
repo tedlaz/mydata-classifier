@@ -101,7 +101,11 @@ body.is-busy .sy-busy{display:flex}
 .sy-run.is-loading{color:var(--ink) !important}
 .sy-run.is-loading::after{content:none}
 .sy-run-cap{display:flex;flex-direction:column;gap:4px;max-width:46ch}
-.sy-run-cap b{font-size:1.1rem;color:var(--c)}
+/* Ο τίτλος ως γεμάτο «κουμπί» μέσα στην κάρτα, για να φαίνεται ότι πατιέται. */
+.sy-run-cap b{align-self:center;font-size:1.1rem;color:#fff;padding:8px 22px;border-radius:999px;background:var(--accent-grad);
+  box-shadow:0 8px 18px -8px var(--c),inset 0 1px 0 rgba(255,255,255,.3);transition:transform .2s var(--ease),box-shadow .2s}
+.sy-run--del .sy-run-cap b{background:var(--c)}
+.sy-run:hover .sy-run-cap b{transform:scale(1.05);box-shadow:0 10px 22px -8px var(--c),inset 0 1px 0 rgba(255,255,255,.3)}
 .sy-run-cap small{font-size:.84rem;color:var(--ink-2);line-height:1.45}
 body.is-busy .sy-run-cap{visibility:hidden}
 .sy-mark-info{display:flex;flex-direction:column;gap:2px;color:var(--muted)}
