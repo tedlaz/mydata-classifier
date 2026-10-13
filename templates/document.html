@@ -6,58 +6,76 @@
 {% set status_labels = {'unclassified':'Αχαρακτήριστο','classified':'Χαρακτηρισμένο' if is_income else 'Χαρακτηρισμένο (τοπικά)','sent':'Απεσταλμένο','confirmed':'Ολοκληρωμένο'} %}
 {% macro doc_url(m) %}{{ url_for('document', mark=m, back=back) }}{% endmacro %}
 <style>
-.dc-hero{position:relative;overflow:hidden;border-radius:16px;padding:12px clamp(14px,2.5vw,22px);color:#fff;margin-bottom:14px;
-  background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,var(--dc-a),var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
-.dc-hero--in{--dc-a:#0f5a4a;--dc-b1:#1fbf8a;--dc-b2:#5b66f5}
-.dc-hero--out{--dc-a:#2a2f7a;--dc-b1:#5b66f5;--dc-b2:#ff6b8b}
-.dc-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;animation:dc-float 13s ease-in-out infinite;pointer-events:none}
-.dc-blob.b1{width:300px;height:300px;background:color-mix(in oklab,var(--dc-b1),var(--hero-glow) var(--hero-fade));top:-140px;right:-40px}
-.dc-blob.b2{width:220px;height:220px;background:color-mix(in oklab,var(--dc-b2),var(--hero-glow) var(--hero-fade));bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
-@keyframes dc-float{50%{transform:translate(26px,-18px) scale(1.1)}}
+.dc-hero{--c:var(--ok);--c-soft:var(--ok-soft);--c-line:var(--ok-line);position:relative;margin-bottom:14px;border-radius:var(--radius);
+  background:var(--surface);border:1px solid var(--line);box-shadow:inset 5px 0 0 var(--c),var(--shadow);overflow:hidden}
+.dc-hero--out{--c:var(--err);--c-soft:var(--err-soft);--c-line:var(--err-line)}
 @keyframes dc-rise{from{opacity:0;transform:translateY(14px)}}
-.dc-nav{position:relative;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px}
+/* Κεφαλίδα «εντύπου»: απαλή απόχρωση του είδους (έσοδα/έξοδα). */
+.dc-nav{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;
+  padding:8px clamp(12px,2.5vw,20px) 8px clamp(17px,2.5vw,25px);background:color-mix(in srgb,var(--c-soft) 70%,var(--surface));border-bottom:1px solid var(--c-line)}
 .dc-nav .grp{display:flex;gap:6px;align-items:center}
 .dc-nav form{margin:0}
-.dc-hero .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
-.dc-hero .btn-ghost:hover{background:rgba(255,255,255,.16)}
 .dc-hero .pg-off{opacity:.35;pointer-events:none}
-.dc-pos{font:600 .8rem var(--font-data);color:var(--hero-ink);padding:0 6px}
-.dc-top{position:relative;display:flex;flex-wrap:wrap;gap:10px 24px;justify-content:space-between;align-items:flex-start}
+.dc-pos{font:600 .8rem var(--font-data);color:var(--muted);padding:0 6px;white-space:nowrap}
+.dc-pos .sl{display:none}
+.dc-body{padding:12px clamp(12px,2.5vw,20px) 14px clamp(17px,2.5vw,25px)}
+.dc-top{display:flex;flex-wrap:wrap;gap:10px 24px;justify-content:space-between;align-items:flex-start}
 .dc-who{display:flex;gap:12px;align-items:center;min-width:0}
-.dc-av{flex:none;width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:.95rem;
-  background:linear-gradient(135deg,hsl(var(--h) 72% 60%),hsl(calc(var(--h) + 40) 68% 45%));box-shadow:0 10px 24px -10px hsl(var(--h) 70% 45%);
+.dc-av{flex:none;width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:.95rem;color:#fff;
+  background:linear-gradient(135deg,hsl(var(--h) 72% 60%),hsl(calc(var(--h) + 40) 68% 45%));box-shadow:0 10px 24px -12px hsl(var(--h) 70% 45%);
   animation:dc-rise .5s var(--ease) both}
-.dc-hero h1{margin:0;font-size:clamp(1.1rem,2.2vw,1.4rem);font-weight:800;letter-spacing:-.01em;color:#fff;overflow-wrap:anywhere}
-/* Επωνυμία συναλλασσόμενου: λευκοπράσινη στα έσοδα, λευκοκίτρινη στα έξοδα (το hero είναι πάντα σκούρο). */
-.dc-hero--in h1{color:#c9f7df}
-.dc-hero--out h1{color:#fff0b3}
-.dc-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
-.dc-meta span{font-size:.76rem;padding:2px 9px;border-radius:999px;background:rgba(255,255,255,.08);color:var(--hero-ink-hi)}
+.dc-hero h1{margin:0;font-size:clamp(1.1rem,2.2vw,1.4rem);font-weight:800;letter-spacing:-.01em;color:var(--ink);overflow-wrap:anywhere}
+.dc-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
+.dc-meta span{font-size:.76rem;padding:2px 9px;border-radius:999px;background:var(--surface-3);border:1px solid var(--line-soft);color:var(--ink-2);max-width:100%}
 .dc-meta .mono{font-family:var(--font-data)}
-.dc-meta .dc-kind{font-weight:800;letter-spacing:.06em}
-.dc-meta .dc-kind--in{color:#4fd1a0;background:rgba(79,209,160,.18);box-shadow:inset 0 0 0 1px rgba(79,209,160,.45)}
-.dc-meta .dc-kind--out{color:#ff8a9e;background:rgba(255,107,139,.18);box-shadow:inset 0 0 0 1px rgba(255,107,139,.45)}
+.dc-meta .dc-kind{font-weight:800;letter-spacing:.06em;color:var(--c);background:var(--c-soft);border-color:var(--c-line)}
 .dc-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .dc-acts form{margin:0}
+/* Τρόποι πληρωμής (από το XML) */
+.dc-pay{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;font-size:.8rem}
+.dc-pay > span:first-child{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.dc-pay .pm{display:inline-flex;gap:6px;align-items:center;padding:3px 10px;border-radius:999px;background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--ink)}
+.dc-pay .pm b{font:700 .8rem var(--font-data);color:var(--warn)}
 
 /* Τρέχουσα κατάσταση */
-.dc-status{display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:999px;font-size:.8rem;font-weight:700;
-  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff}
-.dc-status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--st)}
-.dc-status--unclassified{--st:#f2c265} .dc-status--classified{--st:#9aa2ff}
-.dc-status--sent{--st:#22b8cf} .dc-status--confirmed{--st:#4fd1a0}
+.dc-status{display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:999px;font-size:.8rem;font-weight:700;white-space:nowrap;
+  background:var(--surface);border:1px solid var(--line);color:var(--ink)}
+.dc-status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--st);box-shadow:0 0 0 3px color-mix(in srgb,var(--st) 25%,transparent)}
+.dc-status--unclassified{--st:#e0a526} .dc-status--classified{--st:#7a83f5}
+.dc-status--sent{--st:#22b8cf} .dc-status--confirmed{--st:#1fbf8a}
 
-/* Σύνολα */
-.dc-tots{position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:10px}
-.dc-tot{padding:6px 12px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+/* Σύνολα: ζώνη «απόδειξης» με διακεκομμένη γραμμή. */
+.dc-tots{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-top:12px;border-top:1px dashed var(--line);padding-top:10px;gap:8px}
+.dc-tot{padding:6px 12px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line-soft);min-width:0;
   animation:dc-rise .5s var(--ease) both;animation-delay:calc(var(--i) * 70ms + 150ms)}
-.dc-tot span{display:block;font-size:.68rem;color:var(--hero-ink);font-weight:600;text-transform:uppercase;letter-spacing:.07em}
-.dc-tot b{display:block;font:800 1.05rem/1.25 var(--font-data)}
-.dc-tot--g{background:linear-gradient(135deg,color-mix(in srgb,var(--hero-glow) 35%,transparent),rgba(31,191,138,.25));border-color:rgba(255,255,255,.22)}
+.dc-tot span{display:block;font-size:.68rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.07em}
+.dc-tot b{display:block;font:800 1.05rem/1.25 var(--font-data);color:var(--ink)}
+.dc-tot--g{background:var(--c-soft);border-color:var(--c-line)}
+.dc-tot--g span,.dc-tot--g b{color:var(--c)}
 .dc-tot--g b{font-size:1.2rem}
 /* Μεγάλη σειρά/αριθμός: οριζόντια κύλιση μέσα στην κάρτα. */
-.dc-tot--sa{min-width:0}
 .dc-tot--sa b{overflow-x:auto;white-space:nowrap;scrollbar-width:thin}
+
+/* Κινητό: nav σε μία γραμμή, σύνολα ανά δύο, «Σύνολο» σε όλο το πλάτος. */
+@media (max-width:600px){
+  .dc-nav{gap:6px}
+  .dc-back-t{display:none}
+  .dc-nav .grp:has(form){display:contents}
+  .dc-nav form{order:3;flex-basis:100%}
+  .dc-nav form button{width:100%}
+  .dc-pos .of{display:none}
+  .dc-pos .sl{display:inline}
+  .dc-pos{padding:0 2px}
+  .dc-av{width:36px;height:36px;font-size:.85rem}
+  .dc-who{align-items:flex-start}
+  .dc-meta span{font-size:.7rem}
+  .dc-meta .dc-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dc-tots{grid-template-columns:1fr 1fr;gap:6px}
+  .dc-tot{padding:6px 10px}
+  .dc-tot b{font-size:.95rem}
+  .dc-tot--g{grid-column:1/-1;display:flex;justify-content:space-between;align-items:baseline}
+  .dc-tot--g b{font-size:1.3rem}
+}
 .dc > .card{animation:dc-rise .5s var(--ease) both;animation-delay:calc(var(--i, 0) * 90ms + 250ms)}
 /* Ενότητες: δικό τους χρώμα η καθεμία (λωρίδα, εικονίδιο, επικεφαλίδες πίνακα). */
 .dc-sec{--c:var(--accent);--c-soft:var(--accent-soft);--c-line:var(--accent-glow);box-shadow:inset 5px 0 0 var(--c),var(--shadow)}
@@ -77,6 +95,27 @@
 /* Εναλλάξ χρώμα ανά γραμμή παραστατικού (όχι ανά <tr>: μια γραμμή μπορεί να έχει πολλούς χαρακτηρισμούς). */
 .dc-sec--lines .doc-lines tr.line-alt > td{background:var(--surface-3)}
 .dc-sec--lines .doc-lines tr.line-alt > :is(td.c-cls,td.cls){background:color-mix(in srgb,var(--info-soft) 75%,var(--info-line))}
+/* Κινητό: ΑΑ, Καθαρή αξία, Κατηγ. ΦΠΑ, ΦΠΑ στην ίδια σειρά (ετικέτα πάνω, τιμή κάτω)· οι χαρακτηρισμοί από κάτω. */
+@media (max-width:640px){
+  .dc .doc-lines--stack tr:not([hidden]){display:flex;flex-wrap:wrap}
+  .dc .doc-lines--stack tr > td{flex:1 1 100%}
+  .dc-sec--lines .doc-lines--stack tbody td{order:9}
+  .dc-sec--lines .doc-lines--stack td:is([data-label="ΑΑ"],[data-label="Καθαρή αξία"],[data-label="ΦΠΑ"],[data-label="Κατηγ. ΦΠΑ"]){
+    flex:1 1 0;min-width:0;grid-template-columns:1fr;justify-items:start;text-align:left}
+  .dc-sec--lines .doc-lines--stack td:is([data-label="ΑΑ"],[data-label="Καθαρή αξία"],[data-label="ΦΠΑ"],[data-label="Κατηγ. ΦΠΑ"])::before{grid-row:auto;font-size:.62rem}
+  .dc-sec--lines .doc-lines--stack tbody td[data-label="ΑΑ"]{order:1;flex:0 0 auto;min-width:3.2em}
+  /* Ποσά δεξιά, ώστε να στοιχίζονται κάθετα από γραμμή σε γραμμή. */
+  .dc-sec--lines .doc-lines--stack tbody td.num:is([data-label="Καθαρή αξία"],[data-label="ΦΠΑ"]){justify-items:end;text-align:right}
+  .dc-sec--lines .doc-lines--stack tbody td[data-label="Καθαρή αξία"]{order:2}
+  .dc-sec--lines .doc-lines--stack tbody td[data-label="Κατηγ. ΦΠΑ"]{order:3}
+  .dc-sec--lines .doc-lines--stack tbody td[data-label="ΦΠΑ"]{order:4}
+  /* Χαρακτηρισμοί: μία σειρά ανά πεδίο, χωρίς ετικέτα, αριστερά· μόνο το ποσό δεξιά. */
+  .dc .doc-lines--stack td:is(.c-cls,.cls){display:block;text-align:left}
+  .dc .doc-lines--stack td:is(.c-cls,.cls)::before{display:none}
+  .dc .doc-lines--stack td.num.cls{text-align:right;flex:0 0 auto}
+  .dc .doc-lines--stack td.c-cls[data-label="Χαρακτηρισμός ΦΠΑ"]{flex:1 1 0;min-width:0}
+  .dc .doc-lines--stack td.c-cls .code{display:inline;margin-left:6px}
+}
 .vat-exempt{display:block;margin-top:5px;font-size:.74rem;line-height:1.3;color:var(--muted)}
 .dc-sec--lines .line-tax-btn{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)}
 .dc.is-loading{opacity:.55;pointer-events:none;transition:opacity .2s}
@@ -113,9 +152,9 @@
 
 <div class="dc" data-doc>
 <header class="dc-hero dc-hero--{{ 'in' if is_income else 'out' }}">
-  <i class="dc-blob b1"></i><i class="dc-blob b2"></i>
   <div class="dc-nav">
-    <a class="btn btn-ghost btn-sm" href="{{ back }}">← {{ 'Επιστροφή' if 'docs=' in back else 'Πίσω στο βιβλίο' }}</a>
+    {% set back_label = 'Επιστροφή' if 'docs=' in back else 'Πίσω στο βιβλίο' %}
+    <a class="btn btn-ghost btn-sm" href="{{ back }}" aria-label="{{ back_label }}">←<span class="dc-back-t"> {{ back_label }}</span></a>
     <div class="grp">
       <span class="dc-status dc-status--{{ status }}" title="Κατάσταση">{{ status_labels.get(status, status) }}</span>
       {% if not is_income and status == 'confirmed' and inv.issuer_vat %}
@@ -129,12 +168,13 @@
     <div class="grp">
       <a class="btn btn-ghost btn-sm {{ 'pg-off' if not prev_mark }}" data-doc-nav="prev" {% if prev_mark %}href="{{ doc_url(prev_mark) }}"{% endif %}
          title="Προηγούμενο (←)" aria-label="Προηγούμενο παραστατικό">‹</a>
-      <span class="dc-pos">{{ pos }} από {{ siblings_total }}</span>
+      <span class="dc-pos">{{ pos }}<span class="of"> από </span><span class="sl">/</span>{{ siblings_total }}</span>
       <a class="btn btn-ghost btn-sm {{ 'pg-off' if not next_mark }}" data-doc-nav="next" {% if next_mark %}href="{{ doc_url(next_mark) }}"{% endif %}
          title="Επόμενο (→)" aria-label="Επόμενο παραστατικό">›</a>
     </div>
   </div>
 
+  <div class="dc-body">
   <div class="dc-top">
     <div class="dc-who">
       <div class="dc-av" style="--h:{{ ((inv.issuer_vat or '0')[-3:]|int(0) * 7) % 360 }}" aria-hidden="true">
@@ -146,8 +186,13 @@
           <span class="dc-kind dc-kind--{{ 'in' if is_income else 'out' }}">{{ 'ΕΣΟΔΑ' if is_income else 'ΕΞΟΔΑ' }}</span>
           <span class="mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</span>
           <span class="mono">MARK {{ inv.mark }}</span>
-          <span>{{ inv.invoice_type or "—" }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
+          <span class="dc-type" title="{{ type_desc or '' }}">{{ inv.invoice_type or "—" }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
         </div>
+        {% if payments %}
+        <div class="dc-pay"><span>Πληρωμή</span>
+          {% for p in payments %}<span class="pm">💳 {{ p.method }}{% if p.amount %} <b>{{ money(p.amount|float) }} €</b>{% endif %}</span>{% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
     <div class="dc-acts">
@@ -168,6 +213,7 @@
     {% endfor %}
     <div class="dc-tot dc-tot--g" style="--i:6"><span>Σύνολο</span><b>{{ money(inv.total_gross) }} €</b></div>
   </div>
+  </div>
 </header>
 
 {# Ένα κελί χαρακτηρισμού: περιγραφή + κωδικός. #}
@@ -178,7 +224,7 @@
   {{ cls_cell(r.category, categories, 'Κατηγορία') }}
   {{ cls_cell(r.type, types, 'Τύπος' ~ ('' if is_income else ' Ε3')) }}
   {{ cls_cell(r.vat_type, vat_types, 'Χαρακτηρισμός ΦΠΑ') }}
-  <td class="num cls" data-label="Ποσό">{{ "%.2f"|format(r.amount) ~ ' €' if r.amount is not none else '—' }}</td>
+  <td class="num cls" data-label="Ποσό">{{ money(r.amount) ~ ' €' if r.amount is not none else '—' }}</td>
 {%- endmacro %}
 {# Πίνακας φόρων/κρατήσεων: [{type, category, base?, amount}]. #}
 {% macro tax_table(rows, with_base=true) -%}
@@ -189,8 +235,8 @@
       <tr class="line-first">
         <td>{{ tax_types.get(t.type, t.type) }}</td>
         <td>{% if t.category %}{{ tax_categories.get(t.type, {}).get(t.category, 'Κατηγορία ' ~ t.category) }}<span class="code">{{ t.category }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-        {% if with_base %}<td class="num">{{ "%.2f"|format(t.base) ~ " €" if t.base is not none else "—" }}</td>{% endif %}
-        <td class="num">{{ "%.2f"|format(t.amount or 0) }} €</td>
+        {% if with_base %}<td class="num">{{ money(t.base) ~ " €" if t.base is not none else "—" }}</td>{% endif %}
+        <td class="num">{{ money(t.amount or 0) }} €</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -236,13 +282,13 @@
       {% for r in rows %}
       <tr class="{{ 'line-first' if loop.first }}{{ ' line-alt' if alt }}">
         {% if loop.first %}
-        <td class="c-no mono" data-label="Γραμμή" rowspan="{{ rows|length }}">{{ line.line_number }}
+        <td class="c-no mono" data-label="ΑΑ" rowspan="{{ rows|length }}">{{ line.line_number }}
           {%- if line.taxes %}
           <button type="button" class="btn-ghost btn-sm line-tax-btn" data-toggle="#ltx-{{ line.line_number }}" aria-expanded="false"
                   aria-controls="ltx-{{ line.line_number }}" title="Φόροι & κρατήσεις της γραμμής">🧾 {{ line.taxes|length }}</button>
           {%- endif %}</td>
-        <td class="num" data-label="Καθαρή αξία" rowspan="{{ rows|length }}">{{ "%.2f"|format(line.net_value or 0) }} €</td>
-        <td class="num" data-label="ΦΠΑ" rowspan="{{ rows|length }}">{{ "%.2f"|format(line.vat_amount or 0) }} €</td>
+        <td class="num" data-label="Καθαρή αξία" rowspan="{{ rows|length }}">{{ money(line.net_value or 0) }} €</td>
+        <td class="num" data-label="ΦΠΑ" rowspan="{{ rows|length }}">{{ money(line.vat_amount or 0) }} €</td>
         <td class="c-vat" data-label="Κατηγ. ΦΠΑ" rowspan="{{ rows|length }}">
           {% if line.vat_category %}
           <span class="vat-badge">{{ line.vat_category }}{% if vat_rates.get(line.vat_category|string) %} · {{ vat_rates[line.vat_category|string] }}{% endif %}</span>
@@ -252,14 +298,14 @@
         </td>
         {% endif %}
         {% if r %}{{ cls_cells(r) }}
-        {% else %}<td colspan="4" class="muted cls">{{ '— βλ. χαρακτηρισμό σε επίπεδο παραστατικού —' if doc_cls else '—' }}</td>{% endif %}
+        {% else %}<td colspan="4" class="muted cls">{{ '—' if not doc_cls }}</td>{% endif %}
       </tr>
       {% endfor %}
       {% if line.taxes %}
       <tr id="ltx-{{ line.line_number }}" class="line-taxes" hidden>
         <td></td>
         <td colspan="7">
-          <div class="kicker">Φόροι &amp; κρατήσεις γραμμής {{ line.line_number }} · επί καθαρής αξίας {{ "%.2f"|format(line.net_value or 0) }} €</div>
+          <div class="kicker">Φόροι &amp; κρατήσεις γραμμής {{ line.line_number }} · επί καθαρής αξίας {{ money(line.net_value or 0) }} €</div>
           {{ tax_table(line.taxes, false) }}
         </td>
       </tr>
@@ -268,16 +314,6 @@
       <tr><td colspan="8" class="empty">— χωρίς αναλυτικές γραμμές —</td></tr>
       {% endfor %}
     </tbody>
-    {% if inv.lines %}
-    <tfoot>
-      <tr>
-        <td class="c-no">Σύνολο</td>
-        <td class="num" data-label="Καθαρή αξία">{{ "%.2f"|format(inv.total_net or 0) }} €</td>
-        <td class="num" data-label="ΦΠΑ">{{ "%.2f"|format(inv.total_vat or 0) }} €</td>
-        <td colspan="5"></td>
-      </tr>
-    </tfoot>
-    {% endif %}
   </table>
   </div>
   {% if classification_mark %}<p class="muted small">MARK χαρακτηρισμού <span class="mono">{{ classification_mark }}</span>{% if classification_mark == inv.mark %} (ενσωματωμένος στο παραστατικό){% endif %}</p>{% elif inv.cls_source %}<p class="muted small">Χαρακτηρισμός: {{ inv.cls_source }}</p>{% endif %}

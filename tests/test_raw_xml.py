@@ -1,5 +1,6 @@
 """Όλα τα στοιχεία του παραστατικού: XML από την ανάκτηση → βάση → δέντρο/λήψη (python -m tests.test_raw_xml)."""
 import os
+import re
 import tempfile
 import xml.etree.ElementTree as ET
 
@@ -64,6 +65,7 @@ assert flat["Χώρα"] == "CY · Κύπρος", flat
 c = A.app.test_client()
 page = c.get("/document/4001").get_data(as_text=True)
 assert "Όλα τα στοιχεία" in page and "Σχόλια γραμμής" in page
+assert re.search(r'class="pm">💳 Μετρητά <b>124,00 €</b>', page), "τρόπος πληρωμής στο header"
 r = c.get("/document/4001/xml")
 assert r.status_code == 200 and "attachment" in r.headers["Content-Disposition"] and r.get_data(as_text=True) == inv.raw_xml
 
@@ -78,8 +80,6 @@ assert 'class="xml-links"' in page and 'aria-label="URL λήψης παραστ�
 assert 'aria-label="QR code παραστατικού"' not in page  # το QR ήταν javascript: → κανένα εικονίδιο
 
 # (στ) Παραστατικό εσόδου: στο μενού ενεργό το «Βιβλίο εσόδων», όχι των εξόδων.
-import re  # noqa: E402
-
 db.upsert_document(cid, "income", dict(doc, mark="5001"), "classified")
 page = c.get("/document/5001").get_data(as_text=True)
 active = re.findall(r'class="nav-link[^"]*is-active"[^>]*>.*?</a>', page, re.S)

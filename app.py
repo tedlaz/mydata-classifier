@@ -1717,6 +1717,7 @@ def document(mark):
         vat_types=VAT_TYPES,
         xml_tree=(xml_tree := _xml_tree(row.get("raw_xml"))),
         xml_links=_xml_links(xml_tree),
+        payments=_xml_payments(xml_tree),
         has_xml=bool(row.get("raw_xml")),
         # {γραμμή: κατηγορία εξαίρεσης ΦΠΑ}· τοπικό draft (χωρίς XML) → από τις γραμμές του draft.
         exemptions=vat_return._parse_exempt(row)[1] or {
@@ -1890,6 +1891,17 @@ def _xml_links(tree: list[dict]) -> dict:
 
     walk(tree)
     return found
+
+
+def _xml_payments(tree: list[dict]) -> list[dict]:
+    """Τρόποι πληρωμής του XML ({method, amount}) από το δέντρο του _xml_tree, για το header."""
+    out = []
+    for pm in (n for n in tree if n["tag"] == "paymentMethods"):
+        for d in pm["children"]:
+            kids = {c["tag"]: c["value"] for c in d["children"]}
+            if kids.get("type"):
+                out.append({"method": kids["type"].split(" · ", 1)[-1], "amount": kids.get("amount")})
+    return out
 
 
 @app.route("/document/<mark>/xml")
