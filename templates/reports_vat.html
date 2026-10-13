@@ -230,6 +230,16 @@
     a.textContent = '← ' + (NAMES[path] || 'Πίσω');
   }
   setBack();
+  // Σε στενή οθόνη το έντυπο μικραίνει αναλογικά για να χωράει ολόκληρο (όπως στην εκτύπωση).
+  function fit() {
+    const w = document.querySelector('.f2-wrap'), f = w && w.querySelector('.f2');
+    if (!f) return;
+    f.style.zoom = '';
+    const z = w.clientWidth / f.offsetWidth;
+    if (z < 1) f.style.zoom = z;
+  }
+  fit();
+  addEventListener('resize', fit);
   async function go(url, push) {
     const my = ++seq, wrap = document.querySelector('.f2-wrap');
     wrap.classList.add('is-loading');
@@ -242,6 +252,7 @@
       if (fresh.some(n => !n)) throw new Error('no content');
       PARTS.forEach((s, i) => { fresh[i].classList.add('is-live'); document.querySelector(s).replaceWith(fresh[i]); });
       setBack();
+      fit();
       if (push) history.pushState({f2: 1}, '', url);
     } catch (_) {
       location.href = url;  // αν κάτι αποτύχει: κανονική πλοήγηση

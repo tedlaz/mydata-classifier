@@ -1362,7 +1362,7 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
   .sidebar,.topbar,.f2-noprint,.flash-stack{display:none!important}
   html,body,.shell,.content,main{background:#fff!important;margin:0!important;padding:0!important;max-width:none!important}
   .f2-wrap{overflow:visible;margin:0}
-  .f2{width:1080px;min-width:1080px;max-width:1080px;margin:0;zoom:.675;
+  .f2{width:1080px;min-width:1080px;max-width:1080px;margin:0;zoom:.675!important;
     -webkit-print-color-adjust:exact;print-color-adjust:exact;break-inside:avoid}
   @page{size:A4 portrait;margin:8mm}
 }
