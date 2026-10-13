@@ -42,9 +42,9 @@
 {%- endmacro %}
 
 {# Επωνυμία αντισυμβαλλόμενου με ✎ για γρήγορη διόρθωση (app.js → /suppliers/rename). #}
-{% macro issuer_name(inv) -%}
+{% macro issuer_name(inv, editable=true) -%}
 <b class="issuer-name" title="{{ inv.issuer_name or '' }}" data-full="{{ inv.issuer_name or '' }}">{{ inv.issuer_name|cpname or "—" }}</b>
-{%- if inv.issuer_vat %}<button type="button" class="name-edit" title="Διόρθωση επωνυμίας" aria-label="Διόρθωση επωνυμίας">✎</button>{% endif %}
+{%- if editable and inv.issuer_vat %}<button type="button" class="name-edit" title="Διόρθωση επωνυμίας" aria-label="Διόρθωση επωνυμίας">✎</button>{% endif %}
 {%- endmacro %}
 
 {% macro type_badge(inv) -%}
