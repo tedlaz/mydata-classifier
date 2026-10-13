@@ -29,7 +29,7 @@
         title="{{ 'Συμμετέχει ολόκληρο' if d.whole else 'Συμμετέχει μερικώς — έχει και άλλους λογαριασμούς Ε3 / κωδικούς ΦΠΑ' }}">
       <td>{{ '/'.join(d.issue_date.split('-')[::-1]) if d.issue_date }}</td>
       <td class="yr-docs-mark"><a href="{{ url_for('document', mark=d.mark, back=back) }}">{{ d.mark }}</a></td>
-      <td class="yr-docs-cp"><b>{{ d.counterparty_name or '—' }}</b><span class="vat">{{ d.counterparty_vat or '' }}</span></td>
+      <td class="yr-docs-cp"><b title="{{ d.counterparty_name or '' }}">{{ d.counterparty_name|cpname or '—' }}</b><span class="vat">{{ d.counterparty_vat or '' }}</span></td>
       <td class="yr-docs-type">
         <span title="{{ type_names.get(d.invoice_type, '') }}">{{ d.invoice_type }}</span>
         <span class="muted">{{ d.series or '' }}/{{ d.aa or '' }}</span>

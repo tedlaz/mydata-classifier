@@ -206,11 +206,11 @@
     </div>
     <div class="ch-who">
       <div class="ch-av" style="--h:{{ ((inv.issuer_vat or '0')[-3:]|int(0) * 7) % 360 }}" aria-hidden="true">
-        {%- for w in (inv.issuer_name or '?').split()[:2] %}{{ w[0]|upper }}{% endfor -%}
+        {%- for w in (inv.issuer_name|cpname or '?').split()[:2] %}{{ w[0]|upper }}{% endfor -%}
       </div>
       <div style="min-width:0">
         <div class="ch-kicker">🏷️ Χαρακτηρισμός · MARK <span class="mono">{{ inv.mark }}</span></div>
-        <h1>{{ inv.issuer_name or "Χωρίς επωνυμία" }}</h1>
+        <h1 title="{{ inv.issuer_name or '' }}">{{ inv.issuer_name|cpname or "Χωρίς επωνυμία" }}</h1>
         <div class="ch-meta">
           <span class="mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</span>
           <span>{{ inv.invoice_type }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>

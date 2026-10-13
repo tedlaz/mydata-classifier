@@ -80,7 +80,7 @@
     const btn = e.target.closest('.name-edit');
     if (!btn) return;
     const box = btn.closest('.issuer'), b = box.querySelector('.issuer-name');
-    const old = b.textContent.trim() === '—' ? '' : b.textContent.trim();
+    const old = b.dataset.full ?? (b.textContent.trim() === '—' ? '' : b.textContent.trim());
     // Πολλές γραμμές, για να φαίνονται ολόκληρες οι μεγάλες επωνυμίες.
     const input = Object.assign(document.createElement('textarea'), {
       className: 'name-input', value: old, maxLength: 200, placeholder: 'Επωνυμία',
@@ -110,7 +110,8 @@
         if (!data.ok) throw new Error(data.error);
         const sel = '.issuer[data-vat="' + CSS.escape(box.dataset.vat) + '"] .issuer-name';
         document.querySelectorAll(sel).forEach(n => {
-          n.textContent = data.name;
+          n.textContent = data.short;
+          n.title = n.dataset.full = data.name;
           n.classList.remove('is-saved');
           void n.offsetWidth;  // επανεκκίνηση του animation
           n.classList.add('is-saved');

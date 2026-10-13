@@ -11,6 +11,7 @@ GET https://ec.europa.eu/taxation_customs/vies/rest-api/ms/{country}/vat/{number
 """
 
 import re
+import unicodedata
 
 import requests
 
@@ -66,6 +67,128 @@ def check_vat(country: str, number: str, timeout: int = 15) -> dict | None:
     if address in ("", "---"):
         address = None
     return {"valid": valid, "name": name, "address": address}
+
+
+# Συντομεύσεις για την εμφάνιση επωνυμιών (η αποθήκευση μένει όπως έρχεται από
+# VIES/ΑΑΔΕ). Οι λέξεις συγκρίνονται χωρίς τόνους και με ανοχή σε ορθογραφικά
+# λάθη (_close), π.χ. ΕΤΑΡΕΙΑ, ΠΕΡΙΩΡΙΣΜΕΝΗΣ. Νέα συντόμευση/εξαίρεση = μία γραμμή.
+_W = r"(?<!\w){}(?!\w)"
+# Νομικές μορφές με τελείες, με λατινικά γράμματα (VIVABANK AE) ή με κενά στο τέλος (NOVA Μ Α Ε).
+_A, _E, _O, _I, _K, _B = "[ΑA]", "[ΕE]", "[ΟO]", "[ΙI]", "[ΚK]", "[ΒB]"
+_DOTTED = [
+    (_W.format(rf"{_A}\.?\s*{_E}\.\s*{_B}\.?\s*{_E}\.?|AEBE"), "ΑΕΒΕ"),
+    (_W.format(rf"{_E}\.\s*Π\.\s*{_E}\.?|EPE"), "ΕΠΕ"),
+    (_W.format(rf"{_I}\.\s*{_K}\.\s*{_E}\.?|IKE"), "ΙΚΕ"),
+    (_W.format(rf"{_A}\.\s*{_E}\.?|AE"), "ΑΕ"),
+    (_W.format(rf"{_O}\.\s*{_E}\.?|OE"), "ΟΕ"),
+    (_W.format(rf"{_E}\.\s*{_E}\.?|EE"), "ΕΕ"),
+    (r"(?<!\w)(?:Μ\s+)?([ΑΟΕ])\s+Ε\s*$", r"\1Ε"),
+]
+_DOTTED = [(re.compile(p, re.I), r) for p, r in _DOTTED]
+_MONO_M = re.compile(r"(?<!\w)Μ(?:ΟΝ)?\.?\s*(?=(?:ΑΕ|ΙΚΕ|ΕΠΕ)(?!\w))", re.I)  # Μ.ΙΚΕ / Μ.ΑΕ (μονοπρόσωπη)
+
+_ET = ("ΕΤΑΙΡΕΙΑ", "ΕΤΑΙΡΙΑ")
+# (λέξεις, αντικατάσταση) — κάθε λέξη είναι πλειάδα αποδεκτών γραφών· "" = αφαίρεση.
+# Οι πολυλεκτικές πρώτα. Η «ΑΝΩΝΥΜΗ» γίνεται ΑΕ και η «ΕΤΑΙΡΕΙΑ» φεύγει χωριστά, ώστε
+# να πιάνεται και η «ΑΝΩΝΥΜΗ ΕΜΠΟΡΙΚΗ ΕΤΑΙΡΕΙΑ».
+_PHRASES = [
+    ((_ET, ("ΠΕΡΙΟΡΙΣΜΕΝΗΣ",), ("ΕΥΘΥΝΗΣ",)), "ΕΠΕ"),
+    ((("ΙΔΙΩΤΙΚΗ",), ("ΚΕΦΑΛΑΙΟΥΧΙΚΗ",), _ET), "ΙΚΕ"),
+    ((("ΕΙΔΙΚΟΣ",), ("ΛΟΓΑΡΙΑΣΜΟΣ",), ("ΚΟΝΔΥΛΙΩΝ",), ("ΕΡΕΥΝΑΣ",)), "ΕΛΚΕ"),
+    ((("ΑΝΩΝΥΜΗ", "ΑΝΩΝΥΜΟΣ"),), "ΑΕ"),
+    ((("ΟΜΟΡΡΥΘΜΗ", "ΟΜΟΡΥΘΜΗ"),), "ΟΕ"),
+    ((("ΕΤΕΡΟΡΡΥΘΜΗ", "ΕΤΕΡΟΡΥΘΜΗ"),), "ΕΕ"),
+    ((("ΜΟΝΟΠΡΟΣΩΠΗ", "ΜΟΝΟΠΡΟΣΩΠΟΣ"),), ""),
+    ((_ET,), ""),
+    ((("ΕΜΠΟΡΙΑ",),), ""),
+    ((("ΕΙΣΑΓΩΓΑΙ", "ΕΙΣΑΓΩΓΕΣ"),), ""),
+    ((("ΕΞΑΓΩΓΑΙ", "ΕΞΑΓΩΓΕΣ"),), ""),
+    ((("TELECOMMUNICATIONS",), ("AND", "ΑND", ""), ("MEDIA",)), ""),  # «ΑND» με ελληνικό Α, «&»
+]
+_CONNECTORS = {"ΚΑΙ", ""}  # «ΚΑΙ», «-», «&» δίπλα σε λέξη που αφαιρέθηκε φεύγουν κι αυτά
+_LEGAL_FORM = re.compile(_W.format(r"(ΑΕΒΕ|ΑΕ|ΟΕ|ΕΕ|ΕΠΕ|ΙΚΕ)"), re.I)
+SHORT_NAME_MIN = 20  # επωνυμίες μικρότερες από αυτό εμφανίζονται αυτούσιες
+SHORT_NAME_MAX = 50  # πάνω από αυτό (μετά τις συντομεύσεις): 2 πρώτες λέξεις + νομική μορφή
+
+
+def _key(word: str) -> str:
+    """Λέξη για σύγκριση: κεφαλαία, χωρίς τόνους/διαλυτικά και σημεία στίξης."""
+    word = unicodedata.normalize("NFD", word.upper())
+    return re.sub(r"[\W_]", "", "".join(c for c in word if not unicodedata.combining(c)))
+
+
+def _distance(a: str, b: str) -> int:
+    """Απόσταση Levenshtein (λέξεις λίγων γραμμάτων → απλός πίνακας αρκεί)."""
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def _close(key: str, variants) -> bool:
+    """Ταιριάζει με κάποια γραφή, επιτρέποντας 1 λάθος (6+ γράμματα) ή 2 (10+)."""
+    for v in variants:
+        tol = 2 if len(v) >= 10 else 1 if len(v) >= 6 else 0
+        if key == v or (abs(len(key) - len(v)) <= tol and _distance(key, v) <= tol):
+            return True
+    return False
+
+
+def _abbreviate(part: str) -> str:
+    for pattern, repl in _DOTTED:
+        part = pattern.sub(repl, part)
+    toks = part.split()
+    keys = [_key(t) for t in toks]
+    out = []  # (λέξη, αφαιρέθηκε)
+    i = 0
+    while i < len(toks):
+        for words, repl in _PHRASES:
+            n = len(words)
+            if i + n <= len(toks) and all(_close(keys[i + j], words[j]) for j in range(n)):
+                out.append((repl, not repl))
+                i += n
+                break
+        else:
+            out.append((toks[i], False))
+            i += 1
+    kept = [
+        t for k, (t, removed) in enumerate(out)
+        if not removed and not (
+            _key(t) in _CONNECTORS
+            and ((k > 0 and out[k - 1][1]) or (k + 1 < len(out) and out[k + 1][1]))
+        )
+    ]
+    words = _MONO_M.sub("", " ".join(kept)).split()
+    # «ΑΝΩΝΥΜΗ ΕΤΑΙΡΕΙΑ Α.Ε.» → μία φορά ΑΕ
+    words = [w for k, w in enumerate(words) if not (k and w == words[k - 1] and _LEGAL_FORM.fullmatch(w))]
+    return " ".join(words).strip(" ,-&")
+
+
+def short_name(name):
+    """Σύντομη επωνυμία για εμφάνιση: από το «αριστερό || δεξί» του VIES κρατά το
+    αριστερό, ή το δεξί (διακριτικό τίτλο) αν είναι μικρότερο και χωρίς νομική μορφή,
+    συμπληρωμένο με τη νομική μορφή του αριστερού· συντομεύει «ΑΝΩΝΥΜΗ ΕΤΑΙΡΕΙΑ» → ΑΕ κλπ."""
+    if not name or len(name.strip()) < SHORT_NAME_MIN:
+        return name
+    left, _, right = (_abbreviate(p) for p in name.partition("||"))
+    forms = _LEGAL_FORM.findall(left)
+    form = forms[-1].upper() if forms else ""
+    if right and len(right) < len(left) and not _LEGAL_FORM.search(right):
+        result = f"{right} {form}".strip()
+    else:
+        result = left or right
+    if len(result) > SHORT_NAME_MAX:
+        form = (_LEGAL_FORM.findall(result) or [form])[-1].upper()
+        head = []
+        for w in result.split():
+            if _LEGAL_FORM.fullmatch(w) or len(head) == 2:
+                break
+            head.append(w)
+        result = " ".join(head + [form]).strip()
+    return result
 
 
 def lookup_name(afm: str, country: str = "EL", timeout: int = 15) -> str | None:

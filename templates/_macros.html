@@ -43,7 +43,7 @@
 
 {# Επωνυμία αντισυμβαλλόμενου με ✎ για γρήγορη διόρθωση (app.js → /suppliers/rename). #}
 {% macro issuer_name(inv) -%}
-<b class="issuer-name">{{ inv.issuer_name or "—" }}</b>
+<b class="issuer-name" title="{{ inv.issuer_name or '' }}" data-full="{{ inv.issuer_name or '' }}">{{ inv.issuer_name|cpname or "—" }}</b>
 {%- if inv.issuer_vat %}<button type="button" class="name-edit" title="Διόρθωση επωνυμίας" aria-label="Διόρθωση επωνυμίας">✎</button>{% endif %}
 {%- endmacro %}
 

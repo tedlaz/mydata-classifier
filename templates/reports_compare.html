@@ -62,7 +62,7 @@
       <tbody>
         {% for r in p.rows %}
         <tr>
-          <th class="yr-sticky cmp-name" scope="row"><span>{{ r.name }}</span><small>{{ r.vat }} · {{ r.n }} παρ.</small></th>
+          <th class="yr-sticky cmp-name" scope="row"><span title="{{ r.name }}">{{ r.name|cpname }}</span><small>{{ r.vat }} · {{ r.n }} παρ.</small></th>
           {% for v in r.vals %}<td class="num cmp-heat {{ 'is-cur' if loop.last }}" style="--h:{{ (v|abs / p.max * 100)|round(1) }}%">{{ v|el_amount if v else '—' }}</td>{% endfor %}
           {% if has_prev %}<td class="num">{{ delta(r.d, true) }}</td>{% endif %}
         </tr>
@@ -80,7 +80,7 @@
       <ul class="cmp-div">
         {% for m in p.movers %}
         <li style="--i:{{ loop.index0 }}" title="{{ m.name }} ({{ m.vat }}): {{ fmtv(m.v, 'amt', true) }} €">
-          <span class="cmp-div-l">{{ m.name }}</span>
+          <span class="cmp-div-l">{{ m.name|cpname }}</span>
           <span class="cmp-div-bar"><i class="{{ 'is-pos' if m.v > 0 else 'is-neg' }}" style="--w:{{ (m.v|abs / p.movers_max * 50)|round(2) }}%"></i></span>
           <b class="cmp-div-v">{{ fmtv(m.v, 'amt', true) }}</b>
         </li>
@@ -95,9 +95,9 @@
         <div class="cmp-nl-box is-lost"><small>Χωρίς κίνηση φέτος</small><b>{{ p.lost_n }}</b><span>{{ p.lost_sum|el_amount }} € πέρσι</span></div>
       </div>
       {% if p.new %}<p class="cmp-nl-h">Μεγαλύτεροι νέοι</p>
-      <ol class="cmp-mini">{% for t in p.new %}<li><span title="{{ t.vat }}">{{ t.name }}</span><b>{{ t.amount|el_amount }}</b></li>{% endfor %}</ol>{% endif %}
+      <ol class="cmp-mini">{% for t in p.new %}<li><span title="{{ t.name }} · {{ t.vat }}">{{ t.name|cpname }}</span><b>{{ t.amount|el_amount }}</b></li>{% endfor %}</ol>{% endif %}
       {% if p.lost %}<p class="cmp-nl-h">Μεγαλύτεροι χαμένοι <small>(ποσό {{ years[-2] }})</small></p>
-      <ol class="cmp-mini">{% for t in p.lost %}<li><span title="{{ t.vat }}">{{ t.name }}</span><b>{{ t.amount|el_amount }}</b></li>{% endfor %}</ol>{% endif %}
+      <ol class="cmp-mini">{% for t in p.lost %}<li><span title="{{ t.name }} · {{ t.vat }}">{{ t.name|cpname }}</span><b>{{ t.amount|el_amount }}</b></li>{% endfor %}</ol>{% endif %}
     </div>
     {% endif %}
     <div>

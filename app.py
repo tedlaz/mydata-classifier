@@ -202,6 +202,14 @@ def short_mark(mark) -> str:
     return "…" + mark[-5:] if len(mark) > 5 else mark
 
 
+@app.template_filter("cpname")
+def short_counterparty_name(name):
+    """Σύντομη επωνυμία συναλλασσομένου για εμφάνιση (η ΒΔ κρατά την πλήρη του VIES)."""
+    import vies
+
+    return vies.short_name(name)
+
+
 @app.template_filter("el_amount")
 def format_el_amount(value) -> str:
     """Ποσό με ελληνικά διαχωριστικά χιλιάδων και δεκαδικών."""
@@ -3093,7 +3101,7 @@ def _olap_cube(cid: int | None) -> dict:
             i = len(docs)
             docs.append({"k": kind[:2], "mark": d["mark"], "date": d["issue_date"] or "", "type": d["invoice_type"] or "",
                          "series": d["series"] or "", "aa": d["aa"] or "", "cp": d["counterparty_vat"] or "",
-                         "cpn": d["counterparty_name"] or ""})
+                         "cpn": short_counterparty_name(d["counterparty_name"]) or ""})
             d["lines"] = json.loads(d["lines_json"] or "[]")
             d["classifications"] = json.loads(d["cls_json"] or "[]")
             sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
@@ -6019,7 +6027,7 @@ def suppliers_rename():
     if not vat or not name:
         return {"ok": False, "error": "Απαιτούνται ΑΦΜ και επωνυμία."}, 400
     db.upsert_supplier(vat, name)
-    return {"ok": True, "name": name}
+    return {"ok": True, "name": name, "short": short_counterparty_name(name)}
 
 
 @app.route("/suppliers/delete/<vat>", methods=["POST"])

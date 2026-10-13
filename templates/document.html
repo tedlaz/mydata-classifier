@@ -138,10 +138,10 @@
   <div class="dc-top">
     <div class="dc-who">
       <div class="dc-av" style="--h:{{ ((inv.issuer_vat or '0')[-3:]|int(0) * 7) % 360 }}" aria-hidden="true">
-        {%- for w in (inv.issuer_name or '?').split()[:2] %}{{ w[0]|upper }}{% endfor -%}
+        {%- for w in (inv.issuer_name|cpname or '?').split()[:2] %}{{ w[0]|upper }}{% endfor -%}
       </div>
       <div style="min-width:0">
-        <h1>{{ inv.issuer_name or "—" }}</h1>
+        <h1 title="{{ inv.issuer_name or '' }}">{{ inv.issuer_name|cpname or "—" }}</h1>
         <div class="dc-meta">
           <span class="dc-kind dc-kind--{{ 'in' if is_income else 'out' }}">{{ 'ΕΣΟΔΑ' if is_income else 'ΕΞΟΔΑ' }}</span>
           <span class="mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</span>

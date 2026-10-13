@@ -161,7 +161,7 @@
         <td data-label="ΑΦΜ" class="mark">{{ s.vat }}</td>
         <td data-label="Επωνυμία"><div class="cp-who">
           <i class="cp-av" style="--h:{{ (s.vat[-3:]|int(0) * 7) % 360 }}" aria-hidden="true">
-            {%- for w in (s.name or '?').split()[:2] %}{{ w[0]|upper }}{% endfor -%}
+            {%- for w in (s.name|cpname or '?').split()[:2] %}{{ w[0]|upper }}{% endfor -%}
           </i>
           <span class="issuer" data-vat="{{ s.vat }}">{{ issuer_name({'issuer_name': s.name, 'issuer_vat': s.vat}) }}</span>
         </div>

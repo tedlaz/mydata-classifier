@@ -401,7 +401,7 @@
           <a {% if d.mark %}href="{{ url_for('document', mark=d.mark) }}"{% endif %}>
             <span class="db-feed-ic {{ d.kind }}">{{ '↓' if d.kind == 'income' else '↑' }}</span>
             <span>
-              <b>{{ d.counterparty_name or d.counterparty_vat or ('Λιανική πώληση' if d.kind == 'income' else '—') }}</b>
+              <b>{{ d.counterparty_name|cpname or d.counterparty_vat or ('Λιανική πώληση' if d.kind == 'income' else '—') }}</b>
               <small>{{ '/'.join(d.issue_date.split('-')[::-1]) if d.issue_date }} · {{ type_names.get(d.invoice_type, d.invoice_type) }}</small>
             </span>
             <span class="db-feed-amt">{{ '−' if d.credit }}{{ d.total_net|el_amount }} €
@@ -420,7 +420,7 @@
         <ol class="db-top in">
           {% for t in top_in %}
           <li style="--i:{{ loop.index0 }}">
-            <div class="db-top-row"><span title="{{ t.vat }}">{{ t.name }}</span><b>{{ t.amount|el_amount }} €</b></div>
+            <div class="db-top-row"><span title="{{ t.name }} · {{ t.vat }}">{{ t.name|cpname }}</span><b>{{ t.amount|el_amount }} €</b></div>
             <div class="db-meter"><span style="width:{{ [t.amount / top_in_max * 100, 0]|max }}%"></span></div>
             <small>{{ t.n }} παραστατικ{{ 'ό' if t.n == 1 else 'ά' }}</small>
           </li>
@@ -434,7 +434,7 @@
         <ol class="db-top">
           {% for t in top %}
           <li style="--i:{{ loop.index0 }}">
-            <div class="db-top-row"><span title="{{ t.vat }}">{{ t.name }}</span><b>{{ t.amount|el_amount }} €</b></div>
+            <div class="db-top-row"><span title="{{ t.name }} · {{ t.vat }}">{{ t.name|cpname }}</span><b>{{ t.amount|el_amount }} €</b></div>
             <div class="db-meter"><span style="width:{{ [t.amount / top_max * 100, 0]|max }}%"></span></div>
             <small>{{ t.n }} παραστατικ{{ 'ό' if t.n == 1 else 'ά' }}</small>
           </li>
