@@ -79,20 +79,16 @@ nav = page[page.index('<nav class="nav">'):]
 assert nav.index('href="/sync"') < nav.index('href="/income"') < nav.index('href="/invoices"'), nav[:2000]
 assert c.get("/invoices/sync").status_code == 404 and c.post("/fetch", data=form).status_code == 404
 
-# (η) Βιβλία: η λωρίδα μόνο με τα δικά τους παραστατικά, ανά κατάσταση· κλικ = φίλτρο στον μήνα (ξανά κλικ = χωρίς φίλτρο).
+# (η) Βιβλία: πλοηγός περιόδου μόνο με τα δικά τους παραστατικά· μήνας → εβδομάδες του, ‹ › γειτονικοί μήνες.
 import re  # noqa: E402
 
 fake.request_income = request_income
 c.post("/sync", data=dict(form, scope="income"))  # ξανά έσοδα στο βιβλίο (τα έσβησε το (δ))
 page = c.get("/invoices?view=unclassified&f_date=2026-10").get_data(as_text=True).replace("&amp;", "&")
 strip = page[page.index('class="lh-sums'):page.index('<div class="card ledger-card"')]
-assert "έσοδα</span>" not in strip and "απεσταλμένα</span>" in strip and "Καθαρή αξία<b>" not in page  # γραμμές καταστάσεων εξόδων
-on = re.findall(r'<a class="[^"]*is-on[^"]*"[^>]*href="([^"]+)"', strip)
-assert len(on) == 1 and "f_date" not in on[0] and "view=unclassified" in on[0], on  # επιλεγμένος μήνας → χωρίς φίλτρο
-assert re.search(r'href="/invoices\?[^"]*f_date=2026-09', strip)
-page = c.get("/income").get_data(as_text=True)
-strip = page[page.index('class="lh-sums'):page.index('<div class="card ledger-card"')]
-assert "χαρακτηρισμένα</span>" in strip and "απεσταλμένα</span>" not in strip  # έσοδα: μόνο 2 καταστάσεις
+assert 'class="pn"' in strip and re.search(r'aria-current="true">Οκτ <b class="pn-n">\d+</b></a>', strip) and "Καθαρή αξία<b>" not in page
+assert re.search(r'href="/invoices\?[^"]*f_date=2026-09[^"]*"[^>]*aria-label="Προηγούμενο"', strip)  # ‹ Σεπ
+assert "<span>Εβδ 1</span>" in strip and "f_date=2026-10-01:2026-10-04" in strip and "view=unclassified" in strip
 
 # (θ) Τελευταία ανάκτηση + MARK ανά βιβλίο: στη σελίδα Ανάκτησης, όχι στα βιβλία.
 page = c.get("/sync").get_data(as_text=True)

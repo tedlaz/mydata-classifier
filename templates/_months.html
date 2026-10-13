@@ -137,6 +137,79 @@
 {{ label }}: {% if book and st.total %}{% for key, l, c in _book_rows[scope] %}{{ l|lower }} {{ st[key] }}{{ ' · ' if not loop.last }}{% endfor %}{% elif st.total %}{{ ('έσοδα ' ~ (st.income + st.in_pending) ~ ' · ') if scope != 'expense' }}{{ ('έξοδα ' ~ (st.expense + st.ex_pending) ~ ' · ') if scope != 'income' }}αχαρακτήριστα {{ st.in_pending + st.ex_pending }}{% else %}κανένα παραστατικό{% endif %}
 {%- endmacro %}
 
+{# Πλοηγός περιόδου των βιβλίων (σκούρα κεφαλίδα): ψίχουλα Όλα › Έτος › Τρίμηνο › Μήνας › Εβδομάδα › Ημέρα με
+   ‹ › στο τρέχον επίπεδο, από κάτω τα «παιδιά» του σε μία σειρά chips (οριζόντιο scroll). Κάθε κλικ φιλτράρει το βιβλίο (f_date)·
+   ξανά κλικ σε επιλεγμένο chip = ένα επίπεδο πάνω. Shift+κλικ σε μήνα/ημέρα = διάστημα. Δεδομένα: app._period_nav. #}
+{% macro _pn_url(book, q, f) %}{{ url_for(book, **dict(q, f_date=f, page=None)) }}{% endmacro %}
+
+{% macro period_nav(nav, book, q) -%}
+<style>
+.pn{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pn-bar{display:flex;align-items:center;gap:8px;min-width:0}
+.pn-crumbs{flex:1;display:flex;align-items:center;list-style:none;margin:0;padding:0;min-width:0;overflow-x:auto;scrollbar-width:none;white-space:nowrap}
+.pn-crumbs li{display:flex;align-items:center;flex:none}
+.pn-crumbs li + li::before{content:"›";margin:0 2px;color:var(--hero-ink);opacity:.5}
+.pn-crumbs a{padding:3px 7px;border-radius:7px;color:var(--hero-ink);text-decoration:none;font-size:.85rem;font-weight:600;transition:background-color .2s,color .2s}
+.pn-crumbs a:hover,.pn-crumbs a:focus-visible{background:rgba(255,255,255,.1);color:#fff}
+.pn-crumbs a[aria-current]{color:#fff;font-weight:800;background:rgba(255,255,255,.12)}
+.pn-crumbs .pn-n{margin-left:3px;padding:0 6px;border-radius:999px;font:800 .78rem/1.5 var(--font-data);font-variant-numeric:tabular-nums;
+  background:rgba(255,255,255,.12);color:#fff}
+.pn-crumbs a[aria-current] .pn-n{background:color-mix(in srgb,var(--info) 55%,transparent)}
+.pn-crumbs .pn-arr{padding:1px 8px;font-size:1.05rem;line-height:1.2}
+.pn-crumbs .pn-arr[aria-disabled]{opacity:.3;pointer-events:none}
+.pn-x{flex:none;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;color:#fff;text-decoration:none;font-size:.8rem;
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2)}
+.pn-x:hover{background:rgba(255,255,255,.2)}
+.pn-kids{position:relative;display:flex;gap:6px;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:thin;padding:2px 1px 6px;min-height:52px}
+.pn-c{position:relative;flex:none;scroll-snap-align:start;min-width:50px;display:flex;flex-direction:column;align-items:center;gap:1px;
+  padding:5px 10px;border-radius:10px;color:#fff;text-decoration:none;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);
+  animation:pn-in .35s var(--ease) both;animation-delay:calc(min(var(--i), 14) * 25ms);transition:background-color .2s,border-color .2s}
+.pn-c[data-ymd]{flex:1 0 38px;min-width:0;max-width:64px;padding:5px 4px}  /* εβδομάδα: οι 7 ημέρες σε μία γραμμή και στο κινητό */
+.pn-c:hover,.pn-c:focus-visible{background:rgba(255,255,255,.15);border-color:var(--hero-accent)}
+.pn-c span{font-size:.66rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--hero-ink);white-space:nowrap}
+.pn-c small{font-size:.6rem;color:var(--hero-ink);opacity:.75;line-height:1}
+.pn-c b{font:800 .98rem/1.15 var(--font-data);font-variant-numeric:tabular-nums}
+.pn-c.is-dim{opacity:.45}
+.pn-c.is-now{box-shadow:inset 0 2px 0 var(--hero-accent)}
+.pn-c.is-on{opacity:1;background:color-mix(in srgb,var(--info) 40%,transparent);border-color:var(--info)}
+.pn-c.is-on span,.pn-c.is-on small{color:#fff}
+.pn-dot{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--warn)}
+.pn-empty{align-self:center;font-size:.8rem;color:var(--hero-ink)}
+@keyframes pn-in{from{opacity:0;transform:translateX(12px)}}
+.pn.no-anim .pn-c{animation:none}
+@media (prefers-reduced-motion:reduce){ .pn-c{animation:none} }
+</style>
+<nav class="pn" aria-label="Περίοδος παραστατικών">
+  <div class="pn-bar">
+    <ol class="pn-crumbs">
+      {% for label, f, n in nav.crumbs %}
+      {% set arrows = loop.last and not loop.first and not nav.range %}
+      <li>
+        {% if arrows %}<a class="pn-arr" {% if nav.prev %}href="{{ _pn_url(book, q, nav.prev) }}"{% else %}aria-disabled="true"{% endif %} aria-label="Προηγούμενο" title="Προηγούμενο">‹</a>{% endif %}
+        <a href="{{ _pn_url(book, q, f) }}"{% if loop.last %} aria-current="true"{% endif %}>{{ label }}{% if n is not none %} <b class="pn-n">{{ n }}</b>{% endif %}</a>
+        {% if arrows %}<a class="pn-arr" {% if nav.next %}href="{{ _pn_url(book, q, nav.next) }}"{% else %}aria-disabled="true"{% endif %} aria-label="Επόμενο" title="Επόμενο">›</a>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    {% if q.f_date %}<a class="pn-x" href="{{ _pn_url(book, q, None) }}" title="Χωρίς φίλτρο ημερομηνίας" aria-label="Χωρίς φίλτρο ημερομηνίας">✕</a>{% endif %}
+  </div>
+  <div class="pn-kids">
+    {% for k in nav.kids %}
+    {% set up = nav.crumbs[-2][1] if nav.crumbs|length > 1 else None %}
+    <a class="{{ ['pn-c', 'is-on' if k.on, 'is-dim' if k.dim and not k.on, 'is-now' if k.now]|select|join(' ') }}" style="--i:{{ loop.index0 }}"
+       href="{{ _pn_url(book, q, up if k.f == q.f_date else k.f) }}"{% if k.ym %} data-ym="{{ k.ym }}"{% endif %}{% if k.ymd %} data-ymd="{{ k.ymd }}"{% endif %}
+       title="{% if k.ymd %}{{ k.wd }} {{ k.ymd[8:] }}/{{ k.ymd[5:7] }}/{{ k.ymd[:4] }}{% else %}{{ k.label }}{{ ' ' ~ k.wd if k.wd }}{% endif %}: {{ k.n }}{{ ' · υπάρχουν αχαρακτήριστα' if k.dot }}"{% if k.on %} aria-current="true"{% endif %}>
+      <span>{{ k.label }}</span>{% if k.wd %}<small>{{ k.wd }}</small>{% endif %}
+      <b>{{ k.n or '·' }}</b>
+      {% if k.dot %}<i class="pn-dot" aria-hidden="true"></i>{% endif %}
+    </a>
+    {% else %}
+    <span class="pn-empty">Κανένα παραστατικό</span>
+    {% endfor %}
+  </div>
+</nav>
+{%- endmacro %}
+
 {% macro year_strip(strip, scope, book=None, q=None) -%}
 {% set this_month = strip.this_month %}
 {% set fd = (q.f_date or '') if book else '' %}

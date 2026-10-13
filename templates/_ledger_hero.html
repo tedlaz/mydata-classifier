@@ -4,11 +4,10 @@
 {{ "{:,.2f}".format(v or 0).replace(",", "X").replace(".", ",").replace("X", ".") }}
 {%- endmacro %}
 
-{% from "_months.html" import month_style, month_legend, year_strip %}
-{% macro ledger_hero(ep, q, title, tabs, done, strip, tone) -%}
+{% from "_months.html" import period_nav %}
+{% macro ledger_hero(ep, q, title, tabs, done, nav, tone) -%}
 {% set all = counts.values()|sum %}
 {% set pct = (counts[done] * 100 / all)|round|int if all else 0 %}
-{{ month_style() }}
 <style>
 .lh{position:relative;overflow:hidden;border-radius:20px;padding:clamp(14px,2.2vw,22px);color:#fff;margin-bottom:14px;
   background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,var(--lh-a),var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
@@ -60,10 +59,9 @@
 .lh-ring div b{position:absolute;inset:0;display:grid;place-items:center;font:800 .58rem var(--font-data)}
 .lh-ring small{display:none}
 
-/* Λωρίδα μηνών του βιβλίου (στη θέση των παλιών συνόλων προβολής). */
-.lh-sums{position:relative;margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);
+/* Πλοηγός περιόδου του βιβλίου (στη θέση των παλιών συνόλων προβολής). */
+.lh-sums{position:relative;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);
   animation:lh-rise .55s var(--ease) .6s both}
-.lh-sums .sy-mgrid{margin-top:8px}
 
 @media (max-width:760px){ .lh-mid{grid-template-columns:1fr} .lh-tiles .lh-tile{flex-basis:40%} }
 @media (prefers-reduced-motion:reduce){ .lh *,.lh *::before{animation:none!important;transition:none!important} }
@@ -97,11 +95,7 @@
     {% set btns = caller() %}{% if btns | trim %}<div class="btn-row">{{ btns }}</div>{% endif %}
   </div>
 
-  {% set scope = 'income' if ep == 'income' else 'expense' %}
-  <div class="lh-sums sy-strip sy-strip--dark" aria-label="Παραστατικά ανά μήνα">
-    {{ month_legend(scope, true) }}
-    {{ year_strip(strip, scope, ep, q) }}
-  </div>
+  <div class="lh-sums">{{ period_nav(nav, ep, q) }}</div>
 </header>
 
 <script>
@@ -146,6 +140,13 @@
       ro.observe(tb);
     }
   }
+  function centerChip() {  // το επιλεγμένο chip στη μέση της σειράς (χωρίς κύλιση της σελίδας)
+    var on = document.querySelector('.pn-kids [aria-current]');
+    if (on) on.parentNode.scrollLeft = on.offsetLeft - (on.parentNode.clientWidth - on.offsetWidth) / 2;
+    var cr = document.querySelector('.pn-crumbs');  // στενή οθόνη: φαίνεται το τρέχον επίπεδο (τέλος των ψίχουλων)
+    if (cr) cr.scrollLeft = cr.scrollWidth;
+  }
+  centerChip();
   function load(url, push, scroll) {
     var card = document.querySelector('[data-lh-body]');
     if (ctrl) ctrl.abort();
@@ -162,8 +163,10 @@
         if (now && next) now.replaceWith(next);
       });
       document.title = doc.title;
-      var g = document.querySelector('.lh-sums .sy-mgrid');
-      if (g) g.classList.add('no-anim');  // ίδιο ανοικτό έτος: χωρίς ξανά animation τριμήνων
+      // Ίδια περίοδος (καρτέλα, ταξινόμηση, σελίδα): τα chips δεν ξαναμπαίνουν με animation.
+      if (new URL(url, location.href).searchParams.get('f_date') === new URL(location.href).searchParams.get('f_date'))
+        document.querySelector('.lh-sums .pn').classList.add('no-anim');
+      centerChip();
       activate(document.querySelector('[data-lh-body]'));
       watchToolbar();
       if (push) history.pushState(null, '', url);
@@ -173,22 +176,20 @@
     });
   }
 
-  // Λωρίδα ετών: Shift+κλικ σε μήνα = διάστημα από την αρχή του τρέχοντος φίλτρου έως τον μήνα (AJAX, όπως τα κλικ).
+  // Πλοηγός: Shift+κλικ σε μήνα/ημέρα = διάστημα από την αρχή του τρέχοντος φίλτρου έως εκεί (AJAX, όπως τα κλικ).
   function rangeUrl(ym){
-    var u = new URL(location.href), cur = (u.searchParams.get('f_date') || '').slice(0, 7);
-    var r = /^\d{4}-\d{2}$/.test(cur) ? [cur, ym].sort() : [ym, ym];
+    var u = new URL(location.href), cur = (u.searchParams.get('f_date') || '').slice(0, ym.length);
+    var r = /^\d{4}-\d{2}(-\d{2})?$/.test(cur) && cur.length === ym.length ? [cur, ym].sort() : [ym, ym];
     u.searchParams.set('f_date', r[0] === r[1] ? r[0] : r[0] + ':' + r[1]);
     u.searchParams.delete('page');
     return u.href;
   }
-  document.addEventListener('change', function(e){
-    if (e.target.name === 'sy-yr') e.target.closest('.sy-mgrid').classList.remove('no-anim');
-  });
   document.addEventListener('click', function(e){
-    var m = e.shiftKey && e.button === 0 && e.target.closest('.lh-sums a[data-ym]');
+    var m = e.shiftKey && e.button === 0 && e.target.closest('.lh-sums a[data-ym], .lh-sums a[data-ymd]');
     if (m) {
       e.preventDefault();
-      if (document.querySelector('[data-lh-body]')) load(rangeUrl(m.dataset.ym), true, false); else location.href = rangeUrl(m.dataset.ym);
+      var ru = rangeUrl(m.dataset.ymd || m.dataset.ym);
+      if (document.querySelector('[data-lh-body]')) load(ru, true, false); else location.href = ru;
       return;
     }
     var a = e.target.closest('.lh-tiles a, .lh-sums a, [data-lh-body] a');

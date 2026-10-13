@@ -1349,6 +1349,159 @@ def _month_strip(cid: int | None, kinds) -> dict:
     return {"years": years, "this_month": now.strftime("%Y-%m")}
 
 
+def _period_nav(strip: dict, fd: str, view: str, cid: int | None, kind: str) -> dict:
+    """Πλοηγός περιόδου των βιβλίων (Έτος › Τρίμηνο › Μήνας › Εβδομάδα › Ημέρα), από το φίλτρο f_date: ψίχουλα, ‹ ›
+    στο ίδιο επίπεδο και τα «παιδιά» του επιπέδου ως chips (πλήθος της καρτέλας `view`, κουκκίδα = υπάρχουν
+    αχαρακτήριστα). Εβδομάδα = Δευτέρα–Κυριακή μέσα στον μήνα, φίλτρο «yyyy-mm-dd:yyyy-mm-dd». Διάστημα που δεν είναι
+    τρίμηνο ή εβδομάδα: ετικέτα διαστήματος, παιδιά με τονισμένα όσα πέφτουν μέσα του."""
+    this_month = strip["this_month"]
+    today = datetime.now(ATHENS).strftime("%Y-%m-%d")
+    years = [yr["y"] for yr in strip["years"]]
+    months = {ym: st for yr in strip["years"] for ym, st in yr["months"]}
+    zero = dict.fromkeys(_STRIP_STATUSES, 0)
+
+    def add(sts):
+        sts = list(sts)
+        return {k: sum(st.get(k, 0) for st in sts) for k in _STRIP_STATUSES}
+
+    def qr(y, q):  # φίλτρο τριμήνου «yyyy-mm:yyyy-mm»
+        return f"{y}-{q * 3 - 2:02d}:{y}-{q * 3:02d}"
+
+    def kid(label, f, st, on=False, dim=False, now=False, **extra):
+        n = st.get(view, 0)
+        return {"label": label, "f": f, "n": n, "dot": view != "unclassified" and bool(st.get("unclassified")),
+                "on": on, "dim": dim or not n, "now": now, **extra}
+
+    def kids_years(on=lambda y: False):
+        return [kid(y, y, add(st for ym, st in months.items() if ym[:4] == y), on(y), now=y == this_month[:4])
+                for y in years]
+
+    def kids_quarters(y):
+        return [kid(f"{_QUARTER_NAMES[q - 1]} τρίμ.", qr(y, q),
+                    add(months.get(f"{y}-{m:02d}", zero) for m in range(q * 3 - 2, q * 3 + 1)),
+                    dim=f"{y}-{q * 3 - 2:02d}" > this_month, now=y == this_month[:4] and (int(this_month[5:]) + 2) // 3 == q)
+                for q in range(1, 5)]
+
+    def kids_months(ms, on=lambda ym: False):
+        return [kid(_GREEK_MONTHS[int(ym[5:]) - 1].rstrip("."), ym, months.get(ym, zero), on(ym), dim=ym > this_month,
+                    now=ym == this_month, ym=ym) for ym in ms]
+
+    day_cache = {}
+
+    def days(ym):
+        if ym not in day_cache:
+            day_cache[ym] = {d: add([st]) for d, st in sorted((db.day_counts(cid, kind, ym) if cid else {}).items())}
+        return day_cache[ym]
+
+    def count(f):  # πλήθος της καρτέλας στο φίλτρο f (έτος, τρίμηνο, μήνας, ημέρα ή διάστημα)· None = όλα
+        a, _, b = (f or "").partition(":")
+        b = b if _ else a
+        if f and not all(re.fullmatch(r"(\d{4}(-\d{2}){0,2})?", x) for x in (a, b)):
+            return None  # ελεύθερο κείμενο
+        n = 0
+        for ym, st in months.items():
+            if (a[:7] or "0") <= ym <= (b[:7] or "9") + "~":
+                if (len(a) == 10 and ym == a[:7]) or (len(b) == 10 and ym == b[:7]):  # άκρο σε επίπεδο ημέρας
+                    n += sum(dst.get(view, 0) for d, dst in days(ym).items() if (a or "0") <= d <= (b or "9") + "~")
+                else:
+                    n += st.get(view, 0)
+        return n
+
+    def weeks(ym):  # [(από, έως)] Δευτέρα–Κυριακή, κομμένες στα όρια του μήνα
+        y, m = int(ym[:4]), int(ym[5:7])
+        last = calendar.monthrange(y, m)[1]
+        out, d = [], 1
+        while d <= last:
+            e = min(last, d + 6 - date(y, m, d).weekday())
+            out.append((f"{ym}-{d:02d}", f"{ym}-{e:02d}"))
+            d = e + 1
+        return out
+
+    def week_of(d):
+        return next(w for w in weeks(d[:7]) if w[0] <= d <= w[1])
+
+    def wlabel(w):
+        return f"Εβδ {weeks(w[0][:7]).index(w) + 1}"
+
+    def week_days(w):  # όλες οι ημέρες της εβδομάδας (το πολύ 7), και οι κενές
+        dd = days(w[0][:7])
+        return {f"{w[0][:8]}{d:02d}": dd.get(f"{w[0][:8]}{d:02d}", zero) for d in range(int(w[0][8:]), int(w[1][8:]) + 1)}
+
+    def kids_weeks(ym):
+        dd = days(ym)
+        return [kid(wlabel(w), f"{w[0]}:{w[1]}", add(st for d, st in dd.items() if w[0] <= d <= w[1]),
+                    dim=w[0] > today, now=w[0] <= today <= w[1], wd=f"{int(w[0][8:])}–{int(w[1][8:])}")
+                for w in weeks(ym)]
+
+    def kids_days(dd, on=lambda d: False):
+        return [kid(d[8:].lstrip("0"), d, st, on(d), now=d == today, ymd=d,
+                    wd=("Δε", "Τρ", "Τε", "Πε", "Πα", "Σα", "Κυ")[datetime.strptime(d, "%Y-%m-%d").weekday()])
+                for d, st in dd.items()]
+
+    def step(seq, cur, k):  # γειτονική τιμή στη λίστα seq (ή None)
+        i = seq.index(cur) + k if cur in seq else -1
+        return seq[i] if 0 <= i < len(seq) else None
+
+    crumbs = [("Όλα", None)]
+    prev = nxt = None
+    is_range = False
+    ym_all = list(months)
+    lo, sep, hi = fd.partition(":")
+    quarter = next(((lo[:4], q) for q in range(1, 5) if sep and lo[:4] == hi[:4] and fd == qr(lo[:4], q)), None)
+    day_like = r"\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])"
+    week = (lo, hi) if sep and re.fullmatch(day_like, lo) and lo[:7] == hi[:7] and (lo, hi) in weeks(lo[:7]) else None
+
+    def month_crumbs(ym):
+        y, m = ym[:4], int(ym[5:7])
+        q = (m + 2) // 3
+        return [(y, y), (f"{_QUARTER_NAMES[q - 1]} τρίμ.", qr(y, q)), (_GREEK_MONTHS[m - 1].rstrip("."), ym)]
+
+    if re.fullmatch(r"\d{4}", fd):
+        crumbs.append((fd, fd))
+        prev, nxt = step(years, fd, -1), step(years, fd, 1)
+        kids = kids_quarters(fd)
+    elif quarter:
+        y, q = quarter
+        crumbs += [(y, y), (f"{_QUARTER_NAMES[q - 1]} τρίμ.", fd)]
+        qs = [qr(yy, qq) for yy in years for qq in range(1, 5)]
+        prev, nxt = step(qs, fd, -1), step(qs, fd, 1)
+        kids = kids_months([f"{y}-{m:02d}" for m in range(q * 3 - 2, q * 3 + 1)])
+    elif re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", fd):
+        crumbs += month_crumbs(fd)
+        prev, nxt = step(ym_all, fd, -1), step(ym_all, fd, 1)
+        kids = kids_weeks(fd)
+    elif week:
+        crumbs += [*month_crumbs(lo[:7]), (wlabel(week), fd)]
+        near = [w for ym in (step(ym_all, lo[:7], -1), lo[:7], step(ym_all, lo[:7], 1)) if ym for w in weeks(ym)]
+        prev, nxt = (f"{w[0]}:{w[1]}" if w else None for w in (step(near, week, -1), step(near, week, 1)))
+        kids = kids_days(week_days(week))
+    elif re.fullmatch(day_like, fd) and fd[8:] <= f"{calendar.monthrange(int(fd[:4]), int(fd[5:7]))[1]:02d}":
+        w = week_of(fd)
+        crumbs += [*month_crumbs(fd[:7]), (wlabel(w), f"{w[0]}:{w[1]}"), (fd[8:].lstrip("0"), fd)]
+        dd = days(fd[:7])  # ‹ ›: προηγούμενη/επόμενη ημέρα του μήνα με παραστατικά
+        prev, nxt = max((d for d in dd if d < fd), default=None), min((d for d in dd if d > fd), default=None)
+        kids = kids_days(week_days(w), lambda d: d == fd)
+    elif sep and re.fullmatch(r"\d{4}-\d{2}(-\d{2})?", lo) and lo[:7] == hi[:7] and len(lo) == len(hi) == 10:
+        is_range = True
+        y, m = lo[:4], int(lo[5:7])
+        crumbs += [(y, y), (_GREEK_MONTHS[m - 1].rstrip("."), lo[:7]), (f"{lo[8:].lstrip('0')}–{hi[8:].lstrip('0')}", fd)]
+        kids = kids_days(days(lo[:7]), lambda d: lo <= d <= hi)
+    elif sep and re.fullmatch(r"\d{4}(-\d{2}){0,2}", lo) and lo[:4] == hi[:4]:
+        is_range = True
+        a, b = lo[:7], hi[:7]
+        mname = lambda ym, d: _GREEK_MONTHS[int(ym[5:7] or d) - 1].rstrip(".")  # noqa: E731
+        crumbs += [(lo[:4], lo[:4]), (f"{mname(a, 1)}–{mname(b, 12)}", fd)]
+        kids = kids_months([f"{lo[:4]}-{m:02d}" for m in range(1, 13)], lambda ym: a <= ym <= (b + "~"))
+    elif fd:  # διάστημα σε διαφορετικά έτη ή ελεύθερο κείμενο
+        is_range = True
+        crumbs.append((fd.replace(":", " – "), fd))
+        kids = kids_years(lambda y: bool(sep) and (lo[:4] or "0") <= y <= (hi[:4] or "9"))
+    else:
+        kids = kids_years()
+    crumbs = [(label, f, count(f)) for label, f in crumbs]
+    return {"crumbs": crumbs, "prev": prev, "next": nxt, "kids": kids, "range": is_range}
+
+
 @app.route("/sync")
 def sync():
     """Ενιαία σελίδα ανάκτησης από το myDATA / διαγραφής διαστήματος, για έσοδα, έξοδα ή και τα δύο."""
@@ -1501,7 +1654,7 @@ def invoices():
         page=page,
         total_pages=total_pages,
         total=total,
-        strip=_month_strip(cid, ("expense",)),
+        period=_period_nav(_month_strip(cid, ("expense",)), filters["date"], view, cid, "expense"),
         per_page=PER_PAGE,
         filters=filters,
     )
@@ -2805,7 +2958,7 @@ def income():
         page=page,
         total_pages=total_pages,
         total=total,
-        strip=_month_strip(cid, ("income",)),
+        period=_period_nav(_month_strip(cid, ("income",)), filters["date"], view, cid, "income"),
         per_page=PER_PAGE,
         filters=filters,
     )

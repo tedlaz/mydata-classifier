@@ -50,21 +50,47 @@ assert html.count('name="sy-yr"') == this_year - 2020, html.count('name="sy-yr"'
 assert f'id="sy-yr-{this_year}" checked' in html and 'id="sy-yr-2021" checked' not in html
 assert 'data-preset="year-of" data-y="2021"' in html
 assert 'data-preset="quarter-of" data-y="2021" data-q="1"' in html
-# Βιβλίο με φίλτρο μήνα 2021 → ανοικτό το 2021.
-html = t.get("/invoices?f_date=2021-03").data.decode()
-assert 'id="sy-yr-2021" checked' in html and f'id="sy-yr-{this_year}" checked' not in html
-# Βιβλίο εξόδων: γραμμές ανά κατάσταση (2021: 1 χαρακτηρισμένο, 1 αχαρακτήριστο).
-assert all(t in html for t in ('title="Αχαρακτήριστα">1</b>', 'title="Χαρακτηρισμένα">1</b>', 'title="Απεσταλμένα"></b>',
-                               'title="Ολοκληρωμένα"></b>')), "γραμμές καταστάσεων"
-assert 'title="Απεσταλμένα"' not in t.get("/income").data.decode()
-# Τρίμηνο: σύνδεσμος με φίλτρο διαστήματος· με ενεργό φίλτρο → is-on και ανοικτό το έτος του.
-assert "f_date=2021-01:2021-03" in html.replace("%3A", ":")
-html = t.get("/invoices?f_date=2021-01:2021-03").data.decode()
-assert 'class="sy-qh is-on"' in html and 'id="sy-yr-2021" checked' in html
-# Οι μήνες του επιλεγμένου τριμήνου (ή διαστήματος, π.χ. από Shift+κλικ) επιλέγονται κι αυτοί.
-on = lambda h: sorted(set(re.findall(r'class="sy-mo[^"]*is-on" data-ym="([\d-]+)"', h)))  # noqa: E731
-assert on(html) == ["2021-01", "2021-02", "2021-03"], on(html)
-assert on(t.get("/invoices?f_date=2021-02:2021-05").data.decode()) == ["2021-02", "2021-03", "2021-04", "2021-05"]
+# Βιβλία: πλοηγός περιόδου (Όλα › Έτος › Τρίμηνο › Μήνας › Εβδομάδα › Ημέρα) από το f_date, πλήθος της καρτέλας.
+strip = A._month_strip(cid, ("expense",))
+nav = lambda fd, view="classified": A._period_nav(strip, fd, view, cid, "expense")  # noqa: E731
+f = lambda n: [k["f"] for k in n["kids"]]  # noqa: E731
+n = nav("")
+assert f(n)[0] == "2021" and n["crumbs"] == [("Όλα", None, 2)] and n["kids"][0]["n"] == 1 and n["kids"][0]["dot"], n
+assert f(nav("2021")) == ["2021-01:2021-03", "2021-04:2021-06", "2021-07:2021-09", "2021-10:2021-12"]
+n = nav("2021")
+assert [k["n"] for k in n["kids"]] == [1, 0, 0, 0] and n["prev"] is None and n["next"] == "2022"
+n = nav("2021-01:2021-03")
+assert f(n) == ["2021-01", "2021-02", "2021-03"] and n["crumbs"][-1] == ("Α΄ τρίμ.", "2021-01:2021-03", 1)
+assert n["next"] == "2021-04:2021-06" and not n["range"]
+# Μήνας → εβδομάδες Δευτέρα–Κυριακή μέσα στον μήνα (1/3/2021 = Δευτέρα).
+n = nav("2021-03")
+assert f(n) == ["2021-03-01:2021-03-07", "2021-03-08:2021-03-14", "2021-03-15:2021-03-21", "2021-03-22:2021-03-28",
+                "2021-03-29:2021-03-31"], f(n)
+assert [k["n"] for k in n["kids"]] == [1, 0, 0, 0, 0] and n["kids"][0]["label"] == "Εβδ 1" and n["kids"][4]["wd"] == "29–31"
+assert n["prev"] == "2021-02"
+# Εβδομάδα → οι 7 ημέρες της (και οι κενές)· ‹ › γειτονικές εβδομάδες, και στον επόμενο μήνα (1/4/2021 = Πέμπτη).
+n = nav("2021-03-15:2021-03-21", "unclassified")
+assert f(n) == [f"2021-03-{d}" for d in range(15, 22)] and [k["n"] for k in n["kids"]][5] == 1 and not n["range"]
+assert n["crumbs"][-1] == ("Εβδ 3", "2021-03-15:2021-03-21", 1) and n["prev"] == "2021-03-08:2021-03-14"
+assert nav("2021-03-29:2021-03-31")["next"] == "2021-04-01:2021-04-04"
+n = nav("2021-03-05", "unclassified")
+assert f(n) == [f"2021-03-0{d}" for d in range(1, 8)] and [k["on"] for k in n["kids"]][4] and sum(k["on"] for k in n["kids"]) == 1
+assert n["prev"] is None and n["next"] == "2021-03-20" and n["crumbs"] == [
+    ("Όλα", None, 1), ("2021", "2021", 1), ("Α΄ τρίμ.", "2021-01:2021-03", 1), ("Μαρ", "2021-03", 1),
+    ("Εβδ 1", "2021-03-01:2021-03-07", 0), ("5", "2021-03-05", 0)]
+assert nav("2021-03-10", "unclassified")["next"] == "2021-03-20"  # ημέρα χωρίς παραστατικά: ‹ › στις γειτονικές με παραστατικά
+n = nav("2021-02:2021-05")
+assert n["range"] and [k["f"] for k in n["kids"] if k["on"]] == ["2021-02", "2021-03", "2021-04", "2021-05"]
+n = nav("2021-03-01:2021-03-10")
+assert n["range"] and [k["on"] for k in n["kids"]] == [True, False] and n["crumbs"][-1][2] == 1
+assert nav("2021-03-06:2021-03-31", "unclassified")["crumbs"][-1][2] == 1 and nav("x")["crumbs"][-1][2] is None
+assert all(k["on"] for k in nav("2021-03:2022-02")["kids"] if k["f"] in ("2021", "2022"))
+# HTML: chips με data-ym/data-ymd, επιλεγμένο chip ξανά = ένα επίπεδο πάνω, ✕ μόνο με φίλτρο.
+html = t.get("/invoices?view=classified&f_date=2021-03-05").data.decode().replace("%3A", ":")
+assert 'class="pn-c is-on" style="--i:4"' in html and 'data-ymd="2021-03-05"' in html and 'title="Πα 05/03/2021: 1"' in html
+assert re.search(r'href="[^"]*f_date=2021-03-01:2021-03-07(&|")[^>]*data-ymd="2021-03-05"', html), "ξανά κλικ → εβδομάδα"
+assert 'class="pn-x"' in html and 'class="pn-x"' not in t.get("/invoices?view=classified").data.decode()
+assert 'data-ym="2021-03"' in t.get("/income?f_date=2021-01:2021-03").data.decode().replace("%3A", ":")
 
 # Παράμετρος: άκυρη τιμή δεν αλλάζει τη ρύθμιση· έγκυρη αποθηκεύεται.
 t.post("/parameters/automation", data={"strip_from_year": "1990"})
