@@ -361,3 +361,14 @@ olap_docs["expense"][0]["cls_json"] = json.dumps([{"type": "E3_585_016", "catego
 assert app_module._olap_cube(1)["facts"][0][12] == -9.6
 
 print("OK")
+
+# Πηγή χαρακτηρισμού εξόδων χωρίς MARK: ενσωματωμένος → «Από εκδότη», αλλιώς «Πύλη myDATA».
+from app import _row_to_invoice  # noqa: E402
+
+base = {"mark": "1", "kind": "expense", "cls_json": '[{"type": "E3_585_016", "amount": 1.0}]',
+        "lines_json": '[{"line_number": 1, "has_expenses_classification": false}]'}
+assert _row_to_invoice(dict(base, classification_mark="9"), {}).cls_source == ""
+assert _row_to_invoice(base, {}).cls_source == "Πύλη myDATA"
+assert _row_to_invoice(dict(base, lines_json='[{"line_number": 1, "has_expenses_classification": true}]'),
+                       {}).cls_source == "Από εκδότη"
+assert _row_to_invoice(dict(base, is_self_issued=1), {}).cls_source == "Από εκδότη"

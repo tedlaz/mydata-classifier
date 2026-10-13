@@ -735,6 +735,14 @@ def _row_to_invoice(row: dict, names: dict | None = None) -> ExpenseInvoice:
     )
     # Επιπλέον πεδία για εμφάνιση (γεμίζουν από το ledger, όχι από το XML).
     inv.classification_mark = row.get("classification_mark") or ""
+    # Χαρακτηρισμός εξόδων χωρίς MARK: ενσωματωμένος στο XML του εκδότη (ή δική μας διαβίβαση)
+    # ή από την πύλη myDATA (Ειδική Φόρμα, μέσω RequestE3Info/RequestVatInfo).
+    inv.cls_source = (
+        "" if inv.classification_mark or not inv.cls_info or row.get("kind") != "expense"
+        else "Από εκδότη" if row.get("is_self_issued") or row.get("source") == "manual"
+        or any(ln.has_expenses_classification for ln in lines)
+        else "Πύλη myDATA"
+    )
     inv.local_action = row.get("local_action") or "classify"
     inv.source = row.get("source") or "rest"
     inv.late = bool(row.get("late_since"))
