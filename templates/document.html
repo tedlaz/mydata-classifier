@@ -280,7 +280,7 @@
     {% endif %}
   </table>
   </div>
-  {% if classification_mark %}<p class="muted small">MARK χαρακτηρισμού <span class="mono">{{ classification_mark }}</span></p>{% elif inv.cls_source %}<p class="muted small">Χαρακτηρισμός: {{ inv.cls_source }}</p>{% endif %}
+  {% if classification_mark %}<p class="muted small">MARK χαρακτηρισμού <span class="mono">{{ classification_mark }}</span>{% if classification_mark == inv.mark %} (ενσωματωμένος στο παραστατικό){% endif %}</p>{% elif inv.cls_source %}<p class="muted small">Χαρακτηρισμός: {{ inv.cls_source }}</p>{% endif %}
 </div>
 
 {# Φόροι & κρατήσεις σε επίπεδο παραστατικού (taxesTotals). Παλιά ανάκτηση χωρίς ανάλυση

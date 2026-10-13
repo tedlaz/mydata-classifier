@@ -27,7 +27,8 @@ assert len(calls) == 2 and all(p == {"mark": "100"} for _, p in calls), calls
 c.request_unclassified_expenses(None, None, marks)
 c.request_classified_expenses(None, None, marks)
 unc, _, _ = c.request_income(None, None, 100)
-assert len(calls) == 2, calls  # όλα από την cache
+# έγγραφα από την cache· E3Info/VatInfo μία φορά (και τα ενσωματωμένα: νεότερος χαρακτηρισμός πύλης υπερισχύει)
+assert [ep for ep, _ in calls[2:]] == ["RequestE3Info", "RequestVatInfo"], calls
 assert [i.mark for i in unc] == ["8"], unc
 
 # Νέα αχαρακτήριστα έξοδα: έλεγχος χαρακτηρισμών της πύλης για το διάστημα έκδοσής τους.

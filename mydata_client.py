@@ -417,6 +417,8 @@ class MyDataClient:
                 for line in i.lines:
                     info.extend(line.classifications)
                 i.cls_info = info
+                # Ενσωματωμένος: ο χαρακτηρισμός πήρε το MARK του παραστατικού (όπως στα έσοδα).
+                i.classification_mark = i.mark
             result.append(i)
         return result
 
@@ -529,7 +531,7 @@ class MyDataClient:
             invoices += [i for i in self_invoices if i.mark not in seen]
             cls_map.update(t_cls_map)
             cancelled_marks |= t_cancelled
-            pending = [i for i in invoices if i.mark not in cls_map and not i.has_embedded_classification]
+            pending = [i for i in invoices if i.mark not in cls_map]
             dates = sorted(i.issue_date[:10] for i in pending if i.issue_date)
             if dates:
                 try:
@@ -537,7 +539,7 @@ class MyDataClient:
                                                                    for d in (dates[0], dates[-1])))
                 except MyDataError:
                     portal = {}
-                cls_map.update({m: v for m, v in portal.items() if m in {i.mark for i in pending}})
+                cls_map.update(self._portal_overrides(pending, portal, cls_map))
             cancelled_marks |= {i.mark for i in invoices if i.is_cancelled}
             self.last_cancelled = cancelled_marks
             return invoices, cls_map, cancelled_marks
@@ -566,17 +568,16 @@ class MyDataClient:
 
         # Χαρακτηρισμοί που έγιναν στην ΠΥΛΗ myDATA (π.χ. Ειδική Φόρμα Καταχώρισης) δεν
         # επιστρέφονται από τις RequestDocs/RequestTransmittedDocs· τους δίνουν οι
-        # RequestE3Info/RequestVatInfo. Μόνο για όσα φαίνονται ακόμη αχαρακτήριστα.
-        pending = {
-            i.mark for i in invoices + self_invoices
-            if i.mark not in cls_map and not i.has_embedded_classification
-        }
+        # RequestE3Info/RequestVatInfo. Για όσα δεν έχουν χωριστή υποβολή (και τα ενσωματωμένα:
+        # νεότερος χαρακτηρισμός στην πύλη υπερισχύει).
+        pending = [i for i in invoices + self_invoices if i.mark not in cls_map]
         if pending:
             try:
                 portal = self.request_portal_classifications(date_from, date_to)
             except MyDataError:
-                portal = {}  # ponytail: χωρίς E3Info μένουν αχαρακτήριστα, όπως πριν
-            cls_map.update({m: v for m, v in portal.items() if m in pending})
+                # ponytail: χωρίς E3Info μένουν αχαρακτήριστα / στον ενσωματωμένο ως την επόμενη ανάκτηση
+                portal = {}
+            cls_map.update(self._portal_overrides(pending, portal, cls_map))
 
         # Τα αυτοτιμολογούμενα φιλτράρονται στο ζητούμενο διάστημα με βάση την
         # ημερομηνία έκδοσης (η κλήση έγινε έως σήμερα) και συγχωνεύονται χωρίς διπλά.
@@ -631,6 +632,28 @@ class MyDataClient:
                 return records
             params["nextPartitionKey"] = npk
             params["nextRowKey"] = nrk
+
+    @staticmethod
+    def _portal_overrides(invoices, portal: dict[str, dict], cls_map: dict) -> dict[str, dict]:
+        """Χαρακτηρισμοί πύλης που ισχύουν: για παραστατικά χωρίς χωριστή υποβολή· στα ενσωματωμένα μόνο
+        αν διαφέρουν (το E3Info επιστρέφει και τον ίδιο τον ενσωματωμένο, με αρνητικά ποσά στα πιστωτικά)."""
+        def key(entries):
+            agg: dict = {}
+            for e in entries:
+                if not e.get("transaction_mode"):
+                    k = (e.get("type") or "", e.get("category") or "")
+                    agg[k] = agg.get(k, 0.0) + abs(e.get("amount") or 0.0)
+            return {k: round(v, 2) for k, v in agg.items()}
+
+        out = {}
+        for i in invoices:
+            if i.mark in cls_map or i.mark not in portal:
+                continue
+            if i.has_embedded_classification and key(portal[i.mark]["entries"]) == key(
+                    [c for ln in i.lines for c in ln.classifications]):
+                continue
+            out[i.mark] = portal[i.mark]
+        return out
 
     def request_portal_classifications(self, date_from: str, date_to: str) -> dict[str, dict]:
         """MARK -> {"entries", "cls_mark": ""} από RequestE3Info (κατηγορία/τύπος Ε3/ποσό) και

@@ -370,6 +370,13 @@ def init_db() -> None:
                 conn.execute(f"ALTER TABLE classifications ADD COLUMN {col} {decl}")
         if "counterparty_name" in doc_cols:
             conn.execute("ALTER TABLE documents DROP COLUMN counterparty_name")
+        # Ενσωματωμένος χαρακτηρισμός εξόδων: MARK χαρακτηρισμού = MARK παραστατικού (παλιές εγγραφές με κενό).
+        if "classification_mark" in doc_cols:
+            conn.execute(
+                "UPDATE documents SET classification_mark = mark WHERE kind = 'expense' AND status = 'confirmed' "
+                "AND COALESCE(classification_mark, '') = '' AND COALESCE(cls_json, '[]') NOT IN ('', '[]') "
+                "AND (source = 'manual' OR lines_json LIKE '%\"has_expenses_classification\": true%')"
+            )
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_documents_template_period "
             "ON documents(company_id, template_id, period) WHERE template_id IS NOT NULL"
@@ -930,12 +937,14 @@ def upsert_document(
         # ...ή όταν ο αποθηκευμένος είναι κενός (π.χ. ενσωματωμένος χαρακτηρισμός εσόδων που
         # παλιότερη ανάκτηση δεν κρατούσε) — τοπικός χαρακτηρισμός δεν αντικαθίσταται ποτέ.
         fill_cls = keep and existing["cls_json"] in (None, "", "[]") and cls_json != "[]"
-        set_cls = ", cls_json = ?" if not keep or fill_cls else ""
-        # Το MARK χαρακτηρισμού από το myDATA γράφεται όποτε έρχεται μη κενό — και σε
-        # keep — ώστε να συμπληρώνεται και σε ήδη αποθηκευμένα «Επιβεβαιωμένα».
-        # Κενή τιμή (ενσωματωμένος χαρακτηρισμός) δεν σβήνει ό,τι έχουμε τοπικά.
+        # confirmed → confirmed: το myDATA είναι η αλήθεια· νεότερος χαρακτηρισμός (χωριστή υποβολή ή
+        # πύλη πάνω σε ενσωματωμένο) αντικαθιστά cls_json ΚΑΙ MARK — κενό MARK = χαρακτηρισμός πύλης.
+        refresh = existing["status"] == "confirmed" == incoming_status and cls_json != "[]"
+        set_cls = ", cls_json = ?" if not keep or fill_cls or refresh else ""
+        # Αλλιώς το MARK χαρακτηρισμού γράφεται όποτε έρχεται μη κενό — και σε keep·
+        # κενή τιμή δεν σβήνει ό,τι έχουμε τοπικά.
         cls_mark = doc.get("classification_mark") or ""
-        set_mark = ", classification_mark = ?" if cls_mark else ""
+        set_mark = ", classification_mark = ?" if cls_mark or refresh else ""
         params = [
             kind,  # διορθώνει παλιές εγγραφές σε λάθος βιβλίο (π.χ. διαβίβαση από λήπτη ως έσοδο)
             doc.get("issue_date"),
@@ -953,7 +962,7 @@ def upsert_document(
         ]
         if set_cls:
             params.append(cls_json)
-        if cls_mark:
+        if set_mark:
             params.append(cls_mark)
         params.append(existing["id"])
         conn.execute(

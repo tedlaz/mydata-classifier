@@ -362,15 +362,38 @@ assert app_module._olap_cube(1)["facts"][0][12] == -9.6
 
 print("OK")
 
-# Πηγή χαρακτηρισμού εξόδων χωρίς MARK: ενσωματωμένος → «Από εκδότη», αλλιώς «Πύλη myDATA».
+# Χαρακτηρισμός εξόδων χωρίς MARK = «Πύλη myDATA» (ο ενσωματωμένος έχει MARK = MARK παραστατικού).
 from app import _row_to_invoice  # noqa: E402
 
-base = {"mark": "1", "kind": "expense", "cls_json": '[{"type": "E3_585_016", "amount": 1.0}]',
-        "lines_json": '[{"line_number": 1, "has_expenses_classification": false}]'}
-assert _row_to_invoice(dict(base, classification_mark="9"), {}).cls_source == ""
+base = {"mark": "1", "kind": "expense", "cls_json": '[{"type": "E3_585_016", "amount": 1.0}]'}
+assert _row_to_invoice(dict(base, classification_mark="1"), {}).cls_source == ""
 assert _row_to_invoice(base, {}).cls_source == "Πύλη myDATA"
-assert _row_to_invoice(dict(base, lines_json='[{"line_number": 1, "has_expenses_classification": true}]'),
-                       {}).cls_source == "Από εκδότη"
-emb = '[{"line_number": 1, "has_expenses_classification": true}]'
-assert _row_to_invoice(dict(base, is_self_issued=1, lines_json=emb), {}).cls_source == "Πύλη myDATA"
-assert _row_to_invoice(dict(base, source="manual", lines_json=emb), {}).cls_source == ""
+assert _row_to_invoice(dict(base, kind="income"), {}).cls_source == ""
+
+# Πύλη πάνω σε ενσωματωμένο: μόνο αν διαφέρει (αρνητικά ποσά πιστωτικού = ίδιος)· χωριστή υποβολή υπερισχύει.
+from mydata_client import MyDataClient  # noqa: E402
+
+
+def einv(mark, cls):
+    return NS(mark=mark, has_embedded_classification=bool(cls), lines=[NS(classifications=cls)])
+
+
+e3 = [{"type": "E3_585_011", "category": "category2_4", "amount": 10.0}, {"type": "VAT_361", "amount": 10.0}]
+portal = {m: {"entries": [dict(e, line=None, amount=-e["amount"] if m == "neg" else e["amount"]) for e in
+                          (e3 if m != "diff" else [dict(e3[0], category="category2_5")])], "cls_mark": ""}
+          for m in ("same", "neg", "diff", "plain", "sep")}
+got = MyDataClient._portal_overrides(
+    [einv("same", e3), einv("neg", e3), einv("diff", e3), einv("plain", []), einv("sep", [])],
+    portal, {"sep": {}})
+assert set(got) == {"diff", "plain"}, got
+
+# confirmed → confirmed: νεότερος χαρακτηρισμός από myDATA αντικαθιστά cls_json και MARK (και με κενό).
+import db  # noqa: E402
+
+db.init_db()
+cid = db.add_company({"company_name": "T"})
+doc = {"mark": "77", "cls_info": e3, "classification_mark": "77"}
+db.upsert_document(cid, "expense", doc, "confirmed")
+db.upsert_document(cid, "expense", dict(doc, cls_info=portal["diff"]["entries"], classification_mark=""), "confirmed")
+r = db.get_document(cid, "77")
+assert r["classification_mark"] == "" and "category2_5" in r["cls_json"], dict(r)
