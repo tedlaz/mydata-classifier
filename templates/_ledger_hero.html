@@ -6,8 +6,6 @@
 
 {% from "_months.html" import period_nav %}
 {% macro ledger_hero(ep, q, title, tabs, done, nav, tone) -%}
-{% set all = counts.values()|sum %}
-{% set pct = (counts[done] * 100 / all)|round|int if all else 0 %}
 <style>
 .lh{position:relative;overflow:hidden;border-radius:20px;padding:clamp(14px,2.2vw,22px);color:#fff;margin-bottom:14px;
   background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,var(--lh-a),var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
@@ -24,7 +22,7 @@
 .lh .btn-ghost:hover{background:rgba(255,255,255,.16)}
 
 /* Καταστάσεις στη γραμμή του τίτλου· σε στενό πλάτος πέφτουν από κάτω (flex-wrap). */
-.lh-mid{position:relative;flex:1 1 700px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:stretch}
+.lh-mid{position:relative;flex:1 1 700px}
 .lh-tiles{display:flex;flex-wrap:wrap;gap:8px}
 .lh-tiles .lh-tile{flex:1 0 auto}
 @property --lh-ang{syntax:"<angle>";inherits:false;initial-value:0deg}
@@ -48,30 +46,16 @@
 .lh-tile--sync{--c:#6fd3ff}
 .lh-tile--unclassified{--c:#f2c265}.lh-tile--classified{--c:#8a93ff}.lh-tile--sent{--c:#bba2ff}.lh-tile--confirmed{--c:#4fd1a0}
 
-.lh-ring{display:flex;align-items:center;gap:8px;padding:4px 12px;border-radius:10px;background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.12);animation:lh-rise .55s var(--ease) .45s both}
-.lh-ring div{position:relative;width:34px;height:34px;flex:none}
-.lh-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
-.lh-ring circle{fill:none;stroke-width:8}
-.lh-ring .bg{stroke:rgba(255,255,255,.12)}
-.lh-ring .fg{stroke:url(#lh-grad);stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:calc(100 - var(--p));animation:lh-fill 1.6s var(--ease) .5s both}
-@keyframes lh-fill{from{stroke-dashoffset:100}}
-.lh-ring div b{position:absolute;inset:0;display:grid;place-items:center;font:800 .58rem var(--font-data)}
-.lh-ring small{display:none}
-
 /* Πλοηγός περιόδου του βιβλίου (στη θέση των παλιών συνόλων προβολής). */
 .lh-sums{position:relative;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);
   animation:lh-rise .55s var(--ease) .6s both}
 
-@media (max-width:760px){ .lh-mid{grid-template-columns:1fr} .lh-tiles .lh-tile{flex-basis:40%} }
+@media (max-width:760px){ .lh-tiles .lh-tile{flex-basis:40%} }
 @media (prefers-reduced-motion:reduce){ .lh *,.lh *::before{animation:none!important;transition:none!important} }
 </style>
 
 <header class="lh lh--{{ tone }}">
   <i class="lh-blob b1"></i><i class="lh-blob b2"></i>
-  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-    <defs><linearGradient id="lh-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9aa2ff"/><stop offset="1" stop-color="#4fd1a0"/></linearGradient></defs>
-  </svg>
   <div class="lh-top">
     <div>
       <h1>{{ title }}</h1>
@@ -86,11 +70,6 @@
         </a>
         {% endfor %}
       </nav>
-      <div class="lh-ring" title="{{ counts[done] }} από {{ all }} {{ 'ολοκληρωμένα' if done == 'confirmed' else 'χαρακτηρισμένα' }}">
-        <div><svg viewBox="0 0 40 40"><circle class="bg" cx="20" cy="20" r="15.9" pathLength="100"/>
-          <circle class="fg" cx="20" cy="20" r="15.9" pathLength="100" style="--p:{{ pct }}"/></svg><b>{{ pct }}%</b></div>
-        <small><b>{{ counts[done] }}</b> από {{ all }}<br>{{ 'ολοκληρωμένα' if done == 'confirmed' else 'χαρακτηρισμένα' }}</small>
-      </div>
     </div>
     {% set btns = caller() %}{% if btns | trim %}<div class="btn-row">{{ btns }}</div>{% endif %}
   </div>
