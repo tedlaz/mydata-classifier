@@ -1302,10 +1302,22 @@ def build_expenses_classification_xml(
     # ομαδοποίηση ανά γραμμή
     # Ανά παραστατικό το lineNumber αγνοείται (υποχρεωτικό → συμβολική τιμή 1):
     # όλοι οι χαρακτηρισμοί σε ένα μπλοκ.
-    by_line: dict[int, list[dict]] = {}
+    # Ίδιος τύπος+κατηγορία στην ίδια γραμμή → ένας χαρακτηρισμός με άθροισμα ποσών
+    # (σφάλμα 305 «Duplicate classification type»· π.χ. γραμμή σπασμένη σε 2 Ε3 με VAT_364).
+    by_line: dict[int, dict[tuple, dict]] = {}
     for c in classifications:
         key = 1 if post_per_invoice else int(c["line_number"])
-        by_line.setdefault(key, []).append(c)
+        dkey = (c.get("classification_type") or "", c.get("classification_category") or "",
+                c.get("vat_category") if post_per_invoice else None)
+        line = by_line.setdefault(key, {})
+        if dkey in line:
+            m = line[dkey]
+            m["amount"] = float(m["amount"]) + float(c["amount"])
+            if c.get("vat_amount") is not None:
+                m["vat_amount"] = float(m.get("vat_amount") or 0) + float(c["vat_amount"])
+        else:
+            line[dkey] = dict(c)
+    by_line = {k: list(v.values()) for k, v in by_line.items()}
 
     for line_no in sorted(by_line):
         details = ET.SubElement(
