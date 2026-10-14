@@ -68,4 +68,8 @@ db.set_active_company_id(db.add_company({"company_name": "Άλλη ΑΕ"}))
 assert "λάθος κλειδί" not in c.get("/sync?tab=log").get_data(as_text=True)
 c.post("/sync", data=form)
 assert len(os.listdir(A._log_dir(db.get_active_company_id()))) == 1 and len(os.listdir(A._log_dir(cid))) == 10
+
+# Κάθε κλήση γράφει με ποια κλειδιά έγινε (χωρίς να γράφει τα ίδια τα κλειδιά).
+assert A._log_line(resp(200, "/RequestDocs?mark=0"), "κλειδιά εταιρείας").endswith("[κλειδιά εταιρείας]")
+assert "[" not in A._log_line(resp(200, "/RequestDocs?mark=0"))
 print("OK")

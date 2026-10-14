@@ -355,9 +355,10 @@ def init_db() -> None:
         comp_cols = {r["name"] for r in conn.execute("PRAGMA table_info(companies)")}
         if "allow_cancel" not in comp_cols:
             conn.execute("ALTER TABLE companies ADD COLUMN allow_cancel INTEGER DEFAULT 0")
-        for col in ("allow_send", "allow_classify", "allow_new", "locked"):  # και οι υπάρχουσες ξεκινούν κλειστές
+        for col in ("allow_send", "allow_classify", "allow_new", "locked", "accountant_required"):  # και οι υπάρχουσες ξεκινούν κλειστές
             if col not in comp_cols:
                 conn.execute(f"ALTER TABLE companies ADD COLUMN {col} INTEGER DEFAULT 0")
+        conn.execute("UPDATE companies SET allow_cancel = 0 WHERE allow_cancel AND NOT allow_send")  # ακυρώσεις μόνο με αποστολή
         if "vat_period" not in comp_cols:
             conn.execute("ALTER TABLE companies ADD COLUMN vat_period TEXT DEFAULT 'm'")
         if "entity_type" not in comp_cols:
@@ -430,6 +431,7 @@ def _company_row_to_dict(row: sqlite3.Row) -> dict:
         "AADE_VAT_NUMBER": row["aade_vat_number"] or "",
         "MYDATA_ENV": row["mydata_env"] or "prod",
         "use_accountant": bool(row["use_accountant"]),
+        "accountant_required": bool(row["accountant_required"]),
         "allow_cancel": bool(row["allow_cancel"]),
         "allow_send": bool(row["allow_send"]),
         "allow_classify": bool(row["allow_classify"]),
@@ -455,26 +457,32 @@ def list_companies() -> list[dict]:
     return [_company_row_to_dict(r) for r in rows]
 
 
+def _use_accountant(data: dict) -> int:
+    """Υποχρεωτικός λογιστής: «Χρήση credentials λογιστή» και «Αποστολή στο myDATA» ανοίγουν/κλείνουν μαζί."""
+    return 1 if data.get("allow_send" if data.get("accountant_required") else "use_accountant") else 0
+
+
 def add_company(data: dict) -> int | None:
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO companies (company_name, aade_user_id, aade_subscription_key, "
-            "aade_vat_number, mydata_env, use_accountant, allow_cancel, allow_send, allow_classify, allow_new, vat_period, entity_type, birth_year) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "aade_vat_number, mydata_env, use_accountant, allow_cancel, allow_send, allow_classify, allow_new, vat_period, entity_type, birth_year, "
+            "accountant_required) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 data.get("company_name", ""),
                 auth.enc(data.get("AADE_USER_ID") or ""),
                 auth.enc(data.get("AADE_SUBSCRIPTION_KEY") or ""),
                 data.get("AADE_VAT_NUMBER", ""),
                 data.get("MYDATA_ENV", "prod"),
-                1 if data.get("use_accountant") else 0,
-                1 if data.get("allow_cancel") else 0,
+                _use_accountant(data),
+                1 if data.get("allow_cancel") and data.get("allow_send") else 0,  # ακυρώσεις/απορρίψεις μόνο με αποστολή
                 1 if data.get("allow_send") else 0,
                 1 if data.get("allow_classify") else 0,
                 1 if data.get("allow_new") else 0,
                 "q" if data.get("vat_period") == "q" else "m",
                 "sole" if data.get("entity_type") == "sole" else "legal",
                 birth_year(data.get("birth_year")),
+                1 if data.get("accountant_required") else 0,
             ),
         )
         return cur.lastrowid
@@ -485,7 +493,9 @@ def update_company(company_id: int, data: dict) -> None:
         conn.execute(
             "UPDATE companies SET company_name = ?, aade_user_id = ?, "
             "aade_subscription_key = ?, aade_vat_number = ?, mydata_env = ?, "
-            "use_accountant = ?, vat_period = ?, entity_type = ?, birth_year = ?, "
+            "vat_period = ?, entity_type = ?, birth_year = ?, accountant_required = ?, "
+            # υποχρεωτικός λογιστής σε κλειδωμένη: κλειστή η αποστολή → κλειστός και ο λογιστής
+            "use_accountant = CASE WHEN locked AND ? THEN 0 ELSE ? END, "
             # κλειδωμένη εταιρεία (αρχείο πελάτη): οι άδειες μένουν κλειστές, ό,τι κι αν έρθει
             "allow_cancel = CASE WHEN locked THEN 0 ELSE ? END, allow_send = CASE WHEN locked THEN 0 ELSE ? END, "
             "allow_classify = CASE WHEN locked THEN 0 ELSE ? END, allow_new = CASE WHEN locked THEN 0 ELSE ? END "
@@ -496,11 +506,13 @@ def update_company(company_id: int, data: dict) -> None:
                 auth.enc(data.get("AADE_SUBSCRIPTION_KEY") or ""),
                 data.get("AADE_VAT_NUMBER", ""),
                 data.get("MYDATA_ENV", "prod"),
-                1 if data.get("use_accountant") else 0,
                 "q" if data.get("vat_period") == "q" else "m",
                 "sole" if data.get("entity_type") == "sole" else "legal",
                 birth_year(data.get("birth_year")),
-                1 if data.get("allow_cancel") else 0,
+                1 if data.get("accountant_required") else 0,
+                1 if data.get("accountant_required") else 0,
+                _use_accountant(data),
+                1 if data.get("allow_cancel") and data.get("allow_send") else 0,  # ακυρώσεις/απορρίψεις μόνο με αποστολή
                 1 if data.get("allow_send") else 0,
                 1 if data.get("allow_classify") else 0,
                 1 if data.get("allow_new") else 0,

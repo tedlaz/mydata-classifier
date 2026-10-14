@@ -337,6 +337,18 @@ CANCEL_DISABLED_MSG = ("Οι ακυρώσεις/απορρίψεις παρασ�
                        "ενεργοποίησέ τες στις Παραμέτρους εταιρείας.")
 
 
+def _accountant_missing(data: dict) -> bool:
+    """Υποχρεωτικός λογιστής + αποστολή, χωρίς credentials λογιστή: η αποστολή δεν ανοίγει."""
+    acc = get_accountant()
+    if data.get("accountant_required") and data.get("allow_send") and not (
+        (acc.get("user_id") or "").strip() and (acc.get("subscription_key") or "").strip()
+    ):
+        flash("Ο λογιστής είναι υποχρεωτικός για αποστολές, αλλά δεν έχουν οριστεί τα credentials του — "
+              "η αποστολή στο myDATA παραμένει κλειστή. Συμπλήρωσέ τα στις Παραμέτρους → Λογιστής.", "error")
+        return True
+    return False
+
+
 def get_own_vat() -> str:
     c = get_active_company()
     if c and c.get("AADE_VAT_NUMBER"):
@@ -531,16 +543,18 @@ def enrich_counterpart_names(invoices):
     return enrich_names(invoices, "counterpart_vat", "counterpart_name")
 
 
-def get_client() -> MyDataClient:
+def get_client(send: str = "") -> MyDataClient:
     """Client της ενεργής εταιρείας, ένας ανά request: οι ίδιες κλήσεις (π.χ. RequestTransmittedDocs για
     έσοδα, έξοδα και «Νέα από MARK») γίνονται μία φορά (cache στο MyDataClient._pages). Κάθε απάντηση
-    του myDATA γράφεται στο log της τρέχουσας ενέργειας."""
-    if has_request_context() and "mydata_client" in g:
-        return g.mydata_client
-    client = _make_client()
-    client.session.hooks["response"].append(_log_mydata)
+    του myDATA γράφεται στο log της τρέχουσας ενέργειας. send=<ενέργεια>: client αποστολής (βλ. _make_client)."""
+    key = "mydata_client" + (f"_{send}" if send else "")
+    if has_request_context() and key in g:
+        return g.get(key)
+    client = _make_client(send=send) if send else _make_client()
+    via = "κλειδιά λογιστή" if client.entity_vat else "κλειδιά εταιρείας"  # entity_vat μόνο στον client του λογιστή
+    client.session.hooks["response"].append(lambda resp, *a, **k: _log_mydata(resp, via=via))
     if has_request_context():
-        g.mydata_client = client
+        setattr(g, key, client)
     return client
 
 
@@ -554,19 +568,19 @@ _LOG_SECRET = ("pass", "key", "token", "secret")
 _log_dir = lambda cid: os.path.join(_LOG_DIR, str(cid or 0))  # noqa: E731
 
 
-def _log_mydata(resp, *args, **kwargs):
+def _log_mydata(resp, *args, via: str = "", **kwargs):
     """requests response hook (client του myDATA)."""
     if has_request_context():
-        g.setdefault("mydata_log", []).append(_log_line(resp))
+        g.setdefault("mydata_log", []).append(_log_line(resp, via))
 
 
-def _log_line(resp) -> str:
+def _log_line(resp, via: str = "") -> str:
     """Μία γραμμή ανά κλήση· στα σφάλματα και η αρχή της απάντησης.
     Δεν γράφονται headers ούτε σώμα αιτήματος (εκεί είναι τα credentials)."""
     line = (f"{datetime.now(ATHENS):%H:%M:%S}  {resp.request.method} "
             f"{urlparse(resp.url).netloc}{resp.request.path_url}  →  "
             f"{'✓' if resp.ok else '✗'} {resp.status_code}  {resp.elapsed.total_seconds():.1f}s  "
-            f"{len(resp.content) / 1024:.0f} KB")
+            f"{len(resp.content) / 1024:.0f} KB" + (f"  [{via}]" if via else ""))
     if not resp.ok:
         line += "\n      " + resp.text[:2000].replace("\n", "\n      ")
     return line
@@ -606,14 +620,37 @@ def mydata_logs(cid) -> list[dict]:
     return out
 
 
-def _make_client() -> MyDataClient:
+ACCOUNTANT_ACTIONS = (  # ενέργειες αποστολής που μπορούν να γίνονται μέσω λογιστή (Παράμετροι → Λογιστής)
+    ("reject", "Απορρίψεις παραστατικών εξόδων"),
+    ("create", "Νέες εγγραφές (13.x / 14.x / 17.x)"),
+    ("cancel", "Ακυρώσεις εξόδων / δικών μας εγγραφών"),
+    ("income_cancel", "Ακυρώσεις εσόδων"),
+)
+ACCOUNTANT_ACTIONS_DEFAULT = "reject,create,cancel"
+
+
+def accountant_actions() -> set[str]:
+    """Ενέργειες που στέλνονται μέσω λογιστή· ο χαρακτηρισμός πάντα."""
+    saved = db.get_setting("accountant_actions", ACCOUNTANT_ACTIONS_DEFAULT) or ""
+    return {"classify"} | (set(saved.split(",")) & {k for k, _ in ACCOUNTANT_ACTIONS})
+
+
+def _make_client(send: str = "") -> MyDataClient:
     """Client με τα credentials της ενεργής εταιρείας - fallback στο .env
-    αν δεν έχει οριστεί καμία εταιρεία (συμβατότητα με παλιά εγκατάσταση)."""
+    αν δεν έχει οριστεί καμία εταιρεία (συμβατότητα με παλιά εγκατάσταση).
+    Λήψη (send=""): πάντα με τα credentials της εταιρείας· του λογιστή μόνο αν δεν έχει δικά της.
+    Αποστολή (send=ενέργεια): με του λογιστή όταν τον χρησιμοποιεί και η ενέργεια είναι στις accountant_actions()
+    (ο χαρακτηρισμός πάντα)· οι υπόλοιπες με τα κλειδιά της εταιρείας."""
     company = get_active_company()
     if company:
-        # Περίπτωση 2: η εταιρεία χρησιμοποιεί κοινά credentials λογιστή -
-        # στέλνεται το ΑΦΜ της ως entityVatNumber σε κάθε κλήση.
-        if company.get("use_accountant"):
+        via_acc = company.get("use_accountant") or company.get("accountant_required")
+        own_user = (company.get("AADE_USER_ID") or "").strip()
+        own = own_user and (company.get("AADE_SUBSCRIPTION_KEY") or "").strip()
+        if via_acc and own_user == (get_accountant().get("user_id") or "").strip():
+            own = ""  # είναι τα κλειδιά του λογιστή, όχι της εταιρείας → μέσω λογιστή, με entityVatNumber
+        # Περίπτωση 2: κοινά credentials λογιστή - στέλνεται το ΑΦΜ της ως entityVatNumber σε κάθε κλήση.
+        # Υποχρεωτικός λογιστής χωρίς credentials → καμία αποστολή (MyDataError), ποτέ με του πελάτη.
+        if via_acc and ((send and send in accountant_actions()) or not own):
             acc = get_accountant()
             user_id = (acc.get("user_id") or "").strip()
             sub_key = (acc.get("subscription_key") or "").strip()
@@ -2849,13 +2886,13 @@ def send():
         _fail_flash(invalid)
         return redirect(url_for("invoices", view="classified"))
 
-    # 2ο πέρασμα: αποστολή.
-    client = get_client()
+    # 2ο πέρασμα: αποστολή. Client ανά ενέργεια: λογιστής ή εταιρεία (Παράμετροι → Λογιστής).
     ok, failed = [], []
     for row in rows:
         mark = row["mark"]
         action = row.get("local_action") or "classify"
         try:
+            client = get_client(send=action if action in ("reject", "cancel", "create") else "classify")
             if action == "reject":
                 result = client.reject_invoice(mark)
             elif action == "cancel":
@@ -2902,8 +2939,8 @@ def send():
 
     if ok:
         flash(
-            f"✔ Στάλθηκαν στο myDATA {len(ok)} παραστατικά. Πάτα «Ενημέρωση» "
-            "αργότερα για επιβεβαίωση (το myDATA αργεί έως ~8 ώρες).",
+            f"✔ Στάλθηκαν στο myDATA {len(ok)} παραστατικά. Η επιβεβαίωση γίνεται αυτόματα με την επόμενη "
+            "«Ανάκτηση» (το myDATA αργεί έως ~8 ώρες).",
             "ok",
         )
     _fail_flash(failed)
@@ -5524,7 +5561,7 @@ def income_cancel(mark):
         flash(CANCEL_DISABLED_MSG, "error")
         return redirect(url_for("document", mark=mark))
     try:
-        result = get_client().cancel_invoice(mark)
+        result = get_client(send="income_cancel").cancel_invoice(mark)
     except MyDataError as e:
         flash(f"Η ακύρωση απέτυχε: {e}", "error")
         return redirect(url_for("document", mark=mark))
@@ -5575,6 +5612,8 @@ def parameters():
         active_tab=tab,
         auth_user=(db.get_auth() or {}).get("auth_user", ""),
         acc=get_accountant(),
+        acc_actions=accountant_actions(),
+        accountant_action_list=ACCOUNTANT_ACTIONS,
         combinations_count=db.combos_count(),
         combinations_invoice_types=sorted(
             db.combos_invoice_types(), key=lambda t: [int(x) if x.isdigit() else 0 for x in t.split(".")]
@@ -5742,31 +5781,34 @@ def companies_add():
     vat = request.form.get("aade_vat_number", "").strip()
     env = request.form.get("mydata_env", "prod")
     use_acc = bool(request.form.get("use_accountant"))
+    acc_req = bool(request.form.get("accountant_required"))
     if _sole_without_birth_year():
         return redirect(url_for("companies"))
-    if not name or (not use_acc and not (user_id and sub_key)):
+    if not name or (not (use_acc or acc_req) and not (user_id and sub_key)):
         flash(
             "Επωνυμία υποχρεωτική. User ID/Subscription Key απαιτούνται εκτός αν "
             "χρησιμοποιούνται credentials λογιστή.",
             "error",
         )
         return redirect(url_for("companies"))
-    new_id = db.add_company(
-        {
-            "company_name": name,
-            "AADE_USER_ID": user_id,
-            "AADE_SUBSCRIPTION_KEY": sub_key,
-            "AADE_VAT_NUMBER": vat,
-            "MYDATA_ENV": env,
-            "use_accountant": use_acc,
-            "allow_cancel": bool(request.form.get("allow_cancel")),
-            "allow_send": bool(request.form.get("allow_send")),
-            "allow_classify": bool(request.form.get("allow_classify")),
-            "allow_new": bool(request.form.get("allow_new")),
-            "vat_period": request.form.get("vat_period", "m"),
-            **_company_tax_fields(),
-        }
-    )
+    data = {
+        "company_name": name,
+        "AADE_USER_ID": user_id,
+        "AADE_SUBSCRIPTION_KEY": sub_key,
+        "AADE_VAT_NUMBER": vat,
+        "MYDATA_ENV": env,
+        "use_accountant": use_acc,
+        "accountant_required": acc_req,
+        "allow_cancel": bool(request.form.get("allow_cancel")),
+        "allow_send": bool(request.form.get("allow_send")),
+        "allow_classify": bool(request.form.get("allow_classify")),
+        "allow_new": bool(request.form.get("allow_new")),
+        "vat_period": request.form.get("vat_period", "m"),
+        **_company_tax_fields(),
+    }
+    if _accountant_missing(data):
+        data["allow_send"] = False
+    new_id = db.add_company(data)
     if db.get_active_company_id() is None and new_id is not None:
         db.set_active_company_id(new_id)
     flash(f"✔ Προστέθηκε η εταιρεία «{name}».", "ok")
@@ -5786,7 +5828,7 @@ def companies_update(idx):
     if _sole_without_birth_year():
         return redirect(url_for("companies"))
     if not name or (
-        not bool(request.form.get("use_accountant")) and not (user_id and sub_key)
+        not (request.form.get("use_accountant") or request.form.get("accountant_required")) and not (user_id and sub_key)
     ):
         flash(
             "Επωνυμία υποχρεωτική. User ID/Subscription Key απαιτούνται εκτός αν "
@@ -5794,23 +5836,24 @@ def companies_update(idx):
             "error",
         )
         return redirect(url_for("companies"))
-    db.update_company(
-        comps[idx]["id"],
-        {
-            "company_name": name,
-            "AADE_USER_ID": user_id,
-            "AADE_SUBSCRIPTION_KEY": sub_key,
-            "AADE_VAT_NUMBER": request.form.get("aade_vat_number", "").strip(),
-            "MYDATA_ENV": request.form.get("mydata_env", "prod"),
-            "use_accountant": bool(request.form.get("use_accountant")),
-            "allow_cancel": bool(request.form.get("allow_cancel")),
-            "allow_send": bool(request.form.get("allow_send")),
-            "allow_classify": bool(request.form.get("allow_classify")),
-            "allow_new": bool(request.form.get("allow_new")),
-            "vat_period": request.form.get("vat_period", "m"),
-            **_company_tax_fields(),
-        },
-    )
+    data = {
+        "company_name": name,
+        "AADE_USER_ID": user_id,
+        "AADE_SUBSCRIPTION_KEY": sub_key,
+        "AADE_VAT_NUMBER": request.form.get("aade_vat_number", "").strip(),
+        "MYDATA_ENV": request.form.get("mydata_env", "prod"),
+        "use_accountant": bool(request.form.get("use_accountant")),
+        "accountant_required": bool(request.form.get("accountant_required")),
+        "allow_cancel": bool(request.form.get("allow_cancel")),
+        "allow_send": bool(request.form.get("allow_send")),
+        "allow_classify": bool(request.form.get("allow_classify")),
+        "allow_new": bool(request.form.get("allow_new")),
+        "vat_period": request.form.get("vat_period", "m"),
+        **_company_tax_fields(),
+    }
+    if _accountant_missing(data):
+        data["allow_send"] = False
+    db.update_company(comps[idx]["id"], data)
     flash(f"✔ Ενημερώθηκε η εταιρεία «{name}».", "ok")
     back = request.form.get("back", "")  # modal ενεργής εταιρείας (base.html) → πίσω στη σελίδα του
     return redirect(back if back.startswith("/") and not back.startswith(("//", "/\\")) else url_for("companies"))
@@ -5828,9 +5871,16 @@ def companies_toggle(idx, flag):
         return redirect(url_for("companies"))
     c = comps[idx]
     c[flag] = ("prod" if c[flag] == "dev" else "dev") if flag == "MYDATA_ENV" else not c[flag]
-    if c["locked"] and flag.startswith("allow_"):
+    coupled = c["accountant_required"] and flag in ("use_accountant", "allow_send")
+    if coupled:  # υποχρεωτικός λογιστής: λογιστής και αποστολή ανοίγουν/κλείνουν μαζί
+        c["use_accountant"] = c["allow_send"] = c[flag]
+    if c["locked"] and (flag.startswith("allow_") or coupled):
         flash("🔐 Κλειδωμένη εταιρεία — οι άδειες δεν αλλάζουν.", "error")
-    elif not c["use_accountant"] and not (c["AADE_USER_ID"] and c["AADE_SUBSCRIPTION_KEY"]):
+    elif flag == "allow_cancel" and c["allow_cancel"] and not c["allow_send"]:
+        flash("Οι ακυρώσεις/απορρίψεις θέλουν ενεργή την «Αποστολή στο myDATA» — ενεργοποίησέ την πρώτα.", "error")
+    elif flag in ("use_accountant", "allow_send") and _accountant_missing(c):
+        pass
+    elif not (c["use_accountant"] or c["accountant_required"]) and not (c["AADE_USER_ID"] and c["AADE_SUBSCRIPTION_KEY"]):
         flash("Χωρίς credentials λογιστή χρειάζονται User ID/Subscription Key (Ρυθμίσεις εταιρείας).", "error")
     else:
         db.update_company(c["id"], c)
@@ -5920,6 +5970,7 @@ def accountant():
                 "env": request.form.get("env", "prod"),
             }
         )
+        db.set_setting("accountant_actions", ",".join(k for k, _ in ACCOUNTANT_ACTIONS if request.form.get("act_" + k)))
         flash("✔ Αποθηκεύτηκαν τα credentials λογιστή.", "ok")
         return redirect(url_for("parameters", tab="accountant"))
     return redirect(url_for("parameters", tab="accountant"))
@@ -6121,6 +6172,7 @@ _COMPANY_KEYS = (
     "AADE_VAT_NUMBER",
     "MYDATA_ENV",
     "use_accountant",
+    "accountant_required",
     "vat_period",
     "entity_type",
     "birth_year",
@@ -6212,7 +6264,7 @@ def company_share(idx):
         flash("Κωδικός αρχείου: τουλάχιστον 8 χαρακτήρες, ίδιος και στις δύο θέσεις.", "error")
         return redirect(url_for("companies"))
     c = comps[idx]
-    company = {k: c.get(k) for k in _COMPANY_KEYS} | {"use_accountant": False}
+    company = {k: c.get(k) for k in _COMPANY_KEYS} | {"use_accountant": False, "accountant_required": False}
     if not (c.get("AADE_USER_ID") and c.get("AADE_SUBSCRIPTION_KEY")):
         flash("Η εταιρεία δεν έχει δικά της κλειδιά ΑΑΔΕ: ο πελάτης θα συμπληρώσει τα δικά του από το myAADE.", "ok")
     fname = re.sub(r'[\\/:*?"<>|]+', "_", c["company_name"]).strip() or "company"
@@ -6231,7 +6283,7 @@ def companies_import_share():
         return redirect(url_for("companies"))
     try:
         company = auth.unseal(f.read(), request.form.get("password", ""))["company"]
-        payload = {k: company.get(k) for k in _COMPANY_KEYS} | {"use_accountant": False}
+        payload = {k: company.get(k) for k in _COMPANY_KEYS} | {"use_accountant": False, "accountant_required": False}
         name = (payload.get("company_name") or "").strip()
         if not name:
             raise ValueError

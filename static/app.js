@@ -36,6 +36,22 @@
     try { mini ? localStorage.setItem('navMini', '1') : localStorage.removeItem('navMini'); } catch (_) {}
   });
 
+  // ---- Εταιρεία: υποχρεωτικός λογιστής → η «Χρήση credentials λογιστή» ακολουθεί την «Αποστολή»·
+  //      ακυρώσεις/απορρίψεις μόνο με «Αποστολή» (ίδιους κανόνες κρατά και ο server) ----
+  function syncAcc(form) {
+    const req = form.querySelector('[name=accountant_required]'), acc = form.querySelector('[name=use_accountant]'),
+      send = form.querySelector('[name=allow_send]'), cancel = form.querySelector('[name=allow_cancel]');
+    if (!req || !acc || !send || !cancel) return;
+    if (req.checked) acc.checked = send.checked;
+    acc.disabled = req.checked;
+    if (!send.checked) cancel.checked = false;
+    cancel.disabled = !send.checked;
+  }
+  document.querySelectorAll('form').forEach(syncAcc);
+  document.addEventListener('change', e => {
+    if (e.target.form && ['accountant_required', 'allow_send'].includes(e.target.name)) syncAcc(e.target.form);
+  });
+
   // ---- Ημερομηνίες: εμφάνιση dd/mm/yyyy, υποβολή ISO (yyyy-mm-dd) όπως πριν ----
   // Καλείται ξανά για περιεχόμενο που φορτώνεται με AJAX (καρτέλες βιβλίων).
   window.initDates = root => {

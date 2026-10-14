@@ -248,10 +248,11 @@
       {% for flag, cls, ic, lbl in [('use_accountant', 'acc', '👤', 'Λογιστής'), ('allow_send', 'acc', '📤', 'Αποστολή'),
           ('allow_classify', 'acc', '🏷️', 'Χαρακτηρισμοί'), ('allow_new', 'acc', '➕', 'Νέα εγγραφή'), ('allow_cancel', 'danger', '⚠', 'Ακυρώσεις')] %}
       {% set on = c[flag] %}
+      {% set no_send = flag == 'allow_cancel' and not c.allow_send %}
       <form method="post" action="{{ url_for('companies_toggle', idx=idx, flag=flag) }}">
         <button type="submit" class="co-tag co-tag--{{ cls }}{{ ' is-off' if not on }}" aria-pressed="{{ 'true' if on else 'false' }}"
-                title="{{ lbl }}: {{ 'ON' if on else 'OFF' }}{{ ' (κλειδωμένη)' if c.locked and flag != 'use_accountant' else ' — κλικ για αλλαγή' }}"
-                {{ 'disabled' if c.locked and flag != 'use_accountant' }}>{{ ic }}<span class="co-tag-t">{{ lbl }}</span></button>
+                title="{{ lbl }}: {{ 'ON' if on else 'OFF' }}{{ ' (κλειδωμένη)' if c.locked and flag != 'use_accountant' else ' — κλικ για αλλαγή' }}{{ ' · υποχρεωτικός λογιστής: Λογιστής και Αποστολή αλλάζουν μαζί' if c.accountant_required and flag in ('use_accountant', 'allow_send') }}{{ ' · θέλει ενεργή την Αποστολή' if no_send }}"
+                {{ 'disabled' if (c.locked and flag != 'use_accountant') or no_send }}>{{ ic }}<span class="co-tag-t">{{ lbl }}</span></button>
       </form>
       {% endfor %}
       {% if c.locked %}<span class="co-tag co-tag--danger" title="Κλειδωμένη">🔐<span class="co-tag-t">Κλειδωμένη</span></span>{% endif %}

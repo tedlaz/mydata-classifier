@@ -40,7 +40,7 @@ class Recorder:
         return {"status": "Success", "classification_mark": "9" + mark, "errors": []}
 
 
-A.get_client = Recorder
+A.get_client = lambda *a, **k: Recorder()
 c = A.app.test_client()
 page = c.get("/invoices?view=classified").get_data(as_text=True)
 assert "⚠ θέλει διόρθωση" in page and "η γραμμή 2" in page, page

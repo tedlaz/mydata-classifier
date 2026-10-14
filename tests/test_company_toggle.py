@@ -42,3 +42,18 @@ assert len(db.list_companies()) == 2
 c.post(f"/companies/delete/{i}", data={"confirm": "123456789"})
 assert [x["company_name"] for x in db.list_companies()] == ["Δοκιμή ΑΕ"]
 print("OK delete")
+
+# Ακυρώσεις/απορρίψεις μόνο με ενεργή αποστολή: δεν ανοίγουν χωρίς αυτήν, κλείνουν μαζί της.
+co = lambda: db.list_companies()[0]  # noqa: E731
+with db.get_conn() as conn:  # κλειδώθηκε παραπάνω
+    conn.execute("UPDATE companies SET locked = 0")
+db.update_company(co()["id"], co() | {"AADE_USER_ID": "u", "allow_send": False, "allow_cancel": True})
+assert not co()["allow_cancel"]  # και απευθείας στη βάση
+c.post("/companies/toggle/0/allow_cancel")
+assert not co()["allow_cancel"]
+c.post("/companies/toggle/0/allow_send")
+c.post("/companies/toggle/0/allow_cancel")
+assert co()["allow_send"] and co()["allow_cancel"]
+c.post("/companies/toggle/0/allow_send")
+assert not co()["allow_send"] and not co()["allow_cancel"]
+print("OK cancel needs send")

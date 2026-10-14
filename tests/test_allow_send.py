@@ -22,13 +22,13 @@ import app as A  # noqa: E402
 
 A.app.testing = True  # χωρίς πύλη login (βλ. _require_login)
 comp = db.list_companies()[0]
-assert comp["allow_send"] is False and comp["allow_cancel"] is True
+assert comp["allow_send"] is False and comp["allow_cancel"] is False  # ακυρώσεις μόνο με αποστολή
 with A.app.test_request_context():
     assert not A.send_allowed()
     assert not A.cancel_allowed()  # οι ακυρώσεις θέλουν και αποστολή
 
 
-def no_client():
+def no_client(*a, **k):
     raise AssertionError("δεν πρέπει να γίνει κλήση στο myDATA")
 
 
@@ -47,7 +47,7 @@ assert "🔒 Αποστολή στο myDATA".encode() in c.get("/invoices?view=c
 assert b'name="allow_send"' in c.get("/companies").data
 
 # 3) Ενεργοποίηση → επιτρέπονται αποστολές και ακυρώσεις.
-db.update_company(1, {**comp, "allow_send": True})
+db.update_company(1, {**comp, "allow_send": True, "allow_cancel": True})  # η μετάπτωση τις έκλεισε (χωρίς αποστολή)
 with A.app.test_request_context():
     assert A.send_allowed() and A.cancel_allowed()
 assert "🔒 Αποστολή στο myDATA".encode() not in c.get("/invoices?view=classified").data

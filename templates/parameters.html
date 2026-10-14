@@ -70,6 +70,15 @@
         </label>
         {% endfor %}
       </fieldset>
+      <fieldset class="pm-acts">
+        <legend>Ενέργειες μέσω λογιστή</legend>
+        <label><input type="checkbox" checked disabled> Χαρακτηρισμοί εξόδων <small class="muted">(πάντα)</small></label>
+        {% for key, lbl in accountant_action_list %}
+        <label><input type="checkbox" name="act_{{ key }}" value="1" {{ 'checked' if key in acc_actions }}> {{ lbl }}</label>
+        {% endfor %}
+        <p class="muted small">Ισχύει για εταιρείες με «Χρήση credentials λογιστή». Οι ενέργειες χωρίς ✓ γίνονται με τα κλειδιά
+          της εταιρείας (με του λογιστή μόνο αν η εταιρεία δεν έχει δικά της).</p>
+      </fieldset>
       <div class="btn-row"><button type="submit">Αποθήκευση</button></div>
     </form>
 

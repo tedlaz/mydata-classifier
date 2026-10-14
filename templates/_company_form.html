@@ -47,9 +47,14 @@
   </div>
 </div>
 <label class="co-switch co-switch--acc">
+  <input type="checkbox" name="accountant_required" value="1" {{ 'checked' if c.accountant_required }}>
+  <span class="co-knob"></span>
+  <span><b>🧾 Υποχρεωτικός λογιστής για αποστολές</b><small>Χαρακτηρισμοί κ.λπ. μόνο με το κλειδί του λογιστή (όρια Α.1138/2020). Η «Χρήση credentials λογιστή» ανοίγει/κλείνει μαζί με την «Αποστολή». Η λήψη γίνεται με τα κλειδιά της εταιρείας, αν υπάρχουν.</small></span>
+</label>
+<label class="co-switch co-switch--acc">
   <input type="checkbox" name="use_accountant" value="1" {{ 'checked' if c.use_accountant }}>
   <span class="co-knob"></span>
-  <span><b>👤 Χρήση credentials λογιστή</b><small>Το ΑΦΜ της εταιρείας στέλνεται ως <code>entityVatNumber</code>. Τότε τα User ID / Key είναι προαιρετικά.</small></span>
+  <span><b>👤 Χρήση credentials λογιστή</b><small>Οι αποστολές γίνονται με το κλειδί του λογιστή και το ΑΦΜ της εταιρείας ως <code>entityVatNumber</code>. Τα User ID / Key της εταιρείας είναι τότε προαιρετικά (η λήψη γίνεται με αυτά, αν υπάρχουν).</small></span>
 </label>
 {% if c.locked %}<p class="co-warn">🔐 Κλειδωμένη από τον λογιστή — μόνο αναφορές. Οι άδειες δεν αλλάζουν.</p>{% endif %}
 <label class="co-switch co-switch--acc">
@@ -70,6 +75,6 @@
 <label class="co-switch co-switch--cancel">
   <input type="checkbox" name="allow_cancel" value="1" {{ 'checked' if c.allow_cancel }} {{ 'disabled' if c.locked }}>
   <span class="co-knob"></span>
-  <span><b>⚠ Επιτρέπονται ακυρώσεις &amp; απορρίψεις</b><small>Εσόδων και εξόδων. Οι ενέργειες αυτές είναι οριστικές στο myDATA.</small></span>
+  <span><b>⚠ Επιτρέπονται ακυρώσεις &amp; απορρίψεις</b><small>Εσόδων και εξόδων. Οι ενέργειες αυτές είναι οριστικές στο myDATA. Μόνο με ενεργή την «Αποστολή στο myDATA».</small></span>
 </label>
 {%- endmacro %}

@@ -1979,7 +1979,9 @@ h3{font-size:.8rem;font-weight:700;margin:0 0 10px;color:var(--ink-2);text-trans
 
 /* Επιλογή περιβάλλοντος: segmented control με native radios */
 .pm-seg{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 0;padding:0;border:0}
-.pm-seg legend{display:block;width:100%;padding:0;margin-bottom:6px;font-size:.74rem;font-weight:700;color:var(--ink-2);
+.pm-acts{display:grid;gap:6px;margin:16px 0 0;padding:0;border:0}
+.pm-acts label{display:flex;align-items:center;gap:8px;margin:0;text-transform:none;letter-spacing:0;font-size:.9rem;font-weight:600}
+.pm-acts legend,.pm-seg legend{display:block;width:100%;padding:0;margin-bottom:6px;font-size:.74rem;font-weight:700;color:var(--ink-2);
   text-transform:uppercase;letter-spacing:.06em}
 .pm-seg label{position:relative;margin:0;text-transform:none;letter-spacing:0;font-size:.9rem;font-weight:600;cursor:pointer}
 .pm-seg input{position:absolute;opacity:0;width:1px;height:1px}
