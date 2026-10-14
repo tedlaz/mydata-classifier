@@ -61,7 +61,7 @@
       <tbody>
         {% for inv in invoices %}
         {% set rule = rules.get(inv.issuer_vat or '') %}
-        <tr data-href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}" tabindex="0">
+        <tr class="{{ 'is-credit' if inv.invoice_type in credit_types }}" data-href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}" tabindex="0">
           {% if selectable %}
           <td class="row-head" data-label="">
             <div class="row-sel">

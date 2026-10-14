@@ -114,6 +114,8 @@
 .ch-meta span{font-size:.78rem;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.08);color:var(--hero-ink-hi)}
 .ch-meta .mono{font-family:var(--font-data)}
 .ch-meta .ch-series{color:#f2c265;font-weight:800;background:rgba(242,194,101,.16)}
+.ch-hero--credit .ch-type{font-weight:800;letter-spacing:.08em;color:#fff;background:var(--err)}
+.ch-hero--credit{outline:3px solid var(--err);outline-offset:-3px}
 
 .ch-mid{position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(260px,1.4fr);gap:12px;margin-top:20px}
 .ch-tot{padding:12px 16px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
@@ -180,7 +182,7 @@
 @media (prefers-reduced-motion:reduce){ .ch-hero *,.ch-hero *::before,.ch-hero *::after,#cls-form .cls-line,#cls-form .cls-line *{animation:none!important;transition:none!important} }
 </style>
 
-  <header class="ch-hero">
+  <header class="ch-hero{{ ' ch-hero--credit' if is_credit }}">
     <i class="ch-blob b1"></i><i class="ch-blob b2"></i>
     <svg width="0" height="0" style="position:absolute" aria-hidden="true">
       <defs><linearGradient id="ch-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9aa2ff"/><stop offset="1" stop-color="#4fd1a0"/></linearGradient></defs>
@@ -213,7 +215,7 @@
         <h1 title="{{ inv.issuer_name or '' }}">{{ inv.issuer_name|cpname or "Χωρίς επωνυμία" }}</h1>
         <div class="ch-meta">
           <span class="mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</span>
-          <span>{{ inv.invoice_type }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
+          <span class="ch-type">{{ inv.invoice_type }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
           <span class="mono ch-series">{{ inv.series or "" }}/{{ inv.aa or "—" }}</span>
           <span class="mono">📅 {{ '/'.join(inv.issue_date.split('-')[::-1]) if inv.issue_date else '—' }}</span>
         </div>

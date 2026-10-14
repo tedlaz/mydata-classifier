@@ -25,7 +25,7 @@
       <tbody>
         {% for inv in invoices %}
         {% set rule = rules.get(inv.issuer_vat or '') %}
-        <tr>
+        <tr class="{{ 'is-credit' if inv.invoice_type in credit_types }}">
           <td class="row-head" data-label="">
             <div class="row-sel">
               <input type="checkbox" class="sel" name="marks" value="{{ inv.mark }}" checked aria-label="Επιλογή {{ inv.mark }}">

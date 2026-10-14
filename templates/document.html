@@ -29,6 +29,9 @@
 .dc-meta span{font-size:.76rem;padding:2px 9px;border-radius:999px;background:var(--surface-3);border:1px solid var(--line-soft);color:var(--ink-2);max-width:100%}
 .dc-meta .mono{font-family:var(--font-data)}
 .dc-meta .dc-kind{font-weight:800;letter-spacing:.06em;color:var(--c);background:var(--c-soft);border-color:var(--c-line)}
+/* Πιστωτικό: ριγέ κεφαλίδα (tokens θέματος), τύπος σε κόκκινο σήμα. */
+.dc-hero--credit{border:2px solid var(--err);background:repeating-linear-gradient(-45deg,var(--surface) 0 14px,var(--err-soft) 14px 28px)}
+.dc-hero--credit .dc-meta .dc-type{font-weight:800;letter-spacing:.08em;color:#fff;background:var(--err);border-color:var(--err);font-size:.85rem;padding:3px 12px}
 .dc-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .dc-acts form{margin:0}
 /* Τρόποι πληρωμής (από το XML) */
@@ -149,7 +152,7 @@
 </style>
 
 <div class="dc" data-doc>
-<header class="dc-hero dc-hero--{{ 'in' if is_income else 'out' }}">
+<header class="dc-hero dc-hero--{{ 'in' if is_income else 'out' }}{{ ' dc-hero--credit' if is_credit }}">
   <div class="dc-nav">
     {% set back_label = 'Επιστροφή' if 'docs=' in back else 'Πίσω στο βιβλίο' %}
     <a class="btn btn-ghost btn-sm" href="{{ back }}" aria-label="{{ back_label }}">←<span class="dc-back-t"> {{ back_label }}</span></a>

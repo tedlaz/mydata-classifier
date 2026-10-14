@@ -32,7 +32,7 @@
     </thead>
     <tbody>
       {% for inv in invoices %}
-      <tr data-href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}" tabindex="0">
+      <tr class="{{ 'is-credit' if inv.invoice_type in credit_types }}" data-href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}" tabindex="0">
         <td data-label="MARK" class="mark" title="MARK {{ inv.mark }}">{{ inv.mark|mark5 }}</td>
         <td data-label="Ημ/νία" class="doc-date">{{ '/'.join(inv.issue_date[:10].split('-')[::-1]) if inv.issue_date else "—" }}{% if inv.late and view == 'unclassified' %}<span class="pill" title="Ανέβηκε στο myDATA μετά τον μήνα έκδοσης">⏰ εκπρόθεσμο</span>{% endif %}</td>
         <td data-label="Πελάτης">

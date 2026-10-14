@@ -464,6 +464,8 @@ body.is-busy .progress{opacity:1;animation:progress 8s cubic-bezier(.1,.8,.2,1) 
   font-family:var(--font-data);font-size:.8rem;font-weight:600;border:1px solid;white-space:nowrap;cursor:help}
 .type-badge.is-debit{background:var(--accent-soft);color:var(--accent-deep);border-color:var(--accent-glow)}
 .type-badge.is-credit{background:var(--err-soft);color:var(--err);border-color:var(--err-line)}
+.ledger tbody tr.is-credit{background:color-mix(in srgb,var(--err-soft) 55%,transparent);box-shadow:inset 3px 0 0 var(--err)}
+.ledger tbody tr.is-credit:hover{background:var(--err-soft)}
 .type-badge__n{font-size:.72rem;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,currentColor 16%,transparent);font-weight:700}
 
 /* Καταστάσεις */
