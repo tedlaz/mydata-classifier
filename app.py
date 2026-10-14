@@ -2762,22 +2762,18 @@ def bulk_classify():
 
 @app.route("/unclassify", methods=["POST"])
 def unclassify():
-    """Επαναφορά τοπικά χαρακτηρισμένων (μη απεσταλμένων) στα αχαρακτήριστα. Οι δικές μας
-    «Νέες εγγραφές» δεν έχουν αχαρακτήριστη μορφή → απλώς διαγράφονται."""
+    """Ακύρωση τελευταίου (τοπικού, μη απεσταλμένου) χαρακτηρισμού: βλ. db.unclassify.
+    Οι «Νέες εγγραφές» δεν αγγίζονται — διαγράφονται από τη σελίδα τους."""
     cid = _active_company_id()
     marks = request.form.getlist("marks")
     if not marks:
         flash("Δεν επιλέχθηκε κανένα παραστατικό.", "error")
         return redirect(url_for("invoices", view="classified"))
-    drafts = [m for m in marks if (db.get_document(cid, m) or {}).get("local_action") == "create"]
-    for m in drafts:
-        db.delete_document(cid, m)
     n = db.unclassify(cid, marks)
-    if drafts:
-        flash(f"🗑 Διαγράφηκαν {len(drafts)} τοπικές «Νέες εγγραφές».", "ok")
-    if n or not drafts:
-        flash(f"↩ Επέστρεψαν {n} παραστατικά στα αχαρακτήριστα.", "ok")
-    return redirect(url_for("invoices", view="unclassified" if n or not drafts else "classified"))
+    skipped = len(marks) - n
+    flash(f"↩ Ακυρώθηκε ο τελευταίος χαρακτηρισμός σε {n} παραστατικά (τα ήδη απεσταλμένα γύρισαν στον προηγούμενο χαρακτηρισμό τους)."
+          + (f" {skipped} δεν άλλαξαν (π.χ. «Νέες εγγραφές»)." if skipped else ""), "ok")
+    return redirect(url_for("invoices", view="unclassified" if n else "classified"))
 
 
 @app.route("/send", methods=["POST"])

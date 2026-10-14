@@ -62,17 +62,17 @@ assert c.get("/recurring?period=2026-02").status_code == 200
 assert c.get("/dashboard").status_code == 200
 print("OK")
 
-# 6) «Επαναφορά σε αχαρακτήριστα» σε δική μας εγγραφή → διαγράφεται.
+# 6) «Ακύρωση τελευταίου χαρακτηρισμού» σε δική μας εγγραφή → ΔΕΝ διαγράφεται (μένει πρόχειρο).
 (m3,) = [x for x in docs() if x["period"] == "2026-03"]
 c.post("/unclassify", data={"marks": [m3["mark"]]})
-assert db.get_document(cid, m3["mark"]) is None
+assert db.get_document(cid, m3["mark"])["local_action"] == "create"
 print("OK unclassify")
 
 # 7) Διαβιβασμένη εγγραφή = κανονικό παραστατικό: «Χαρακτηρισμός», όχι διαγραφή/επεξεργασία/επαναφορά ως πρόχειρο.
 (d,) = [x for x in docs() if x["period"] == "2026-02"]
 db.finalize_created(d["id"], "400000777")
 assert db.get_document(cid, "400000777")["local_action"] == "classify"
-assert "✏️ Χαρακτηρισμός" in c.get("/document/400000777").get_data(as_text=True)
+assert "✏️ Αλλαγή χαρακτηρισμού" in c.get("/document/400000777").get_data(as_text=True)
 c.post("/draft/400000777/delete")
 c.post("/unclassify", data={"marks": ["400000777"]})
 assert db.get_document(cid, "400000777")["status"] == "sent"

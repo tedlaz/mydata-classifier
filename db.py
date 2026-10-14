@@ -264,6 +264,8 @@ _DOCUMENT_COLUMNS = {
     "raw_xml": "TEXT",
     # Ημερομηνία που εντοπίστηκε ως εκπρόθεσμο («Νέα παραστατικά από MARK»).
     "late_since": "TEXT",
+    # Απεσταλμένος/επιβεβαιωμένος χαρακτηρισμός πριν τον αλλάξουμε τοπικά — η «Επαναφορά» γυρνά σε αυτόν.
+    "prev_state": "TEXT",
 }
 EXTRA_TOTALS = ("total_withheld", "total_other_taxes", "total_stamp_duty", "total_fees", "total_deductions")
 # Ανά παραστατικό, ο χαρακτηρισμός ΦΠΑ κρατά κατηγορία ΦΠΑ + ποσό ΦΠΑ της ομάδας.
@@ -1125,6 +1127,8 @@ def save_local_classification(
         if row is None:
             return False
         doc_id = row["id"]
+        if not manual:
+            _snapshot_sent(conn, doc_id)
         conn.execute("DELETE FROM classifications WHERE document_id = ?", (doc_id,))
         conn.executemany(
             "INSERT INTO classifications (document_id, line_number, classification_type, "
@@ -1149,7 +1153,7 @@ def save_local_classification(
         )
         if manual:
             conn.execute(
-                "UPDATE documents SET status = 'confirmed', source = 'manual', "
+                "UPDATE documents SET status = 'confirmed', source = 'manual', prev_state = NULL, "
                 "local_action = 'classify', draft_json = NULL, cls_json = ?, "
                 "confirmed_at = ? WHERE id = ?",
                 (
@@ -1167,20 +1171,51 @@ def save_local_classification(
     return True
 
 
+def _snapshot_sent(conn: sqlite3.Connection, doc_id: int) -> None:
+    """Πριν από τοπική αλλαγή σε ήδη απεσταλμένο/επιβεβαιωμένο: κράτα την κατάστασή του (μία φορά)."""
+    d = conn.execute(
+        "SELECT status, source, cls_json, cls_post_mode, prev_state FROM documents WHERE id = ?", (doc_id,)
+    ).fetchone()
+    if d["prev_state"] or d["status"] not in ("sent", "confirmed"):
+        return
+    rows = [dict(r) for r in conn.execute(
+        "SELECT line_number, classification_type, classification_category, vat_type, amount, "
+        "vat_category, vat_amount FROM classifications WHERE document_id = ? ORDER BY id", (doc_id,))]
+    state = {k: d[k] for k in ("status", "source", "cls_json", "cls_post_mode")} | {"rows": rows}
+    conn.execute("UPDATE documents SET prev_state = ? WHERE id = ?", (json.dumps(state, ensure_ascii=False), doc_id))
+
+
 def unclassify(company_id: int | None, marks: list[str]) -> int:
     """Αναιρεί τον τοπικό χαρακτηρισμό ή τη στημένη απόρριψη/ακύρωση (μόνο status='classified',
-    όχι πρόχειρα νέας εγγραφής): το παραστατικό επιστρέφει στα αχαρακτήριστα. Επιστρέφει πόσα άλλαξαν."""
+    όχι πρόχειρα νέας εγγραφής): το παραστατικό επιστρέφει στα αχαρακτήριστα — ή, αν ήταν ήδη
+    απεσταλμένο/επιβεβαιωμένο, στον χαρακτηρισμό που είχε (prev_state). Επιστρέφει πόσα άλλαξαν."""
     if not company_id or not marks:
         return 0
     q = ",".join("?" * len(marks))
     with get_conn() as conn:
-        ids = [r["id"] for r in conn.execute(
-            f"SELECT id FROM documents WHERE company_id = ? AND mark IN ({q}) "
+        docs = conn.execute(
+            f"SELECT id, prev_state FROM documents WHERE company_id = ? AND mark IN ({q}) "
             "AND status = 'classified' AND local_action IN ('classify', 'reject', 'cancel')",
             (company_id, *marks),
-        )]
-        for doc_id in ids:
+        ).fetchall()
+        ids = [r["id"] for r in docs]
+        for doc_id, prev in docs:
             conn.execute("DELETE FROM classifications WHERE document_id = ?", (doc_id,))
+            if prev:
+                p = json.loads(prev)
+                conn.executemany(
+                    "INSERT INTO classifications (document_id, line_number, classification_type, "
+                    "classification_category, vat_type, amount, vat_category, vat_amount) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    [(doc_id, r["line_number"], r["classification_type"], r["classification_category"],
+                      r["vat_type"], r["amount"], r["vat_category"], r["vat_amount"]) for r in p["rows"]],
+                )
+                conn.execute(
+                    "UPDATE documents SET status = ?, source = ?, cls_json = ?, cls_post_mode = ?, "
+                    "local_action = 'classify', prev_state = NULL WHERE id = ?",
+                    (p["status"], p["source"], p["cls_json"], p["cls_post_mode"], doc_id),
+                )
+                continue
             conn.execute(
                 "UPDATE documents SET status = 'unclassified', local_action = 'classify', "
                 "cls_json = '[]', cls_post_mode = 0 "
@@ -1205,7 +1240,7 @@ def mark_sent(doc_id: int, classification_mark: str | None) -> None:
     now = datetime.now(UTC).isoformat(timespec="seconds")
     with get_conn() as conn:
         conn.execute(
-            "UPDATE documents SET status = 'sent', classification_mark = ?, sent_at = ? "
+            "UPDATE documents SET status = 'sent', classification_mark = ?, sent_at = ?, prev_state = NULL "
             "WHERE id = ?",
             (classification_mark or "", now, doc_id),
         )
@@ -1231,7 +1266,7 @@ def mark_confirmed(doc_id: int, classification_mark: str | None = None) -> None:
     params.append(doc_id)
     with get_conn() as conn:
         conn.execute(
-            "UPDATE documents SET status = 'confirmed', confirmed_at = ?"
+            "UPDATE documents SET status = 'confirmed', confirmed_at = ?, prev_state = NULL"
             f"{set_mark} WHERE id = ?",
             params,
         )
@@ -1278,6 +1313,7 @@ def stage_action(company_id: int | None, mark: str, action: str) -> bool:
         ).fetchone()
         if row is None:
             return False
+        _snapshot_sent(conn, row["id"])
         conn.execute("DELETE FROM classifications WHERE document_id = ?", (row["id"],))
         conn.execute(
             "UPDATE documents SET status = 'classified', local_action = ?, "
