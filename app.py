@@ -37,6 +37,7 @@ from flask import (
     session,
     url_for,
 )
+from markupsafe import Markup
 
 import auth
 import db
@@ -749,6 +750,10 @@ def _row_to_invoice(row: dict, names: dict | None = None) -> ExpenseInvoice:
         "Πύλη myDATA" if not inv.classification_mark and inv.cls_info and row.get("kind") == "expense" else ""
     )
     inv.local_action = row.get("local_action") or "classify"
+    inv.doc_id = row.get("id")
+    inv.cls_post_mode = int(row.get("cls_post_mode") or 0)
+    # Απεσταλμένο που αλλάχτηκε τοπικά: ο προηγούμενος χαρακτηρισμός (βλ. db._snapshot_sent).
+    inv.prev_cls = json.loads(json.loads(row["prev_state"])["cls_json"] or "[]") if row.get("prev_state") else None
     inv.source = row.get("source") or "rest"
     inv.late = bool(row.get("late_since"))
     inv.extra_totals = {c: row.get(c) or 0.0 for c in db.EXTRA_TOTALS}
@@ -1641,6 +1646,12 @@ def invoices():
     items = sorted(items, key=sort_key, reverse=reverse)
     total = len(items)
     page_items, page, total_pages = paginate(items, request.args.get("page"))
+    if view == "classified":
+        for inv in page_items:
+            inv.check_errors = (
+                _line_cover_errors(inv, db.get_local_classification(inv.doc_id))
+                if inv.local_action == "classify" and not inv.cls_post_mode else []
+            )
     if view == "sent":
         for inv in page_items:
             inv.cls_rows = _cls_list_rows(inv.cls_info)
@@ -2490,42 +2501,8 @@ def submit(mark):
     # καθαρή όταν το έξοδο έχει δικαίωμα έκπτωσης ΦΠΑ (E3=καθαρή + γραμμή ΦΠΑ),
     # μικτή όταν δεν έχει. Αλλιώς σφάλματα 303 (γραμμή χωρίς χαρακτηρισμό), 304
     # (πλήθος γραμμών ≠ πλήθος χαρακτηρισμών), 306 (άθροισμα ≠ αξία γραμμής).
-    inv_lines = inv.lines or []
-    if inv_lines:
-        by_line: dict[int, list[dict]] = {}
-        for c in classifications:
-            by_line.setdefault(c["line_number"], []).append(c)
-        errors = []
-        stray = sorted(set(by_line) - {ln.line_number for ln in inv_lines})
-        if stray:
-            errors.append(
-                "γραμμές που δεν υπάρχουν στο παραστατικό: "
-                + ", ".join(map(str, stray))
-            )
-        for ln in inv_lines:
-            net_i = round(ln.net_value or 0, 2)
-            gross_i = round(net_i + (ln.vat_amount or 0), 2)
-            entries = by_line.get(ln.line_number, [])
-            if not entries:
-                errors.append(
-                    f"η γραμμή {ln.line_number} (καθαρή {net_i:.2f} €) "
-                    "δεν χαρακτηρίστηκε"
-                )
-                continue
-            e3_sum = round(
-                sum(
-                    e["amount"]
-                    for e in entries
-                    if not e["classification_type"].startswith("VAT_")
-                ),
-                2,
-            )
-            # Έλεγχος αθροίσματος μόνο όταν ξέρουμε την αξία της γραμμής (net>0).
-            if gross_i > 0 and not (net_i - 0.01 <= e3_sum <= gross_i + 0.01):
-                errors.append(
-                    f"γραμμή {ln.line_number}: άθροισμα E3 {e3_sum:.2f} € εκτός "
-                    f"εύρους {net_i:.2f}–{gross_i:.2f} €"
-                )
+    if inv.lines:
+        errors = _line_cover_errors(inv, classifications)
         if errors:
             flash(
                 "⚠ Ο χαρακτηρισμός δεν καλύπτει σωστά όλες τις γραμμές — το myDATA "
@@ -2543,6 +2520,35 @@ def submit(mark):
     if rule_from:
         save_rule(inv.issuer_vat, rule_from[0], rule_from[1], rule_from[2])
     return _saved_redirect(back, manual, inv, was_unclassified)
+
+
+def _line_cover_errors(inv, classifications: list[dict]) -> list[str]:
+    """Χαρακτηρισμός ΑΝΑ ΓΡΑΜΜΗ που θα απέρριπτε το myDATA (303/304/306): γραμμές χωρίς
+    χαρακτηρισμό ή ανύπαρκτες, άθροισμα Ε3 εκτός [καθαρή, μικτή]. Χωρίς γραμμές: [] (άγνωστες)."""
+    inv_lines = inv.lines or []
+    if not inv_lines:
+        return []
+    by_line: dict[int, list[dict]] = {}
+    for c in classifications:
+        by_line.setdefault(c["line_number"], []).append(c)
+    errors = []
+    stray = sorted(set(by_line) - {ln.line_number for ln in inv_lines}, key=str)
+    if stray:
+        errors.append("γραμμές που δεν υπάρχουν στο παραστατικό: " + ", ".join(map(str, stray)))
+    for ln in inv_lines:
+        net_i = round(ln.net_value or 0, 2)
+        gross_i = round(net_i + (ln.vat_amount or 0), 2)
+        entries = by_line.get(ln.line_number, [])
+        if not entries:
+            errors.append(f"η γραμμή {ln.line_number} (καθαρή {net_i:.2f} €) δεν χαρακτηρίστηκε")
+            continue
+        e3_sum = round(sum(e["amount"] for e in entries if not (e["classification_type"] or "").startswith("VAT_")), 2)
+        # Έλεγχος αθροίσματος μόνο όταν ξέρουμε την αξία της γραμμής (net>0).
+        if gross_i > 0 and not (net_i - 0.01 <= e3_sum <= gross_i + 0.01):
+            errors.append(
+                f"γραμμή {ln.line_number}: άθροισμα E3 {e3_sum:.2f} € εκτός εύρους {net_i:.2f}–{gross_i:.2f} €"
+            )
+    return errors
 
 
 def _unclassified_around(inv):
@@ -2797,20 +2803,59 @@ def send():
         flash("Δεν υπάρχουν χαρακτηρισμένα παραστατικά για αποστολή.", "error")
         return redirect(url_for("invoices", view="classified"))
 
+    def _fail_flash(items):
+        for mark, text, fixable in items:
+            fix = Markup(' <a href="{}">Διόρθωση</a>').format(url_for("classify", mark=mark)) if fixable else ""
+            flash(Markup("Αποτυχία - {}: {}").format(mark, text) + fix, "error")
+
+    # 1ο πέρασμα: όλοι οι τοπικοί έλεγχοι. Έστω ένα λάθος → δεν στέλνεται ΚΑΝΕΝΑ.
+    # (Απόρριψη από το ίδιο το myDATA στο 2ο πέρασμα δεν αναιρεί όσα στάλθηκαν ήδη.)
+    invalid, to_send = [], {}
+    for row in rows:
+        mark = row["mark"]
+        action = row.get("local_action") or "classify"
+        if action in ("reject", "cancel") and not cancel_allowed():
+            # η άδεια μπορεί να αφαιρέθηκε αφού μπήκε στην ουρά
+            invalid.append((mark, CANCEL_DISABLED_MSG, False))
+            continue
+        flag = {"create": "allow_new", "reject": None, "cancel": None}.get(action, "allow_classify")
+        if flag and not get_active_company().get(flag):
+            invalid.append((mark, _GATED[flag][1], False))
+            continue
+        if action not in ("reject", "cancel", "create"):  # classify / correct
+            classifications = [
+                {
+                    "line_number": e["line_number"],
+                    "classification_type": e["classification_type"],
+                    "classification_category": e["classification_category"] or "",
+                    "amount": e["amount"],
+                    "vat_category": e.get("vat_category"),
+                    "vat_amount": e.get("vat_amount"),
+                }
+                for e in db.get_local_classification(row["id"])
+            ]
+            if not classifications:
+                invalid.append((mark, "λείπει ο τοπικός χαρακτηρισμός", True))
+                continue
+            # Ίδιος έλεγχος με την ΑΑΔΕ (ο συγκεντρωτικός ελέγχεται στην αποθήκευση).
+            errors = [] if row.get("cls_post_mode") else _line_cover_errors(_row_to_invoice(row), classifications)
+            if errors:
+                invalid.append((mark, " · ".join(errors), True))
+                continue
+            to_send[mark] = classifications
+    if invalid:
+        flash(f"⛔ Η αποστολή ακυρώθηκε: {len(invalid)} από {len(rows)} παραστατικά έχουν λάθη — δεν στάλθηκε "
+              "κανένα. Διόρθωσέ τα και ξαναδοκίμασε.", "error")
+        _fail_flash(invalid)
+        return redirect(url_for("invoices", view="classified"))
+
+    # 2ο πέρασμα: αποστολή.
     client = get_client()
     ok, failed = [], []
     for row in rows:
         mark = row["mark"]
         action = row.get("local_action") or "classify"
         try:
-            if action in ("reject", "cancel") and not cancel_allowed():
-                # η άδεια μπορεί να αφαιρέθηκε αφού μπήκε στην ουρά
-                failed.append(f"{mark}: {CANCEL_DISABLED_MSG}")
-                continue
-            flag = {"create": "allow_new", "reject": None, "cancel": None}.get(action, "allow_classify")
-            if flag and not get_active_company().get(flag):
-                failed.append(f"{mark}: {_GATED[flag][1]}")
-                continue
             if action == "reject":
                 result = client.reject_invoice(mark)
             elif action == "cancel":
@@ -2834,25 +2879,12 @@ def send():
                     withheld_base=draft.get("withheld_base"),
                 )
             else:  # classify / correct
-                classifications = [
-                    {
-                        "line_number": e["line_number"],
-                        "classification_type": e["classification_type"],
-                        "classification_category": e["classification_category"] or "",
-                        "amount": e["amount"],
-                        "vat_category": e.get("vat_category"),
-                        "vat_amount": e.get("vat_amount"),
-                    }
-                    for e in db.get_local_classification(row["id"])
-                ]
-                if not classifications:
-                    failed.append(f"{mark}: λείπει ο τοπικός χαρακτηρισμός")
-                    continue
+                classifications = to_send[mark]
                 result = client.send_expenses_classification(
                     mark, classifications, post_per_invoice=bool(row.get("cls_post_mode"))
                 )
         except MyDataError as e:
-            failed.append(f"{mark}: {e}")
+            failed.append((mark, str(e), action == "classify"))
             continue
 
         if result["status"] and result["status"].lower() == "success":
@@ -2866,7 +2898,7 @@ def send():
                 db.mark_sent(row["id"], result.get("classification_mark"))
                 ok.append(mark)
         else:
-            failed.append(f"{mark}: " + "; ".join(result["errors"] or [str(result)]))
+            failed.append((mark, "; ".join(result["errors"] or [str(result)]), action == "classify"))
 
     if ok:
         flash(
@@ -2874,8 +2906,7 @@ def send():
             "αργότερα για επιβεβαίωση (το myDATA αργεί έως ~8 ώρες).",
             "ok",
         )
-    for f in failed:
-        flash(f"Αποτυχία - {f}", "error")
+    _fail_flash(failed)
 
     return redirect(url_for("invoices", view="sent" if ok else "classified"))
 

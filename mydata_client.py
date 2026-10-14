@@ -1360,6 +1360,17 @@ def build_expenses_classification_xml(
     )
 
 
+# Ελληνική εξήγηση για τα συχνά σφάλματα χαρακτηρισμού (προστίθεται στο μήνυμα της ΑΑΔΕ).
+MYDATA_ERROR_HINTS = {
+    "303": "μια γραμμή του παραστατικού έμεινε χωρίς χαρακτηρισμό",
+    "304": "το πλήθος των χαρακτηρισμένων γραμμών δεν ταιριάζει με τις γραμμές του παραστατικού",
+    "305": "ο ίδιος τύπος/κατηγορία χαρακτηρισμού δόθηκε δύο φορές στην ίδια γραμμή",
+    "306": "το άθροισμα των χαρακτηρισμών δεν ισούται με την αξία της γραμμής",
+    "337": "σε χαρακτηρισμό ανά γραμμή δεν επιτρέπονται ποσό/κατηγορία ΦΠΑ",
+    "340": "μη αποδεκτός τρόπος χαρακτηρισμού (ανά γραμμή / ανά παραστατικό)",
+}
+
+
 def parse_response_doc(content: bytes) -> dict:
     """Parse του ResponseDoc: statusCode, classificationMark ή σφάλματα."""
     root = ET.fromstring(content)
@@ -1386,5 +1397,6 @@ def parse_response_doc(content: bytes) -> dict:
         elif tag == "error":
             code = resp.findtext("{*}code") or ""
             msg = resp.findtext("{*}message") or ""
-            out["errors"].append(f"[{code}] {msg}")
+            hint = MYDATA_ERROR_HINTS.get(code)
+            out["errors"].append(f"[{code}] {msg}" + (f" — {hint}" if hint else ""))
     return out

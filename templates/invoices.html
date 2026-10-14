@@ -81,6 +81,12 @@
               {% if rule and view == 'unclassified' %}
               <span class="pill" title="{{ rule.category }} · {{ rule.type }}{% if rule.vat_type %} · {{ rule.vat_type }}{% endif %}">💡 έχει πρόταση</span>
               {% endif %}
+              {% if view == 'classified' and inv.check_errors %}
+              <span class="pill" title="Το myDATA θα το απέρριπτε: {{ inv.check_errors|join(' · ') }}">⚠ θέλει διόρθωση</span>
+              {% endif %}
+              {% if view == 'classified' and inv.prev_cls is not none %}
+              <span class="pill" title="Πριν: {{ inv.prev_cls|map(attribute='type')|select|join(' · ') or '—' }} — η «Ακύρωση τελευταίου χαρακτηρισμού» επιστρέφει σε αυτόν">↺ αλλαγή απεσταλμένου</span>
+              {% endif %}
             </span>
           </td>
           <td data-label="Τύπος">{{ type_badge(inv) }}{% if view == 'sent' %}<span class="sub-mark series">{{ inv.series or "" }}/{{ inv.aa or "" }}</span>{% endif %}</td>
