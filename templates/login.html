@@ -16,7 +16,7 @@ if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme:
 <body>
 <main class="login">
   <form method="post" class="card login-card">
-    <a class="brand"><span class="brand-mark">my</span><b>myDATA</b></a>
+    <a class="brand"><span class="brand-mark">my</span><b>myDATA <span class="app-ver" role="link" tabindex="0" title="Η εφαρμογή στο GitHub" onclick="event.preventDefault();event.stopPropagation();window.open('https://github.com/tedlaz/mydata-classifier','_blank','noopener')" onkeydown="if(event.key==='Enter')this.click()">v{{ app_version }}</span></b></a>
     {% if setup %}
     <h1>Δημιουργία χρήστη</h1>
     <p class="muted small">Ο κωδικός ξεκλειδώνει την εφαρμογή και κρυπτογραφεί τα κλειδιά myDATA.

@@ -63,7 +63,7 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
   <aside class="sidebar" id="sidebar">
     <a class="brand" href="{{ url_for('dashboard') }}">
       <span class="brand-mark" data-nav-mini title="Μάζεμα/ξεδίπλωμα μενού" role="button" aria-controls="sidebar">my</span>
-      <span><b>myDATA</b><small>Έσοδα-Έξοδα</small></span>
+      <span><b>myDATA <span class="app-ver" role="link" tabindex="0" title="Η εφαρμογή στο GitHub" onclick="event.preventDefault();event.stopPropagation();window.open('https://github.com/tedlaz/mydata-classifier','_blank','noopener')" onkeydown="if(event.key==='Enter')this.click()">v{{ app_version }}</span></b><small>Έσοδα-Έξοδα</small></span>
     </a>
     {# Ενεργή εταιρεία: πάνω πάνω στο μενού, για να φαίνεται πάντα σε ποια δουλεύεις. #}
       {% if active_company %}
@@ -129,7 +129,7 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
   <div class="content">
     <header class="topbar">
       <button type="button" class="menu-btn" data-nav-toggle aria-label="Μενού" aria-controls="sidebar">{{ icon('menu') }}</button>
-      <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark">my</span><b>myDATA</b></a>
+      <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark">my</span><b>myDATA <span class="app-ver" role="link" tabindex="0" title="Η εφαρμογή στο GitHub" onclick="event.preventDefault();event.stopPropagation();window.open('https://github.com/tedlaz/mydata-classifier','_blank','noopener')" onkeydown="if(event.key==='Enter')this.click()">v{{ app_version }}</span></b></a>
       {% if active_company %}
       <a class="who who--bar {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('companies') }}" data-co-edit
          title="Παράμετροι εταιρείας">{{ active_company.company_name }}<small>{{ active_company.MYDATA_ENV or 'prod' }}</small></a>

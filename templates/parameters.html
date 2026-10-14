@@ -152,6 +152,13 @@
         <input type="checkbox" class="pm-switch" name="auto_classify" value="1" {{ 'checked' if auto_classify }}
                aria-label="Πρόταση χαρακτηρισμού μετά τη λήψη εξόδων">
       </label>
+      <label class="pm-toggle">
+        <span class="pm-toggle-icon" aria-hidden="true">💳</span>
+        <span class="pm-toggle-text"><b>Ποσό στον τρόπο πληρωμής</b>
+          <small>Στη σελίδα του παραστατικού εμφανίζεται και το ποσό δίπλα στον τρόπο πληρωμής.</small></span>
+        <input type="checkbox" class="pm-switch" name="pay_amount" value="1" {{ 'checked' if pay_amount }}
+               aria-label="Ποσό στον τρόπο πληρωμής">
+      </label>
     </div>
     <div class="btn-row"><button type="submit">Αποθήκευση</button></div>
   </form>

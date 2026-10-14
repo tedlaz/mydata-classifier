@@ -1694,6 +1694,7 @@ def document(mark):
     return render_template(
         "document.html",
         inv=inv,
+        pay_amount=db.get_setting("pay_amount", "1") == "1",
         is_income=is_income,
         can_cancel=cancel_allowed(),
         status=row["status"],
@@ -5554,6 +5555,7 @@ def parameters():
         combinations_version=db.get_setting("combos_version"),
         stock_reports=[(k, title, desc, stock_in(k)) for k, title, _, desc in STOCK_REPORTS],
         auto_classify=db.get_setting("auto_classify") == "1",
+        pay_amount=db.get_setting("pay_amount", "1") == "1",
         sync_mode=db.get_setting("sync_mode") or "mark",
         strip_from_year=_strip_from_year(), this_year=datetime.now(ATHENS).year,
         # Όλα τα tabs αποδίδονται μαζί· η εναλλαγή γίνεται στον browser χωρίς reload.
@@ -5659,6 +5661,7 @@ def parameters_tax():
 @app.route("/parameters/automation", methods=["POST"])
 def parameters_automation():
     db.set_setting("auto_classify", "1" if request.form.get("auto_classify") else "0")
+    db.set_setting("pay_amount", "1" if request.form.get("pay_amount") else "0")
     db.set_setting("sync_mode", "dates" if request.form.get("sync_mode") == "dates" else "mark")
     y, this_year = request.form.get("strip_from_year", "").strip(), datetime.now(ATHENS).year
     if y:
@@ -6352,13 +6355,15 @@ def combinations_clear():
 # Νέα έκδοση στο GitHub; Μόνο στο Windows build (frozen): ο installer είναι για αυτό.
 # Ένας έλεγχος στην εκκίνηση, στο παρασκήνιο· offline/σφάλμα → απλώς κανένα banner.
 _update = None
+with open(os.path.join(_BASE_DIR, "pyproject.toml"), "rb") as fh:
+    APP_VERSION = tomllib.load(fh)["project"]["version"]
+app.jinja_env.globals["app_version"] = APP_VERSION
 
 
 def _check_update():
     global _update
     try:
-        with open(os.path.join(_BASE_DIR, "pyproject.toml"), "rb") as fh:
-            current = tomllib.load(fh)["project"]["version"]
+        current = APP_VERSION
         rel = requests.get("https://api.github.com/repos/tedlaz/mydata-classifier/releases/latest", timeout=5).json()
         latest = rel["tag_name"].lstrip("v")
         if tuple(map(int, latest.split("."))) > tuple(map(int, current.split("."))):

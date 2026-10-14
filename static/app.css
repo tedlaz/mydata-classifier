@@ -221,6 +221,8 @@ a{color:var(--accent)}
   font-weight:800;font-size:.9rem;color:#fff;box-shadow:0 6px 18px -6px rgba(91,102,245,.8);flex:none}
 .brand b{display:block;font-weight:800;font-size:1rem;letter-spacing:.2px;line-height:1.1}
 .brand small{display:block;font-size:.74rem;color:var(--side-ink);font-weight:500}
+.app-ver{font-size:.68rem;font-weight:500;color:var(--side-ink);letter-spacing:0;cursor:pointer}
+.app-ver:hover{text-decoration:underline}
 .nav{display:flex;flex-direction:column;gap:2px;flex:1;overflow-y:auto}
 .nav-group{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
   color:#6a729a;padding:10px 12px 4px}

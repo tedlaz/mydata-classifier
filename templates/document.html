@@ -32,10 +32,8 @@
 .dc-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .dc-acts form{margin:0}
 /* Τρόποι πληρωμής (από το XML) */
-.dc-pay{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;font-size:.8rem}
-.dc-pay > span:first-child{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
-.dc-pay .pm{display:inline-flex;gap:6px;align-items:center;padding:3px 10px;border-radius:999px;background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--ink)}
-.dc-pay .pm b{font:700 .8rem var(--font-data);color:var(--warn)}
+.dc-meta .pm{display:inline-flex;gap:6px;align-items:center;background:var(--warn-soft);border-color:var(--warn-line);color:var(--ink)}
+.dc-meta .pm b{font:700 .76rem var(--font-data);color:var(--warn)}
 
 /* Τρέχουσα κατάσταση */
 .dc-status{display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:999px;font-size:.8rem;font-weight:700;white-space:nowrap;
@@ -187,12 +185,8 @@
           <span class="mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</span>
           <span class="mono">MARK {{ inv.mark }}</span>
           <span class="dc-type" title="{{ type_desc or '' }}">{{ inv.invoice_type or "—" }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
+          {% for p in payments or [] %}<span class="pm">💳 {{ p.method }}{% if pay_amount and p.amount %} <b>{{ money(p.amount|float) }} €</b>{% endif %}</span>{% endfor %}
         </div>
-        {% if payments %}
-        <div class="dc-pay"><span>Πληρωμή</span>
-          {% for p in payments %}<span class="pm">💳 {{ p.method }}{% if p.amount %} <b>{{ money(p.amount|float) }} €</b>{% endif %}</span>{% endfor %}
-        </div>
-        {% endif %}
       </div>
     </div>
     <div class="dc-acts">
