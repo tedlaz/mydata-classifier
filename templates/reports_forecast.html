@@ -2,6 +2,7 @@
 {% block title %}Πρόβλεψη έτους {{ year }}{% endblock %}
 {% set month_done = ['Ιανουαρίου','Φεβρουαρίου','Μαρτίου','Απριλίου','Μαΐου','Ιουνίου','Ιουλίου','Αυγούστου','Σεπτεμβρίου','Οκτωβρίου','Νοεμβρίου','Δεκεμβρίου'] %}
 {% macro money(v) -%}<span class="{{ 'yneg' if v < 0 }}">{{ v|el_amount }}</span>{%- endmacro %}
+{% macro avg_note(a) -%}<span class="db-kpi-note" title="Μέσος όρος της πρόβλεψης και της προβολής της «Σύγκρισης ετών» ({{ a.cmp|el_amount }} €)">Μ.Ο. με Σύγκριση ετών: <b>{{ money(a.avg) }} €</b> (σύγκριση {{ a.cmp|el_amount }} €)</span>{%- endmacro %}
 
 {% block content %}
 <div class="yr yr2 fc">
@@ -20,18 +21,21 @@
         <small><i class="db-dot" style="background:var(--yr-in)"></i>Έσοδα έτους (πρόβλεψη)</small>
         <b><span data-num="{{ total.income }}">{{ total.income|el_amount }}</span><i>€</i></b>
         <span class="db-kpi-note">Έως τώρα {{ ytd.income|el_amount }} €{% if has_prev %} · {{ prev_year }}: {{ prev_in_total|el_amount }} €{% endif %}</span>
+        {{ avg_note(avg.income) }}
         {% if sc %}<span class="db-kpi-note">Εύρος σεναρίων {{ sc['in'].p10|el_amount }} – {{ sc['in'].p90|el_amount }} €</span>{% endif %}
       </div>
       <div class="db-kpi" style="--i:1">
         <small><i class="db-dot" style="background:var(--yr-out)"></i>Σύνολο εξόδων (πρόβλεψη)</small>
         <b><span data-num="{{ total.expense }}">{{ total.expense|el_amount }}</span><i>€</i></b>
         <span class="db-kpi-note">Λειτουργικά {{ total.op|el_amount }} € (σταθερά {{ total.fixed|el_amount }} €) · αποσβέσεις {{ total.dep|el_amount }} €</span>
+        {{ avg_note(avg.expense) }}
         {% if sc %}<span class="db-kpi-note">Εύρος σεναρίων {{ sc['out'].p10|el_amount }} – {{ sc['out'].p90|el_amount }} €</span>{% endif %}
       </div>
       <div class="db-kpi fc-kpi-res" style="--i:2">
         <small><i class="db-dot" style="background:var(--fc-res)"></i>Αποτέλεσμα έτους (πρόβλεψη){{ " ?" if stock_chk.unsure }}</small>
         <b><span class="{{ 'neg' if expected < 0 }}" data-num="{{ expected }}">{{ expected|el_amount }}</span><i>€</i></b>
         {% if plan_result is not none and sc %}<span class="db-kpi-note">Πρόγραμμα {{ plan_result|el_amount }} € · μετά τον κίνδυνο απόκλισης</span>{% endif %}
+        {{ avg_note(avg.result) }}
         {% if sc %}
         {% set span = [sc.p90 - sc.p10, 1]|max %}
         <div class="fc-range" role="img" aria-label="Χειρότερο σενάριο {{ sc.p10|el_amount }} €, αναμενόμενο {{ expected|el_amount }} €, καλύτερο {{ sc.p90|el_amount }} €">

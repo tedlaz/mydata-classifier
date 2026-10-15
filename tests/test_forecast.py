@@ -33,6 +33,14 @@ assert len(A._forecast([0.0] * 12, prev, 5, start=5)[0]) == 12  # χωρίς κ�
 f, _ = A._forecast(cur[:3] + [500.0] + [0.0] * 8, prev, 3)
 assert f[3] == 500.0 and f[4:6] == [120.0] * 2, f
 
+# 6) Σταθμισμένη εποχικότητα ετών: ένα έτος = αυτούσιο· δύο έτη = 2:1 στο σχήμα, στην κλίμακα του πιο πρόσφατου.
+assert A._blend([prev], 0, 3) == (prev, 1) and A._blend([[0.0] * 12, prev], 0, 0) == ([0.0] * 12, 0)
+old = [100.0] * 9 + [400.0] * 3  # παλαιότερο έτος: έξοδα τέλους χρήσης
+b, n = A._blend([prev, old], 0, 3)
+assert n == 2 and abs(b[0] - 100) < 1e-9 and abs(b[11] - (2 * 200 + 400) / 3) < 1e-9, b
+assert A._blend([[0.0] * 12, old], 0, 3) == (old, 1)  # πέρσι χωρίς κίνηση: το προπέρσινο
+assert "2 ετών" in A._forecast(cur, b, 3, years=2)[1]
+
 # Σενάρια: P10 ≤ P50 ≤ P90, ντετερμινιστικά με ίδιο seed, κανένα με < 2 μήνες.
 out = [50.0, 80.0, 40.0] + [0.0] * 9
 s = A._scenarios(cur, out, prev, [60.0] * 12, 3, seed=2026)
@@ -144,6 +152,7 @@ for i, kind in enumerate(("income", "expense")):  # περσινός Δεκέμ�
 kpis = lambda q: [float(v) for v in A.re.findall(r'data-num="([-\d.]+)"', c.get("/reports/forecast" + q).data.decode())[:2]]  # noqa: E731
 (i0, e0), (i1, e1) = kpis(""), kpis("?shift_in=20&shift_out=-50")
 assert i1 > i0 and e1 < e0, (i0, e0, i1, e1)
+assert c.get("/reports/forecast").data.decode().count("Μ.Ο. με Σύγκριση ετών") == 3  # έσοδα, έξοδα, αποτέλεσμα
 assert kpis("?shift_in=abc")[0] == i0 and kpis("?shift_in=-999")[0] < i0  # −999 → −100%: μόνο τα καταχωρημένα
 assert kpis("?shift_in=999")[0] == kpis("?shift_in=500")[0] > kpis("?shift_in=100")[0]  # όριο +500%
 with A.app.test_request_context("/?assets_small=1.200,50&assets_large=nan"):

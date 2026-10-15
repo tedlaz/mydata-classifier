@@ -4067,14 +4067,28 @@ def _vat_auto_carry(cid: int | None, year: int, kind: str, n: int) -> tuple[floa
 _FORECAST_STATUSES = ["unclassified", "classified", "sent", "confirmed"]
 
 
-def _forecast(cur: list[float], prev: list[float], done: int, start: int = 0) -> tuple[list[float], str]:
+def _blend(prevs: list[list[float]], start: int, done: int) -> tuple[list[float], int]:
+    """Σταθμισμένη εποχικότητα προηγούμενων ετών (prevs: πιο πρόσφατο πρώτο), βάρη 1, ½, ¼, …
+    Κάθε έτος κανονικοποιείται στο δικό του διάστημα start..done-1 και το μείγμα κλιμακώνεται στο πιο πρόσφατο
+    έτος με κίνηση σε αυτό: ο λόγος του _forecast μένει «φέτος / πέρσι». Έτη χωρίς κίνηση στο διάστημα δεν μετρούν·
+    κανένα → prevs[0] αυτούσιο. Επιστρέφει (σειρά 12 μηνών, πλήθος ετών που μέτρησαν)."""
+    ok = [(0.5 ** i, p, s) for i, p in enumerate(prevs) if (s := sum(p[start:done])) > 0]
+    if not ok:
+        return prevs[0], 0
+    scale, w_sum = ok[0][2], sum(w for w, _, _ in ok)
+    return [scale * sum(w * p[m] / s for w, p, s in ok) / w_sum for m in range(12)], len(ok)
+
+
+def _forecast(cur: list[float], prev: list[float], done: int, start: int = 0, years: int = 1) -> tuple[list[float], str]:
     """Σημειακή πρόβλεψη 12 μηνών (λίστες 0–11). Οι μήνες < done είναι πραγματικοί· οι υπόλοιποι:
     περσινός μήνας × (φετινό / περσινό ίδιου διαστήματος), αλλιώς μέσος όρος μήνα, αλλιώς πέρσι.
-    Βάση = μήνες start..done-1 (start = πρώτος μήνας με κίνηση: νέα εταιρεία ≠ μηδενικοί μήνες)."""
+    Βάση = μήνες start..done-1 (start = πρώτος μήνας με κίνηση: νέα εταιρεία ≠ μηδενικοί μήνες).
+    prev μπορεί να είναι μείγμα ετών (_blend)· years = πόσα έτη μέτρησαν, μόνο για την ετικέτα."""
     actual, prev_same, n = sum(cur[start:done]), sum(prev[start:done]), done - start
     if n > 0 and prev_same > 0:
         ratio = actual / prev_same
-        rest, label = [p * ratio for p in prev[done:]], f"εποχικότητα προηγούμενου έτους ×{ratio:.2f}".replace(".", ",")
+        src = f"{years} ετών (σταθμισμένη, βαρύτερο το πιο πρόσφατο)" if years > 1 else "προηγούμενου έτους"
+        rest, label = [p * ratio for p in prev[done:]], f"εποχικότητα {src} ×{ratio:.2f}".replace(".", ",")
     elif n > 0:
         rest, label = [actual / n] * (12 - done), "μέσος όρος ολοκληρωμένων μηνών"
     else:
@@ -4382,12 +4396,16 @@ def reports_forecast():
     start = next((m for m in range(done) if cur_in[m] or cur_op[m]), done)  # πρώτος μήνας με κίνηση
     fixed = _fixed_types(lines[year][0], done, start)
     fixed_m = lambda y: [sum(lines[y][0][m].get(t, 0.0) for t in fixed) for m in range(12)]  # noqa: E731
-    cur_fixed, prev_fixed = fixed_m(year), fixed_m(year - 1)
+    cur_fixed = fixed_m(year)
     cur_var = [o - f for o, f in zip(cur_op, cur_fixed)]
-    prev_var = [o - f for o, f in zip(prev_op, prev_fixed)]
 
-    f_in, label_in = _forecast(cur_in, prev_in, done, start)
-    f_var, label_var = _forecast(cur_var, prev_var, done, start)
+    # Εποχικότητα: έως 5 προηγούμενα έτη (όσα και η «Σύγκριση ετών»), σταθμισμένα υπέρ των πιο πρόσφατων.
+    hist = [y for y in reversed(years) if y < year][:_CMP_YEARS - 1]
+    var_of = lambda y: [o - f for o, f in zip(operating(y), fixed_m(y))]  # noqa: E731
+    base_in, n_in = _blend([col(("income", y), "net") for y in hist], start, done)
+    base_var, n_var = _blend([var_of(y) for y in hist], start, done)
+    f_in, label_in = _forecast(cur_in, base_in, done, start, n_in)
+    f_var, label_var = _forecast(cur_var, base_var, done, start, n_var)
     forecast_in, forecast_var = round(sum(f_in[done:]), 2), round(sum(f_var[done:]), 2)  # στατιστικά, για τα placeholder
     if planned_in is not None or planned_out is not None:
         # Χαρακτηρισμένα / ολοκληρωμένα παραστατικά των μηνών της πρόβλεψης: προστίθενται στο πρόγραμμα.
@@ -4417,7 +4435,7 @@ def reports_forecast():
 
     f_op = [round(a + b, 2) for a, b in zip(f_var, f_fixed)]
     res_m = [round(i - o - d, 2) for i, o, d in zip(f_in, f_op, dep_m)]
-    sc = _scenarios(cur_in, cur_var, prev_in, prev_var, done, seed=year, start=start,
+    sc = _scenarios(cur_in, cur_var, base_in, base_var, done, seed=year, start=start,
                     fixed=[a + b for a, b in zip(f_fixed, dep_m)],
                     known_in=f_in if planned_in is not None else None, known_out=f_var if planned_out is not None else None,
                     vol_in=vol["vol_in"] / 100, vol_out=vol["vol_out"] / 100, shift_in=k_in, shift_out=k_out)
@@ -4454,6 +4472,11 @@ def reports_forecast():
         w_rate = 0.0
     f_income = round(sum(f_in[done:]), 2)
     w_future = round(max(w_rate, 0.0) * f_income, 2)
+    # Μέσος όρος με την προβολή της «Σύγκρισης ετών» (μέτρα Ε3, ημερήσια αναλογία) — μόνο για ενημέρωση.
+    # ponytail: ξαναϋπολογίζει όλη τη σύγκριση (6 έτη παραστατικών)· cache αν η σελίδα αργήσει.
+    cmp = {c["key"]: c["proj_v"] for c in _compare(cid, now)["cums"]}
+    avg = {k: {"cmp": cmp[c], "avg": round((v + cmp[c]) / 2, 2)}
+           for k, c, v in (("income", "in", total["income"]), ("expense", "out", total["expense"]), ("result", "res", expected))}
     tax = _year_tax(cid, year, total["result"], round(sum(cur_w[:done]) + w_future, 2))
     tax.update(withheld_forecast=w_future, withheld_rate=round(w_rate * 100, 2), forecast_income=f_income,
                withheld_span=f"{_GREEK_MONTHS[0]}–{_GREEK_MONTHS[done - 1]}" if done else "")
@@ -4464,7 +4487,7 @@ def reports_forecast():
         has_prev=any(prev_in) or any(prev_op), prev_in_total=tot(prev_in), errors=errors,
         fixed=[{"label": EXPENSE_TYPES.get(t, t), "code": t, "amount": v} for t, v in fixed.items()],
         dep=dep, form={k: request.args.get(k, "") for k in ("assets_small", "assets_large", "planned_income", "planned_expense")},
-        forecast_in=forecast_in, forecast_var=forecast_var, vol=vol, shift=shift,
+        forecast_in=forecast_in, forecast_var=forecast_var, vol=vol, shift=shift, avg=avg,
         depr_limit=_DEPR_FULL_LIMIT, depr_rate=round(_DEPR_RATE * 100),
         chart=_forecast_chart(f_in, [o + d for o, d in zip(f_op, dep_m)], res_m, prev_res, sc, done, dep["total"]),
     )
