@@ -158,7 +158,8 @@ el = lambda s: float(s.replace(".", "").replace(",", "."))  # noqa: E731
 st, cm = (el(v) for v in A.re.findall(r"Μ\.Ο\. από: στατιστική <span[^>]*>([-\d.,]+)</span> € · Σύγκριση ετών <span[^>]*>([-\d.,]+)<", page)[0])
 assert abs(kpis("")[0] - (st + cm) / 2) < 1, (kpis("")[0], st, cm)  # η σελίδα = μέσος όρος
 assert kpis("?shift_in=abc")[0] == i0 and kpis("?shift_in=-999")[0] < i0  # −999 → −100%: μόνο τα καταχωρημένα
-assert kpis("?shift_in=999")[0] == kpis("?shift_in=500")[0] > kpis("?shift_in=100")[0]  # όριο +500%
+assert kpis("?shift_in=999")[0] == kpis("?shift_in=200")[0] > kpis("?shift_in=100")[0]  # όριο εσόδων +200%
+assert kpis("?shift_out=999")[1] == kpis("?shift_out=500")[1] > kpis("?shift_out=200")[1]  # όριο εξόδων +500%
 with A.app.test_request_context("/?assets_small=1.200,50&assets_large=nan"):
     assert A._amount_arg("assets_small") == 1200.5 and A._amount_arg("x") is None
     try:
