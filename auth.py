@@ -68,6 +68,32 @@ def rewrap(username: str, password: str) -> dict:
     return _wrap(username, password, _raw)
 
 
+def _rk(secret: str) -> Fernet:
+    return Fernet(base64.urlsafe_b64encode(hashlib.sha256(b"remember:" + secret.encode()).digest()))
+
+
+def remember(secret: str, salt: str) -> str:
+    """«Να με θυμάσαι»: token για cookie = salt:DEK με κλειδί από το FLASK_SECRET.
+    Χρειάζονται βάση + .env + cookie μαζί· νέο salt (αλλαγή κωδικού/reset) το ακυρώνει."""
+    if _raw is None:
+        raise RuntimeError("Η εφαρμογή είναι κλειδωμένη.")
+    return _rk(secret).encrypt(salt.encode() + b":" + _raw).decode()
+
+
+def recall(token: str | None, secret: str, rec: dict) -> bool:
+    """Ξεκλείδωμα από το token του remember· αν ήδη ξεκλείδωτη, μόνο έλεγχος (ίδιο nonce)."""
+    try:
+        salt, dek = _rk(secret).decrypt((token or "").encode()).split(b":", 1)
+    except (InvalidToken, ValueError):
+        return False
+    if not hmac.compare_digest(salt, rec["auth_salt"].encode()):
+        return False
+    if _raw is not None:
+        return hmac.compare_digest(dek, _raw)
+    _set(dek)
+    return True
+
+
 def lock() -> None:
     global _dek, _raw, nonce
     _dek = _raw = nonce = None

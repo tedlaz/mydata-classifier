@@ -100,11 +100,25 @@ def _require_login():
     (με το FLASK_SECRET) δεν αρκεί, και κάθε restart ζητά ξανά κωδικό."""
     if app.testing or request.endpoint in _PUBLIC:
         return None
-    if db.get_auth() is None:
+    rec = db.get_auth()
+    if rec is None:
         return redirect(url_for("setup"))
     if not auth.unlocked() or session.get("auth") != auth.nonce:
-        return redirect(url_for("login"))
+        if not auth.recall(request.cookies.get(_REMEMBER), app.secret_key, rec):
+            return redirect(url_for("login"))
+        session["auth"] = auth.nonce
     return None
+
+
+_REMEMBER = "mydata_remember"
+
+
+def _remember(resp, salt: str, force: bool = False):
+    """«Να με θυμάσαι σε αυτή τη συσκευή»: cookie 30 ημερών (βλ. auth.remember)."""
+    if force or request.form.get("remember"):
+        resp.set_cookie(_REMEMBER, auth.remember(app.secret_key, salt), max_age=30 * 86400,
+                        httponly=True, samesite="Lax")
+    return resp
 
 
 # Ενέργειες που ανοίγει μόνο η αντίστοιχη ρύθμιση της εταιρείας (Παράμετροι) — κλειστές εξ ορισμού.
@@ -149,11 +163,12 @@ def setup():
         if not user or not pw or pw != request.form.get("password2"):
             flash("Όνομα χρήστη υποχρεωτικό· κωδικός υποχρεωτικός, ίδιος και στις δύο θέσεις.", "error")
         else:
-            db.save_auth(auth.create(user, pw))
+            rec = auth.create(user, pw)
+            db.save_auth(rec)
             db.encrypt_credentials()
             session["auth"] = auth.nonce
             flash("✔ Δημιουργήθηκε ο χρήστης. Τα κλειδιά myDATA αποθηκεύονται πλέον κρυπτογραφημένα.", "ok")
-            return redirect(url_for("dashboard"))
+            return _remember(redirect(url_for("dashboard")), rec["auth_salt"])
     return render_template("login.html", setup=True)
 
 
@@ -166,7 +181,7 @@ def login():
         if auth.unlock(request.form.get("username", "").strip(), request.form.get("password", ""), rec):
             session["auth"] = auth.nonce
             db.encrypt_credentials()  # π.χ. plaintext κλειδιά από εισαγωγή/παλιό backup
-            return redirect(url_for("dashboard"))
+            return _remember(redirect(url_for("dashboard")), rec["auth_salt"])
         flash("Λάθος όνομα χρήστη ή κωδικός.", "error")
     return render_template("login.html", setup=False)
 
@@ -175,7 +190,9 @@ def login():
 def logout():
     session.clear()
     auth.lock()
-    return redirect(url_for("login"))
+    resp = redirect(url_for("login"))
+    resp.delete_cookie(_REMEMBER)
+    return resp
 
 
 @app.route("/password", methods=["POST"])
@@ -191,9 +208,11 @@ def change_password():
     if not user or not pw or pw != request.form.get("password2"):
         flash("Όνομα χρήστη υποχρεωτικό· νέος κωδικός υποχρεωτικός, ίδιος και στις δύο θέσεις.", "error")
         return back
-    db.save_auth(auth.rewrap(user, pw))
+    new = auth.rewrap(user, pw)
+    db.save_auth(new)
     flash("✔ Άλλαξε ο κωδικός.", "ok")
-    return back
+    # νέο salt → οι άλλες συσκευές ξεχνιούνται· αυτή μένει θυμημένη αν ήταν
+    return _remember(back, new["auth_salt"], force=bool(request.cookies.get(_REMEMBER)))
 
 
 @app.template_filter("mark5")

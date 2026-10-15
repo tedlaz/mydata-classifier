@@ -73,6 +73,31 @@ assert not auth.unlock("ted", "correct horse", rec)
 assert auth.unlock("ted", "new password", rec)
 assert db.list_companies()[0]["AADE_SUBSCRIPTION_KEY"] == "SECRETKEY"
 
+# 6β) «Να με θυμάσαι»: επιβιώνει restart, πλαστό cookie / αλλαγή κωδικού / κλείδωμα το ακυρώνουν.
+def cookie(client):
+    ck = client.get_cookie(A._REMEMBER)
+    return ck.value if ck else None
+
+
+m = A.app.test_client()
+m.post("/login", data={"username": "ted", "password": "new password", "remember": "1"})
+assert cookie(m)
+auth.lock()  # ≈ restart
+assert m.get("/companies").status_code == 200 and auth.unlocked()
+assert c.get("/").headers["Location"].endswith("/login")  # χωρίς remember → login
+f = A.app.test_client()
+f.set_cookie(A._REMEMBER, "forged")
+assert f.get("/").headers["Location"].endswith("/login")
+old = cookie(m)
+m.post("/password", data={"username": "ted", "old_password": "new password", "password": "pw3", "password2": "pw3"})
+assert cookie(m) != old  # η ίδια συσκευή μένει θυμημένη με νέο token
+f.set_cookie(A._REMEMBER, old)
+auth.lock()
+assert f.get("/").headers["Location"].endswith("/login")  # παλιό token: άκυρο
+assert m.get("/companies").status_code == 200
+m.post("/logout")
+assert not cookie(m) and m.get("/").headers["Location"].endswith("/login")
+
 # 7) Reset: σβήνει χρήστη και κλειδιά, κρατά τις εταιρείες.
 db.reset_auth()
 assert db.get_auth() is None and raw() == ("", "")

@@ -36,6 +36,11 @@ if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme:
     <label for="password2">Επανάληψη κωδικού</label>
     <input type="password" id="password2" name="password2" autocomplete="new-password" required>
     {% endif %}
+    <label class="co-switch">
+      <input type="checkbox" name="remember" value="1">
+      <span class="co-knob"></span>
+      <span><b>Να με θυμάσαι σε αυτή τη συσκευή</b><small>30 μέρες, και μετά από επανεκκίνηση.</small></span>
+    </label>
     <div class="btn-row"><button type="submit">{{ 'Δημιουργία' if setup else 'Είσοδος' }}</button></div>
   </form>
 </main>
