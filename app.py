@@ -18,7 +18,7 @@ import time
 import tomllib
 import unicodedata
 from datetime import date, datetime, timedelta
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qsl, quote, urlparse
 from zoneinfo import ZoneInfo
 
 import requests
@@ -1622,46 +1622,13 @@ def sync():
     )
 
 
-@app.route("/invoices")
-def invoices():
-    view = request.args.get("view")
-    if view not in _EXPENSE_VIEWS:
-        # Χωρίς (έγκυρο) tab: το πρώτο με εγγραφές· κανένα → Ανάκτηση / Διαγραφή.
-        cid = _active_company_id()
-        by_status = db.count_by_status(cid, "expense") if cid else {}
-        view = next((v for v in _EXPENSE_VIEWS if by_status.get(v)), None)
-        if view is None:
-            return redirect(url_for("sync", scope="expense"))
-    sort = request.args.get("sort", "date")
-    direction = request.args.get("dir", "desc" if view in ("classified", "confirmed") else "asc")
-    reverse = direction == "desc"
-    filters = {
-        "mark": request.args.get("f_mark", "").strip(),
-        "date": request.args.get("f_date", "").strip(),
-        "issuer": request.args.get("f_issuer", "").strip(),
-        "type": request.args.get("f_type", "").strip(),
-    }
-
-    def sort_key(inv):
-        if sort == "name":
-            return (inv.issuer_name or inv.issuer_vat or "").lower()
-        if sort == "total":
-            return inv.total_gross or 0.0
-        # default: ημερομηνία (ISO μορφή yyyy-mm-dd, ταξινομείται σωστά ως string)
-        return inv.issue_date or ""
-
-    cid = _active_company_id()
-    names = db.load_names()  # κοινός χάρτης vat→επωνυμία (μία φορά)
-    buckets = {v: [] for v in _EXPENSE_VIEWS}
-    for row in db.get_documents(cid, "expense") if cid else []:
-        buckets.setdefault(row["status"], []).append(_row_to_invoice(row, names))
-
-    counts = {v: len(buckets[v]) for v in _EXPENSE_VIEWS}
-
-    # Φιλτράρισμα (substring, case-insensitive όπου έχει νόημα).
-    items = buckets.get(view, [])
-    fm = filters["mark"]
-    fi, ft = filters["issuer"].lower(), filters["type"]
+def _book_list(items: list, args, view: str) -> tuple[list, str, str, dict]:
+    """Φίλτρα + ταξινόμηση λίστας βιβλίου εσόδων/εξόδων από τα query args.
+    Κοινό για τις λίστες και για το προηγούμενο/επόμενο της αναλυτικής προβολής."""
+    sort = args.get("sort", "date")
+    direction = args.get("dir", "desc" if view in ("classified", "confirmed") else "asc")
+    filters = {k: args.get(f"f_{k}", "").strip() for k in ("mark", "date", "issuer", "type")}
+    fm, fi, ft = filters["mark"], filters["issuer"].lower(), filters["type"]
 
     # Ημερομηνία: υποστηρίζει εύρος «από:έως» με μερικές ημερομηνίες (YYYY, YYYY-MM,
     # YYYY-MM-DD), π.χ. «2026-03:2026-04» ή «2026-03-12:2026-05-15». Χωρίς «:» =
@@ -1677,29 +1644,51 @@ def invoices():
         else:
             date_sub = fd
 
+    def _match(inv):
+        if fm and fm not in (inv.mark or ""):
+            return False
+        d = inv.issue_date or ""
+        if date_sub and date_sub not in d:
+            return False
+        if date_lo and d < date_lo:
+            return False
+        if date_hi and d > date_hi:
+            return False
+        if fi and fi not in ((inv.issuer_name or "") + " " + (inv.issuer_vat or "")).lower():
+            return False
+        return not (ft and ft not in (inv.invoice_type or ""))
+
+    def sort_key(inv):
+        if sort == "name":
+            return (inv.issuer_name or inv.issuer_vat or "").lower()
+        if sort == "total":
+            return inv.total_gross or 0.0
+        # default: ημερομηνία (ISO μορφή yyyy-mm-dd, ταξινομείται σωστά ως string)
+        return inv.issue_date or ""
+
     if any(filters.values()):
-
-        def _match(inv):
-            if fm and fm not in (inv.mark or ""):
-                return False
-            d = inv.issue_date or ""
-            if date_sub and date_sub not in d:
-                return False
-            if date_lo and d < date_lo:
-                return False
-            if date_hi and d > date_hi:
-                return False
-            if (
-                fi
-                and fi
-                not in ((inv.issuer_name or "") + " " + (inv.issuer_vat or "")).lower()
-            ):
-                return False
-            return not (ft and ft not in (inv.invoice_type or ""))
-
         items = [i for i in items if _match(i)]
+    return sorted(items, key=sort_key, reverse=direction == "desc"), sort, direction, filters
 
-    items = sorted(items, key=sort_key, reverse=reverse)
+
+@app.route("/invoices")
+def invoices():
+    view = request.args.get("view")
+    if view not in _EXPENSE_VIEWS:
+        # Χωρίς (έγκυρο) tab: το πρώτο με εγγραφές· κανένα → Ανάκτηση / Διαγραφή.
+        cid = _active_company_id()
+        by_status = db.count_by_status(cid, "expense") if cid else {}
+        view = next((v for v in _EXPENSE_VIEWS if by_status.get(v)), None)
+        if view is None:
+            return redirect(url_for("sync", scope="expense"))
+    cid = _active_company_id()
+    names = db.load_names()  # κοινός χάρτης vat→επωνυμία (μία φορά)
+    buckets = {v: [] for v in _EXPENSE_VIEWS}
+    for row in db.get_documents(cid, "expense") if cid else []:
+        buckets.setdefault(row["status"], []).append(_row_to_invoice(row, names))
+
+    counts = {v: len(buckets[v]) for v in _EXPENSE_VIEWS}
+    items, sort, direction, filters = _book_list(buckets.get(view, []), request.args, view)
     total = len(items)
     page_items, page, total_pages = paginate(items, request.args.get("page"))
     if view == "classified":
@@ -1752,12 +1741,20 @@ def document(mark):
     # Έσοδα: ίδια προβολή, μόνο για ανάγνωση (χωρίς ενέργειες χαρακτηρισμού/απόρριψης).
     is_income = row.get("kind") == "income"
     back = request.args.get("back") or url_for("income" if is_income else "invoices", view=row["status"])
-    # Προηγούμενο/επόμενο: ίδιο βιβλίο και κατάσταση, με την προεπιλεγμένη σειρά του βιβλίου (ημ/νία).
+    # Προηγούμενο/επόμενο: ίδιο βιβλίο και κατάσταση. Αν ήρθαμε από τη λίστα του βιβλίου,
+    # ακολουθεί τα φίλτρα/ταξινόμησή της (από το back URL)· αλλιώς σειρά ημ/νίας.
+    names = db.load_names()
     siblings = sorted(
-        (r for r in db.get_documents(cid, row["kind"], [row["status"]])),
-        key=lambda r: (r["issue_date"] or "", r["mark"]),
+        (_row_to_invoice(r, names) for r in db.get_documents(cid, row["kind"], [row["status"]])),
+        key=lambda i: (i.issue_date or "", i.mark),
     )
-    pos = next(i for i, r in enumerate(siblings) if r["mark"] == mark)
+    bu = urlparse(back)
+    if bu.path == url_for("income" if is_income else "invoices"):
+        args = dict(parse_qsl(bu.query))
+        listed = _book_list(siblings, args, args.get("view") or row["status"])[0]
+        if any(i.mark == mark for i in listed):  # αλλιώς (π.χ. άλλαξε κατάσταση) → όλα
+            siblings = listed
+    pos = next(i for i, r in enumerate(siblings) if r.mark == mark)
     return render_template(
         "document.html",
         inv=inv,
@@ -1774,8 +1771,8 @@ def document(mark):
         tax_types=TAX_TYPES,
         tax_categories=TAX_CATEGORIES,
         back=back,
-        prev_mark=siblings[pos - 1]["mark"] if pos > 0 else None,
-        next_mark=siblings[pos + 1]["mark"] if pos + 1 < len(siblings) else None,
+        prev_mark=siblings[pos - 1].mark if pos > 0 else None,
+        next_mark=siblings[pos + 1].mark if pos + 1 < len(siblings) else None,
         pos=pos + 1,
         siblings_total=len(siblings),
         line_cls=line_cls,
@@ -2985,23 +2982,6 @@ def income():
         view = next((v for v in _INCOME_VIEWS if by_status.get(v)), None)
         if view is None:
             return redirect(url_for("sync", scope="income"))
-    sort = request.args.get("sort", "date")
-    direction = request.args.get("dir", "desc" if view == "classified" else "asc")
-    reverse = direction == "desc"
-    filters = {
-        "mark": request.args.get("f_mark", "").strip(),
-        "date": request.args.get("f_date", "").strip(),
-        "issuer": request.args.get("f_issuer", "").strip(),
-        "type": request.args.get("f_type", "").strip(),
-    }
-
-    def sort_key(inv):
-        if sort == "name":
-            return (inv.issuer_name or inv.issuer_vat or "").lower()
-        if sort == "total":
-            return inv.total_gross or 0.0
-        return inv.issue_date or ""
-
     cid = _active_company_id()
     names = db.load_names()
     buckets = {v: [] for v in _INCOME_VIEWS}
@@ -3009,43 +2989,7 @@ def income():
         buckets.setdefault(row["status"], []).append(_row_to_invoice(row, names))
 
     counts = {v: len(buckets[v]) for v in _INCOME_VIEWS}
-
-    items = buckets.get(view, [])
-    fm = filters["mark"]
-    fi, ft = filters["issuer"].lower(), filters["type"]
-    fd = filters["date"]
-    date_sub = date_lo = date_hi = None
-    if fd:
-        if ":" in fd:
-            lo, _, hi = fd.partition(":")
-            date_lo = lo.strip() or None
-            date_hi = (hi.strip() + "~") if hi.strip() else None
-        else:
-            date_sub = fd
-
-    if any(filters.values()):
-
-        def _match(inv):
-            if fm and fm not in (inv.mark or ""):
-                return False
-            d = inv.issue_date or ""
-            if date_sub and date_sub not in d:
-                return False
-            if date_lo and d < date_lo:
-                return False
-            if date_hi and d > date_hi:
-                return False
-            if (
-                fi
-                and fi
-                not in ((inv.issuer_name or "") + " " + (inv.issuer_vat or "")).lower()
-            ):
-                return False
-            return bool(not (ft and ft not in (inv.invoice_type or "")))
-
-        items = [i for i in items if _match(i)]
-
-    items = sorted(items, key=sort_key, reverse=reverse)
+    items, sort, direction, filters = _book_list(buckets.get(view, []), request.args, view)
     total = len(items)
     page_items, page, total_pages = paginate(items, request.args.get("page"))
 
