@@ -17,13 +17,18 @@
       {% endfor %}
     </div>
   </div>
-  <div class="co-span">
+  <div>
     <label>Περίοδος ΦΠΑ</label>
     <div class="co-seg">
       {% for v, lbl in [('m', '📅 Μηνιαία'), ('q', '🗓 Τριμηνιαία')] %}
       <label><input type="radio" name="vat_period" value="{{ v }}" {{ 'checked' if (c.vat_period or 'm') == v }}><span>{{ lbl }}</span></label>
       {% endfor %}
     </div>
+  </div>
+  <div>
+    <label for="{{ pfx }}-check">Έλεγχος ανάκτησης κάθε <small class="muted">(ώρες)</small></label>
+    <input type="number" id="{{ pfx }}-check" name="mark_check_hours" value="{{ '%g' % (c.mark_check_hours or 1) }}" min="0.01" step="any" placeholder="π.χ. 0.5 = 30 λεπτά"
+           title="Υπενθύμιση ανάκτησης στο «Τι εκκρεμεί» όταν η ανάκτηση από MARK είναι ενεργή">
   </div>
   <div class="co-entity">
     <label>Μορφή</label>

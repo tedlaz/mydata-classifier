@@ -1111,6 +1111,8 @@ def sync_run():
             flash(("Έσοδα: " if kind == "income" else "Έξοδα: ") * (scope == "both")
                   + f"Κανένα παραστατικό ακόμα — το επόμενο πάτημα ξαναελέγχει από "
                   f"{_gr(db.get_setting(_start_key(kind, cid)))}.", "ok")
+    if request.form.get("back") == "dashboard":  # «Ανάκτηση παραστατικών» από τον Πίνακα ελέγχου
+        return redirect(url_for("dashboard"))
     if not ok or action == "delete":
         return redirect(url_for("sync", scope=scope, date_from=request.form["date_from"],
                                 date_to=request.form["date_to"], tab=request.form.get("tab")))
@@ -4797,9 +4799,9 @@ def dashboard():
     # Εκκρεμότητες: μόνο όσες έχουν κάτι να γίνει.
     todos = []
 
-    def todo(n, icon, title, sub, href, tone):
-        if n:
-            todos.append({"n": n, "icon": icon, "title": title, "sub": sub, "href": href, "tone": tone})
+    def todo(n, icon, title, sub, href, tone, post=None):
+        if n:  # post: πεδία φόρμας → POST στο href αντί για σύνδεσμο
+            todos.append({"n": n, "icon": icon, "title": title, "sub": sub, "href": href, "tone": tone, "post": post})
 
     todo(exp_st.get("unclassified", 0), "🧾", "Έξοδα προς χαρακτηρισμό", "Αχαρακτήριστα παραστατικά εξόδων",
          url_for("invoices", view="unclassified"), "warn")
@@ -4816,6 +4818,23 @@ def dashboard():
         todo(f"{max(vat['days'], 0)}ημ", "🏛", f"Δήλωση ΦΠΑ {vat['label']}",
              f"Προθεσμία {vat['due']}" + (f" · προς καταβολή {format_el_amount(vat['pay'])} €" if vat["pay"] else ""),
              url_for("reports_vat", year=vat["year"], period=vat["period"]), "err" if vat["days"] <= 5 else "warn")
+    # «Νέα από MARK» ενεργό: ανάκτηση όταν πέρασε το διάστημα ελέγχου της εταιρείας από την τελευταία.
+    # ponytail: μετράει κάθε ανάκτηση (και διαστήματος), όχι μόνο «Νέα από MARK»
+    ready = [k for k in ("income", "expense") if _mark_ready(cid, k)]
+    ats = [datetime.strptime(a, "%d/%m/%Y %H:%M").replace(tzinfo=ATHENS) for k in ready
+           if (a := json.loads(db.get_setting(_last_key(k, cid)) or "{}").get("at"))]
+    due = min(ats) + timedelta(hours=company["mark_check_hours"]) if ats else None
+    fetch_due_in = None  # δευτερόλεπτα ως τη λήξη: η σελίδα ανανεώνει τότε το «Τι εκκρεμεί»
+    if ready and (len(ats) < len(ready) or now >= due):
+        seen = len(ats) == len(ready)
+        mins = int((now - min(ats)).total_seconds() // 60) if seen else 0
+        todo((f"{mins // 60}ώ" if mins >= 60 else f"{mins}λ") if seen else "—", "🔄", "Ανάκτηση παραστατικών",
+             (f"Τελευταία ανάκτηση {min(ats):%d/%m/%Y %H:%M}" if seen else "Καμία ανάκτηση ακόμα") + " · Νέα από MARK",
+             url_for("sync_run"), "info",
+             {"scope": "both" if len(ready) == 2 else ready[0], "action": "new", "back": "dashboard",
+              "date_from": today.isoformat(), "date_to": today.isoformat()})  # ημερομηνίες: μόνο για την επικύρωση
+    elif ready:
+        fetch_due_in = int((due - now).total_seconds()) + 1
 
     # Πρόοδος βιβλίου εξόδων (donut): τμήματα ως stroke-dasharray σε κύκλο pathLength=100.
     exp_total = sum(exp_st.values())
@@ -4854,7 +4873,7 @@ def dashboard():
                db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year)),  # όπως στο συνοπτικό βιβλίο
         stock_chk=_stock_check(cid, year),
         vat_periods=_yearly_vat_periods(rows, year, now),
-        todos=todos, segments=segments,
+        todos=todos, fetch_due_in=fetch_due_in, segments=segments,
         exp_total=exp_total, done_pct=done_pct, inc_st=inc_st,
         top=top, top_max=max([t["amount"] for t in top] + [1]),
         top_in=top_in, top_in_max=max([t["amount"] for t in top_in] + [1]), recent=recent,
@@ -5767,6 +5786,7 @@ def companies_add():
         "allow_classify": bool(request.form.get("allow_classify")),
         "allow_new": bool(request.form.get("allow_new")),
         "vat_period": request.form.get("vat_period", "m"),
+        "mark_check_hours": request.form.get("mark_check_hours", 1),
         **_company_tax_fields(),
     }
     if _accountant_missing(data):
@@ -5812,6 +5832,7 @@ def companies_update(idx):
         "allow_classify": bool(request.form.get("allow_classify")),
         "allow_new": bool(request.form.get("allow_new")),
         "vat_period": request.form.get("vat_period", "m"),
+        "mark_check_hours": request.form.get("mark_check_hours", 1),
         **_company_tax_fields(),
     }
     if _accountant_missing(data):
@@ -6139,6 +6160,7 @@ _COMPANY_KEYS = (
     "vat_period",
     "entity_type",
     "birth_year",
+    "mark_check_hours",
 )
 
 

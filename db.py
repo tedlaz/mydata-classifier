@@ -139,7 +139,8 @@ CREATE TABLE IF NOT EXISTS companies (
     locked                 INTEGER DEFAULT 0,  -- από «αρχείο πελάτη»: άδειες μόνιμα κλειστές
     vat_period             TEXT DEFAULT 'm',  -- περίοδος ΦΠΑ: 'm' = μηνιαία, 'q' = τριμηνιαία
     entity_type            TEXT DEFAULT 'legal',  -- 'sole' = ατομική, 'legal' = νομικό πρόσωπο
-    birth_year             INTEGER               -- ατομική: έτος γέννησης (μειωμένοι συντελεστές νέων)
+    birth_year             INTEGER,              -- ατομική: έτος γέννησης (μειωμένοι συντελεστές νέων)
+    mark_check_hours       REAL DEFAULT 1        -- «Ανάκτηση παραστατικών» στο «Τι εκκρεμεί» κάθε Ν ώρες (δεκαδικό)
 );
 
 CREATE TABLE IF NOT EXISTS accountant (
@@ -365,6 +366,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE companies ADD COLUMN entity_type TEXT DEFAULT 'legal'")
         if "birth_year" not in comp_cols:
             conn.execute("ALTER TABLE companies ADD COLUMN birth_year INTEGER")
+        if "mark_check_hours" not in comp_cols:
+            conn.execute("ALTER TABLE companies ADD COLUMN mark_check_hours REAL DEFAULT 1")
         if "rule_post_mode" not in {r["name"] for r in conn.execute("PRAGMA table_info(supplier_rules)")}:
             conn.execute("ALTER TABLE supplier_rules ADD COLUMN rule_post_mode INTEGER DEFAULT 0")
         cls_cols = {r["name"] for r in conn.execute("PRAGMA table_info(classifications)")}
@@ -440,6 +443,7 @@ def _company_row_to_dict(row: sqlite3.Row) -> dict:
         "vat_period": "q" if row["vat_period"] == "q" else "m",
         "entity_type": "sole" if row["entity_type"] == "sole" else "legal",
         "birth_year": row["birth_year"],
+        "mark_check_hours": check_hours(row["mark_check_hours"]),
     }
 
 
@@ -449,6 +453,15 @@ def birth_year(value) -> int | None:
     except (TypeError, ValueError):
         return None
     return y if 1900 <= y <= datetime.now().year else None
+
+
+def check_hours(value) -> float:
+    """Διάστημα ελέγχου ανάκτησης σε ώρες, δεκαδικό (π.χ. 0,5 = μισή ώρα)· μη έγκυρο ή ≤ 0 → 1."""
+    try:
+        h = float(str(value).replace(",", "."))
+    except (TypeError, ValueError):
+        return 1.0
+    return h if 0 < h < 10_000 else 1.0  # και nan/inf
 
 
 def list_companies() -> list[dict]:
@@ -467,7 +480,7 @@ def add_company(data: dict) -> int | None:
         cur = conn.execute(
             "INSERT INTO companies (company_name, aade_user_id, aade_subscription_key, "
             "aade_vat_number, mydata_env, use_accountant, allow_cancel, allow_send, allow_classify, allow_new, vat_period, entity_type, birth_year, "
-            "accountant_required) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "accountant_required, mark_check_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 data.get("company_name", ""),
                 auth.enc(data.get("AADE_USER_ID") or ""),
@@ -483,6 +496,7 @@ def add_company(data: dict) -> int | None:
                 "sole" if data.get("entity_type") == "sole" else "legal",
                 birth_year(data.get("birth_year")),
                 1 if data.get("accountant_required") else 0,
+                check_hours(data.get("mark_check_hours")),
             ),
         )
         return cur.lastrowid
@@ -493,7 +507,7 @@ def update_company(company_id: int, data: dict) -> None:
         conn.execute(
             "UPDATE companies SET company_name = ?, aade_user_id = ?, "
             "aade_subscription_key = ?, aade_vat_number = ?, mydata_env = ?, "
-            "vat_period = ?, entity_type = ?, birth_year = ?, accountant_required = ?, "
+            "vat_period = ?, entity_type = ?, birth_year = ?, accountant_required = ?, mark_check_hours = ?, "
             # υποχρεωτικός λογιστής σε κλειδωμένη: κλειστή η αποστολή → κλειστός και ο λογιστής
             "use_accountant = CASE WHEN locked AND ? THEN 0 ELSE ? END, "
             # κλειδωμένη εταιρεία (αρχείο πελάτη): οι άδειες μένουν κλειστές, ό,τι κι αν έρθει
@@ -510,6 +524,7 @@ def update_company(company_id: int, data: dict) -> None:
                 "sole" if data.get("entity_type") == "sole" else "legal",
                 birth_year(data.get("birth_year")),
                 1 if data.get("accountant_required") else 0,
+                check_hours(data.get("mark_check_hours")),
                 1 if data.get("accountant_required") else 0,
                 _use_accountant(data),
                 1 if data.get("allow_cancel") and data.get("allow_send") else 0,  # ακυρώσεις/απορρίψεις μόνο με αποστολή

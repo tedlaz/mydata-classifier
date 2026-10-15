@@ -24,17 +24,22 @@
 .db-todo.info{--t:var(--info);--t-soft:var(--info-soft)}
 .db-todo.err{--t:var(--err);--t-soft:var(--err-soft)}
 .db-todo.muted{--t:var(--muted);--t-soft:var(--surface-3)}
-.db-todo a{display:grid;grid-template-columns:44px minmax(0,1fr) auto 18px;align-items:center;gap:14px;padding:11px 14px;border-radius:13px;
+.db-todo :is(a,button){display:grid;grid-template-columns:44px minmax(0,1fr) auto 18px;align-items:center;gap:14px;padding:11px 14px;border-radius:13px;
   border:1px solid var(--line);background:var(--surface-2);color:var(--ink);text-decoration:none;position:relative;overflow:hidden;
   transition:transform .2s var(--ease),border-color .2s,box-shadow .2s}
-.db-todo a::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--t)}
-.db-todo a:hover{transform:translateX(4px);border-color:var(--t);box-shadow:var(--shadow)}
+.db-todo button{width:100%;font:inherit;text-align:left;cursor:pointer}
+.db-todo :is(a,button)::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--t)}
+.db-todo :is(a,button):hover{transform:translateX(4px);border-color:var(--t);box-shadow:var(--shadow)}
+/* Ανάκτηση σε εξέλιξη: το κείμενο μένει, ο spinner στη θέση του βέλους. */
+.db-todo button.is-loading{color:var(--ink) !important}
+.db-todo button.is-loading .db-todo-go{visibility:hidden}
+.db-todo button.is-loading::after{right:15px;top:calc(50% - 8px);border-color:var(--t) var(--t) transparent transparent}
 .db-todo-ic{display:grid;place-items:center;width:44px;height:44px;border-radius:12px;background:var(--t-soft);font-size:1.25rem}
 .db-todo b{display:block;font-size:.93rem}
 .db-todo small{color:var(--muted);font-size:.8rem}
 .db-todo-n{font:800 1.35rem var(--font-data);color:var(--t)}
 .db-todo-go{color:var(--muted);transition:transform .2s var(--ease)}
-.db-todo a:hover .db-todo-go{transform:translateX(3px);color:var(--t)}
+.db-todo :is(a,button):hover .db-todo-go{transform:translateX(3px);color:var(--t)}
 .db-todo.err .db-todo-ic{animation:db-pulse 1.8s ease-in-out infinite}
 @keyframes db-slide{from{opacity:0;transform:translateX(-12px)}}
 @keyframes db-pulse{50%{box-shadow:0 0 0 7px transparent}0%{box-shadow:0 0 0 0 var(--err-line)}}
@@ -186,18 +191,26 @@
 
   {# ================= Εκκρεμότητες + ΦΠΑ ================= #}
   <div class="db-grid">
-    <section class="card db-card" style="--i:0">
+    <section class="card db-card" style="--i:0" id="db-todos"{% if fetch_due_in %} data-due-in="{{ fetch_due_in }}"{% endif %}>
       <div class="card-head"><h2>✅ Τι εκκρεμεί {% if todos %}<span class="db-count">{{ todos|length }}</span>{% endif %}</h2></div>
       {% if todos %}
       <ul class="db-todos">
         {% for t in todos %}
-        <li class="db-todo {{ t.tone }}" style="--i:{{ loop.index0 }}">
-          <a href="{{ t.href }}">
+        {% set body %}
             <span class="db-todo-ic">{{ t.icon }}</span>
             <span><b>{{ t.title }}</b><small>{{ t.sub }}</small></span>
             <span class="db-todo-n" {% if t.n is number %}data-int="{{ t.n }}"{% endif %}>{{ t.n }}</span>
             <span class="db-todo-go" aria-hidden="true">→</span>
-          </a>
+        {% endset %}
+        <li class="db-todo {{ t.tone }}" style="--i:{{ loop.index0 }}">
+          {% if t.post %}
+          <form method="post" action="{{ t.href }}">
+            {% for k, v in t.post.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+            <button type="submit">{{ body }}</button>
+          </form>
+          {% else %}
+          <a href="{{ t.href }}">{{ body }}</a>
+          {% endif %}
         </li>
         {% endfor %}
       </ul>
@@ -447,4 +460,22 @@
 
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Ανοιχτός Πίνακας ελέγχου: όταν λήξει το διάστημα ελέγχου ανάκτησης, ξαναφέρνει μόνο το «Τι εκκρεμεί».
+(function watch() {
+  const card = document.getElementById('db-todos');
+  const secs = +(card && card.dataset.dueIn);
+  if (!secs) return;
+  setTimeout(async () => {
+    try {
+      const html = await (await fetch(location.href, {cache: 'no-store'})).text();
+      const fresh = new DOMParser().parseFromString(html, 'text/html').getElementById('db-todos');
+      if (fresh) { card.replaceWith(fresh); watch(); }
+    } catch (e) { /* εκτός σύνδεσης: μένει ως έχει */ }
+  }, Math.min(secs * 1000, 2 ** 31 - 1));  // όριο setTimeout (~24 ημέρες)
+})();
+</script>
 {% endblock %}
