@@ -582,7 +582,14 @@ def get_client(send: str = "") -> MyDataClient:
 # αποτελέσματος), στο <data>/mydata_logs/<εταιρεία>. Κρατιούνται τα τελευταία MYDATA_LOG_KEEP ανά εταιρεία.
 # ------------------------------------------------------------------ #
 _LOG_DIR = os.path.join(_DATA_DIR, "mydata_logs")
-MYDATA_LOG_KEEP = 10
+MYDATA_LOG_KEEP = 10  # προεπιλογή· η ρύθμιση keep_mydata_logs (Παράμετροι → Αντίγραφα ασφαλείας) υπερισχύει
+
+
+def _log_keep() -> int:
+    try:
+        return max(1, int(db.get_setting("keep_mydata_logs") or MYDATA_LOG_KEEP))
+    except ValueError:
+        return MYDATA_LOG_KEEP
 _LOG_SECRET = ("pass", "key", "token", "secret")
 _log_dir = lambda cid: os.path.join(_LOG_DIR, str(cid or 0))  # noqa: E731
 
@@ -622,7 +629,7 @@ def _write_mydata_log(response):
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, f"{datetime.now(ATHENS):%Y%m%d-%H%M%S-%f}.log"), "w", encoding="utf-8") as f:
             f.write(text + "\n")
-        for old in sorted(os.listdir(d))[:-MYDATA_LOG_KEEP]:
+        for old in sorted(os.listdir(d))[:-_log_keep()]:
             os.remove(os.path.join(d, old))
     except OSError:
         app.logger.exception("mydata log")  # το log δεν σταματά ποτέ την ενέργεια
@@ -1600,7 +1607,7 @@ def sync():
         tab=tab,
         mode=mode,
         logs=mydata_logs(cid) if tab == "log" else [],
-        log_keep=MYDATA_LOG_KEEP,
+        log_keep=_log_keep(),
         mark_pending=bool(cid) and not all(_mark_ready(cid, k) for k in kinds),
         range_date_from=request.args.get("date_from", "").strip()
         or (f"{now.year - 1}-01-01" if tab == "past" else now.strftime("%Y-01-01" if empty else "%Y-%m-01")),
@@ -5649,6 +5656,7 @@ def parameters():
         # Όλα τα tabs αποδίδονται μαζί· η εναλλαγή γίνεται στον browser χωρίς reload.
         safety_backups=db.list_safety_backups(),
         keep_safety=db.keep_safety(),
+        keep_logs=_log_keep(),
         backup_info=_backup_info(),
         tax_scales=_tax_scales(),
         tax_custom=bool(db.get_setting("tax_scales")),
@@ -6390,16 +6398,20 @@ def backup_safety_delete():
 
 @app.route("/parameters/backup", methods=["POST"])
 def parameters_backup():
+    # Μία από τις δύο φόρμες της καρτέλας: αντίγραφα πριν από επαναφορά ή logs myDATA.
+    logs = "keep_mydata_logs" in request.form
+    key, top = ("keep_mydata_logs", 500) if logs else ("keep_safety_backups", 50)
     try:
-        n = int(request.form.get("keep_safety_backups", ""))
+        n = int(request.form.get(key, ""))
     except ValueError:
         n = 0
-    if not 1 <= n <= 50:
-        flash("Το πλήθος αντιγράφων πρέπει να είναι από 1 έως 50.", "error")
+    if not 1 <= n <= top:
+        flash(f"Το πλήθος πρέπει να είναι από 1 έως {top}.", "error")
         return redirect(url_for("parameters", tab="backup"))
-    db.set_setting("keep_safety_backups", n)
-    db.prune_safety_backups()
-    flash(f"✔ Θα κρατούνται τα {n} τελευταία αντίγραφα.", "ok")
+    db.set_setting(key, n)
+    if not logs:
+        db.prune_safety_backups()
+    flash(f"✔ Θα κρατούνται τα {n} τελευταία {'logs' if logs else 'αντίγραφα'}.", "ok")
     return redirect(url_for("parameters", tab="backup"))
 
 

@@ -1,5 +1,48 @@
-{# Πεδία εταιρείας: ίδια για προσθήκη και διόρθωση. #}
+{# Πεδία εταιρείας: ίδια για προσθήκη και διόρθωση. Δύο καρτέλες (radio + CSS :has): νέα εταιρεία → «Βασικά», αλλιώς «Λειτουργία». #}
 {% macro company_fields(c, pfx) -%}
+{% set first = 'main' if c.company_name else 'basic' %}
+<div class="co-tabs">
+<div class="tabs">
+  {% for v, lbl in [('main', '⚙️ Λειτουργία & άδειες'), ('basic', '🏢 Βασικά στοιχεία')] %}
+  <label class="tab"><input type="radio" name="_tab_{{ pfx }}" value="{{ v }}" {{ 'checked' if first == v }}>{{ lbl }}</label>
+  {% endfor %}
+</div>
+<div class="co-pane co-pane--main">
+<div class="co-fields">
+  <div>
+    <label for="{{ pfx }}-check">Έλεγχος ανάκτησης κάθε <small class="muted">(ώρες)</small></label>
+    <input type="number" id="{{ pfx }}-check" name="mark_check_hours" value="{{ '%g' % (c.mark_check_hours or 1) }}" min="0.01" step="any" placeholder="π.χ. 0.5 = 30 λεπτά"
+           title="Υπενθύμιση ανάκτησης στο «Τι εκκρεμεί» όταν η ανάκτηση από MARK είναι ενεργή">
+  </div>
+</div>
+<label class="co-switch co-switch--acc">
+  <input type="checkbox" name="use_accountant" value="1" {{ 'checked' if c.use_accountant }}>
+  <span class="co-knob"></span>
+  <span><b>👤 Χρήση credentials λογιστή</b><small>Οι αποστολές γίνονται με το κλειδί του λογιστή και το ΑΦΜ της εταιρείας ως <code>entityVatNumber</code>. Τα User ID / Key της εταιρείας είναι τότε προαιρετικά (η λήψη γίνεται με αυτά, αν υπάρχουν).</small></span>
+</label>
+{% if c.locked %}<p class="co-warn">🔐 Κλειδωμένη από τον λογιστή — μόνο αναφορές. Οι άδειες δεν αλλάζουν.</p>{% endif %}
+<label class="co-switch co-switch--acc">
+  <input type="checkbox" name="allow_send" value="1" {{ 'checked' if c.allow_send }} {{ 'disabled' if c.locked }}>
+  <span class="co-knob"></span>
+  <span><b>📤 Επιτρέπεται αποστολή στο myDATA</b><small>Χαρακτηρισμοί, νέες εγγραφές, ακυρώσεις/απορρίψεις. Χωρίς αυτό η εφαρμογή μόνο διαβάζει από την ΑΑΔΕ.</small></span>
+</label>
+<label class="co-switch co-switch--acc">
+  <input type="checkbox" name="allow_classify" value="1" {{ 'checked' if c.allow_classify }} {{ 'disabled' if c.locked }}>
+  <span class="co-knob"></span>
+  <span><b>🏷️ Επιτρέπονται χαρακτηρισμοί</b><small>Χαρακτηρισμός, μαζικός και αυτόματος χαρακτηρισμός παραστατικών εξόδων.</small></span>
+</label>
+<label class="co-switch co-switch--acc">
+  <input type="checkbox" name="allow_new" value="1" {{ 'checked' if c.allow_new }} {{ 'disabled' if c.locked }}>
+  <span class="co-knob"></span>
+  <span><b>➕ Επιτρέπεται «Νέα εγγραφή»</b><small>Αυτοτιμολογούμενα έξοδα, πρότυπα και μηνιαίες εγγραφές.</small></span>
+</label>
+<label class="co-switch co-switch--cancel">
+  <input type="checkbox" name="allow_cancel" value="1" {{ 'checked' if c.allow_cancel }} {{ 'disabled' if c.locked }}>
+  <span class="co-knob"></span>
+  <span><b>⚠ Επιτρέπονται ακυρώσεις &amp; απορρίψεις</b><small>Εσόδων και εξόδων. Οι ενέργειες αυτές είναι οριστικές στο myDATA. Μόνο με ενεργή την «Αποστολή στο myDATA».</small></span>
+</label>
+</div>
+<div class="co-pane co-pane--basic">
 <div class="co-fields">
   <div class="co-span">
     <label for="{{ pfx }}-name">Επωνυμία</label>
@@ -17,18 +60,13 @@
       {% endfor %}
     </div>
   </div>
-  <div>
+  <div class="co-span">
     <label>Περίοδος ΦΠΑ</label>
     <div class="co-seg">
       {% for v, lbl in [('m', '📅 Μηνιαία'), ('q', '🗓 Τριμηνιαία')] %}
       <label><input type="radio" name="vat_period" value="{{ v }}" {{ 'checked' if (c.vat_period or 'm') == v }}><span>{{ lbl }}</span></label>
       {% endfor %}
     </div>
-  </div>
-  <div>
-    <label for="{{ pfx }}-check">Έλεγχος ανάκτησης κάθε <small class="muted">(ώρες)</small></label>
-    <input type="number" id="{{ pfx }}-check" name="mark_check_hours" value="{{ '%g' % (c.mark_check_hours or 1) }}" min="0.01" step="any" placeholder="π.χ. 0.5 = 30 λεπτά"
-           title="Υπενθύμιση ανάκτησης στο «Τι εκκρεμεί» όταν η ανάκτηση από MARK είναι ενεργή">
   </div>
   <div class="co-entity">
     <label>Μορφή</label>
@@ -56,30 +94,6 @@
   <span class="co-knob"></span>
   <span><b>🧾 Υποχρεωτικός λογιστής για αποστολές</b><small>Χαρακτηρισμοί κ.λπ. μόνο με το κλειδί του λογιστή (όρια Α.1138/2020). Η «Χρήση credentials λογιστή» ανοίγει/κλείνει μαζί με την «Αποστολή». Η λήψη γίνεται με τα κλειδιά της εταιρείας, αν υπάρχουν.</small></span>
 </label>
-<label class="co-switch co-switch--acc">
-  <input type="checkbox" name="use_accountant" value="1" {{ 'checked' if c.use_accountant }}>
-  <span class="co-knob"></span>
-  <span><b>👤 Χρήση credentials λογιστή</b><small>Οι αποστολές γίνονται με το κλειδί του λογιστή και το ΑΦΜ της εταιρείας ως <code>entityVatNumber</code>. Τα User ID / Key της εταιρείας είναι τότε προαιρετικά (η λήψη γίνεται με αυτά, αν υπάρχουν).</small></span>
-</label>
-{% if c.locked %}<p class="co-warn">🔐 Κλειδωμένη από τον λογιστή — μόνο αναφορές. Οι άδειες δεν αλλάζουν.</p>{% endif %}
-<label class="co-switch co-switch--acc">
-  <input type="checkbox" name="allow_send" value="1" {{ 'checked' if c.allow_send }} {{ 'disabled' if c.locked }}>
-  <span class="co-knob"></span>
-  <span><b>📤 Επιτρέπεται αποστολή στο myDATA</b><small>Χαρακτηρισμοί, νέες εγγραφές, ακυρώσεις/απορρίψεις. Χωρίς αυτό η εφαρμογή μόνο διαβάζει από την ΑΑΔΕ.</small></span>
-</label>
-<label class="co-switch co-switch--acc">
-  <input type="checkbox" name="allow_classify" value="1" {{ 'checked' if c.allow_classify }} {{ 'disabled' if c.locked }}>
-  <span class="co-knob"></span>
-  <span><b>🏷️ Επιτρέπονται χαρακτηρισμοί</b><small>Χαρακτηρισμός, μαζικός και αυτόματος χαρακτηρισμός παραστατικών εξόδων.</small></span>
-</label>
-<label class="co-switch co-switch--acc">
-  <input type="checkbox" name="allow_new" value="1" {{ 'checked' if c.allow_new }} {{ 'disabled' if c.locked }}>
-  <span class="co-knob"></span>
-  <span><b>➕ Επιτρέπεται «Νέα εγγραφή»</b><small>Αυτοτιμολογούμενα έξοδα, πρότυπα και μηνιαίες εγγραφές.</small></span>
-</label>
-<label class="co-switch co-switch--cancel">
-  <input type="checkbox" name="allow_cancel" value="1" {{ 'checked' if c.allow_cancel }} {{ 'disabled' if c.locked }}>
-  <span class="co-knob"></span>
-  <span><b>⚠ Επιτρέπονται ακυρώσεις &amp; απορρίψεις</b><small>Εσόδων και εξόδων. Οι ενέργειες αυτές είναι οριστικές στο myDATA. Μόνο με ενεργή την «Αποστολή στο myDATA».</small></span>
-</label>
+</div>
+</div>
 {%- endmacro %}

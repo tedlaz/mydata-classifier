@@ -2180,6 +2180,14 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 /* Έτος γέννησης: μόνο για ατομική· χωρίς αυτό η «Μορφή» πιάνει όλη τη γραμμή, ώστε User ID / Key να μένουν μαζί. */
 .co-fields:not(:has(input[name=entity_type][value=sole]:checked)) .co-birth{display:none}
 .co-fields:not(:has(input[name=entity_type][value=sole]:checked)) .co-entity{grid-column:1/-1}
+/* Καρτέλες: radio μέσα στο .tab· φαίνεται μόνο το pane της επιλεγμένης. */
+.co-tabs .tabs{margin:14px 0 0}
+.co-tabs .tab{cursor:pointer;margin:0;text-transform:none;letter-spacing:0}
+.co-tabs .tab input{position:absolute;opacity:0;pointer-events:none}
+.co-tabs .tab:has(input:checked){background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(20,26,46,.12)}
+.co-tabs .tab:has(input:focus-visible){outline:2px solid var(--accent)}
+.co-tabs:has(.tab input[value=main]:checked) .co-pane--basic,
+.co-tabs:has(.tab input[value=basic]:checked) .co-pane--main{display:none}
 .co-warn{display:flex;gap:12px;align-items:center;padding:12px 16px;border-radius:12px;margin-top:18px;
   background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);font-weight:600}
 /* ---------- Φόρμες (dialog) ---------- */

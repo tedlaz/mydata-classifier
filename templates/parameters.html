@@ -329,6 +329,20 @@
     </div>
     {% endif %}
   </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Ιστορικό συνδέσεων myDATA</h2>
+      <form method="post" action="{{ url_for('parameters_backup') }}" class="bk-keep">
+        <label for="keep-logs">Κρατούνται</label>
+        <input id="keep-logs" type="number" name="keep_mydata_logs" min="1" max="500" value="{{ keep_logs }}" required>
+        <span class="muted small">τελευταία</span>
+        <button type="submit" class="btn-ghost btn-sm">Αποθήκευση</button>
+      </form>
+    </div>
+    <p class="muted prose">Logs ενεργειών που επικοινώνησαν με το myDATA, ανά εταιρεία (Ανάκτηση → «Ιστορικό συνδέσεων»).
+      Τα παλαιότερα διαγράφονται αυτόματα στην επόμενη ενέργεια.</p>
+  </div>
 </section>
 
 <section class="pm-panel" id="pm-combinations" role="tabpanel" aria-labelledby="pm-tab-combinations" {{ 'hidden' if active_tab != 'combinations' }}>

@@ -257,6 +257,16 @@
     });
   }
 
+  // Καρτέλες φόρμας εταιρείας: πεδίο που δεν περνά τον έλεγχο → άνοιξε την καρτέλα του·
+  // κλείσιμο διαλόγου → πίσω στην αρχική καρτέλα.
+  document.addEventListener('invalid', e => {
+    const pane = e.target.closest('.co-pane');
+    if (pane) pane.parentElement.querySelector('.tab input[value=' + (pane.matches('.co-pane--main') ? 'main' : 'basic') + ']').checked = true;
+  }, true);
+  document.addEventListener('close', e => {
+    e.target.querySelectorAll?.('.co-tabs .tab input').forEach(i => { i.checked = i.defaultChecked; });
+  }, true);
+
   // Επιστροφή με «Πίσω» (bfcache): καθάρισε τις ενδείξεις.
   addEventListener('pageshow', () => {
     document.body.classList.remove('is-busy', 'nav-open');
