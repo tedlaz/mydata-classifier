@@ -152,7 +152,11 @@ for i, kind in enumerate(("income", "expense")):  # περσινός Δεκέμ�
 kpis = lambda q: [float(v) for v in A.re.findall(r'data-num="([-\d.]+)"', c.get("/reports/forecast" + q).data.decode())[:2]]  # noqa: E731
 (i0, e0), (i1, e1) = kpis(""), kpis("?shift_in=20&shift_out=-50")
 assert i1 > i0 and e1 < e0, (i0, e0, i1, e1)
-assert c.get("/reports/forecast").data.decode().count("Μ.Ο. με Σύγκριση ετών") == 3  # έσοδα, έξοδα, αποτέλεσμα
+page = c.get("/reports/forecast").data.decode()
+assert page.count("Μ.Ο. από: στατιστική") == 3  # έσοδα, έξοδα, αποτέλεσμα
+el = lambda s: float(s.replace(".", "").replace(",", "."))  # noqa: E731
+st, cm = (el(v) for v in A.re.findall(r"Μ\.Ο\. από: στατιστική <span[^>]*>([-\d.,]+)</span> € · Σύγκριση ετών <span[^>]*>([-\d.,]+)<", page)[0])
+assert abs(kpis("")[0] - (st + cm) / 2) < 1, (kpis("")[0], st, cm)  # η σελίδα = μέσος όρος
 assert kpis("?shift_in=abc")[0] == i0 and kpis("?shift_in=-999")[0] < i0  # −999 → −100%: μόνο τα καταχωρημένα
 assert kpis("?shift_in=999")[0] == kpis("?shift_in=500")[0] > kpis("?shift_in=100")[0]  # όριο +500%
 with A.app.test_request_context("/?assets_small=1.200,50&assets_large=nan"):

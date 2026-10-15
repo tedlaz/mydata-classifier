@@ -4406,6 +4406,27 @@ def reports_forecast():
     base_var, n_var = _blend([var_of(y) for y in hist], start, done)
     f_in, label_in = _forecast(cur_in, base_in, done, start, n_in)
     f_var, label_var = _forecast(cur_var, base_var, done, start, n_var)
+    dep = _depreciation(asset_lines, year, small, large, months=12 - done)  # αγορά μέσα στον τρέχοντα μήνα
+    dep_m = [0.0] * 11 + [dep["total"]]  # απόσβεση: εγγραφή τέλους χρήσης
+
+    # Βάση όλης της σελίδας: μέσος όρος (σύνολα έτους) της στατιστικής πρόβλεψης και της προβολής της «Σύγκρισης ετών».
+    # Η διαφορά μοιράζεται στους μήνες πρόβλεψης αναλογικά (σχήμα της εποχικότητας)· στα έξοδα μόνο στα μεταβλητά
+    # (σταθερά και αποσβέσεις μένουν). Ποτέ κάτω από τα ήδη καταχωρημένα. Πρόγραμμα / sliders εφαρμόζονται μετά.
+    # ponytail: ξαναϋπολογίζει όλη τη σύγκριση (6 έτη παραστατικών)· cache αν η σελίδα αργήσει.
+    cmp = {c["key"]: c["proj_v"] for c in _compare(cid, now)["cums"]}
+    stat_in = round(sum(f_in), 2)
+    stat_out = round(sum(f_var) + sum(cur_fixed[:done]) + sum(fixed.values()) * (12 - done) + dep["total"], 2)
+    avg = {"income": {"stat": stat_in, "cmp": cmp["in"]}, "expense": {"stat": stat_out, "cmp": cmp["out"]},
+           "result": {"stat": round(stat_in - stat_out, 2), "cmp": cmp["res"]}}
+
+    def to_avg(f, cur, stat, other):
+        rest = sum(f[done:])
+        k = max(rest + (other - stat) / 2, 0.0) / rest if rest > 0 else 1.0
+        f[done:] = [round(max(v * k, c), 2) for v, c in zip(f[done:], cur[done:])]
+        return k
+
+    k_avg_in, k_avg_out = to_avg(f_in, cur_in, stat_in, cmp["in"]), to_avg(f_var, cur_var, stat_out, cmp["out"])
+    label_in, label_var = (lb + " · μέσος όρος με τη Σύγκριση ετών" for lb in (label_in, label_var))
     forecast_in, forecast_var = round(sum(f_in[done:]), 2), round(sum(f_var[done:]), 2)  # στατιστικά, για τα placeholder
     if planned_in is not None or planned_out is not None:
         # Χαρακτηρισμένα / ολοκληρωμένα παραστατικά των μηνών της πρόβλεψης: προστίθενται στο πρόγραμμα.
@@ -4430,15 +4451,13 @@ def reports_forecast():
     k_in, k_out = 1 + shift["shift_in"] / 100, 1 + shift["shift_out"] / 100
     for f, cur, k in ((f_in, cur_in, k_in), (f_var, cur_var, k_out), (f_fixed, cur_fixed, k_out)):
         f[done:] = [round(max(v * k, c), 2) for v, c in zip(f[done:], cur[done:])]
-    dep = _depreciation(asset_lines, year, small, large, months=12 - done)  # αγορά μέσα στον τρέχοντα μήνα
-    dep_m = [0.0] * 11 + [dep["total"]]  # απόσβεση: εγγραφή τέλους χρήσης
 
     f_op = [round(a + b, 2) for a, b in zip(f_var, f_fixed)]
     res_m = [round(i - o - d, 2) for i, o, d in zip(f_in, f_op, dep_m)]
     sc = _scenarios(cur_in, cur_var, base_in, base_var, done, seed=year, start=start,
                     fixed=[a + b for a, b in zip(f_fixed, dep_m)],
                     known_in=f_in if planned_in is not None else None, known_out=f_var if planned_out is not None else None,
-                    vol_in=vol["vol_in"] / 100, vol_out=vol["vol_out"] / 100, shift_in=k_in, shift_out=k_out)
+                    vol_in=vol["vol_in"] / 100, vol_out=vol["vol_out"] / 100, shift_in=k_in * k_avg_in, shift_out=k_out * k_avg_out)
     rows = [{"label": f"{_GREEK_MONTHS[m]} {year}", "income": f_in[m], "fixed": f_fixed[m], "variable": f_var[m],
              "dep": dep_m[m], "expense": round(f_op[m] + dep_m[m], 2), "balance": res_m[m], "forecast": m >= done,
              "planned": m >= done and (planned_in is not None or planned_out is not None)}
@@ -4472,11 +4491,6 @@ def reports_forecast():
         w_rate = 0.0
     f_income = round(sum(f_in[done:]), 2)
     w_future = round(max(w_rate, 0.0) * f_income, 2)
-    # Μέσος όρος με την προβολή της «Σύγκρισης ετών» (μέτρα Ε3, ημερήσια αναλογία) — μόνο για ενημέρωση.
-    # ponytail: ξαναϋπολογίζει όλη τη σύγκριση (6 έτη παραστατικών)· cache αν η σελίδα αργήσει.
-    cmp = {c["key"]: c["proj_v"] for c in _compare(cid, now)["cums"]}
-    avg = {k: {"cmp": cmp[c], "avg": round((v + cmp[c]) / 2, 2)}
-           for k, c, v in (("income", "in", total["income"]), ("expense", "out", total["expense"]), ("result", "res", expected))}
     tax = _year_tax(cid, year, total["result"], round(sum(cur_w[:done]) + w_future, 2))
     tax.update(withheld_forecast=w_future, withheld_rate=round(w_rate * 100, 2), forecast_income=f_income,
                withheld_span=f"{_GREEK_MONTHS[0]}–{_GREEK_MONTHS[done - 1]}" if done else "")

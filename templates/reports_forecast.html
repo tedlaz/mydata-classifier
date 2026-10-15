@@ -2,7 +2,7 @@
 {% block title %}Πρόβλεψη έτους {{ year }}{% endblock %}
 {% set month_done = ['Ιανουαρίου','Φεβρουαρίου','Μαρτίου','Απριλίου','Μαΐου','Ιουνίου','Ιουλίου','Αυγούστου','Σεπτεμβρίου','Οκτωβρίου','Νοεμβρίου','Δεκεμβρίου'] %}
 {% macro money(v) -%}<span class="{{ 'yneg' if v < 0 }}">{{ v|el_amount }}</span>{%- endmacro %}
-{% macro avg_note(a) -%}<span class="db-kpi-note" title="Μέσος όρος της πρόβλεψης και της προβολής της «Σύγκρισης ετών» ({{ a.cmp|el_amount }} €)">Μ.Ο. με Σύγκριση ετών: <b>{{ money(a.avg) }} €</b> (σύγκριση {{ a.cmp|el_amount }} €)</span>{%- endmacro %}
+{% macro avg_note(a) -%}<span class="db-kpi-note" title="Η σελίδα βασίζεται στον μέσο όρο των δύο (πριν από πρόγραμμα και sliders)">Μ.Ο. από: στατιστική {{ money(a.stat) }} € · Σύγκριση ετών {{ money(a.cmp) }} €</span>{%- endmacro %}
 
 {% block content %}
 <div class="yr yr2 fc">
