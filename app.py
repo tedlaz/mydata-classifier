@@ -4071,8 +4071,11 @@ HISTORY_CATEGORIES = {
     "movement": ("Παραστατικά διακίνησης", "Δελτία αποστολής — δεν χαρακτηρίζονται· με χρώμα όσα είναι άλλων ληπτών"),
     "other": ("Λοιπά παραστατικά εκτός βιβλίων", "Παραστατικά του myDATA που δεν είναι στα βιβλία της εφαρμογής"),
     "rejection": ("Απορρίψεις / αποκλίσεις", "Χαρακτηρισμοί με απόρριψη ή απόκλιση (transactionMode)"),
-    "expenses_cls": ("Προηγούμενοι χαρακτηρισμοί εξόδων", "Χαρακτηρισμοί εξόδων που δεν είναι πια ενεργοί"),
-    "income_cls": ("Προηγούμενοι χαρακτηρισμοί εσόδων", "Χαρακτηρισμοί εσόδων που δεν είναι πια ενεργοί"),
+    "expenses_cls": ("Προηγούμενοι χαρακτηρισμοί εξόδων", "Χαρακτηρισμοί εξόδων που αντικαταστάθηκαν από νεότερους"),
+    "income_cls": ("Προηγούμενοι χαρακτηρισμοί εσόδων", "Χαρακτηρισμοί εσόδων που αντικαταστάθηκαν από νεότερους"),
+    "active_cls": ("Ισχύοντες χαρακτηρισμοί εκτός βιβλίων",
+                   "Τελευταίος χαρακτηρισμός παραστατικών που δεν είναι στα βιβλία — συνήθως προηγούμενης περιόδου "
+                   "που δεν έχει ανακτηθεί· με την ανάκτησή της περνούν στα βιβλία"),
 }
 
 
@@ -4083,10 +4086,12 @@ def _history_category(row: dict, own_vat: str, cancelled: set) -> str:
     kind = row["kind"]
     if kind == "cancel":  # μαζί με το παραστατικό που ακυρώνει
         return "cancelled"
-    if kind == "expenses_cls":
-        return "rejection" if row.get("has_transaction_mode") else "expenses_cls"
-    if kind == "income_cls":
-        return "income_cls"
+    if kind == "expenses_cls" and row.get("has_transaction_mode"):
+        return "rejection"
+    if kind in ("expenses_cls", "income_cls"):
+        # παραστατικό που δεν ανακτήθηκε: όλες οι υποβολές του μαζί με την ισχύουσα (Ιστορικό), όχι χωρίς link εδώ
+        known = row.get("ref_in_books") or row.get("ref_in_archive")
+        return kind if row.get("superseded") and known else "active_cls"
     if row.get("has_cancelled_by") or row["mark"] in cancelled:
         return "cancelled"
     if (row.get("invoice_type") or "") in MOVEMENT_INVOICE_TYPES:  # και όσα είναι άλλων ληπτών (row["foreign"])
@@ -4167,7 +4172,7 @@ def reports_history_docs():
                            total=0 if grouped else sum(r["amount"] or 0 for r in rows), type_names=INVOICE_TYPE_NAMES)
 
 
-_HISTORY_GROUPED = ("rejection", "expenses_cls", "income_cls")
+_HISTORY_GROUPED = ("rejection", "expenses_cls", "income_cls", "active_cls")
 
 
 def _local_dt(iso: str) -> str:

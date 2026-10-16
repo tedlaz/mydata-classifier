@@ -132,20 +132,23 @@ check()
 
 cats = {r["mark"]: A._history_category(r, "999758350", {"3"}) for r in db.archive_rows(cid)}
 assert cats == {"1": "foreign", "2": "foreign", "3": "cancelled", "9": "expenses_cls", "10": "expenses_cls",
-                "11": "cancelled", "12": "expenses_cls"}, cats
+                "11": "cancelled", "12": "active_cls"}, cats  # 12: ο τελευταίος, όχι «προηγούμενος»
 assert A._history_category({"kind": "invoice", "mark": "7", "invoice_type": "9.3"}, "999758350", set()) == "movement"
 assert A._history_category({"kind": "invoice", "mark": "8", "invoice_type": "1.1"}, "999758350", set()) == "other"
 foreign93 = {"kind": "invoice", "mark": "7", "invoice_type": "9.3", "issuer_vat": "999758350", "counterpart_vat": "1"}
 assert A._history_category(foreign93, "999758350", set()) == "movement" and A._history_foreign(foreign93, "999758350")
 assert A._history_category({"kind": "expenses_cls", "mark": "9", "has_transaction_mode": 1}, "", set()) == "rejection"
-assert A._history_category({"kind": "income_cls", "mark": "9"}, "", set()) == "income_cls"
+assert A._history_category({"kind": "income_cls", "mark": "9", "superseded": 1, "ref_in_books": 1}, "", set()) == "income_cls"
+# παλιά υποβολή παραστατικού που δεν ανακτήθηκε: μαζί με την ισχύουσα, όχι στους «προηγούμενους» (χωρίς link)
+assert A._history_category({"kind": "expenses_cls", "mark": "9", "superseded": 1}, "", set()) == "active_cls"
 A.app.testing = True
 web = A.app.test_client()
 page_html = web.get("/reports/history").get_data(as_text=True)
 assert "myData λοιπά" in page_html and "/reports/history/docs?cat=foreign" in page_html
 docs_html = web.get("/reports/history/docs?cat=expenses_cls").get_data(as_text=True)
 assert "kind=invoice&amp;mark=2&amp;" in docs_html  # MARK → στοιχεία παραστατικού (κουβάς)
-assert docs_html.count("/history/cls/2") == 1 and "<td class=\"num\">3</td>" in docs_html, docs_html  # 9/10/12 → 1 γραμμή
+assert docs_html.count("/history/cls/2") == 1 and "<td class=\"num\">2</td>" in docs_html, docs_html  # 9/10 → 1 γραμμή
+assert web.get("/reports/history/docs?cat=active_cls").get_data(as_text=True).count("/history/cls/2") == 1
 docs_html = web.get("/reports/history/docs?cat=cancelled").get_data(as_text=True)  # ακύρωση 11 κάτω από το 3
 assert "cat=cancel\"" not in page_html and docs_html.index("mark=3&") < docs_html.index("hx-branch") < docs_html.index("mark=11&"), docs_html
 item = web.get("/reports/history/item?kind=expenses_cls&mark=12")
@@ -166,7 +169,7 @@ normal = rej.replace("<transactionMode>1<", "<transactionMode>0<")  # 0 = καν
 assert cls_record(normal)["transaction_mode"] is None
 db.archive_sync(cid, fetch(page(classifications=normal.replace(">13<", ">14<").replace("<invoiceMark>2<", "<invoiceMark>5<"))))
 cat14 = next(r for r in db.archive_rows(cid) if r["mark"] == "14")
-assert A._history_category(cat14, "999758350", set()) == "expenses_cls"
+assert A._history_category(cat14, "999758350", set()) == "active_cls"  # παραστατικό ούτε στα βιβλία ούτε στον κουβά
 db.upsert_document(cid, "expense", doc("2", "12"), "confirmed")
 db.archive_sync(cid, [])
 assert [(r["mark"], r["active"]) for r in db.cls_history(cid, "2")] == [("12", 1), ("10", 0), ("9", 0)]
