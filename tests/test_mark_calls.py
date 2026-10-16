@@ -14,7 +14,7 @@ calls = []
 c.session.get = lambda url, params, **k: calls.append((url.rsplit("/", 1)[1], dict(params))) or NS(
     status_code=200, content=b"<RequestedDoc/>")
 doc = dict(issue_date="2026-10-09", is_movement_doc=False, is_cancelled=False, has_embedded_classification=True,
-           has_income_line_classification=False, lines=[])
+           has_income_line_classification=False, lines=[], counterpart_vat=None)
 c._parse_requested_doc = lambda root: [NS(mark="7", issuer_vat="800000000", invoice_type="1.1", **doc),
                                        NS(mark="8", issuer_vat="999758350", invoice_type="2.1", **doc)]
 c._parse_expenses_classifications = c._parse_income_classifications = lambda root: {}

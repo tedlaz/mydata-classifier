@@ -11,6 +11,8 @@ import os
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -118,6 +120,63 @@ def _invoice_xml(el: ET.Element) -> str:
 def _local(tag: str) -> str:
     """Επιστρέφει το local name ενός tag (χωρίς namespace)."""
     return tag.split("}")[-1]
+
+
+_ARCHIVE_KINDS = {"invoice": "invoice", "expensesInvoiceClassification": "expenses_cls",
+                  "incomeInvoiceClassification": "income_cls", "cancelledInvoice": "cancel"}
+_ARCHIVE_MARK = {"invoice": "mark", "expenses_cls": "classificationMark", "income_cls": "classificationMark",
+                 "cancel": "cancellationMark"}
+
+
+def archive_records(content: bytes, endpoint: str = "") -> list[dict]:
+    """Όλες οι εγγραφές μίας σελίδας RequestDocs/RequestTransmittedDocs, χωρίς φίλτρο, για τον κουβά
+    (db.archive_sync): παραστατικά, χαρακτηρισμοί εσόδων/εξόδων, ακυρώσεις."""
+    def text(el, *path):
+        for name in path:
+            el = next((c for c in el if _local(c.tag) == name), None)
+            if el is None:
+                return None
+        return (el.text or "").strip() or None
+
+    rows = []
+    for el in ET.fromstring(content).iter():
+        kind = _ARCHIVE_KINDS.get(_local(el.tag))
+        mark = kind and text(el, _ARCHIVE_MARK[kind])
+        if not mark:
+            continue
+        inv = kind == "invoice"
+        rows.append({
+            "kind": kind, "mark": mark, "endpoint": endpoint, "xml": _invoice_xml(el),
+            "invoice_mark": None if inv else text(el, "invoiceMark"),
+            "issue_date": text(el, "invoiceHeader", "issueDate") if inv else None,
+            "invoice_type": text(el, "invoiceHeader", "invoiceType") if inv else None,
+            "issuer_vat": text(el, "issuer", "vatNumber") if inv else None,
+            "counterpart_vat": text(el, "counterpart", "vatNumber") if inv else None,
+        })
+    return rows
+
+
+def _continuation(root: ET.Element) -> tuple[str | None, str | None]:
+    """(nextPartitionKey, nextRowKey) της σελίδας, ανεξαρτήτως namespace: το myDATA τα στέλνει
+    στο invoice/v1.0, όχι στο RequestedDoc/v1.0 — με λάθος namespace έρχεται μόνο η 1η σελίδα."""
+    keys = {_local(el.tag): (el.text or "").strip() for el in root.iter()
+            if _local(el.tag) in ("nextPartitionKey", "nextRowKey")}
+    return keys.get("nextPartitionKey") or None, keys.get("nextRowKey") or None
+
+
+def _today_gr() -> str:
+    """Σήμερα (dd/mm/yyyy) σε ώρα Ελλάδας, ώστε να μην εξαρτάται από τη ζώνη του server."""
+    return datetime.now(ZoneInfo("Europe/Athens")).strftime("%d/%m/%Y")
+
+
+def _in_range(inv, date_from: str, date_to: str) -> bool:
+    """Ημερομηνία έκδοσης μέσα στο [date_from, date_to] (dd/mm/yyyy). Χωρίς αναγνώσιμη ημερομηνία: True
+    (το κρατάμε, ας το κρίνει ο χρήστης)."""
+    d_from, d_to = (date(*map(int, s.split("/")[::-1])) for s in (date_from, date_to))
+    try:
+        return d_from <= date.fromisoformat((inv.issue_date or "")[:10]) <= d_to
+    except ValueError:
+        return True
 
 
 def _embedded_cls(parent: ET.Element, tag: str) -> list[dict]:
@@ -286,8 +345,7 @@ class MyDataClient:
                 raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
             root = ET.fromstring(resp.content)
             roots.append(root)
-            npk = root.findtext(".//req:continuationToken/req:nextPartitionKey", namespaces=NS)
-            nrk = root.findtext(".//req:continuationToken/req:nextRowKey", namespaces=NS)
+            npk, nrk = _continuation(root)
             if not (npk and nrk):
                 break
             params["nextPartitionKey"] = npk
@@ -317,7 +375,13 @@ class MyDataClient:
         cls_map: dict[str, dict] = {}
         cancelled_marks: set[str] = set()
         for root in self._pages("RequestDocs", self._query(date_from, date_to, mark)):
-            invoices.extend(self._parse_requested_doc(root))
+            for inv in self._parse_requested_doc(root):
+                # Λήπτης άλλος (π.χ. 13.1 που διαβίβασε ο πελάτης για δική μας λιανική): έξοδο ΤΟΥ, όχι
+                # δικό μας. Στα cancelled ώστε να φύγει και από το τοπικό βιβλίο αν είχε κατέβει.
+                if self.own_vat and inv.counterpart_vat and inv.counterpart_vat.strip() != self.own_vat:
+                    cancelled_marks.add(inv.mark)
+                    continue
+                invoices.append(inv)
             cls_map.update(self._parse_expenses_classifications(root))
             cancelled_marks |= self._parse_cancelled_invoices(root)
         return invoices, cls_map, cancelled_marks
@@ -440,17 +504,22 @@ class MyDataClient:
         σε γραμμή/σύνοψη) ή ξεχωριστή υποβολή SendIncomeClassification. Στα
         classified το cls_info γεμίζει με τους χαρακτηρισμούς για εμφάνιση. Τα
         cancelled_marks (ακυρωμένα) εξαιρούνται από τις λίστες και επιστρέφονται
-        ώστε ο caller να τα αφαιρέσει και από το τοπικό βιβλίο. date_to έως σήμερα.
+        ώστε ο caller να τα αφαιρέσει και από το τοπικό βιβλίο.
+        Η κλήση γίνεται έως ΣΗΜΕΡΑ (όπως στα έξοδα): χαρακτηρισμός/ακύρωση με μεταγενέστερο MARK
+        παραστατικού παλιάς περιόδου έρχεται μόνο έτσι· τα παραστατικά φιλτράρονται στο [date_from, date_to].
         Με mark: ό,τι ανέβηκε μετά το MARK (χωρίς ημερομηνίες), όπως το new_since.
         """
         invoices: list[ExpenseInvoice] = []
         cls_map: dict[str, list[dict]] = {}
         cancelled_marks: set[str] = set()
-        for root in self._pages("RequestTransmittedDocs", self._query(date_from, date_to, mark)):
+        query_to = date_to if mark is not None else _today_gr()
+        for root in self._pages("RequestTransmittedDocs", self._query(date_from, query_to, mark)):
             for inv in self._parse_requested_doc(root):
                 itype = inv.invoice_type or ""
                 if itype in SELF_EXPENSE_DOC_TYPES or inv.is_movement_doc or self._recipient_transmitted(inv):
                     continue  # αυτοτιμολογούμενα έξοδα / διακίνηση / διαβίβαση από λήπτη — όχι έσοδα
+                if mark is None and not _in_range(inv, date_from, date_to):
+                    continue  # εκδόθηκε μετά την περίοδο: ήρθε μόνο λόγω κλήσης έως σήμερα
                 # Ακυρωμένο (cancelledByMark στο ίδιο το παραστατικό): κράτησέ το
                 # στα cancelled ώστε να εξαιρεθεί/αφαιρεθεί, όχι στη λίστα εσόδων.
                 if inv.is_cancelled:
@@ -549,24 +618,11 @@ class MyDataClient:
             self.last_cancelled = cancelled_marks
             return invoices, cls_map, cancelled_marks
 
-        from datetime import date as _date
-        from datetime import datetime as _dt
-        from zoneinfo import ZoneInfo
-
-        def _gr_date(s: str) -> _date:
-            """Καθαρή ημερολογιακή ημερομηνία από 'dd/mm/yyyy' (χωρίς ζώνη/ώρα)."""
-            d, m, y = (int(x) for x in s.split("/"))
-            return _date(y, m, d)
-
         invoices, cls_map, cancelled_marks = self.request_docs(date_from, date_to)
 
         # Διαβιβάσεις του ίδιου του χρήστη: αναζήτηση από την αρχή του διαστήματος
         # μέχρι ΣΗΜΕΡΑ (ο χαρακτηρισμός γίνεται μεταγενέστερα της έκδοσης).
-        # Ώρα Ελλάδας ώστε το «σήμερα» να μην εξαρτάται από τη ζώνη του server.
-        today = _dt.now(ZoneInfo("Europe/Athens")).strftime("%d/%m/%Y")
-        self_invoices, t_cls_map, t_cancelled = self.request_transmitted(
-            date_from, today
-        )
+        self_invoices, t_cls_map, t_cancelled = self.request_transmitted(date_from, _today_gr())
 
         cls_map.update(t_cls_map)  # οι δικές μας υποβολές υπερισχύουν
         cancelled_marks |= t_cancelled
@@ -586,18 +642,10 @@ class MyDataClient:
 
         # Τα αυτοτιμολογούμενα φιλτράρονται στο ζητούμενο διάστημα με βάση την
         # ημερομηνία έκδοσης (η κλήση έγινε έως σήμερα) και συγχωνεύονται χωρίς διπλά.
-        d_to = _gr_date(date_to)
-        d_from = _gr_date(date_from)
         seen = {i.mark for i in invoices}
         for inv in self_invoices:
-            if inv.mark in seen:
+            if inv.mark in seen or not _in_range(inv, date_from, date_to):
                 continue
-            try:
-                d = _date.fromisoformat((inv.issue_date or "")[:10])
-                if not (d_from <= d <= d_to):
-                    continue
-            except ValueError:
-                pass  # χωρίς αναγνώσιμη ημερομηνία: το κρατάμε, ας το κρίνει ο χρήστης
             invoices.append(inv)
             seen.add(inv.mark)
 
@@ -627,12 +675,7 @@ class MyDataClient:
             for rec in root:
                 if "continuation" not in _local(rec.tag).lower():
                     records.append({_local(ch.tag): (ch.text or "").strip() for ch in rec})
-            npk = nrk = None
-            for el in root.iter():
-                if _local(el.tag) == "nextPartitionKey":
-                    npk = el.text
-                elif _local(el.tag) == "nextRowKey":
-                    nrk = el.text
+            npk, nrk = _continuation(root)
             if not (npk and nrk):
                 return records
             params["nextPartitionKey"] = npk

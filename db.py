@@ -249,6 +249,26 @@ CREATE TABLE IF NOT EXISTS classification_combos (
     e3_type       TEXT NOT NULL,
     PRIMARY KEY (invoice_type, category, e3_type)
 );
+
+-- Κουβάς: ό,τι επέστρεψε το myDATA (RequestDocs/RequestTransmittedDocs) και ΔΕΝ είναι στο documents
+-- (ακυρωμένα, διακίνηση, παραστατικά άλλων λήπτων…) μαζί με τους χαρακτηρισμούς/ακυρώσεις ΤΟΥΣ.
+-- Ένα παραστατικό (και ό,τι αναφέρεται σε αυτό) είναι ή εδώ ή στο documents. Όλο το myDATA: view mydata_all.
+CREATE TABLE IF NOT EXISTS mydata_archive (
+    company_id      INTEGER NOT NULL,
+    kind            TEXT NOT NULL,   -- invoice | expenses_cls | income_cls | cancel
+    mark            TEXT NOT NULL,   -- MARK παραστατικού / classificationMark / cancellationMark
+    invoice_mark    TEXT,            -- παραστατικό στο οποίο αναφέρεται (cls/cancel)
+    endpoint        TEXT,
+    issue_date      TEXT,
+    invoice_type    TEXT,
+    issuer_vat      TEXT,
+    counterpart_vat TEXT,
+    xml             TEXT NOT NULL,
+    first_seen      TEXT,
+    last_seen       TEXT,
+    PRIMARY KEY (company_id, kind, mark),
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+);
 """
 
 
@@ -402,6 +422,42 @@ def init_db() -> None:
         if "status" in doc_cols:
             conn.execute("UPDATE documents SET local_action = 'classify' "
                          "WHERE local_action = 'create' AND status IN ('sent', 'confirmed')")
+        # Μετά τα ALTER: το view χρειάζεται το documents.raw_xml.
+        conn.execute(
+            "CREATE VIEW IF NOT EXISTS mydata_all AS "
+            "SELECT company_id, 'documents' AS src, 'invoice' AS kind, mark, NULL AS invoice_mark, "
+            "issue_date, invoice_type, raw_xml AS xml FROM documents "
+            "UNION ALL SELECT company_id, 'archive', kind, mark, invoice_mark, issue_date, invoice_type, xml "
+            "FROM mydata_archive"
+        )
+
+
+def archive_sync(company_id: int | None, rows: list[dict]) -> None:
+    """Γράφει στον κουβά τις εγγραφές του myDATA (mydata_client.archive_records) και βγάζει από αυτόν
+    όσα παραστατικά υπάρχουν στο documents — καλείται στο τέλος του request, μετά την ενημέρωση του
+    documents, ώστε π.χ. ένα ακυρωμένο που μόλις σβήστηκε από εκεί να περάσει εδώ."""
+    if not company_id or not rows:
+        return
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    with get_conn() as conn:
+        conn.executemany(
+            "INSERT INTO mydata_archive (company_id, kind, mark, invoice_mark, endpoint, issue_date, "
+            "invoice_type, issuer_vat, counterpart_vat, xml, first_seen, last_seen) VALUES (:company_id, "
+            ":kind, :mark, :invoice_mark, :endpoint, :issue_date, :invoice_type, :issuer_vat, "
+            ":counterpart_vat, :xml, :now, :now) ON CONFLICT (company_id, kind, mark) DO UPDATE SET "
+            "invoice_mark = excluded.invoice_mark, endpoint = excluded.endpoint, "
+            "issue_date = excluded.issue_date, invoice_type = excluded.invoice_type, "
+            "issuer_vat = excluded.issuer_vat, counterpart_vat = excluded.counterpart_vat, "
+            "xml = excluded.xml, last_seen = excluded.last_seen",
+            [{**r, "company_id": company_id, "now": now} for r in rows],
+        )
+        # Μηδενική επικάλυψη: έξω και οι χαρακτηρισμοί/ακυρώσεις παραστατικών του documents.
+        conn.execute(
+            "DELETE FROM mydata_archive WHERE company_id = ? AND "
+            "(CASE kind WHEN 'invoice' THEN mark ELSE invoice_mark END) "
+            "IN (SELECT mark FROM documents WHERE company_id = ?)",
+            (company_id, company_id),
+        )
 
 
 # --------------------------------------------------------------------- #

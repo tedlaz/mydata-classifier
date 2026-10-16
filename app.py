@@ -69,6 +69,7 @@ from mydata_client import (
     InvoiceLine,
     MyDataClient,
     MyDataError,
+    archive_records,
     draft_xml,
     needs_vat_cls,
     xsd_enum,
@@ -580,6 +581,7 @@ def get_client(send: str = "") -> MyDataClient:
     client = _make_client(send=send) if send else _make_client()
     via = "κλειδιά λογιστή" if client.entity_vat else "κλειδιά εταιρείας"  # entity_vat μόνο στον client του λογιστή
     client.session.hooks["response"].append(lambda resp, *a, **k: _log_mydata(resp, via=via))
+    client.session.hooks["response"].append(_archive_mydata)
     if has_request_context():
         setattr(g, key, client)
     return client
@@ -606,6 +608,30 @@ def _log_mydata(resp, *args, via: str = "", **kwargs):
     """requests response hook (client του myDATA)."""
     if has_request_context():
         g.setdefault("mydata_log", []).append(_log_line(resp, via))
+
+
+def _archive_mydata(resp, *args, **kwargs):
+    """requests response hook: οι εγγραφές των RequestDocs/RequestTransmittedDocs μαζεύονται για τον
+    κουβά (db.mydata_archive) και γράφονται στο τέλος του request (_write_mydata_archive)."""
+    endpoint = urlparse(resp.url).path.rsplit("/", 1)[-1]
+    if not (has_request_context() and resp.ok and endpoint in ("RequestDocs", "RequestTransmittedDocs")):
+        return
+    try:
+        g.setdefault("mydata_archive", []).extend(archive_records(resp.content, endpoint))
+    except Exception:  # noqa: BLE001 — ο κουβάς δεν σταματά ποτέ την ενέργεια
+        app.logger.exception("mydata archive")
+
+
+@app.after_request
+def _write_mydata_archive(response):
+    """Μετά την ενημέρωση του documents: ό,τι δεν κράτησε η εφαρμογή πάει στον κουβά (db.archive_sync)."""
+    rows = g.pop("mydata_archive", None)
+    if rows:
+        try:
+            db.archive_sync(_active_company_id(), rows)
+        except Exception:  # noqa: BLE001 — ο κουβάς δεν σταματά ποτέ την ενέργεια
+            app.logger.exception("mydata archive")
+    return response
 
 
 def _log_line(resp, via: str = "") -> str:

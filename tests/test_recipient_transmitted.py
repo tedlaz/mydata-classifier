@@ -9,9 +9,9 @@ import db  # noqa: E402
 from mydata_client import MyDataClient  # noqa: E402
 
 c = MyDataClient("u", "k", "dev", own_vat="999758350")
-docs = [NS(mark="1", issuer_vat="999758350", invoice_type="2.1", is_movement_doc=False, is_cancelled=False,
+docs = [NS(mark="1", issuer_vat="999758350", invoice_type="2.1", is_movement_doc=False, is_cancelled=False, issue_date="2026-01-10",
            has_income_line_classification=False),
-        NS(mark="2", issuer_vat="800000000", invoice_type="2.1", is_movement_doc=False, is_cancelled=False,
+        NS(mark="2", issuer_vat="800000000", invoice_type="2.1", is_movement_doc=False, is_cancelled=False, issue_date="2026-01-10",
            has_income_line_classification=False)]
 c._parse_requested_doc = lambda root: docs
 c._parse_income_classifications = lambda root: {}
@@ -53,3 +53,15 @@ header = [el.tag.split("}")[1] for el in inv.find("{http://www.aade.gr/myDATA/in
 assert header[-2:] == ["currency", "invoiceVariationType"] and q("i:invoiceHeader/i:invoiceVariationType") == "1", header
 assert q("i:invoiceSummary/i:totalVatAmount") == "24.00"
 print("OK omission send")
+
+# RequestDocs: 13.1 που διαβίβασε ο πελάτης για δική μας λιανική (εκδότης εμείς, λήπτης αυτός) — όχι έξοδο μας.
+c2 = MyDataClient("u", "k", "dev", own_vat="999758350")
+c2._parse_requested_doc = lambda root: [NS(mark="3", issuer_vat="999758350", counterpart_vat="099634359"),
+                                        NS(mark="4", issuer_vat="800000000", counterpart_vat="999758350"),
+                                        NS(mark="5", issuer_vat="800000000", counterpart_vat=None)]
+c2._parse_expenses_classifications = lambda root: {}
+c2._parse_cancelled_invoices = lambda root: set()
+c2.session.get = lambda *a, **k: NS(status_code=200, content=b"<x/>")
+inv2, _, canc2 = c2.request_docs("01/01/2026", "31/01/2026")
+assert [i.mark for i in inv2] == ["4", "5"] and canc2 == {"3"}, (inv2, canc2)
+print("OK foreign recipient")
