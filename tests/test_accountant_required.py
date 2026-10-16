@@ -126,9 +126,10 @@ try:
 except MyDataError:
     pass
 
-# Κανείς δεν παρακάμπτει τον κανόνα: client μόνο από το _make_client, αποστολή μόνο στα 2 γνωστά σημεία.
+# Κανείς δεν παρακάμπτει τον κανόνα: client μόνο από το _make_client, αποστολή μόνο στα 3 γνωστά σημεία
+# (/send, ακύρωση εσόδου, Γενική φόρμα καταχώρησης).
 src = open(os.path.join(os.path.dirname(A.__file__), "app.py"), encoding="utf-8").read()
 assert len(re.findall(r"MyDataClient\(", src)) == 3, "νέος MyDataClient εκτός _make_client"
-assert len(re.findall(r"get_client\(send=", src)) == 2, "νέο σημείο αποστολής: έλεγξε τα κλειδιά του"
+assert len(re.findall(r"get_client\(send=", src)) == 3, "νέο σημείο αποστολής: έλεγξε τα κλειδιά του"
 assert not re.search(r"_make_client\(send=", src.replace("_make_client(send=send)", "")), "client αποστολής εκτός get_client"
 print("OK λήψη")

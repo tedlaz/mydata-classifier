@@ -107,6 +107,12 @@
 
 /* ---------- Τρόποι χαρακτηρισμού ---------- */
 .hp-sub{margin:34px 0 6px;font-size:1.2rem}
+.hp-code{margin:10px 0 0;padding:14px 16px;border-radius:12px;background:var(--surface-3);border:1px solid var(--line);
+  overflow-x:auto;white-space:pre;font:.78rem/1.55 var(--font-data);color:var(--ink)}
+.hp-tbl{width:100%;border-collapse:collapse;font-size:.88rem}
+.hp-tbl th,.hp-tbl td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.hp-tbl th{font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2)}
+.hp-tbl-wrap{overflow-x:auto}
 .hp-modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin-top:16px}
 .hp-mode{display:flex;flex-direction:column;gap:12px;transition:transform .3s var(--ease),box-shadow .3s}
 .hp-mode:hover{transform:translateY(-3px);box-shadow:var(--shadow-hi)}
@@ -284,6 +290,7 @@
   <a href="#lifecycle">🔄 Κύκλος ζωής</a>
   <a href="#classify">🏷️ Χαρακτηρισμός</a>
   <a href="#combos">🧩 Συνδυασμοί</a>
+  <a href="#aade-updates">📢 Αλλαγές ΑΑΔΕ</a>
   <a href="#accountant">👤 Λογιστής</a>
   <a href="#monthly">🔁 Μηνιαίες</a>
   <a href="#intra">🇪🇺 Ενδοκοινοτικές</a>
@@ -595,6 +602,126 @@
       <div class="hp-col c3"><h4>Κωδικός Ε3</h4>
         <div class="hp-opt no">E3_585_009</div><div class="hp-opt no">E3_881_001</div><div class="hp-opt ok">E3_102_001</div></div>
     </div>
+  </div>
+</section>
+
+<!-- ================= ΑΛΛΑΓΕΣ ΑΑΔΕ ================= -->
+<section id="aade-updates" class="hp-rv">
+  <span class="hp-kicker">Συντήρηση</span>
+  <h2>Όταν η ΑΑΔΕ βγάζει νέα έκδοση του myDATA</h2>
+  <p class="hp-lead">Η ΑΑΔΕ αναθεωρεί κατά διαστήματα τις προδιαγραφές του myDATA: νέοι τύποι παραστατικών, νέοι κωδικοί Ε3,
+    νέες κατηγορίες φόρων, νέοι συνδυασμοί. Η εφαρμογή τα παίρνει από <b>τέσσερις πηγές</b> της ΑΑΔΕ. Η μία ενημερώνεται από εσένα
+    μέσα από την εφαρμογή· οι άλλες τρεις έρχονται με νέα έκδοση της εφαρμογής. Τρέχουσα έκδοση προδιαγραφών:
+    <b>v{{ xsd_version }}</b>. Οι ανακοινώσεις βγαίνουν στη σελίδα
+    <a href="https://www.aade.gr/mydata/tehnikes-prodiagrafes-ekdoseis-mydata" target="_blank" rel="noopener">Τεχνικές προδιαγραφές – Εκδόσεις myDATA</a>.</p>
+
+  <div class="hp-card hp-tbl-wrap">
+    <table class="hp-tbl">
+      <thead><tr><th>Τι αλλάζει</th><th>Αρχείο ΑΑΔΕ</th><th>Τι επηρεάζει στην εφαρμογή</th><th>Ποιος το ενημερώνει</th></tr></thead>
+      <tbody>
+        <tr><td>🧩 <b>Συνδυασμοί χαρακτηρισμών</b></td><td><code>syndiasmoi_xaraktirismwn_v*.xlsx</code></td>
+          <td>Ποια κατηγορία και ποιος κωδικός Ε3 επιτρέπεται ανά τύπο παραστατικού (χαρακτηρισμός, Νέα εγγραφή, Γενική φόρμα)</td>
+          <td><b>Εσύ</b>, από τις <a href="{{ url_for('parameters', tab='combinations') }}">Παραμέτρους → Συνδυασμοί</a></td></tr>
+        <tr><td>📐 <b>Σχήματα XSD</b></td><td><code>v*XSDs.zip</code></td>
+          <td>Ο έλεγχος κάθε XML πριν την αποθήκευση και την αποστολή· οι χώρες, τα νομίσματα και οι κωδικοί Ε3 που δέχεται η φόρμα</td>
+          <td>Νέα έκδοση εφαρμογής (φάκελος <code>xsd/</code>)</td></tr>
+        <tr><td>📋 <b>Πίνακες τιμών</b> (ενότητα 8 της τεκμηρίωσης)</td><td><code>myDATA API Documentation v*_erp.pdf</code></td>
+          <td>Οι ονομασίες κωδικών στα βιβλία, στον χαρακτηρισμό, στις αναφορές και στη «Νέα εγγραφή»</td>
+          <td>Νέα έκδοση εφαρμογής (<code>classifications.py</code>, <code>mydata_client.py</code>)</td></tr>
+        <tr><td>🧾 <b>Κανόνες και επιλογές της Ειδικής Φόρμας</b></td><td>η ίδια η φόρμα στο myDATA (δεν δημοσιεύεται)</td>
+          <td>Τι δείχνει η <a href="{{ url_for('entry') }}">Γενική φόρμα καταχώρησης</a> ανά τύπο παραστατικού: ποια πεδία, και σε κάθε
+            select ποιες επιλογές, με τα ονόματα, τη σειρά και τους συντελεστές της ΑΑΔΕ</td>
+          <td>Νέα έκδοση εφαρμογής (<code>aade_form.py</code>, παράγεται αυτόματα)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="hp-sub">👤 Τι κάνεις εσύ, μέσα από την εφαρμογή</h3>
+  <div class="hp-steps">
+    <div class="hp-step"><span class="ico">🔔</span><h3>Δες αν βγήκε νέα έκδοση</h3>
+      <p>Άνοιξε τη σελίδα «Τεχνικές προδιαγραφές – Εκδόσεις» της ΑΑΔΕ. Αν η πιο πρόσφατη έκδοση είναι νεότερη από τη
+        <b>v{{ xsd_version }}</b>, υπάρχουν αλλαγές. Δες και την ημερομηνία από την οποία ισχύουν.</p></div>
+    <div class="hp-step"><span class="ico">🧩</span><h3>Εισήγαγε τους νέους συνδυασμούς</h3>
+      <p>Κατέβασε το <code>syndiasmoi_xaraktirismwn_v….xlsx</code> της ίδιας σελίδας <b>χωρίς να αλλάξεις το όνομά του</b>, γιατί από αυτό
+        διαβάζεται η έκδοση, και εισήγαγέ το. Αντικαθιστά τους παλιούς συνδυασμούς. Μια επόμενη έκδοση της εφαρμογής δεν θα
+        τους πατήσει, εκτός αν φέρνει νεότερο αρχείο.</p>
+      <a href="{{ url_for('parameters', tab='combinations') }}">Παράμετροι → Συνδυασμοί</a></div>
+    <div class="hp-step"><span class="ico">🛑</span><h3>Πρόσεξε το «Έλεγχος XSD ΑΑΔΕ»</h3>
+      <p>Κάθε XML ελέγχεται με το XSD πριν αποθηκευτεί και πριν σταλεί. Αν η ΑΑΔΕ έχει αλλάξει κάτι που η εφαρμογή δεν ξέρει ακόμα,
+        εμφανίζεται μήνυμα «Έλεγχος XSD ΑΑΔΕ: …» και <b>τίποτα δεν φεύγει</b>. Αυτό σημαίνει ότι χρειάζεται νέα έκδοση της εφαρμογής.</p></div>
+    <div class="hp-step"><span class="ico">⬆️</span><h3>Αναβάθμισε την εφαρμογή</h3>
+      <p>Η νέα έκδοση φέρνει XSD, πίνακες τιμών και κανόνες φόρμας μαζί. Πάρε πρώτα <a href="#backup">αντίγραφο ασφαλείας</a>.
+        Τα δεδομένα σου δεν αλλάζουν· οι νέοι συνδυασμοί φορτώνονται αυτόματα στην πρώτη εκκίνηση.</p></div>
+  </div>
+
+  <h3 class="hp-sub">🛠️ Τι γίνεται σε μια νέα έκδοση της εφαρμογής</h3>
+  <p class="hp-lead">Για όποιον συντηρεί τον κώδικα: η σειρά των βημάτων για να περάσει μια νέα έκδοση της ΑΑΔΕ στην εφαρμογή.
+    Όλα τα αρχεία της ΑΑΔΕ είναι στη σελίδα «Τεχνικές προδιαγραφές – Εκδόσεις».</p>
+  <ul class="hp-rules">
+    <li><span class="em">1️⃣</span><div><b>XSD.</b> Από το <code>v….XSDs.zip</code> αντέγραψε στον φάκελο <code>xsd/</code> τα πέντε αρχεία που χρειάζεται το
+      <code>InvoicesDoc</code>: <code>InvoicesDoc</code>, <code>SimpleTypes</code>, <code>TransportTypes</code>,
+      <code>incomeClassification</code>, <code>expensesClassification</code> (με το <code>-v….xsd</code> στο όνομα). Σβήσε τα παλιά και άλλαξε
+      τη σταθερά <code>XSD_VERSION</code> στο <code>mydata_client.py</code>. Αυτή είναι η μόνη αλλαγή κώδικα για τα σχήματα.</div></li>
+    <li><span class="em">2️⃣</span><div><b>Συνδυασμοί.</b> Βάλε το νέο <code>syndiasmoi_xaraktirismwn_v….xlsx</code> στο <code>docs/</code> και σβήσε το παλιό.
+      Η εφαρμογή διαλέγει πάντα το νεότερο και το φορτώνει στην εκκίνηση. Ενημέρωσε την αναμενόμενη έκδοση στο
+      <code>tests/test_combos_bundled.py</code>.</div></li>
+    <li><span class="em">3️⃣</span><div><b>Πίνακες τιμών.</b> Τρέξε <code>uv run python -m tests.test_xsd_lists</code>. Συγκρίνει κάθε λίστα της
+      εφαρμογής με το νέο XSD και αναφέρει ποια έχει τιμή <b>εκτός σχήματος</b> ή ποια τιμή <b>λείπει</b>, π.χ. νέος κωδικός Ε3,
+      νέα κατηγορία λοιπών φόρων. Πρόσθεσε ή διόρθωσε την ονομασία από τον αντίστοιχο πίνακα της ενότητας 8 του PDF, στο
+      <code>classifications.py</code> (κατηγορίες, Ε3, φόροι, τύποι παραστατικών) ή στο <code>mydata_client.py</code>
+      (ΦΠΑ, τρόποι πληρωμής, είδος γραμμής, ειδική κατηγορία, νομίσματα). Οι χώρες έρχονται κατευθείαν από το XSD.
+      Τα ονόματα αλλάζουν μόνο ό,τι φαίνεται· οι κωδικοί που έχουν ήδη αποθηκευτεί μένουν όπως είναι.</div></li>
+    <li><span class="em">4️⃣</span><div><b>Κανόνες και επιλογές της Ειδικής Φόρμας.</b> Η ΑΑΔΕ δεν τους δημοσιεύει· βρίσκονται μέσα στην ίδια
+      τη φόρμα του myDATA. Πάρε τα <code>aade_labels.json</code> και <code>aade_app.js</code> με τα βήματα παρακάτω και τρέξε
+      <code>uv run python tools/aade_form_rules.py &lt;φάκελος&gt;</code>. Ξαναγράφει το <code>aade_form.py</code> και τυπώνει τι άλλαξε:
+      ποια πεδία κρύβονται ανά τύπο, «συσχετιζόμενα», «παράλειψη εκδότη», κατηγορίες ΦΠΑ ανά τύπο, εξαιρούμενες κατηγορίες φόρων,
+      και οι επιλογές κάθε select, με ονόματα, σειρά και συντελεστές. Το <code>aade_form.py</code> δεν το αλλάζεις με το χέρι.
+      Ό,τι δείχνει η ΑΑΔΕ αλλά δεν δέχεται το XSD (π.χ. το νόμισμα <code>ZMW</code> ή το <code>E3_585_017</code>) η φόρμα το κρύβει μόνη της.</div></li>
+    <li><span class="em">5️⃣</span><div><b>Έλεγχος.</b> Τρέξε όλα τα tests: <code>for f in tests/test_*.py; do uv run python -m tests.$(basename $f .py); done</code>.
+      Μετά στείλε ένα δοκιμαστικό παραστατικό από κάθε οικογένεια που άλλαξε σε εταιρεία με περιβάλλον <code>dev</code>
+      (δες <a href="#credentials">Κλειδιά ΑΑΔΕ</a>), πριν βγει η έκδοση.</div></li>
+  </ul>
+
+  <h3 class="hp-sub">🧾 Πώς παίρνεις τους κανόνες της Ειδικής Φόρμας της ΑΑΔΕ</h3>
+  <p class="hp-lead">Η Ειδική Φόρμα Καταχώρησης κρύβει πεδία ανά τύπο παραστατικού, π.χ. στο 14.5 δεν έχει πληρωμή, μονάδα μέτρησης,
+    διακίνηση ή φόρους γραμμής. Τον πίνακα αυτόν τον φορτώνει από την ΑΑΔΕ μετά τη σύνδεσή σου στο TAXISnet. Γι' αυτό τον αποθηκεύεις
+    εσύ από τον browser· η εφαρμογή δεν συνδέεται ποτέ με τους κωδικούς σου.</p>
+  <ul class="hp-rules">
+    <li><span class="em">🌐</span><div>Μπες στο <b>myDATA</b> με κωδικούς TAXISnet και άνοιξε την <b>Ειδική Φόρμα Καταχώρησης</b>. Διάλεξε ένα είδος και έναν
+      τύπο παραστατικού, ώστε να φορτωθεί η φόρμα.</div></li>
+    <li><span class="em">🧰</span><div>Πάτα <b>F12</b> → καρτέλα <b>Console</b>, επικόλλησε τον κώδικα παρακάτω και πάτα Enter. Αν ο Chrome ζητήσει, γράψε
+      πρώτα <code>allow pasting</code>. Ο κώδικας κάνει μόνο ανάγνωση: ξαναζητά τα αρχεία που έχει ήδη φορτώσει η σελίδα και τα σώζει στα
+      Λήψεις σου. Δεν στέλνει τίποτα πουθενά.
+      <pre class="hp-code">(async () =&gt; {
+  const want = /\/js\/app\.js|invoiceSimple\.html|includeMitroo\.html|\/labels\?lang=el/;
+  const urls = [...new Set(performance.getEntriesByType('resource').map(e =&gt; e.name).filter(u =&gt; want.test(u)))];
+  console.log('Βρέθηκαν:', urls);
+  for (const u of urls) {
+    const text = await (await fetch(u, {credentials: 'include'})).text();
+    const name = u.split('/').pop().split('?')[0].replace(/^labels$/, 'labels.json');
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([text], {type: 'text/plain;charset=utf-8'})), download: 'aade_' + name});
+    a.click();
+    await new Promise(r =&gt; setTimeout(r, 400));
+  }
+})();</pre></div></li>
+    <li><span class="em">📥</span><div>Επίτρεψε τις «πολλαπλές λήψεις» αν ρωτήσει ο browser. Το εργαλείο χρειάζεται στον ίδιο φάκελο τα <code>aade_labels.json</code>
+      (πίνακες, ονόματα, επιλογές) και <code>aade_app.js</code> (λίστες τύπων γραμμένες στον κώδικα της φόρμας). Τα
+      <code>aade_invoiceSimple.html</code> / <code>aade_includeMitroo.html</code> είναι το template της φόρμας, χρήσιμο αν αλλάξει ο τρόπος
+      που λειτουργεί.</div></li>
+    <li><span class="em">⚠️</span><div>Το <code>aade_labels.json</code> περιέχει και τα <b>στοιχεία του λογαριασμού σου</b> στο myDATA. Το εργαλείο διαβάζει μόνο
+      τους πίνακες κανόνων (<code>emptyFieldsMap</code>, <code>correlatedInvoicesTypesList</code>, <code>invTypesList</code>,
+      <code>excludedOptionsMap</code>). Μην το ανεβάσεις στο repository και σβήσ' το όταν τελειώσεις.
+      Μην χρησιμοποιήσεις το «Export HAR» των DevTools: θα περιείχε και τα cookies της σύνδεσής σου.</div></li>
+  </ul>
+
+  <div class="hp-vault">
+    <div class="hp-card"><span class="em">🤖</span><h3>Τι γίνεται αυτόματα</h3>
+      <p>Χώρες και νομίσματα ελέγχονται με το XSD· οι κωδικοί Ε3 που δεν υπάρχουν στο XSD δεν εμφανίζονται στη φόρμα· οι νεότεροι
+        συνδυασμοί φορτώνονται στην εκκίνηση· κάθε XML ελέγχεται πριν αποθηκευτεί ή σταλεί.</p></div>
+    <div class="hp-card"><span class="em">🧭</span><h3>Όταν η ΑΑΔΕ διαφωνεί με τον εαυτό της</h3>
+      <p>Συμβαίνει: π.χ. το <code>E3_585_017</code> υπάρχει στο PDF και στους συνδυασμούς v2.0.2, αλλά όχι στο XSD. Η εφαρμογή ακολουθεί
+        το <b>XSD</b>, γιατί αυτό ελέγχει η ΑΑΔΕ όταν δέχεται το XML. Ο κωδικός θα εμφανιστεί μόλις μπει σε επόμενο XSD.</p></div>
   </div>
 </section>
 

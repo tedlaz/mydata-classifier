@@ -5,11 +5,16 @@ myDATA API client (AADE) - ERP interface v2.0.1
 Τεκμηρίωση: https://www.aade.gr/mydata/tehnikes-prodiagrafes-ekdoseis-mydata
 """
 
+import functools
 import json
+import os
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
 import requests
+
+import aade_form
 
 # Base URLs
 PROD_URL = "https://mydatapi.aade.gr/myDATA/"
@@ -890,18 +895,10 @@ class MyDataClient:
         xml_payload = build_expenses_classification_xml(
             invoice_mark, classifications, post_per_invoice, entity_vat=self.entity_vat
         )
-        resp = self.session.post(
-            self.base_url + "SendExpensesClassification",
-            data=xml_payload.encode("utf-8"),
-            headers={"Content-Type": "application/xml"},
-            # Χαρακτηρισμός ανά παραστατικό: παράμετρος postPerInvoice=true (οδηγίες ΑΑΔΕ
-            # «SendExpensesClassificationPostPerInvoiceGuidelines»).
-            params=self._params({"postPerInvoice": "true"} if post_per_invoice else None),
-            timeout=60,
-        )
-        if resp.status_code != 200:
-            raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
-        return parse_response_doc(resp.content)
+        # Χαρακτηρισμός ανά παραστατικό: παράμετρος postPerInvoice=true (οδηγίες ΑΑΔΕ
+        # «SendExpensesClassificationPostPerInvoiceGuidelines»).
+        return self._post_xml("SendExpensesClassification", xml_payload,
+                              {"postPerInvoice": "true"} if post_per_invoice else None)
 
     def send_self_expense_invoice(
         self,
@@ -944,11 +941,23 @@ class MyDataClient:
             withheld_base=withheld_base,
             variation_type="1" if invoice_type in OMISSION_TYPES else "",
         )
+        return self._post_xml("SendInvoices", xml_payload)
+
+    def send_invoice(self, xml_payload: str) -> dict:
+        """SendInvoices με έτοιμο InvoicesDoc (Γενική φόρμα καταχώρησης — build_invoice_xml)."""
+        return self._post_xml("SendInvoices", xml_payload)
+
+    def _post_xml(self, endpoint: str, xml_payload: str, extra: dict | None = None) -> dict:
+        """Κάθε αποστολή XML στο myDATA περνά από εδώ: πρώτα έλεγχος με το XSD της ΑΑΔΕ — XML που δεν
+        περνά τον έλεγχο δεν φεύγει ποτέ (MyDataError με τα λάθη)."""
+        errors = xsd_errors(xml_payload)
+        if errors:
+            raise MyDataError("Το XML δεν περνά τον έλεγχο XSD της ΑΑΔΕ: " + " · ".join(errors))
         resp = self.session.post(
-            self.base_url + "SendInvoices",
+            self.base_url + endpoint,
             data=xml_payload.encode("utf-8"),
             headers={"Content-Type": "application/xml"},
-            params=self._params(),
+            params=self._params(extra),
             timeout=60,
         )
         if resp.status_code != 200:
@@ -978,16 +987,45 @@ class MyDataClient:
         xml_payload = build_expenses_classification_xml(
             mark, [], transaction_mode="1", entity_vat=self.entity_vat
         )
-        resp = self.session.post(
-            self.base_url + "SendExpensesClassification",
-            data=xml_payload.encode("utf-8"),
-            headers={"Content-Type": "application/xml"},
-            params=self._params(),
-            timeout=60,
-        )
-        if resp.status_code != 200:
-            raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
-        return parse_response_doc(resp.content)
+        return self._post_xml("SendExpensesClassification", xml_payload)
+
+
+# Έλεγχος XSD της ΑΑΔΕ (xsd/ δίπλα στον κώδικα, και στο PyInstaller/Docker).
+_XSD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "xsd")
+XSD_VERSION = "2.0.2"  # νέα έκδοση ΑΑΔΕ: αρχεία στο xsd/ και αλλαγή μόνο εδώ (Βοήθεια → Αλλαγές ΑΑΔΕ)
+_XSD_ROOTS = {"InvoicesDoc": f"InvoicesDoc-v{XSD_VERSION}.xsd",
+              "ExpensesClassificationsDoc": f"expensesClassification-v{XSD_VERSION}.xsd"}
+
+
+@functools.cache
+def _xsd_schema(name: str):
+    from lxml import etree
+
+    return etree.XMLSchema(etree.parse(os.path.join(_XSD_DIR, name)))
+
+
+@functools.cache
+def xsd_enum(type_name: str) -> tuple[str, ...]:
+    """Οι τιμές ενός simpleType του SimpleTypes (π.χ. CountryType), με τη σειρά του σχήματος."""
+    from lxml import etree
+
+    root = etree.parse(os.path.join(_XSD_DIR, f"SimpleTypes-v{XSD_VERSION}.xsd"))
+    ns = {"xs": "http://www.w3.org/2001/XMLSchema"}
+    return tuple(root.xpath(f"//xs:simpleType[@name='{type_name}']//xs:enumeration/@value", namespaces=ns))
+
+
+def xsd_errors(xml_payload: str) -> list[str]:
+    """Λάθη του XML ως προς το XSD της ΑΑΔΕ (κενή λίστα = έγκυρο)."""
+    from lxml import etree
+
+    root = etree.fromstring(xml_payload.encode("utf-8"))
+    name = _XSD_ROOTS.get(etree.QName(root).localname)
+    if not name:
+        return [f"άγνωστο έγγραφο «{etree.QName(root).localname}»"]
+    schema = _xsd_schema(name)
+    if schema.validate(root):
+        return []
+    return [re.sub(r"{[^}]*}", "", e.message) for e in schema.error_log][:10]  # χωρίς τα namespaces
 
 
 def _f(v: str | None) -> float | None:
@@ -1082,13 +1120,14 @@ def type_rules(invoice_type: str) -> dict:
 
 # Τρόποι πληρωμής (πεδίο paymentMethodDetails/type)
 PAYMENT_METHODS = {
-    "1": "Επαγγελματικός λογαριασμός ημεδαπής",
-    "2": "Επαγγελματικός λογαριασμός αλλοδαπής",
+    "1": "Επαγ. Λογαριασμός Πληρωμών Ημεδαπής",
+    "2": "Επαγ. Λογαριασμός Πληρωμών Αλλοδαπής",
     "3": "Μετρητά",
     "4": "Επιταγή",
-    "5": "Επί πιστώσει",
-    "6": "Web τραπεζικής",
+    "5": "Επί Πιστώσει",
+    "6": "Web Banking",
     "7": "POS / e-POS",
+    "8": "Άμεσες Πληρωμές IRIS",
 }
 
 
@@ -1270,6 +1309,247 @@ def build_self_expense_invoice_xml(
 
     return '<?xml version="1.0" encoding="utf-8"?>' + ET.tostring(
         doc, encoding="unicode"
+    )
+
+
+# ------------------------------------------------------------------ #
+# Γενική φόρμα καταχώρησης: οποιοσδήποτε τύπος παραστατικού (έσοδα & έξοδα).
+# ------------------------------------------------------------------ #
+ICLS_NS = "https://www.aade.gr/myDATA/incomeClassificaton/v1.0"
+
+# Επιλογές και κανόνες της Ειδικής Φόρμας της ΑΑΔΕ: παράγονται στο aade_form.py (tools/aade_form_rules.py).
+ENTRY_HIDDEN = aade_form.HIDDEN
+REC_NEGATIVE_TYPES = {"17.3", "17.4", "17.5", "17.6"}  # recType 7 «Αντίθετο πρόσημο αξιών» (§8.16)
+ENTRY_RULES = {
+    "hidden": ENTRY_HIDDEN,
+    "correlated": aade_form.CORRELATED,
+    "omission": aade_form.OMISSION,
+    "excluded_tax_options": aade_form.EXCLUDED_TAX_OPTIONS,
+    # ΦΠΑ ανά τύπο: χωρίς ΦΠΑ (μόνο κατηγορία 8) · μόνο 0% · υποχρεωτικός (όχι 0%/8) · αλλού όλα εκτός της 8
+    "no_vat": aade_form.VAT_EMPTY,
+    "vat_zero": aade_form.VAT_ZERO,
+    "vat_mandatory": aade_form.VAT_MANDATORY,
+    # notVAT195 (Φ2 – μη συμμετοχή): «μόνο για παραστατικά εσόδων των τύπων 1.1 – 11.5» (API ERP §5.4)
+    "not_vat195_families": [str(f) for f in range(1, 12)],
+    "negative_types": sorted(REC_NEGATIVE_TYPES),
+    "special_only": {"13": ["11.4", "14.30"]},  # ειδική κατηγορία 13 → μόνο σε αυτούς τους τύπους (§8.19)
+}
+# Χώρα εκδότη / αντισυμβαλλόμενου όταν δεν είμαστε εμείς: 'gr' (κλειδωμένη Ελλάδα), 'eu' (χώρα της ΕΕ εκτός GR) ή
+# 'third' (εκτός ΕΕ). Η ΑΑΔΕ ορίζει πού ΔΕΝ είναι Ελλάδα (aade_form.NOT_GREEK_*)· ΕΕ ή τρίτη χώρα το λέει ο τύπος:
+# 14.1/14.3 ενδοκοινοτικές αποκτήσεις / λήψη υπηρεσιών, 1.2/2.2 ενδοκοινοτικές παραδόσεις / παροχή υπηρεσιών.
+ENTRY_EU_TYPES = {"14.1", "14.3", "1.2", "2.2"}
+ENTRY_RULES["country"] = {
+    party: {t: "eu" if t in ENTRY_EU_TYPES else "third" for t in not_greek}
+    for party, not_greek in (("issuer", aade_form.NOT_GREEK_ISSUER), ("counterpart", aade_form.NOT_GREEK_COUNTERPART))
+}
+
+
+def entry_country_rule(party: str, invoice_type: str) -> str:
+    return ENTRY_RULES["country"][party].get(invoice_type, "gr")
+
+
+ENTRY_OPTIONS = {k: {code: label for code, label, *_ in v} for k, v in aade_form.OPTIONS.items()}
+# Ό,τι δείχνει η φόρμα της ΑΑΔΕ αλλά δεν δέχεται το XSD (π.χ. νόμισμα ZMW) δεν προσφέρεται.
+ENTRY_OPTIONS["currency"] = {k: v for k, v in ENTRY_OPTIONS["currency"].items() if k in xsd_enum("CurrencyType")}
+# Συντελεστές (%) ανά taxType / ΦΠΑ, για τον αυτόματο υπολογισμό· None = σταθερό ποσό, συμπληρώνεται με το χέρι.
+ENTRY_RATES = {k: {code: rate for code, _, rate in aade_form.OPTIONS[k]} for k in ("vat", "withheld", "fees", "other", "stamp")}
+
+# Φόροι: πεδίο του draft ↔ taxType (1 παρακράτηση, 2 τέλη, 3 λοιποί, 4 χαρτόσημο, 5 κρατήσεις).
+ENTRY_TAX_KEYS = {"1": "withheld", "2": "fees", "3": "other", "4": "stamp", "5": "deductions"}
+
+
+def entry_roles(invoice_type: str, self_pricing: bool = False, omission: bool = False) -> dict:
+    """Ποιος είναι εκδότης/αντισυμβαλλόμενος και αν οι χαρακτηρισμοί είναι εσόδων ή εξόδων.
+    'own' = η εταιρεία, 'other' = τρίτος (συμπληρώνεται), 'none' = δεν δηλώνεται."""
+    t = invoice_type or ""
+    fam = t.split(".")[0]
+    third_issuer = omission or fam in ("13", "14", "15", "16")  # τα διαβιβάζουμε εμείς ως λήπτης
+    expense = third_issuer or self_pricing or fam == "3" or t in SELF_EXPENSE_TYPES
+    hidden = ENTRY_HIDDEN.get(t, [])
+    return {
+        "side": "expense" if expense else "income",
+        "issuer": "none" if "issuer" in hidden or t in SELF_TYPES_NO_ISSUER else "other" if third_issuer else "own",
+        "counterpart": "own" if third_issuer else "none" if "counterpart" in hidden else "other",
+    }
+
+
+def entry_totals(draft: dict) -> dict:
+    """Σύνολα παραστατικού. Μικτή = καθαρή + ΦΠΑ + τέλη + λοιποί + χαρτόσημο − παρακρατήσεις − κρατήσεις."""
+    t = dict.fromkeys(("net", "vat", *ENTRY_TAX_KEYS.values()), 0.0)
+    for ln in draft["lines"]:
+        t["net"] += ln["net"]
+        t["vat"] += ln["vat_amount"]
+        if draft.get("tax_level") == "line":
+            for k in ENTRY_TAX_KEYS.values():
+                t[k] += ln.get(k) or 0.0
+    if draft.get("tax_level") != "line":
+        for tx in draft.get("taxes") or []:
+            t[ENTRY_TAX_KEYS[tx["type"]]] += tx["amount"]
+    t = {k: round(v, 2) for k, v in t.items()}
+    t["gross"] = round(t["net"] + t["vat"] + t["fees"] + t["other"] + t["stamp"] - t["withheld"] - t["deductions"], 2)
+    return t
+
+
+def build_invoice_xml(draft: dict) -> str:
+    """InvoicesDoc από το (καθαρό) draft της Γενικής φόρμας. Εκδότης/αντισυμβαλλόμενος έρχονται
+    έτοιμοι από το draft (το app βάζει το δικό μας ΑΦΜ όπου χρειάζεται). Σειρά στοιχείων κατά το σχήμα."""
+    ET.register_namespace("", INV_NS)
+    ET.register_namespace("icls", ICLS_NS)
+    ET.register_namespace("ecls", ECLS_NS)
+    q = lambda tag: f"{{{INV_NS}}}{tag}"  # noqa: E731
+    sub = lambda parent, tag, text: setattr(ET.SubElement(parent, q(tag)), "text", str(text))  # noqa: E731
+    roles = entry_roles(draft["invoice_type"], draft.get("self_pricing"), draft.get("omission"))
+    cls_ns, cls_tag = (ICLS_NS, "incomeClassification") if roles["side"] == "income" else (ECLS_NS, "expensesClassification")
+    line_taxes = draft.get("tax_level") == "line"
+    tot = entry_totals(draft)
+
+    doc = ET.Element(q("InvoicesDoc"))
+    inv = ET.SubElement(doc, q("invoice"))
+    for tag, p in (("issuer", draft.get("issuer")), ("counterpart", draft.get("counterpart"))):
+        if not (p and p.get("vat")):
+            continue
+        el = ET.SubElement(inv, q(tag))
+        country = p.get("country") or "GR"
+        sub(el, "vatNumber", p["vat"])
+        sub(el, "country", country)
+        sub(el, "branch", p.get("branch") or "0")
+        # Εκτός Ελλάδας: επωνυμία + διεύθυνση υποχρεωτικές· στην Ελλάδα δεν δηλώνονται (σφάλματα 204/205).
+        if country != "GR":
+            if p.get("name"):
+                sub(el, "name", p["name"])
+            a = ET.SubElement(el, q("address"))
+            for k, xml_k in (("street", "street"), ("number", "number"), ("postal_code", "postalCode"), ("city", "city")):
+                if p.get(k):
+                    sub(a, xml_k, p[k])
+
+    h = ET.SubElement(inv, q("invoiceHeader"))
+    sub(h, "series", draft["series"])
+    sub(h, "aa", draft["aa"])
+    sub(h, "issueDate", draft["issue_date"])
+    sub(h, "invoiceType", draft["invoice_type"])
+    if draft.get("vat_suspension"):
+        sub(h, "vatPaymentSuspension", "true")
+    sub(h, "currency", draft.get("currency") or "EUR")
+    if (draft.get("currency") or "EUR") != "EUR" and draft.get("exchange_rate"):  # μόνο εκτός EUR (ΑΑΔΕ)
+        sub(h, "exchangeRate", draft["exchange_rate"])
+    for m in (draft.get("correlated") or "").split():
+        sub(h, "correlatedInvoices", m)
+    if draft.get("self_pricing"):
+        sub(h, "selfPricing", "true")
+    for k, tag in (("dispatch_date", "dispatchDate"), ("dispatch_time", "dispatchTime"),
+                   ("vehicle", "vehicleNumber"), ("move_purpose", "movePurpose"),
+                   ("special_category", "specialInvoiceCategory")):
+        if draft.get(k):
+            sub(h, tag, draft[k] + (":00" if k == "dispatch_time" and len(draft[k]) == 5 else ""))
+    if draft.get("omission"):
+        sub(h, "invoiceVariationType", "1")
+
+    if draft.get("payments"):
+        pm = ET.SubElement(inv, q("paymentMethods"))
+        for p in draft["payments"]:
+            d = ET.SubElement(pm, q("paymentMethodDetails"))
+            sub(d, "type", p["type"])
+            sub(d, "amount", f"{p['amount']:.2f}")
+            if p.get("info"):
+                sub(d, "paymentMethodInfo", p["info"])
+
+    aggregates: dict[tuple[str, str], float] = {}
+    for idx, ln in enumerate(draft["lines"], start=1):
+        det = ET.SubElement(inv, q("invoiceDetails"))
+        sub(det, "lineNumber", idx)
+        if ln.get("rec_type"):
+            sub(det, "recType", ln["rec_type"])
+        if ln.get("quantity"):
+            sub(det, "quantity", ln["quantity"])
+        if ln.get("unit"):
+            sub(det, "measurementUnit", ln["unit"])
+        sub(det, "netValue", f"{ln['net']:.2f}")
+        sub(det, "vatCategory", ln["vat_category"])
+        sub(det, "vatAmount", f"{ln['vat_amount']:.2f}")
+        if ln["vat_category"] == "7" and ln.get("vat_exemption"):
+            sub(det, "vatExemptionCategory", ln["vat_exemption"])
+        if ln.get("discount_option"):
+            sub(det, "discountOption", "true")
+        if line_taxes:  # σειρά σχήματος: παρακράτηση, χαρτόσημο, τέλη, λοιποί (κατηγορία πριν το ποσό), κρατήσεις
+            for k, amt_tag, cat_tag in (("withheld", "withheldAmount", "withheldPercentCategory"),
+                                        ("stamp", "stampDutyAmount", "stampDutyPercentCategory"),
+                                        ("fees", "feesAmount", "feesPercentCategory")):
+                if ln.get(k):
+                    sub(det, amt_tag, f"{ln[k]:.2f}")
+                    sub(det, cat_tag, ln[k + "_cat"])
+            if ln.get("other"):
+                sub(det, "otherTaxesPercentCategory", ln["other_cat"])
+                sub(det, "otherTaxesAmount", f"{ln['other']:.2f}")
+            if ln.get("deductions"):
+                sub(det, "deductionsAmount", f"{ln['deductions']:.2f}")
+        if ln.get("comments"):
+            sub(det, "lineComments", ln["comments"])
+        for i, c in enumerate(ln["cls"], start=1):
+            el = ET.SubElement(det, f"{{{INV_NS}}}{cls_tag}")
+            if c.get("type"):
+                ET.SubElement(el, f"{{{cls_ns}}}classificationType").text = c["type"]
+            if c.get("category"):
+                ET.SubElement(el, f"{{{cls_ns}}}classificationCategory").text = c["category"]
+            ET.SubElement(el, f"{{{cls_ns}}}amount").text = f"{c['amount']:.2f}"
+            ET.SubElement(el, f"{{{cls_ns}}}id").text = str(i)
+            key = (c.get("type") or "", c.get("category") or "")
+            aggregates[key] = aggregates.get(key, 0.0) + c["amount"]
+        if ln.get("not_vat195"):
+            sub(det, "notVAT195", "true")
+
+    if not line_taxes and draft.get("taxes"):
+        tt = ET.SubElement(inv, q("taxesTotals"))
+        for i, tx in enumerate(draft["taxes"], start=1):
+            el = ET.SubElement(tt, q("taxes"))
+            sub(el, "taxType", tx["type"])
+            if tx.get("category"):
+                sub(el, "taxCategory", tx["category"])
+            if tx.get("base") is not None:
+                sub(el, "underlyingValue", f"{tx['base']:.2f}")
+            sub(el, "taxAmount", f"{tx['amount']:.2f}")
+            sub(el, "id", i)
+
+    s = ET.SubElement(inv, q("invoiceSummary"))
+    for tag, k in (("totalNetValue", "net"), ("totalVatAmount", "vat"), ("totalWithheldAmount", "withheld"),
+                   ("totalFeesAmount", "fees"), ("totalStampDutyAmount", "stamp"),
+                   ("totalOtherTaxesAmount", "other"), ("totalDeductionsAmount", "deductions"),
+                   ("totalGrossValue", "gross")):
+        sub(s, tag, f"{tot[k]:.2f}")
+    for (ctype, ccat), amt in aggregates.items():
+        el = ET.SubElement(s, f"{{{INV_NS}}}{cls_tag}")
+        if ctype:
+            ET.SubElement(el, f"{{{cls_ns}}}classificationType").text = ctype
+        if ccat:
+            ET.SubElement(el, f"{{{cls_ns}}}classificationCategory").text = ccat
+        ET.SubElement(el, f"{{{cls_ns}}}amount").text = f"{round(amt, 2):.2f}"
+
+    return '<?xml version="1.0" encoding="utf-8"?>' + ET.tostring(doc, encoding="unicode")
+
+
+def draft_xml(draft: dict, own_vat: str = "") -> str:
+    """XML ενός τοπικού draft (Γενική φόρμα ή «Νέα εγγραφή»): το ίδιο ελέγχεται με το XSD στην
+    αποθήκευση και στέλνεται στο /send."""
+    if draft.get("form") == "entry":
+        return build_invoice_xml(draft)
+    t = draft.get("invoice_type", "")
+    rules = type_rules(t)
+    return build_self_expense_invoice_xml(
+        t,
+        draft.get("series", "0"),
+        draft.get("aa", "1"),
+        draft.get("issue_date", ""),
+        draft.get("lines", []),
+        issuer_vat="" if t in SELF_TYPES_NO_ISSUER else draft.get("issuer_vat", ""),
+        issuer_country=draft.get("issuer_country", "GR"),
+        issuer_name=draft.get("issuer_name", ""),
+        issuer_address={k: draft.get("issuer_" + k, "") for k in ("street", "postal_code", "city")},
+        counterpart_vat=own_vat if rules["counterpart"] else "",
+        include_payment=rules["payment"],
+        payment_method=draft.get("payment_method", "5"),
+        withheld=draft.get("withheld_amount") or 0.0,
+        deductions=draft.get("deductions_amount") or 0.0,
+        withheld_base=draft.get("withheld_base"),
+        variation_type="1" if t in OMISSION_TYPES else "",
     )
 
 

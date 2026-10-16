@@ -183,6 +183,15 @@ CREATE TABLE IF NOT EXISTS supplier_rules (
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 
+-- Συναλλασσόμενοι που δήλωσε η ίδια η εταιρεία (Γενική φόρμα καταχώρησης), ακόμα κι αν δεν υπάρχει ακόμα
+-- παραστατικό τους στο τοπικό βιβλίο (π.χ. έσοδο που στάλθηκε αμέσως, πριν την επόμενη «Ανάκτηση»).
+CREATE TABLE IF NOT EXISTS company_suppliers (
+    company_id  INTEGER NOT NULL,
+    vat         TEXT NOT NULL,
+    PRIMARY KEY (company_id, vat),
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS documents (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id          INTEGER NOT NULL,
@@ -832,17 +841,28 @@ def save_supplier_address(vat: str, name: str | None, country: str, street: str 
         _save_supplier_address(conn, vat, name, country, street, postal_code, city)
 
 
+def get_supplier(vat: str | None) -> dict | None:
+    """Ένας συναλλασσόμενος του κοινού καταλόγου (επωνυμία, χώρα, διεύθυνση) ή None."""
+    if not vat:
+        return None
+    with get_conn() as conn:
+        row = conn.execute("SELECT vat, name, country, street, postal_code, city FROM suppliers WHERE vat = ?",
+                           (vat,)).fetchone()
+    return dict(row) if row else None
+
+
 def list_suppliers(company_id: int | None = None) -> list[dict]:
     """Ολόκληρος ο κοινός κατάλογος· με company_id μόνο οι συναλλασσόμενοι της εταιρείας
-    (με παραστατικά ή δική της πρόταση χαρακτηρισμού)."""
+    (με παραστατικά, δική της πρόταση χαρακτηρισμού ή δηλωμένοι από τη Γενική φόρμα)."""
     q = "SELECT vat, name, country, street, postal_code, city FROM suppliers"
     params: tuple = ()
     if company_id is not None:
         q += (
             " WHERE vat IN (SELECT counterparty_vat FROM documents WHERE company_id = ?"
-            " UNION SELECT vat FROM supplier_rules WHERE company_id = ?)"
+            " UNION SELECT vat FROM supplier_rules WHERE company_id = ?"
+            " UNION SELECT vat FROM company_suppliers WHERE company_id = ?)"
         )
-        params = (company_id, company_id)
+        params = (company_id, company_id, company_id)
     with get_conn() as conn:
         rows = conn.execute(q + " ORDER BY name IS NULL, name, vat", params).fetchall()
     return [dict(r) for r in rows]
@@ -872,7 +892,14 @@ def delete_supplier(vat: str) -> bool:
             return False
         conn.execute("DELETE FROM suppliers WHERE vat = ?", (vat,))
         conn.execute("DELETE FROM supplier_rules WHERE vat = ?", (vat,))
+        conn.execute("DELETE FROM company_suppliers WHERE vat = ?", (vat,))
     return True
+
+
+def link_supplier(company_id: int, vat: str) -> None:
+    """Ο συναλλασσόμενος ανήκει στην εταιρεία (εμφανίζεται στους «Συναλλασσόμενούς» της)."""
+    with get_conn() as conn:
+        conn.execute("INSERT OR IGNORE INTO company_suppliers (company_id, vat) VALUES (?, ?)", (company_id, vat))
 
 
 def import_suppliers_txt(text: str) -> int:

@@ -23,9 +23,10 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 
 # Ο κώδικας της εφαρμογής (μόνο ό,τι χρειάζεται - δες .dockerignore)
-COPY app.py wsgi.py auth.py db.py ensure_env.py mydata_client.py classifications.py vies.py gsis.py vat_return.py pyproject.toml ./
+COPY app.py wsgi.py auth.py db.py ensure_env.py mydata_client.py aade_form.py classifications.py vies.py gsis.py vat_return.py pyproject.toml ./
 COPY templates ./templates
 COPY static ./static
+COPY xsd ./xsd
 COPY docs/syndiasmoi_xaraktirismwn_v*.xlsx ./docs/
 
 # Φάκελος δεδομένων (mounted volume) - ιδιοκτησία στον μη-root χρήστη

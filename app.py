@@ -39,6 +39,7 @@ from flask import (
 )
 from markupsafe import Markup
 
+import aade_form
 import auth
 import db
 import vat_return
@@ -47,13 +48,17 @@ from classifications import (
     EU_COUNTRIES,
     EXPENSE_CATEGORIES,
     EXPENSE_TYPES,
+    FEES_CATEGORIES,
     INCOME_CATEGORIES,
     INCOME_TYPES,
     INVOICE_TYPE_NAMES,
+    OTHER_TAX_CATEGORIES,
+    STAMP_DUTY_CATEGORIES,
     TAX_CATEGORIES,
     TAX_TYPES,
     VAT_CATEGORY_RATES,
     VAT_TYPES,
+    WITHHELD_CATEGORIES,
     country_allowed,
     country_rule,
 )
@@ -64,7 +69,10 @@ from mydata_client import (
     InvoiceLine,
     MyDataClient,
     MyDataError,
+    draft_xml,
     needs_vat_cls,
+    xsd_enum,
+    xsd_errors,
 )
 
 ensure_env()  # δημιουργεί .env με ασφαλές FLASK_SECRET στην πρώτη εκκίνηση
@@ -126,7 +134,7 @@ def _remember(resp, salt: str, force: bool = False):
 _GATED = {
     "allow_classify": ({"auto_classify", "classify", "submit", "bulk_classify"},
                        "Οι χαρακτηρισμοί είναι απενεργοποιημένοι για την εταιρεία — ενεργοποίησέ τους στις Παραμέτρους εταιρείας."),
-    "allow_new": ({"new_expense", "new_expense_submit", "expense_template_save", "expense_template_delete",
+    "allow_new": ({"new_expense", "new_expense_submit", "entry", "entry_submit", "expense_template_save", "expense_template_delete",
                    "recurring", "recurring_days", "recurring_create"},
                   "Η «Νέα εγγραφή» είναι απενεργοποιημένη για την εταιρεία — ενεργοποίησέ την στις Παραμέτρους εταιρείας."),
 }
@@ -265,7 +273,7 @@ db.init_db()
 
 
 def _combos_version(name: str) -> tuple | None:
-    """Έκδοση από όνομα αρχείου ΑΑΔΕ, π.χ. syndiasmoi_xaraktirismwn_v1.0.8.xlsx → (1, 0, 8)."""
+    """Έκδοση από όνομα αρχείου ΑΑΔΕ, π.χ. syndiasmoi_xaraktirismwn_v2.0.2.xlsx → (2, 0, 2)."""
     m = re.search(r"v(\d+(?:\.\d+)*)", os.path.basename(name or ""))
     return tuple(int(x) for x in m.group(1).split(".")) if m else None
 
@@ -1864,6 +1872,7 @@ XML_EXTRA_CODES = {
         "9": "Αγορά", "10": "Εφοδιασμός πλοίων και αεροσκαφών", "11": "Δωρεάν διάθεση", "12": "Εγγύηση",
         "13": "Χρησιδανεισμός", "14": "Αποθήκευση σε τρίτους", "15": "Επιστροφή από φύλαξη", "16": "Ανακύκλωση",
         "17": "Καταστροφή άχρηστου υλικού", "18": "Διακίνηση παγίων (ενδοδιακίνηση)", "19": "Λοιπές διακινήσεις",
+        "20": "Μεταφορές - Ταχυμεταφορές",
     },
     # ponytail: οι συνηθέστερες χώρες/νομίσματα· άλλος κωδικός εμφανίζεται σκέτος — προσθέστε εδώ.
     "country": {
@@ -2923,23 +2932,7 @@ def send():
             elif action == "cancel":
                 result = client.cancel_invoice(mark)
             elif action == "create":
-                draft = json.loads(row.get("draft_json") or "{}")
-                result = client.send_self_expense_invoice(
-                    draft.get("invoice_type", ""),
-                    draft.get("series", "0"),
-                    draft.get("aa", "1"),
-                    draft.get("issue_date", ""),
-                    draft.get("lines", []),
-                    issuer_vat=draft.get("issuer_vat", ""),
-                    issuer_country=draft.get("issuer_country", "GR"),
-                    issuer_name=draft.get("issuer_name", ""),
-                    issuer_address={k: draft.get("issuer_" + k, "") for k in ("street", "postal_code", "city")},
-                    own_vat=get_own_vat(),
-                    payment_method=draft.get("payment_method", "5"),
-                    withheld=draft.get("withheld_amount") or 0.0,
-                    deductions=draft.get("deductions_amount") or 0.0,
-                    withheld_base=draft.get("withheld_base"),
-                )
+                result = client.send_invoice(draft_xml(json.loads(row.get("draft_json") or "{}"), get_own_vat()))
             else:  # classify / correct
                 classifications = to_send[mark]
                 result = client.send_expenses_classification(
@@ -5004,6 +4997,8 @@ def new_expense():
         row = db.get_document(cid, edit_mark) if cid else None
         if row and (row.get("local_action") == "create"):
             draft = json.loads(row.get("draft_json") or "{}")
+            if draft.get("form") == "entry":  # πρόχειρο της Γενικής φόρμας καταχώρησης
+                return redirect(url_for("entry", edit=edit_mark))
         else:
             flash("Η εγγραφή προς επεξεργασία δεν βρέθηκε.", "error")
             edit_mark = ""
@@ -5019,6 +5014,8 @@ def new_expense():
             and row.get("invoice_type") in SELF_EXPENSE_TYPES
         ):
             draft = _copy_draft(row)
+            if draft.get("form") == "entry":
+                return redirect(url_for("entry", copy=copy_mark))
         else:
             flash(
                 "Αντιγραφή γίνεται μόνο από ολοκληρωμένη εγγραφή τύπου 13.x–17.x.",
@@ -5390,6 +5387,8 @@ def new_expense_submit():
         if taken and taken["mark"] != edit_mark:
             flash(f"Υπάρχει ήδη εγγραφή του προτύπου για τον μήνα {origin[1]} ({taken['mark']}).", "error")
             return again()
+    if _flash_xsd(draft):
+        return again()
     # Επεξεργασία: αντικατάσταση του υπάρχοντος τοπικού draft.
     if existing:
         db.delete_document(cid, edit_mark)
@@ -5402,6 +5401,14 @@ def new_expense_submit():
         "ok",
     )
     return redirect(_safe_back(request.form.get("back")) or url_for("invoices", view="classified"))
+
+
+def _flash_xsd(draft: dict) -> bool:
+    """Έλεγχος του XML του draft με το XSD της ΑΑΔΕ πριν την αποθήκευση· True (με μήνυμα) αν δεν περνά."""
+    errors = xsd_errors(draft_xml(draft, get_own_vat()))
+    for e in errors:
+        flash(f"Έλεγχος XSD ΑΑΔΕ: {e}", "error")
+    return bool(errors)
 
 
 def _store_self_expense(cid: int, draft: dict, origin: tuple | None = None) -> int | None:
@@ -5452,6 +5459,409 @@ def _store_self_expense(cid: int, draft: dict, origin: tuple | None = None) -> i
         },
     }
     return db.create_local_expense(cid, doc, draft, cls_info, origin)
+
+
+# ------------------------------------------------------------------ #
+# ΓΕΝΙΚΗ ΦΟΡΜΑ ΚΑΤΑΧΩΡΗΣΗΣ — κάθε τύπος παραστατικού (όπως η Ειδική Φόρμα της ΑΑΔΕ).
+# Έξοδα → τοπικό πρόχειρο στα «Χαρακτηρισμένα» (μαζική «Αποστολή»)· έσοδα → άμεση αποστολή.
+# ------------------------------------------------------------------ #
+# Είδη και τύποι παραστατικού, με τα ονόματα και τη σειρά της Ειδικής Φόρμας της ΑΑΔΕ (aade_form.py).
+_ENTRY_FAMILIES = {code: label for code, label in aade_form.OPTIONS["family"]}
+_ENTRY_TYPES = {code: label for code, label in aade_form.OPTIONS["invoice_type"]}
+
+
+@app.route("/entry")
+def entry():
+    edit_mark = request.args.get("edit", "").strip()
+    draft = None
+    if edit_mark:
+        row = db.get_document(_active_company_id(), edit_mark) if _active_company_id() else None
+        draft = json.loads(row.get("draft_json") or "{}") if row and row.get("local_action") == "create" else {}
+        if draft.get("form") != "entry":
+            flash("Η εγγραφή προς επεξεργασία δεν βρέθηκε.", "error")
+            draft, edit_mark = None, ""
+    elif request.args.get("copy"):  # αντίγραφο ολοκληρωμένης εγγραφής: σημερινή ημ/νία, κενός Α/Α
+        row = db.get_document(_active_company_id(), request.args["copy"]) if _active_company_id() else None
+        draft = json.loads((row or {}).get("draft_json") or "{}")
+        draft = dict(draft, issue_date=datetime.now(ATHENS).strftime("%Y-%m-%d"), aa="") if draft.get("form") == "entry" else None
+    return _render_entry(draft, edit_mark)
+
+
+def _render_entry(draft: dict | None, edit_mark: str = "", status: int = 200):
+    from mydata_client import ENTRY_OPTIONS, ENTRY_RATES, ENTRY_RULES, SELF_TYPES_ISSUER_OPTIONAL, entry_roles
+
+    company = get_active_company() or {}
+    opt = aade_form.OPTIONS  # [κωδικός, ετικέτα(, συντελεστής)] με τη σειρά της ΑΑΔΕ
+    # Ε3: οι ετικέτες της ΑΑΔΕ, αλλά μόνο όσα δέχεται το XSD (π.χ. το E3_585_017 η φόρμα της ΑΑΔΕ το έχει, το XSD όχι).
+    inc_ok, exp_ok = set(xsd_enum("IncomeClassificationValueType")), set(xsd_enum("ExpensesClassificationValueType"))
+    e3 = {"income": [x for x in opt["income_e3"] if x[0] in inc_ok],
+          "expense": [x for x in opt["expense_e3"] if x[0] in exp_ok and x[0].startswith("E3_")]}
+    return render_template(
+        "entry.html",
+        draft=draft,
+        edit_mark=edit_mark,
+        types=_ENTRY_TYPES,
+        families=_ENTRY_FAMILIES,
+        # ρόλοι ανά τύπο × (αυτοτιμολόγηση, παράλειψη εκδότη): ίδια πηγή με τον server
+        roles={t: {f"{int(sp)}{int(om)}": entry_roles(t, sp, om) for sp in (False, True) for om in (False, True)}
+               for t in _ENTRY_TYPES},
+        issuer_optional=sorted(SELF_TYPES_ISSUER_OPTIONAL),
+        rules=ENTRY_RULES,
+        eu_countries=sorted(EU_COUNTRIES),
+        combos={t: {c: [e for e in es if e in ("*", "-") or e in inc_ok | exp_ok]
+                    for c, es in db.combos_for_type(t).items()} for t in _ENTRY_TYPES},
+        opt=ENTRY_OPTIONS,  # για τα select του template (τα dict κρατούν τη σειρά της ΑΑΔΕ)
+        js_opt={"income_category": opt["income_category"], "expense_category": opt["expense_category"],
+                "e3": e3, "vat_cls": [x for x in opt["expense_e3"] if x[0] in exp_ok and not x[0].startswith("E3_")],
+                "tax": {tt: [x[:2] for x in opt[k]] for tt, k in (("1", "withheld"), ("2", "fees"), ("3", "other"), ("4", "stamp"))},
+                "vat": [x[:2] for x in opt["vat"]]},
+        rates=ENTRY_RATES,
+        tax_types=dict(aade_form.TAX_TYPES),
+        # όλες οι χώρες του CountryType· τα ελληνικά ονόματα τα συμπληρώνει ο browser (Intl)
+        countries={c: XML_EXTRA_CODES["country"].get(c, c) for c in xsd_enum("CountryType")},
+        own={"vat": get_own_vat(), "name": company.get("company_name", "")},
+        suppliers=db.list_suppliers(_active_company_id()),
+        today=datetime.now(ATHENS).strftime("%Y-%m-%d"),
+    ), status
+
+
+def _is_vat_cls(ctype: str) -> bool:
+    """Χαρακτηρισμός ΦΠΑ της Γενικής φόρμας: VAT_36x ή NOT_VAT_295 (όχι Ε3)."""
+    return ctype.startswith(("VAT_", "NOT_VAT_"))
+
+
+def _entry_clean(raw: dict) -> tuple[dict, list[str]]:
+    """JSON της Γενικής φόρμας → καθαρό draft (αριθμοί, εκδότης/αντισυμβαλλόμενος) και λίστα λαθών."""
+    from mydata_client import (ENTRY_OPTIONS, ENTRY_RULES, ENTRY_TAX_KEYS, REC_NEGATIVE_TYPES,
+                               SELF_TYPES_ISSUER_OPTIONAL, VAT_EXPENSE_TYPE, entry_country_rule, entry_roles,
+                               entry_totals)
+
+    O = ENTRY_OPTIONS  # οι επιλογές της Ειδικής Φόρμας της ΑΑΔΕ: μόνο αυτές γίνονται δεκτές
+    tax_label = dict(aade_form.TAX_TYPES)
+
+    errors: list[str] = []
+
+    def s(v) -> str:
+        return str(v if v is not None else "").strip()
+
+    def num(v) -> float:
+        try:
+            return round(float(s(v).replace(",", ".")), 2) if s(v) else 0.0
+        except ValueError:
+            errors.append(f"Μη έγκυρο ποσό «{s(v)}».")
+            return 0.0
+
+    def party(p) -> dict:
+        p = p if isinstance(p, dict) else {}
+        # known_name: επωνυμία από τον κατάλογο / VIES (για αποθήκευση· στην Ελλάδα δεν στέλνεται στο XML)
+        return {k: s(p.get(k)) for k in ("country", "vat", "name", "branch", "postal_code", "street", "number", "city",
+                                         "known_name")}
+
+    t = s(raw.get("invoice_type"))
+    d = {
+        "form": "entry",
+        "invoice_type": t,
+        **{k: s(raw.get(k)) for k in ("series", "aa", "issue_date", "special_category", "currency", "exchange_rate",
+                                      "dispatch_date",
+                                      "dispatch_time", "vehicle", "move_purpose", "correlated")},
+        **{k: bool(raw.get(k)) for k in ("vat_suspension", "self_pricing", "omission", "dispatch")},
+        "tax_level": "line" if raw.get("tax_level") == "line" else "doc",
+        "issuer": party(raw.get("issuer")),
+        "counterpart": party(raw.get("counterpart")),
+    }
+    d["currency"] = d["currency"] or "EUR"
+    for p in (d["issuer"], d["counterpart"]):
+        if p["country"] and p["country"] not in xsd_enum("CountryType"):
+            errors.append(f"Μη έγκυρη χώρα «{p['country']}».")
+    if d["currency"] not in O["currency"]:
+        errors.append(f"Μη έγκυρο νόμισμα «{d['currency']}».")
+    for k, opts, label in (("special_category", "special", "ειδική κατηγορία"), ("move_purpose", "move_purpose", "σκοπός διακίνησης")):
+        if d[k] and d[k] not in O[opts]:
+            errors.append(f"Μη έγκυρη τιμή «{d[k]}» στο πεδίο {label}.")
+
+    if d["currency"] == "EUR":
+        d["exchange_rate"] = ""  # ΑΑΔΕ: ισοτιμία μόνο όταν το νόμισμα δεν είναι EUR
+    else:
+        try:
+            ok = float(d["exchange_rate"].replace(",", ".")) > 0
+        except ValueError:
+            ok = False
+        if not ok:
+            errors.append(f"Συμπλήρωσε την ισοτιμία {d['currency']} προς ευρώ.")
+        else:
+            d["exchange_rate"] = d["exchange_rate"].replace(",", ".")
+    d["payments"] = [{"type": s(p.get("type")), "amount": num(p.get("amount")), "info": s(p.get("info"))}
+                     for p in raw.get("payments") or [] if s(p.get("type"))]
+    line_taxes = d["tax_level"] == "line"
+    d["lines"] = [
+        {
+            "rec_type": s(ln.get("rec_type")),
+            "not_vat195": bool(ln.get("not_vat195")),
+            "unit": s(ln.get("unit")),
+            "quantity": s(ln.get("quantity")),
+            "net": num(ln.get("net")),
+            "discount_option": bool(ln.get("discount_option")),
+            "vat_category": s(ln.get("vat_category")),
+            "vat_amount": num(ln.get("vat_amount")),
+            "vat_exemption": s(ln.get("vat_exemption")),
+            "comments": s(ln.get("comments")),
+            **{k: num(ln.get(k)) if line_taxes else 0.0 for k in ENTRY_TAX_KEYS.values()},
+            **{k + "_cat": s(ln.get(k + "_cat")) if line_taxes else "" for k in ("withheld", "fees", "other", "stamp")},
+            "cls": [{"category": s(c.get("category")), "type": s(c.get("type")), "amount": num(c.get("amount"))}
+                    for c in ln.get("cls") or [] if s(c.get("category")) or s(c.get("type"))],
+        }
+        for ln in raw.get("lines") or []
+    ]
+    d["taxes"] = [] if line_taxes else [
+        {"type": s(x.get("type")), "category": s(x.get("category")),
+         "base": num(x.get("base")) if s(x.get("base")) else None, "amount": num(x.get("amount"))}
+        for x in raw.get("taxes") or [] if s(x.get("type"))
+    ]
+
+    if t not in _ENTRY_TYPES:
+        return d, ["Επίλεξε τύπο παραστατικού."]
+    # Πεδία που δεν ισχύουν για τον τύπο (η φόρμα τα κρύβει, όπως η Ειδική Φόρμα της ΑΑΔΕ): δεν στέλνονται.
+    fam = t.split(".")[0]
+    hidden = set(ENTRY_RULES["hidden"].get(t, []))
+    no_vat = t in ENTRY_RULES["no_vat"]
+    vat_ok = ({"8"} if no_vat else {"7"} if t in ENTRY_RULES["vat_zero"]
+              else set(O["vat"]) - {"7", "8"} if t in ENTRY_RULES["vat_mandatory"] else set(O["vat"]) - {"8"})
+    if "self_pricing" in hidden:
+        d["self_pricing"] = False
+    if not d["dispatch"] or "dispatch" in hidden:
+        d.update(dispatch=False, dispatch_date="", dispatch_time="", vehicle="", move_purpose="")
+    if t not in ENTRY_RULES["correlated"]:
+        d["correlated"] = ""
+    if no_vat or entry_roles(t, d["self_pricing"], d["omission"])["side"] != "income":
+        d["vat_suspension"] = False  # αναστολή καταβολής ΦΠΑ: μόνο σε πωλήσεις με ΦΠΑ
+    if "payments" in hidden:
+        d["payments"] = []
+    if any(p["type"] not in O["payment"] for p in d["payments"]):
+        errors.append("Μη έγκυρος τρόπος εξόφλησης.")
+    excluded = ENTRY_RULES["excluded_tax_options"].get(t, {})
+    for tx in d["taxes"]:
+        if ENTRY_TAX_KEYS.get(tx["type"]) in hidden:
+            errors.append(f"Ο τύπος {t} δεν δέχεται «{tax_label[tx['type']]}».")
+        elif tx["category"] in excluded.get(tx["type"], []):
+            errors.append(f"Ο τύπος {t} δεν δέχεται την κατηγορία {tx['category']} στο «{tax_label[tx['type']]}».")
+    if t not in ENTRY_RULES["special_only"].get(d["special_category"], [t]):
+        errors.append(f"Η ειδική κατηγορία {d['special_category']} επιτρέπεται μόνο στα "
+                      f"{', '.join(ENTRY_RULES['special_only'][d['special_category']])}.")
+    if not (d["series"] and d["aa"] and d["issue_date"]):
+        errors.append("Συμπλήρωσε σειρά, Α/Α και ημερομηνία έκδοσης.")
+    if d["omission"] and t not in ENTRY_RULES["omission"]:
+        errors.append(f"Διαβίβαση λόγω παράλειψης εκδότη επιτρέπεται μόνο στα {', '.join(ENTRY_RULES['omission'])}.")
+    roles = entry_roles(t, d["self_pricing"], d["omission"])
+    side_prefix = "category1_" if roles["side"] == "income" else "category2_"
+
+    # Εκδότης / αντισυμβαλλόμενος: όπου είμαστε εμείς, το ΑΦΜ μπαίνει από τον server.
+    own_vat = get_own_vat()
+    if not own_vat:
+        errors.append("Λείπει το ΑΦΜ της εταιρείας — συμπλήρωσέ το στη Διαχείριση εταιρειών.")
+    for key, label, role in (("issuer", "εκδότη", roles["issuer"]), ("counterpart", "αντισυμβαλλόμενου", roles["counterpart"])):
+        p = d[key]
+        if role == "own":
+            d[key] = dict(party({}), country="GR", vat=own_vat, branch=p["branch"] or "0")
+        elif role == "none":
+            d[key] = party({})
+        else:
+            rule = entry_country_rule(key, t)
+            p["country"] = "GR" if rule == "gr" else (p["country"] or "").upper()
+            if rule == "eu" and p["country"] not in EU_COUNTRIES:
+                errors.append(f"Ο τύπος {t} θέλει {label} από χώρα της ΕΕ (εκτός Ελλάδας).")
+            elif rule == "third" and (p["country"] in EU_COUNTRIES or p["country"] in ("", "GR")):
+                errors.append(f"Ο τύπος {t} θέλει {label} από χώρα εκτός ΕΕ.")
+            if not p["vat"]:
+                if key == "issuer" and t not in SELF_TYPES_ISSUER_OPTIONAL:
+                    errors.append(f"Συμπλήρωσε το ΑΦΜ του {label}.")
+            elif p["country"] != "GR" and not (p["name"] and p["postal_code"] and p["city"]):
+                errors.append(f"Για {label} εκτός Ελλάδας συμπλήρωσε επωνυμία, Τ.Κ. και πόλη.")
+
+    if not d["lines"]:
+        errors.append("Συμπλήρωσε τουλάχιστον μία γραμμή.")
+    for n, ln in enumerate(d["lines"], start=1):
+        if no_vat:  # «Εγγραφές χωρίς ΦΠΑ»
+            ln.update(vat_category="8", vat_amount=0.0, vat_exemption="")
+        # Φ2 – μη συμμετοχή: μόνο έσοδα 1.1–11.5, όχι με αυτοτιμολόγηση (ΑΑΔΕ)
+        if roles["side"] != "income" or fam not in ENTRY_RULES["not_vat195_families"] or d["self_pricing"]:
+            ln["not_vat195"] = False
+        if "unit" in hidden:
+            ln.update(unit="", quantity="")
+        for k in ("withheld", "fees", "other", "stamp", "deductions"):  # φόροι γραμμής που κρύβει η ΑΑΔΕ
+            if k in hidden:
+                ln[k] = 0.0
+                ln[k + "_cat"] = ""
+        for tt, cats in excluded.items():
+            k = ENTRY_TAX_KEYS[tt]
+            if ln[k] and ln[k + "_cat"] in cats:
+                errors.append(f"Γραμμή {n}: ο τύπος {t} δεν δέχεται την κατηγορία {ln[k + '_cat']} στο «{tax_label[tt]}».")
+        if ln["unit"] and ln["unit"] not in O["unit"]:
+            errors.append(f"Γραμμή {n}: μη έγκυρη μονάδα μέτρησης.")
+        if not ln["unit"]:
+            ln["quantity"] = ""
+        rec = ln["rec_type"]
+        if rec and rec not in O["rec_type"]:
+            errors.append(f"Γραμμή {n}: μη έγκυρη κατηγορία γραμμής.")
+        # ΑΑΔΕ: «Τέλος με ΦΠΑ» μόνο όπου ο τύπος δέχεται τέλη, «Λοιποί Φόροι με ΦΠΑ» όπου δέχεται λοιπούς φόρους.
+        elif rec in ("2", "3") and {"2": "fees", "3": "other"}[rec] in hidden:
+            errors.append(f"Γραμμή {n}: ο τύπος {t} δεν δέχεται «{O['rec_type'][rec]}».")
+        elif rec == "7" and t not in REC_NEGATIVE_TYPES:
+            errors.append(f"Γραμμή {n}: «{O['rec_type']['7']}» επιτρέπεται μόνο στα 17.3, 17.4, 17.5 και 17.6.")
+        if ln["rec_type"] in ("2", "3") and any(ln[k] for k in ENTRY_TAX_KEYS.values()):
+            errors.append(f"Γραμμή {n}: σε γραμμή τέλους/λοιπών φόρων με ΦΠΑ το ποσό μπαίνει στην καθαρή αξία "
+                          "και δεν επιτρέπονται φόροι γραμμής (ΑΑΔΕ).")
+        if ln["vat_category"] not in vat_ok:
+            errors.append(f"Γραμμή {n}: επίλεξε συντελεστή ΦΠΑ"
+                          + (f" — ο τύπος {t} δέχεται μόνο {', '.join(O['vat'][v] for v in sorted(vat_ok))}." if ln["vat_category"] else "."))
+        if ln["vat_category"] != "7":
+            ln["vat_exemption"] = ""
+        elif ln["vat_exemption"] not in O["exemption"]:
+            errors.append(f"Γραμμή {n}: με ΦΠΑ 0% συμπλήρωσε την κατηγορία εξαίρεσης ΦΠΑ.")
+        if ln["net"] < 0 or ln["vat_amount"] < 0:
+            errors.append(f"Γραμμή {n}: τα ποσά δεν μπορεί να είναι αρνητικά — για αρνητικές αξίες στα 17.3–17.6 "
+                          "διάλεξε «Αρνητικό πρόσημο αξιών» και γράψε τα ποσά θετικά.")
+        e3 = [c for c in ln["cls"] if not _is_vat_cls(c["type"])]
+        if any(not c["category"].startswith(side_prefix) for c in e3):
+            errors.append(f"Γραμμή {n}: ο τύπος {t} θέλει χαρακτηρισμούς "
+                          f"{'εσόδων (category1_x)' if roles['side'] == 'income' else 'εξόδων (category2_x)'}.")
+        if t != "9.3" and abs(sum(c["amount"] for c in e3) - ln["net"]) > 0.005:
+            errors.append(f"Γραμμή {n}: οι χαρακτηρισμοί Ε3 ({sum(c['amount'] for c in e3):.2f}) πρέπει να "
+                          f"αθροίζουν στην καθαρή αξία ({ln['net']:.2f}).")
+        if roles["side"] == "income":
+            ln["cls"] = e3  # χαρακτηρισμός ΦΠΑ μόνο στα έξοδα
+        elif needs_vat_cls(ln["vat_category"]) and not any(_is_vat_cls(c["type"]) for c in ln["cls"]):
+            ln["cls"].append({"category": "", "type": VAT_EXPENSE_TYPE, "amount": ln["net"]})  # σφάλμα 230
+        for k in ("withheld", "fees", "other", "stamp"):
+            if ln[k] and ln[k + "_cat"] not in O[k]:
+                errors.append(f"Γραμμή {n}: επίλεξε κατηγορία για το ποσό {ln[k]:.2f}.")
+    for n, tx in enumerate(d["taxes"], start=1):
+        if tx["type"] not in tax_label:
+            errors.append(f"Φόρος {n}: μη έγκυρος τύπος φόρου.")
+        elif tx["type"] == "5":
+            tx["category"] = ""
+        elif tx["category"] not in O[ENTRY_TAX_KEYS[tx["type"]]]:
+            errors.append(f"Φόρος {n}: επίλεξε κατηγορία φόρου.")
+        if tx["amount"] <= 0:
+            errors.append(f"Φόρος {n}: συμπλήρωσε ποσό.")
+    if d["lines"] and d["payments"]:
+        gross = entry_totals(d)["gross"]
+        paid = round(sum(p["amount"] for p in d["payments"]), 2)
+        if abs(paid - gross) > 0.005:
+            errors.append(f"Οι τρόποι εξόφλησης ({paid:.2f}) πρέπει να αθροίζουν στη συνολική αξία ({gross:.2f}).")
+    return d, errors
+
+
+@app.route("/entry", methods=["POST"])
+def entry_submit():
+    from mydata_client import entry_roles
+
+    edit_mark = request.form.get("edit_mark", "").strip()
+    try:
+        raw = json.loads(request.form.get("draft") or "{}")
+    except ValueError:
+        raw = {}
+    draft, errors = _entry_clean(raw if isinstance(raw, dict) else {})
+    if not errors:  # και το XML που θα σταλεί, με το XSD της ΑΑΔΕ
+        errors = [f"Έλεγχος XSD ΑΑΔΕ: {e}" for e in xsd_errors(draft_xml(draft))]
+    if errors:
+        for e in errors:
+            flash(e, "error")
+        return _render_entry(draft, edit_mark, 422)
+    cid = _active_company_id()
+    if not cid:
+        flash("Δεν έχει οριστεί ενεργή εταιρεία.", "error")
+        return redirect(url_for("companies"))
+
+    if entry_roles(draft["invoice_type"], draft["self_pricing"], draft["omission"])["side"] == "income":
+        # Τα έσοδα δεν έχουν μαζική «Αποστολή» (όπως η ακύρωση εσόδου): SendInvoices τώρα.
+        if not send_allowed():
+            flash(SEND_DISABLED_MSG, "error")
+            return _render_entry(draft, edit_mark, 422)
+        try:
+            result = get_client(send="create").send_invoice(draft_xml(draft))
+        except MyDataError as e:
+            flash(f"Η αποστολή απέτυχε: {e}", "error")
+            return _render_entry(draft, edit_mark, 422)
+        if (result.get("status") or "").lower() != "success":
+            flash(f"Η αποστολή απέτυχε: {'; '.join(result['errors']) or result.get('status')}", "error")
+            return _render_entry(draft, edit_mark, 422)
+        _save_entry_parties(cid, draft)
+        flash(f"✔ Το παραστατικό {draft['invoice_type']} στάλθηκε στο myDATA (MARK {result.get('invoice_mark')}). "
+              "Θα εμφανιστεί στο βιβλίο εσόδων με την επόμενη «Ανάκτηση».", "ok")
+        return redirect(url_for("income"))
+
+    existing = db.get_document(cid, edit_mark) if edit_mark else None
+    if existing and existing.get("local_action") == "create":
+        db.delete_document(cid, edit_mark)
+    _store_entry(cid, draft)
+    _save_entry_parties(cid, draft)
+    flash(f"✔ Η εγγραφή {draft['invoice_type']} {'ενημερώθηκε' if existing else 'αποθηκεύτηκε'} τοπικά στα "
+          "«Χαρακτηρισμένα». Στείλ' την με «Αποστολή στο myDATA».", "ok")
+    return redirect(url_for("invoices", view="classified"))
+
+
+def _save_entry_parties(cid: int, d: dict) -> None:
+    """Εκδότης / αντισυμβαλλόμενος (όχι εμείς): συνδέεται με την εταιρεία, ώστε να φαίνεται αμέσως στους
+    «Συναλλασσόμενους» της· αν δεν υπάρχει στον κατάλογο, αποθηκεύεται με χώρα και διεύθυνση."""
+    own = get_own_vat()
+    for p in (d["issuer"], d["counterpart"]):
+        vat, name = p.get("vat"), p.get("name") or p.get("known_name")
+        if not vat or vat == own:
+            continue
+        db.link_supplier(cid, vat)
+        known = db.get_supplier(vat) or {}
+        has_address = bool(p.get("city") or p.get("street"))
+        # υπάρχει ήδη· συμπληρώνονται χώρα/διεύθυνση αν λείπουν (π.χ. μόνο επωνυμία από παλιότερο VIES)
+        if known.get("name") and not (has_address and not known.get("city")):
+            continue
+        if has_address or p.get("country", "GR") != "GR":
+            street = " ".join(x for x in (p.get("street"), p.get("number")) if x)
+            db.save_supplier_address(vat, name, p.get("country") or "GR", street, p.get("postal_code"), p.get("city"))
+        elif name:
+            db.upsert_supplier(vat, name)
+
+
+def _store_entry(cid: int, d: dict) -> int | None:
+    """Καθαρό draft εξόδου της Γενικής φόρμας → τοπική εγγραφή στα «Χαρακτηρισμένα»."""
+    from mydata_client import ENTRY_TAX_KEYS, entry_totals
+
+    tot = entry_totals(d)
+    lines = [
+        {
+            "line_number": i,
+            "net_value": ln["net"],
+            "vat_amount": ln["vat_amount"],
+            "vat_category": ln["vat_category"],
+            "has_expenses_classification": True,
+            "classifications": [{"type": c["type"], "category": c["category"], "amount": c["amount"]} for c in ln["cls"]],
+        }
+        for i, ln in enumerate(d["lines"], start=1)
+    ]
+    taxes = d["taxes"] if d["tax_level"] != "line" else [
+        {"type": tt, "category": ln.get(k + "_cat", ""), "base": ln["net"], "amount": ln[k]}
+        for ln in d["lines"] for tt, k in ENTRY_TAX_KEYS.items() if ln[k]
+    ]
+    doc = {
+        "issue_date": d["issue_date"],
+        "issuer_vat": d["issuer"]["vat"],
+        "issuer_name": d["issuer"]["name"] or None,
+        "invoice_type": d["invoice_type"],
+        "series": d["series"],
+        "aa": d["aa"],
+        "total_net": tot["net"],
+        "total_vat": tot["vat"],
+        "total_gross": tot["gross"],
+        "lines": lines,
+        "extra_totals": {
+            "total_withheld": tot["withheld"],
+            "total_other_taxes": tot["other"],
+            "total_stamp_duty": tot["stamp"],
+            "total_fees": tot["fees"],
+            "total_deductions": tot["deductions"],
+            "taxes_json": json.dumps(taxes),
+        },
+    }
+    return db.create_local_expense(cid, doc, d, [c for ln in lines for c in ln["classifications"]])
 
 
 def _recurring_pending(cid: int | None, period: str) -> list[dict]:
@@ -5522,7 +5932,7 @@ def recurring_create():
         flash("Λείπει το ΑΦΜ της εταιρείας - συμπλήρωσέ το στη Διαχείριση εταιρειών.", "error")
         return redirect(url_for("recurring", period=period))
     ids = set(request.form.getlist("template_ids"))
-    made, skipped, empty = [], [], []
+    made, skipped, empty, skipped_xsd = [], [], [], []
     for t in _recurring_pending(cid, period) if cid else []:
         if str(t["id"]) not in ids:
             continue
@@ -5530,6 +5940,8 @@ def recurring_create():
         draft = _draft_for_month(cid, template, period)
         if draft is None:
             empty.append(t["name"])
+        elif _flash_xsd(draft):
+            skipped_xsd.append(t["name"])
         elif _store_self_expense(cid, draft, (t["id"], period)):
             made.append(t["name"])
         else:  # ταυτόχρονη δημιουργία — το unique index το απέτρεψε
@@ -5541,7 +5953,9 @@ def recurring_create():
         flash(f"Υπήρχαν ήδη για {period}: {', '.join(skipped)}.", "error")
     if empty:
         flash(f"Χωρίς γραμμές με ποσό (διόρθωσε το πρότυπο): {', '.join(empty)}.", "error")
-    if not (made or skipped or empty):
+    if skipped_xsd:
+        flash(f"Δεν δημιουργήθηκαν (λάθη XSD — διόρθωσε το πρότυπο): {', '.join(skipped_xsd)}.", "error")
+    if not (made or skipped or empty or skipped_xsd):
         flash("Δεν επιλέχθηκε κανένα εκκρεμές πρότυπο.", "error")
         return redirect(url_for("recurring", period=period))
     return redirect(url_for("invoices", view="classified"))
@@ -5621,7 +6035,9 @@ def reject(mark):
 
 @app.route("/help")
 def help_page():
-    return render_template("help.html")
+    from mydata_client import XSD_VERSION
+
+    return render_template("help.html", xsd_version=XSD_VERSION)
 
 
 @app.route("/parameters")
@@ -5957,9 +6373,10 @@ def companies_select(idx):
 
 @app.route("/supplier_lookup/<vat>")
 def supplier_lookup(vat):
-    """Τοπική αναζήτηση ΑΦΜ στον (κοινό) πίνακα προμηθευτών."""
-    name = db.get_supplier_name((vat or "").strip())
-    return {"found": bool(name), "name": name or ""}
+    """Τοπική αναζήτηση ΑΦΜ στον (κοινό) πίνακα προμηθευτών· με χώρα και διεύθυνση, αν υπάρχουν."""
+    s = db.get_supplier((vat or "").strip()) or {}
+    return {"found": bool(s.get("name")), "name": s.get("name") or "", "country": s.get("country") or "",
+            "street": s.get("street") or "", "postal_code": s.get("postal_code") or "", "city": s.get("city") or ""}
 
 
 @app.route("/check_vat/<country>/<afm>")
@@ -5978,14 +6395,17 @@ def check_vat(country, afm):
         }
     msg = "✔ Έγκυρο ΑΦΜ"
     if result["name"]:
-        msg += f" · {result['name']}"
+        title = result["name"].partition("||")[2].strip()  # διακριτικός τίτλος, π.χ. «ΟΤΕ»
+        msg += f" · {vies.legal_name(result['name'])}" + (f" ({title})" if title else "")
         # αποθήκευση στην cache επωνυμιών της ενεργής εταιρείας
         names = load_names()
         _, num = vies.normalize(country, afm)
         if names.get(num) != result["name"]:
             names[num] = result["name"]
             save_names(names)
-    return {"ok": True, "valid": True, "name": result["name"], "message": msg}
+    # έτοιμα πεδία για τις φόρμες: επίσημη επωνυμία (χωρίς τον διακριτικό τίτλο «||…») και η διεύθυνση σε κομμάτια
+    return {"ok": True, "valid": True, "name": result["name"], "address": result.get("address") or "",
+            "legal_name": vies.legal_name(result["name"]), **vies.split_address(result.get("address")), "message": msg}
 
 
 @app.route("/accountant", methods=["GET", "POST"])

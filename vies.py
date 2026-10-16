@@ -194,6 +194,38 @@ def short_name(name):
     return result
 
 
+def legal_name(name: str | None) -> str:
+    """Η επίσημη επωνυμία: από το «επωνυμία||διακριτικός τίτλος» του VIES το αριστερό μέρος."""
+    return (name or "").partition("||")[0].strip()
+
+
+# Τ.Κ. + πόλη στην τελευταία γραμμή: «15124 - ΜΑΡΟΥΣΙ», «20122 MILANO MI», «2611ET DELFT», «AT-5330 Fuschl/See».
+_POSTAL_CITY = re.compile(r"^(?:[A-Z]{1,3}-)?(\d{3,6}(?:\s?[A-Z]{2}(?=\s))?)\s*(?:-\s*)?(.+)$", re.I)
+_NUMBER_LAST = re.compile(r"^(.*?\D)\s+(\d+[A-Za-zΑ-Ωα-ω]?(?:-\d+)?)$")   # «ΚΗΦΙΣΙΑΣ 99», «RICHINI 6»
+_NUMBER_FIRST = re.compile(r"^(\d+[A-Za-z]?(?:-\d+)?),?\s+(\D.*)$")        # «12 RUE DE LA PAIX»
+
+
+def split_address(address: str | None) -> dict:
+    """Η διεύθυνση του VIES (ελεύθερο κείμενο, διαφορετικό ανά χώρα) σε οδό / αριθμό / Τ.Κ. / πόλη.
+
+    Οι γραμμές χωρίζονται με αλλαγή γραμμής ή με πολλά κενά (Ελλάδα: «ΑΙΟΛΟΥ 86        10559 - ΑΘΗΝΑ»).
+    ponytail: κανόνες για τις συνήθεις μορφές της ΕΕ· ό,τι δεν ταιριάζει μένει ολόκληρο στην οδό, για διόρθωση."""
+    parts = [p.strip(" ,") for p in re.split(r"\n|\s{3,}", address or "") if p.strip(" ,")]
+    out = {"street": "", "number": "", "postal_code": "", "city": ""}
+    if not parts:
+        return out
+    if len(parts) > 1 and (m := _POSTAL_CITY.match(parts[-1])):
+        out["postal_code"], out["city"] = m.group(1).upper().replace(" ", ""), m.group(2).strip()
+        parts = parts[:-1]
+    street = ", ".join(parts)
+    if m := _NUMBER_LAST.match(street):
+        street, out["number"] = m.group(1).strip(" ,"), m.group(2).lstrip("0") or "0"
+    elif m := _NUMBER_FIRST.match(street):
+        out["number"], street = m.group(1), m.group(2).strip()
+    out["street"] = street
+    return out
+
+
 def lookup_name(afm: str, country: str = "EL", timeout: int = 15) -> str | None:
     """Επωνυμία για έγκυρο ΑΦΜ, αλλιώς None."""
     result = check_vat(country, afm, timeout=timeout)

@@ -1,0 +1,943 @@
+{% extends "base.html" %}
+{% block title %}Γενική φόρμα καταχώρησης{% endblock %}
+{% block content %}
+{% macro opts(d, fmt='both', empty='Επιλέξτε') %}<option value="">{{ empty }}</option>{% for k, v in d.items() %}<option value="{{ k }}">{{ k ~ ' · ' ~ v if fmt == 'both' else v }}</option>{% endfor %}{% endmacro %}
+{% macro party(key, title, no, i) %}
+<details class="card ge-sec" id="sec-{{ key }}" style="--i:{{ i }}" open>
+  <summary><span class="ge-no">{{ no }}</span><span class="ge-title">{{ title }}</span><span class="ge-lock"></span></summary>
+  <div class="ge-grid ge-grid-party" data-party="{{ key }}">
+    <div><label>Χώρα</label><select data-k="country">{{ opts(countries, 'name') }}</select></div>
+    <div class="ge-vatbox"><label>ΑΦΜ</label>
+      <div class="ge-vatin"><input data-k="vat" list="ge-suppliers" autocomplete="off" maxlength="30">
+        <button type="button" class="ge-find" title="Αναζήτηση στους συναλλασσόμενους και στο VIES" aria-label="Αναζήτηση ΑΦΜ">🔎</button></div>
+      <input type="hidden" data-k="known_name"></div>
+    <div class="ge-narrow"><label>Εγκατάσταση</label><input data-k="branch" type="number" min="0" step="1" value="0"></div>
+    {# Επωνυμία και διεύθυνση δηλώνονται μόνο εκτός Ελλάδας (ΑΑΔΕ) — αλλιώς κρυφά. #}
+    <div class="ge-addr ge-wide"><label>Επωνυμία</label><input data-k="name" maxlength="200"></div>
+    <div class="ge-addr"><label>Οδός</label><input data-k="street" maxlength="150"></div>
+    <div class="ge-addr ge-narrow"><label>Αρ.</label><input data-k="number" maxlength="10"></div>
+    <div class="ge-addr ge-narrow"><label>Τ.Κ.</label><input data-k="postal_code" maxlength="20"></div>
+    <div class="ge-addr"><label>Πόλη</label><input data-k="city" maxlength="150"></div>
+    <div class="ge-vatres" aria-live="polite"></div>
+  </div>
+</details>
+{% endmacro %}
+<style>
+/* Κρυφό = κρυφό: αλλιώς τα display:flex/grid της σελίδας νικούν το [hidden] του browser. */
+[hidden]{display:none!important}
+
+/* ================= Γενική φόρμα καταχώρησης =================
+   Μόνο μεταβλητές θέματος (accent/ok/info/warn/err/hero-*): ταιριάζει σε κάθε θέμα και παλέτα.
+   Κάθε ενότητα έχει το δικό της χρώμα (--c) για badge, περίγραμμα και focus. */
+.ge{--c:var(--accent);--gap:10px}
+.ge :is(input,select):not([type=checkbox]):not([type=radio]){padding:7px 10px;font-size:.86rem;border-radius:8px;min-height:36px}
+.ge label{font-size:.64rem;letter-spacing:.06em;margin-bottom:4px}
+.ge input[type=number]{text-align:right}
+
+/* ---- Κεφαλίδα ---- */
+.ge-hero{position:relative;z-index:30;border-radius:20px;padding:16px clamp(14px,2vw,22px) 14px;color:#fff;margin-bottom:12px;
+  background:radial-gradient(120% 150% at 0% 0%,color-mix(in oklab,#3b3f9a,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 55%,var(--hero-end) 100%);
+  box-shadow:var(--shadow-hi)}
+.ge-hero-bg{position:absolute;inset:0;overflow:hidden;border-radius:inherit;pointer-events:none}
+.ge-blob{position:absolute;border-radius:50%;filter:blur(48px);opacity:.45;animation:ge-float 14s ease-in-out infinite}
+.ge-blob.b1{width:280px;height:280px;background:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));top:-150px;right:6%}
+.ge-blob.b2{width:220px;height:220px;background:color-mix(in oklab,#0fb880,var(--hero-glow) var(--hero-fade));bottom:-150px;left:28%;opacity:.3;animation-delay:-6s}
+@keyframes ge-float{50%{transform:translate(24px,-16px) scale(1.12)}}
+.ge-hero-top{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+.ge-hero h1{margin:0;font-size:clamp(1.25rem,2.4vw,1.6rem);font-weight:800;letter-spacing:-.02em;color:#fff;display:flex;align-items:center;gap:10px}
+.ge-hero h1 .ico{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.16);font-size:1.15rem;animation:ge-bob 4s ease-in-out infinite}
+@keyframes ge-bob{50%{transform:translateY(-3px) rotate(-4deg)}}
+.ge-state{font-size:.72rem;font-weight:700;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);color:var(--hero-ink-2)}
+.ge-side{font-size:.72rem;font-weight:800;padding:4px 11px;border-radius:999px;letter-spacing:.04em;transition:background .3s,color .3s,box-shadow .3s}
+.ge-side[data-side=income]{background:color-mix(in srgb,var(--ok) 26%,transparent);color:#c8f7e3;box-shadow:0 0 0 1px color-mix(in srgb,var(--ok) 60%,transparent)}
+.ge-side[data-side=expense]{background:color-mix(in srgb,var(--warn) 30%,transparent);color:#ffe7b8;box-shadow:0 0 0 1px color-mix(in srgb,var(--warn) 60%,transparent)}
+.ge-side[data-side=""]{background:rgba(255,255,255,.08);color:var(--hero-ink)}
+.ge-side:not([data-side=""]){animation:ge-pop .45s var(--ease)}
+.ge-hero-tools{margin-left:auto;display:flex;gap:8px;align-items:center}
+.ge-hero-pick{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:10px;margin-top:12px}
+.ge-hero-pick label{color:var(--hero-ink)}
+.ge-hero-pick select{background-color:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.18)}
+.ge-hero-pick select:focus{border-color:var(--hero-accent);box-shadow:0 0 0 4px rgba(255,255,255,.08)}
+.ge-hero-pick select option{color:var(--ink);background:var(--surface)}
+.ge-hero-tot{position:relative;display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.ge-chip{display:flex;align-items:baseline;gap:8px;padding:7px 12px;border-radius:12px;background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.12);font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--hero-ink)}
+.ge-chip b{font:800 1rem var(--font-data);color:#fff;letter-spacing:0;text-transform:none}
+.ge-chip.is-gross{background:linear-gradient(135deg,color-mix(in srgb,var(--hero-glow) 45%,transparent),color-mix(in srgb,var(--ok) 35%,transparent));border-color:rgba(255,255,255,.22)}
+.is-pop{animation:ge-pop .45s var(--ease)}
+@keyframes ge-pop{40%{transform:scale(1.1)}}
+.ge-hero .muted{color:var(--hero-ink);font-size:.78rem;margin:6px 0 0;max-width:none}
+/* ⚙ ρυθμίσεις */
+.ge-gear{position:relative}
+.ge-gear > summary{list-style:none;cursor:pointer;display:grid;place-items:center;width:36px;height:36px;border-radius:11px;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);transition:transform .4s var(--ease),background .2s}
+.ge-gear > summary:hover{background:rgba(255,255,255,.16)}
+.ge-gear[open] > summary{transform:rotate(90deg)}
+.ge-gear > summary::-webkit-details-marker{display:none}
+.ge-gear-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:40;width:250px;padding:14px;border:1px solid var(--line);color:var(--ink);
+  border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-hi);animation:ge-open .25s var(--ease)}
+.ge-gear-pop b{font-size:.8rem}
+.ge-gear-pop label{display:flex;gap:8px;align-items:center;font-size:.84rem;margin:8px 0 0;text-transform:none;letter-spacing:0;font-weight:600}
+
+/* ---- Ενότητες ---- */
+.ge-sec{--c:var(--accent);padding:0;margin-bottom:12px;overflow:visible;border-left:3px solid var(--c);
+  animation:ge-rise .5s var(--ease) both;animation-delay:calc(var(--i,0) * 70ms + 80ms);transition:box-shadow .3s,border-color .3s}
+.ge-sec:focus-within{box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 16%,transparent),var(--shadow)}
+.ge-sec > summary{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;list-style:none;user-select:none;
+  font-size:.95rem;font-weight:700;border-radius:var(--radius) var(--radius) 0 0;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--c) 11%,var(--surface)),var(--surface) 70%)}
+.ge-sec:not([open]) > summary{border-radius:var(--radius)}
+.ge-sec > summary::-webkit-details-marker{display:none}
+.ge-sec > summary::after{content:'';margin-left:auto;width:8px;height:8px;border:solid var(--muted);border-width:0 2px 2px 0;
+  transform:rotate(45deg) translate(-2px,-2px);transition:transform .3s var(--ease)}
+.ge-sec:not([open]) > summary::after{transform:rotate(-45deg)}
+.ge-sec > :not(summary){margin:12px 14px}
+.ge-sec[open] > :not(summary){animation:ge-open .35s var(--ease)}
+/* Κείμενο πάνω σε χρώμα θέματος = χρώμα επιφάνειας: λευκό στο φωτεινό, σκούρο στο σκοτεινό (αντίθεση σε κάθε παλέτα). */
+.ge-no{display:grid;place-items:center;flex:none;width:24px;height:24px;border-radius:8px;color:var(--surface);font-size:.78rem;font-weight:800;
+  background:linear-gradient(135deg,var(--c),color-mix(in srgb,var(--c) 70%,#000));box-shadow:0 4px 10px -4px var(--c);transition:transform .3s var(--ease)}
+.ge-sec:focus-within .ge-no{transform:scale(1.1) rotate(-6deg)}
+.ge-title{flex:none}
+.ge-lock,.ge-meta{font-size:.74rem;font-weight:600;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ge-count{display:inline-grid;place-items:center;min-width:22px;height:20px;padding:0 6px;border-radius:999px;font:700 .72rem var(--font-data);
+  background:color-mix(in srgb,var(--c) 16%,var(--surface));color:var(--c)}
+#sec-general-wrap{--c:var(--accent)}
+#sec-issuer{--c:var(--info)}
+#sec-counterpart{--c:var(--ok)}
+#sec-lines{--c:var(--warn)}
+#sec-taxes{--c:color-mix(in srgb,var(--err) 70%,var(--warn))}
+@keyframes ge-rise{from{opacity:0;transform:translateY(12px)}}
+@keyframes ge-open{from{opacity:0;transform:translateY(-6px)}}
+
+/* ---- Πλέγματα ---- */
+.ge-grid{display:grid;gap:var(--gap) 12px;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));align-items:end}
+.ge-grid > *{min-width:0}
+.ge-grid-party{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
+.ge-grid .ge-wide{grid-column:span 2}
+.ge-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:0 12px}
+.is-locked :is(input,select){background:color-mix(in srgb,var(--c) 7%,var(--surface-2));color:var(--ink-2)}
+
+/* ---- ΑΦΜ: αναζήτηση στον κατάλογο και στο VIES ---- */
+.ge-vatbox{grid-column:span 2}
+.ge-vatin{display:flex;gap:6px}
+.ge-vatin input{flex:1;min-width:0}
+.ge-find{flex:none;width:36px;min-height:36px;padding:0;border-radius:8px;background:color-mix(in srgb,var(--c) 12%,var(--surface));
+  border:1px solid color-mix(in srgb,var(--c) 35%,var(--line));color:var(--c);box-shadow:none;transition:transform .2s var(--ease),background .2s}
+.ge-find:hover{background:color-mix(in srgb,var(--c) 22%,var(--surface));transform:translateY(-1px);filter:none}
+.ge-find.is-busy{animation:ge-spin .9s linear infinite}
+@keyframes ge-spin{to{transform:rotate(360deg)}}
+.ge-vatres{grid-column:1/-1;min-height:0;font-size:.78rem;font-weight:600;color:var(--muted)}
+.ge-vatres:empty{display:none}
+.ge-vatres[data-state=ok]{color:var(--ok)}
+.ge-vatres[data-state=err]{color:var(--err)}
+.ge-vatres[data-state=info]{color:var(--info)}
+.ge-vatres:not(:empty){animation:ge-open .3s var(--ease)}
+.is-locked .ge-find{display:none}
+select[data-k=country]:disabled{opacity:1}
+.is-ro .ge-addr input{background:color-mix(in srgb,var(--c) 6%,var(--surface-2));color:var(--ink-2);border-style:dashed;cursor:default}
+.ge-addr:has(input:required) label::after{content:' *'}  /* υποχρεωτικά μόνο εκτός Ελλάδας */
+
+@media (max-width:640px){ .ge-vatbox{grid-column:auto} }
+
+/* ---- Διακόπτες (checkbox) ---- */
+.ge-toggles{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
+.ge-check{display:inline-flex;align-items:center;gap:8px;padding:5px 12px 5px 6px;border:1px solid var(--line);border-radius:999px;
+  background:var(--surface-2);cursor:pointer;transition:border-color .2s,background .2s,transform .2s var(--ease)}
+.ge-check:hover{transform:translateY(-1px);border-color:color-mix(in srgb,var(--c) 45%,var(--line))}
+.ge-check label{margin:0;cursor:pointer;font-size:.78rem;font-weight:600;letter-spacing:0;text-transform:none;color:var(--ink-2)}
+.ge-check input{appearance:none;-webkit-appearance:none;flex:none;width:30px;height:17px;margin:0;border-radius:999px;background:var(--line);
+  position:relative;cursor:pointer;transition:background .25s}
+.ge-check input::after{content:'';position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--surface);
+  box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .25s var(--ease)}
+.ge-check input:checked{background:var(--c)}
+.ge-check input:checked::after{transform:translateX(13px)}
+.ge-check:has(input:checked){border-color:color-mix(in srgb,var(--c) 60%,var(--line));background:color-mix(in srgb,var(--c) 10%,var(--surface))}
+.ge-check:has(input:checked) label{color:var(--ink)}
+.ge-check:has(input:focus-visible){box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 25%,transparent)}
+
+/* ---- Επαναλαμβανόμενες σειρές (πληρωμές, φόροι, χαρακτηρισμοί) ---- */
+.ge-sub{display:flex;align-items:center;gap:8px;margin:14px 0 4px;font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.ge-sub::after{content:'';flex:1;height:1px;background:var(--line)}
+.ge-row{display:grid;gap:8px 10px;align-items:end;padding:8px 0;border-top:1px dashed var(--line);animation:ge-in .35s var(--ease) both}
+.ge-row:first-child{border-top:0}
+.ge-pay{grid-template-columns:minmax(140px,1.3fr) minmax(100px,.8fr) minmax(0,2fr) auto}
+.ge-tax{grid-template-columns:auto minmax(130px,1fr) minmax(0,2.2fr) minmax(100px,.8fr) minmax(100px,.8fr) auto}
+.ge-cls{grid-template-columns:minmax(0,1.6fr) minmax(0,2fr) minmax(90px,.7fr) auto}
+.ge-n{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;align-self:center;font:800 .74rem var(--font-data);
+  background:color-mix(in srgb,var(--c) 14%,var(--surface));color:var(--c)}
+.ge .btn-x{align-self:end;min-height:36px}
+.ge-add{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:6px 12px;font-size:.8rem;font-weight:700;border-radius:9px;
+  background:transparent;color:var(--c);border:1px dashed color-mix(in srgb,var(--c) 55%,var(--line));box-shadow:none;transition:background .2s,transform .2s var(--ease)}
+.ge-add:hover{background:color-mix(in srgb,var(--c) 9%,transparent);transform:translateY(-1px);filter:none}
+@keyframes ge-in{from{opacity:0;transform:translateY(-6px) scale(.98)}}
+
+/* ---- Γραμμές ---- */
+.ge-line{border:1px solid color-mix(in srgb,var(--c) 35%,var(--line));border-radius:12px;margin-bottom:10px;overflow:hidden;background:var(--surface);
+  animation:ge-in .4s var(--ease) both;transition:box-shadow .25s,border-color .25s,opacity .25s,transform .25s}
+.ge-line:focus-within{border-color:var(--c);box-shadow:0 8px 22px -14px var(--c)}
+.ge-line.is-out{opacity:0;transform:translateX(20px) scale(.98)}
+.ge-line-bar{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;padding:7px 10px 7px 12px;font-size:.78rem;color:var(--ink-2);
+  background:linear-gradient(90deg,color-mix(in srgb,var(--c) 14%,var(--surface)),color-mix(in srgb,var(--c) 4%,var(--surface)))}
+.ge-line-bar b{font-family:var(--font-data);color:var(--ink)}
+.ge-ln{display:inline-grid;place-items:center;min-width:22px;height:22px;border-radius:7px;background:var(--c);color:var(--surface)!important}
+.ge-badge{margin-left:auto;font-size:.72rem;font-weight:700;padding:3px 10px;border-radius:999px;transition:background .3s,color .3s}
+.ge-badge[data-state=ok]{background:var(--ok-soft);color:var(--ok);box-shadow:0 0 0 1px var(--ok-line)}
+.ge-badge[data-state=warn]{background:var(--warn-soft);color:var(--warn);box-shadow:0 0 0 1px var(--warn-line);animation:ge-breathe 2.4s ease-in-out infinite}
+@keyframes ge-breathe{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--warn) 18%,transparent)}}
+.ge-line-bar button{background:transparent;border:0;box-shadow:none;padding:3px 7px;color:var(--muted);font-size:.85rem;border-radius:7px}
+.ge-line-bar button:hover{background:var(--err-soft);color:var(--err);transform:none;filter:none}
+.ge-line-body{padding:10px 12px 12px}
+.ge-ltaxes{margin-top:8px;padding:2px 10px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line-soft)}
+.ge-ltax{grid-template-columns:minmax(110px,.8fr) minmax(0,2.4fr) minmax(90px,.8fr);align-items:center}
+.ge-ltax label{margin:0}
+.ge-line-foot{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:end;margin-top:10px}
+.ge-line-foot > div{flex:1 1 260px;min-width:0}
+.ge-cls-btn{background:linear-gradient(135deg,var(--ok),color-mix(in srgb,var(--ok) 78%,var(--ink)));color:var(--surface);white-space:nowrap;min-height:36px}
+
+/* ---- Κάτω μπάρα: σύνολα + αποστολή ---- */
+.ge-foot{position:sticky;bottom:10px;z-index:15;margin-top:14px;display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between;
+  padding:9px 12px;border-radius:16px;border:1px solid var(--line);box-shadow:var(--shadow-hi);
+  background:color-mix(in srgb,var(--surface) 86%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.ge-tots{display:flex;flex-wrap:wrap;gap:6px}
+.ge-t{display:flex;flex-direction:column;padding:4px 10px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line-soft);min-width:84px}
+.ge-t span{font-size:.6rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.ge-t b{font:800 .92rem var(--font-data);color:var(--ink)}
+.ge-t.is-gross{background:var(--accent-grad);border-color:transparent}
+.ge-t.is-gross span,.ge-t.is-gross b{color:var(--on-accent,#fff)}
+.ge-foot-act{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-left:auto}
+.ge-note{font-size:.74rem;color:var(--muted);max-width:340px}
+.ge-foot button[type=submit]{box-shadow:0 10px 24px -10px var(--accent)}
+
+/* ---- Παράθυρο χαρακτηρισμών ---- */
+#cls-dlg{--c:var(--ok);width:min(860px,calc(100vw - 24px));padding:0;overflow:hidden}
+#cls-dlg .modal-head{justify-content:flex-start;gap:10px;margin:0;padding:14px 18px;color:#fff;
+  background:linear-gradient(120deg,var(--hero-mid),var(--hero-end))}
+#cls-dlg .modal-head h2{font-size:1.05rem;color:#fff}
+.ge-dlg-body{padding:12px 18px 16px}
+.ge-dlg-sum{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:.84rem;font-weight:600;color:var(--ink-2)}
+.ge-dlg-sum b{font-family:var(--font-data);color:var(--ink)}
+.ge-prog{height:6px;margin:8px 0 6px;border-radius:999px;background:var(--surface-3);overflow:hidden}
+.ge-prog i{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,var(--warn),var(--ok));transition:width .4s var(--ease)}
+.ge-prog.is-done i{background:var(--ok)}
+.ge-dlg-empty{text-align:center;color:var(--muted);font-size:.86rem;padding:14px 0 6px}
+.ge-dlg-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;margin-top:10px}
+
+@media (max-width:640px){
+  .ge-hero-pick{grid-template-columns:1fr}
+  .ge-hero-tools{margin-left:0}
+  .ge-grid .ge-wide{grid-column:auto}
+  .ge-pay,.ge-tax,.ge-cls,.ge-ltax{grid-template-columns:1fr 1fr}
+  .ge-foot{bottom:6px}
+  .ge-t{min-width:0;flex:1 1 30%}
+}
+@media (prefers-reduced-motion:reduce){ .ge *,.ge-hero *,.ge{animation:none!important;transition:none!important} }
+:root[data-same-page] .ge *,:root[data-same-page] .ge{animation:none!important}
+</style>
+
+<div class="ge">
+<header class="ge-hero">
+  <div class="ge-hero-bg" aria-hidden="true"><i class="ge-blob b1"></i><i class="ge-blob b2"></i></div>
+  <div class="ge-hero-top">
+    <h1><span class="ico">🧾</span>Γενική φόρμα καταχώρησης</h1>
+    <span class="ge-state">{{ 'Πρόχειρο · ' ~ edit_mark if edit_mark else 'Νέο παραστατικό' }}</span>
+    <span class="ge-side" id="side_pill" data-side="">Επίλεξε τύπο</span>
+    <div class="ge-hero-tools">
+      <details class="ge-gear">
+        <summary title="Ρυθμίσεις φόρμας" aria-label="Ρυθμίσεις φόρμας">⚙</summary>
+        <div class="ge-gear-pop">
+          <b>Φόροι παραστατικού</b>
+          <label><input type="radio" name="tax_level" value="doc" checked> Σε επίπεδο παραστατικού</label>
+          <label><input type="radio" name="tax_level" value="line"> Σε επίπεδο γραμμής</label>
+        </div>
+      </details>
+    </div>
+  </div>
+  <p class="muted">Κάθε τύπος, όπως η Ειδική Φόρμα της ΑΑΔΕ. <b>Έξοδα</b> → «Χαρακτηρισμένα» και μαζική «Αποστολή» · <b>έσοδα</b> → αμέσως στο myDATA.</p>
+  <div class="ge-hero-pick">
+    <div><label for="family">Είδος παραστατικού *</label><select id="family" form="ge-form" required></select></div>
+    <div><label for="invoice_type">Τύπος παραστατικού *</label><select id="invoice_type" form="ge-form" data-k="invoice_type" required></select></div>
+  </div>
+  <div class="ge-hero-tot" aria-live="polite">
+    <span class="ge-chip">Καθαρή<b id="h_net">0,00</b></span>
+    <span class="ge-chip">ΦΠΑ<b id="h_vat">0,00</b></span>
+    <span class="ge-chip is-gross">Συνολική<b id="h_gross">0,00</b></span>
+  </div>
+</header>
+
+<form method="post" action="{{ url_for('entry_submit') }}" id="ge-form">
+  <input type="hidden" name="edit_mark" value="{{ edit_mark }}">
+  <input type="hidden" name="draft" id="ge-draft">
+  <datalist id="ge-suppliers">{% for s in suppliers %}<option value="{{ s.vat }}">{{ s.name or '' }}</option>{% endfor %}</datalist>
+
+  <details class="card ge-sec" id="sec-general-wrap" style="--i:0" open>
+    <summary><span class="ge-no">1</span><span class="ge-title">Γενικά στοιχεία</span></summary>
+    <div class="ge-grid" id="sec-general">
+      <div><label for="series">Σειρά *</label><input id="series" data-k="series" required maxlength="50"></div>
+      <div><label for="aa">Α/Α *</label><input id="aa" data-k="aa" required maxlength="50"></div>
+      <div><label for="issue_date">Ημερομηνία έκδοσης *</label><input type="date" id="issue_date" data-k="issue_date" required value="{{ today }}"></div>
+      <div><label>Νόμισμα *</label><select data-k="currency" id="currency">{% for k, v in opt.currency.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+      <div id="xrate_box" hidden><label for="exchange_rate">Ισοτιμία προς ευρώ *</label><input type="number" step="0.00001" min="0" id="exchange_rate" data-k="exchange_rate"></div>
+      <div><label>Ειδική κατηγορία</label><select data-k="special_category">{{ opts(opt.special, 'name') }}</select></div>
+      <div id="corr_box" class="ge-wide"><label>Συσχετιζόμενα MARK</label><input data-k="correlated" placeholder="π.χ. 400001234567890 (χωρισμένα με κενό)"></div>
+      <div class="ge-toggles">
+        <div class="ge-check" id="susp_box"><input type="checkbox" id="vat_suspension" data-k="vat_suspension"><label for="vat_suspension">Αναστολή καταβολής ΦΠΑ</label></div>
+        <div class="ge-check" id="sp_box"><input type="checkbox" id="self_pricing" data-k="self_pricing"><label for="self_pricing">Αυτοτιμολόγηση</label></div>
+        <div class="ge-check" id="om_box"><input type="checkbox" id="omission" data-k="omission"><label for="omission">Διαβίβαση λόγω παράλειψης εκδότη</label></div>
+        <div class="ge-check" id="disp_box"><input type="checkbox" id="dispatch" data-k="dispatch"><label for="dispatch">Συνοδεύει διακίνηση αγαθών</label></div>
+      </div>
+      <div class="ge-disp"><label>Ημερ. αποστολής</label><input type="date" data-k="dispatch_date"></div>
+      <div class="ge-disp"><label>Ώρα αποστολής</label><input type="time" data-k="dispatch_time"></div>
+      <div class="ge-disp"><label>Αρ. κυκλ. οχήματος</label><input data-k="vehicle" maxlength="50"></div>
+      <div class="ge-disp"><label>Σκοπός διακίνησης</label><select data-k="move_purpose">{{ opts(opt.move_purpose, 'name') }}</select></div>
+    </div>
+    <div id="pay_box">
+      <div class="ge-sub">Τρόποι εξόφλησης</div>
+      <div id="payments"></div>
+      <button type="button" class="ge-add" onclick="addRow('tpl-pay','payments').querySelector('[data-k=amount]').value = rest()">＋ Τρόπος εξόφλησης</button>
+    </div>
+  </details>
+
+  <div class="ge-pair">
+    {{ party('issuer', 'Στοιχεία εκδότη', 2, 1) }}
+    {{ party('counterpart', 'Στοιχεία αντισυμβαλλόμενου', 3, 2) }}
+  </div>
+
+  <details class="card ge-sec" id="sec-lines" style="--i:3" open>
+    <summary><span class="ge-no">4</span><span class="ge-title">Γραμμές & χαρακτηρισμοί</span><span class="ge-count" id="n_lines">0</span></summary>
+    <div id="lines"></div>
+    <button type="button" class="ge-add" onclick="addLine()">＋ Νέα γραμμή</button>
+  </details>
+
+  <details class="card ge-sec" id="sec-taxes" style="--i:4" open>
+    <summary><span class="ge-no">5</span><span class="ge-title">Φόροι παραστατικού</span></summary>
+    <div id="taxes"></div>
+    <button type="button" class="ge-add" onclick="newTax()">＋ Νέος φόρος</button>
+  </details>
+
+  <div class="ge-foot">
+    <div class="ge-tots" aria-live="polite">
+      <div class="ge-t"><span>Καθαρή</span><b id="t_net">0,00</b></div>
+      <div class="ge-t ge-tbox"><span>ΦΠΑ</span><b id="t_vat">0,00</b></div>
+      <div class="ge-t ge-tbox"><span>{{ tax_types['1'] }}</span><b id="t_withheld">0,00</b></div>
+      <div class="ge-t ge-tbox"><span>{{ tax_types['2'] }}</span><b id="t_fees">0,00</b></div>
+      <div class="ge-t ge-tbox"><span>{{ tax_types['4'] }}</span><b id="t_stamp">0,00</b></div>
+      <div class="ge-t ge-tbox"><span>{{ tax_types['3'] }}</span><b id="t_other">0,00</b></div>
+      <div class="ge-t ge-tbox"><span>{{ tax_types['5'] }}</span><b id="t_deductions">0,00</b></div>
+      <div class="ge-t is-gross"><span>Συνολική</span><b id="t_gross">0,00</b></div>
+    </div>
+    <div class="ge-foot-act">
+      <span class="ge-note" id="side_note"></span>
+      <a href="{{ url_for('invoices', view='classified') }}" class="btn btn-ghost btn-sm">«Χαρακτηρισμένα»</a>
+      <button type="submit" id="submit_btn">💾 Αποθήκευση</button>
+    </div>
+  </div>
+</form>
+</div>
+
+<dialog id="cls-dlg" class="modal ge" aria-labelledby="cls-dlg-t">
+  <div class="modal-head"><span>🏷️</span><h2 id="cls-dlg-t">Χαρακτηρισμός</h2></div>
+  <div class="ge-dlg-body">
+    <div class="ge-dlg-sum"><span>Καθαρή αξία: <b id="d_net">0,00</b></span><span>Χαρακτηρισμένη αξία: <b id="d_done">0,00</b></span></div>
+    <div class="ge-prog" id="d_prog"><i></i></div>
+    <p class="ge-dlg-empty" id="d_empty">Δεν βρέθηκαν χαρακτηρισμοί — πρόσθεσε έναν Ε3.</p>
+    <div id="cls-rows"></div>
+    <div class="ge-dlg-actions">
+      <div>
+        <button type="button" class="ge-add" onclick="addCls(false)">＋ Χαρακτηρισμός Ε3</button>
+        <button type="button" class="ge-add" id="add_vat_cls" onclick="addCls(true)">＋ Χαρακτηρισμός ΦΠΑ</button>
+      </div>
+      <button type="button" onclick="closeCls()">✔ Επιστροφή στο παραστατικό</button>
+    </div>
+  </div>
+</dialog>
+
+<template id="tpl-pay">
+  <div class="ge-row ge-pay">
+    <div><label>Τρόπος εξόφλησης *</label><select data-k="type" required>{{ opts(opt.payment, 'name') }}</select></div>
+    <div><label>Ποσό *</label><input type="number" step="0.01" data-k="amount" required></div>
+    <div><label>Σχόλια</label><input data-k="info" maxlength="100"></div>
+    <button type="button" class="btn-x" onclick="this.parentElement.remove(); recalc()" aria-label="Διαγραφή τρόπου εξόφλησης">🗑</button>
+  </div>
+</template>
+
+<template id="tpl-tax">
+  <div class="ge-row ge-tax">
+    <span class="ge-n"></span>
+    <div><label>Τύπος φόρου *</label><select data-k="type" required>{{ opts(tax_types, 'name') }}</select></div>
+    <div><label>Κατηγορία φόρου *</label><select data-k="category"></select></div>
+    <div><label>Υποκείμενη αξία</label><input type="number" step="0.01" min="0" data-k="base"></div>
+    <div><label>Ποσό *</label><input type="number" step="0.01" min="0" data-k="amount" required></div>
+    <button type="button" class="btn-x" onclick="this.parentElement.remove(); renumber(); recalc()" aria-label="Διαγραφή φόρου">🗑</button>
+  </div>
+</template>
+
+<template id="tpl-line">
+  <div class="ge-line">
+    <div class="ge-line-bar">
+      <b class="ge-ln"></b>
+      <span>Καθαρή <b class="ge-lnet">0,00</b></span>
+      <span>Συνολική <b class="ge-lgross">0,00</b></span>
+      <span class="ge-badge"></span>
+      <button type="button" onclick="removeLine(this)" aria-label="Διαγραφή γραμμής" title="Διαγραφή γραμμής">🗑</button>
+    </div>
+    <div class="ge-line-body">
+      <div class="ge-grid">
+        <div><label>Καθαρή αξία *</label><input type="number" step="0.01" min="0" data-k="net" required placeholder="0,00"></div>
+        <div class="ge-vat"><label>Συντ. ΦΠΑ *</label><select data-k="vat_category" required>{{ opts(opt.vat, 'name') }}</select></div>
+        <div class="ge-vat"><label>Ποσό ΦΠΑ</label><input type="number" step="0.01" min="0" data-k="vat_amount" value="0.00"></div>
+        <div class="ge-exempt ge-wide" hidden><label>Κατηγορία εξαίρεσης ΦΠΑ *</label><select data-k="vat_exemption">{{ opts(opt.exemption, 'name') }}</select></div>
+        <div class="ge-rec"><label>Κατηγορία γραμμής</label><select data-k="rec_type">{{ opts(opt.rec_type, 'name', 'Κανονική γραμμή') }}</select></div>
+        <div class="ge-unit"><label>Μονάδα μέτρησης</label><select data-k="unit">{{ opts(opt.unit, 'name') }}</select></div>
+        <div class="ge-qty"><label>Ποσότητα</label><input type="number" step="any" min="0" data-k="quantity"></div>
+        <div class="ge-toggles">
+          <div class="ge-check ge-f2"><input type="checkbox" data-k="not_vat195"><label>Εκροές Φ2 – μη συμμετοχή</label></div>
+          <div class="ge-check"><input type="checkbox" data-k="discount_option"><label>Δικαίωμα έκπτωσης</label></div>
+        </div>
+      </div>
+      <div class="ge-ltaxes" hidden>
+        <div class="ge-row ge-ltax" data-key="withheld"><label>{{ tax_types['1'] }}</label><select data-k="withheld_cat" data-tax="1">{{ opts(opt.withheld, 'name') }}</select><input type="number" step="0.01" min="0" data-k="withheld"></div>
+        <div class="ge-row ge-ltax" data-key="other"><label>{{ tax_types['3'] }}</label><select data-k="other_cat" data-tax="3">{{ opts(opt.other, 'name') }}</select><input type="number" step="0.01" min="0" data-k="other"></div>
+        <div class="ge-row ge-ltax" data-key="stamp"><label>{{ tax_types['4'] }}</label><select data-k="stamp_cat" data-tax="4">{{ opts(opt.stamp, 'name') }}</select><input type="number" step="0.01" min="0" data-k="stamp"></div>
+        <div class="ge-row ge-ltax" data-key="fees"><label>{{ tax_types['2'] }}</label><select data-k="fees_cat" data-tax="2">{{ opts(opt.fees, 'name') }}</select><input type="number" step="0.01" min="0" data-k="fees"></div>
+        <div class="ge-row ge-ltax" data-key="deductions"><label>{{ tax_types['5'] }}</label><span></span><input type="number" step="0.01" min="0" data-k="deductions"></div>
+      </div>
+      <div class="ge-line-foot">
+        <div><label>Σχόλια γραμμής</label><input data-k="comments" placeholder="Προσθήκη σχολίων…" maxlength="150"></div>
+        <button type="button" class="ge-cls-btn" onclick="openCls(this.closest('.ge-line'))">🏷️ Χαρακτηρισμοί γραμμής</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-cls">
+  <div class="ge-row ge-cls">
+    <div><label>Κατηγορία</label><select data-k="category"></select></div>
+    <div><label>Τύπος</label><select data-k="type"></select></div>
+    <div><label>Ποσό</label><input type="number" step="0.01" min="0" data-k="amount"></div>
+    <button type="button" class="btn-x" onclick="this.parentElement.remove(); clsSum()" aria-label="Διαγραφή χαρακτηρισμού">🗑</button>
+  </div>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const FAMILIES = {{ families|tojson }};
+const TYPES = {{ types|tojson }}, ROLES = {{ roles|tojson }}, COMBOS = {{ combos|tojson }};
+const ISSUER_OPTIONAL = {{ issuer_optional|tojson }};
+const EU = {{ eu_countries|tojson }};  // χώρες της ΕΕ (εκτός Ελλάδας): το VIES απαντά μόνο για αυτές και την Ελλάδα
+const RULES = {{ rules|tojson }};  // ποια πεδία ισχύουν ανά τύπο (ίδιοι κανόνες με τον server)
+const hiddenFor = t => RULES.hidden[t] || [];  // πεδία που κρύβει η Ειδική Φόρμα της ΑΑΔΕ για τον τύπο
+const isHidden = k => hiddenFor(type()).includes(k);
+const OPT = {{ js_opt|tojson }};  // επιλογές της Ειδικής Φόρμας της ΑΑΔΕ: [κωδικός, ετικέτα], με τη σειρά της
+const CATS = {income: OPT.income_category, expense: OPT.expense_category};
+const E3 = OPT.e3, VAT_CLS = OPT.vat_cls, TAX_CATS = OPT.tax;
+const RATES = {{ rates|tojson }};  // συντελεστές % της ΑΑΔΕ ανά είδος φόρου / ΦΠΑ (null = σταθερό ποσό)
+const label = (list, k) => (list.find(x => x[0] === k) || [])[1];
+const OWN = {{ own|tojson }}, SUPPLIERS = {{ suppliers|tojson }}, DRAFT = {{ (draft or {})|tojson }};
+const VAT_RE = /^(NOT_)?VAT_/;  // χαρακτηρισμός ΦΠΑ (όχι Ε3)
+const VAT_RATE = Object.fromEntries(Object.entries(RATES.vat).map(([k, r]) => [k, (r || 0) / 100]));
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const n2 = v => Math.round((parseFloat(v) || 0) * 100) / 100;
+const fmt = v => n2(v).toLocaleString('el-GR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+// Συντελεστής κατηγορίας φόρου από την ΑΑΔΕ· σταθερά ποσά (π.χ. 0,50 €) συμπληρώνονται με το χέρι.
+const TAX_RATE_KEY = {'1': 'withheld', '2': 'fees', '3': 'other', '4': 'stamp'};
+const rate = (taxType, code) => { const r = (RATES[TAX_RATE_KEY[taxType]] || {})[code]; return r == null ? null : r / 100; };
+
+// ---- Γραμμές με data-k: ανάγνωση / συμπλήρωση ----
+function rowData(el) {  // ό,τι είναι κρυφό (δεν ισχύει για τον τύπο) δεν μετρά και δεν στέλνεται
+  const o = {};
+  $$('[data-k]', el).forEach(i => { if (!i.closest('[hidden]')) o[i.dataset.k] = i.type === 'checkbox' ? i.checked : i.value; });
+  return o;
+}
+// Εμφάνιση μόνο όσων χρειάζονται: κρυφό πεδίο = απενεργό (χωρίς έλεγχο υποχρεωτικού στην υποβολή).
+function show(el, on) {
+  el.hidden = !on;
+  $$('input,select', el).forEach(i => { i.disabled = !on; });
+}
+const showAll = (sel, on, root = document) => $$(sel, root).forEach(el => show(el, on));
+const noVat = () => RULES.no_vat.includes(type());
+// Επιλογές select που ισχύουν μόνο σε ορισμένους τύπους.
+function filterOpts(sel, ok) {
+  [...sel.options].forEach(o => { o.hidden = o.disabled = !!o.value && !ok(o.value); });
+  if (sel.selectedOptions[0]?.disabled) sel.value = '';
+}
+function fill(el, o) {
+  $$('[data-k]', el).forEach(i => {
+    const v = o[i.dataset.k];
+    if (v === undefined || v === null) return;
+    if (i.type === 'checkbox') i.checked = !!v;
+    else if (i._flatpickr) i._flatpickr.setDate(v || null);
+    else i.value = v;
+  });
+}
+function addRow(tpl, list, data) {
+  const el = document.importNode($('#' + tpl).content.firstElementChild, true);
+  $('#' + list).append(el);
+  if (tpl === 'tpl-tax') taxCats(el);
+  if (data) { fill(el, data); if (tpl === 'tpl-tax') { taxCats(el); fill(el, data); } }
+  recalc();
+  return el;
+}
+function renumber() {
+  $$('#taxes .ge-n').forEach((s, i) => { s.textContent = i + 1; });
+  $$('#lines .ge-ln').forEach((s, i) => { s.textContent = i + 1; });
+  $('#n_lines').textContent = $$('#lines .ge-line').length;
+}
+
+// ---- Είδος → Τύπος παραστατικού ----
+const fam = t => t.split('.')[0];
+function buildTypes() {
+  const famSel = $('#family');
+  famSel.innerHTML = '<option value="">Επιλέξτε</option>';
+  Object.entries(FAMILIES).sort((a, b) => a[0] - b[0]).forEach(([f, name]) => famSel.add(new Option(f + '. ' + name, f)));
+}
+function fillTypes(keep) {
+  const sel = $('#invoice_type'), f = $('#family').value;
+  sel.innerHTML = '<option value="">Επιλέξτε</option>';
+  Object.entries(TYPES).filter(([t]) => fam(t) === f).forEach(([t, name]) => sel.add(new Option(t + ' ' + name, t)));
+  sel.value = keep || (sel.options.length === 2 ? sel.options[1].value : '');
+}
+const type = () => $('#invoice_type').value;
+const roles = () => (ROLES[type()] || {})[(+$('#self_pricing').checked) + '' + (+$('#omission').checked)]
+  || {side: 'income', issuer: 'own', counterpart: 'other'};
+
+// ---- Εκδότης / αντισυμβαλλόμενος ανάλογα με τον τύπο ----
+function applyParty(key, role) {
+  const sec = $('#sec-' + key), box = $(`[data-party=${key}]`);
+  sec.hidden = role === 'none';
+  box.classList.toggle('is-locked', role === 'own');
+  $$('[data-k]', box).forEach(i => { if (i.dataset.k !== 'branch') i.disabled = role === 'own'; });
+  if (role === 'own') fill(box, {country: 'GR', vat: OWN.vat, name: OWN.name, known_name: '', postal_code: '', street: '', number: '', city: ''});
+  else if (box.dataset.was === 'own') fill(box, {vat: '', name: '', known_name: ''});
+  box.dataset.was = role;
+  filterCountries(box, key);
+  if (role !== 'other') vatResult(box, '');
+  $('.ge-lock', sec).textContent = role === 'own' ? '· η εταιρεία σου' + (OWN.name ? ' — ' + OWN.name : '') : '';
+  const vat = $('[data-k=vat]', box);
+  vat.required = role === 'other' && (key === 'issuer' && !ISSUER_OPTIONAL.includes(type()));
+  foreign(box);
+}
+// Εκτός Ελλάδας: επωνυμία + διεύθυνση επεξεργάσιμες (υποχρεωτικά επωνυμία, Τ.Κ. και πόλη).
+// Στην Ελλάδα: μόνο για ανάγνωση, όταν τα έφερε ο κατάλογος/VIES — δεν στέλνονται (ΑΑΔΕ), αποθηκεύονται στον κατάλογο.
+const ADDR = ['name', 'street', 'number', 'postal_code', 'city'];
+function foreign(box) {
+  const other = !$('[data-k=vat]', box).disabled, gr = $('[data-k=country]', box).value === 'GR';
+  const known = ADDR.some(k => $(`[data-k=${k}]`, box).value.trim());
+  showAll('.ge-addr', other && (!gr || known), box);
+  ADDR.forEach(k => { const i = $(`[data-k=${k}]`, box); i.readOnly = gr; });
+  ['name', 'postal_code', 'city'].forEach(k => { $(`[data-k=${k}]`, box).required = other && !gr; });
+  box.classList.toggle('is-ro', other && gr);
+}
+function onType() {
+  const t = type();
+  // Επιλογές που αλλάζουν ρόλους: μόνο όπου επιτρέπονται (κρυφές = ξετσεκαρισμένες).
+  [['#om_box', RULES.omission.includes(t)], ['#sp_box', !!t && !isHidden('self_pricing')]].forEach(([id, on]) => {
+    show($(id), on);
+    if (!on) $('input', $(id)).checked = false;
+  });
+  show($('#corr_box'), RULES.correlated.includes(t));
+  show($('#disp_box'), !!t && !isHidden('dispatch'));
+  showAll('.ge-disp', !$('#disp_box').hidden && $('#dispatch').checked);
+  show($('#pay_box'), !!t && !isHidden('payments'));
+  // Φόροι παραστατικού: μόνο τα είδη φόρων που δέχεται ο τύπος· κανένα → ούτε ενότητα 5 ούτε φόροι γραμμής.
+  const taxOk = Object.entries(TAX_KEY).filter(([, k]) => !isHidden(k)).map(([tt]) => tt);
+  $$('#taxes .ge-tax').forEach(r => filterOpts($('[data-k=type]', r), v => taxOk.includes(v)));
+  show($('.ge-gear'), taxOk.length > 0);
+  syncTaxSection();
+  filterOpts($('[data-k=special_category]'), v => !RULES.special_only[v] || RULES.special_only[v].includes(t));
+  const r = roles();
+  show($('#susp_box'), !!t && !noVat() && r.side === 'income');  // αναστολή καταβολής ΦΠΑ: πωλήσεις
+  applyParty('issuer', r.issuer);
+  applyParty('counterpart', r.counterpart);
+  const income = r.side === 'income';
+  // Άλλαξε η πλευρά (έσοδο ↔ έξοδο): φεύγουν οι χαρακτηρισμοί που δεν ταιριάζουν.
+  const prefix = income ? 'category1_' : 'category2_';
+  $$('#lines .ge-line').forEach(el => {
+    el.dataset.cls = JSON.stringify(JSON.parse(el.dataset.cls || '[]')
+      .filter(c => VAT_RE.test(c.type) ? !income : c.category.startsWith(prefix)));
+  });
+  $('#submit_btn').textContent = income ? '📤 Αποστολή στο myDATA' : '💾 Αποθήκευση στα «Χαρακτηρισμένα»';
+  const pill = $('#side_pill'), sideNow = t ? r.side : '';
+  if (pill.dataset.side !== sideNow) {
+    pill.dataset.side = sideNow;
+    pill.textContent = !t ? 'Επίλεξε τύπο' : income ? '↗ Έσοδο' : '↘ Έξοδο';
+  }
+  $('#side_note').textContent = !t ? 'Επίλεξε τύπο παραστατικού'
+    : income ? 'Στέλνεται αμέσως στο myDATA' : 'Μαζική «Αποστολή» από τα «Χαρακτηρισμένα»';
+  // Τρόπος πληρωμής: όπου τον κρύβει η ΑΑΔΕ (13.x, 14.x, 15.1, 16.1, 17.2–17.6) φεύγει· αλλού ένας προεπιλεγμένος.
+  const pays = $$('#payments .ge-pay');
+  if (isHidden('payments')) pays.filter(r => !$('[data-k=amount]', r).dataset.touched).forEach(r => r.remove());
+  else if (t && !pays.length) addRow('tpl-pay', 'payments', {type: '3'});
+  $$('#lines .ge-line').forEach(syncLine);
+  recalc();
+}
+
+// ---- Γραμμές ----
+function addLine(data) {
+  const el = addRow('tpl-line', 'lines', data);
+  el.dataset.cls = JSON.stringify((data && data.cls) || []);
+  syncLine(el);
+  renumber();
+  return el;
+}
+function removeLine(btn) {
+  if ($$('#lines .ge-line').length <= 1) { alert('Πρέπει να υπάρχει τουλάχιστον μία γραμμή.'); return; }
+  const el = btn.closest('.ge-line');
+  el.classList.add('is-out');
+  setTimeout(() => { el.remove(); renumber(); recalc(); }, 250);
+}
+function syncLine(el) {
+  const vat = !noVat(), cat = $('[data-k=vat_category]', el).value, rec = $('[data-k=rec_type]', el);
+  showAll('.ge-vat', vat, el);  // «Εγγραφές χωρίς ΦΠΑ»: ο server βάζει κατηγορία 8
+  const vatSel = $('[data-k=vat_category]', el), zero = RULES.vat_zero.includes(type());
+  filterOpts(vatSel, v => zero ? v === '7' : v !== '8' && !(RULES.vat_mandatory.includes(type()) && v === '7'));
+  if (zero && !vatSel.value) vatSel.value = '7';
+  const ex = $('.ge-exempt', el);
+  show(ex, vat && cat === '7');
+  $('select', ex).required = vat && cat === '7';
+  const t = type(), unit = !isHidden('unit');
+  show($('.ge-unit', el), unit);
+  show($('.ge-qty', el), unit && !!$('[data-k=unit]', el).value);
+  // Φ2 – μη συμμετοχή: μόνο έσοδα 1.1–11.5, όχι με αυτοτιμολόγηση (ΑΑΔΕ)
+  show($('.ge-f2', el), side() === 'income' && RULES.not_vat195_families.includes(fam(t || '0')) && !$('#self_pricing').checked);
+  // Φόροι γραμμής: μόνο όσοι ισχύουν για τον τύπο, χωρίς τις κατηγορίες που εξαιρεί η ΑΑΔΕ.
+  const excl = RULES.excluded_tax_options[t] || {};
+  $$('.ge-ltax', el).forEach(row => {
+    show(row, !isHidden(row.dataset.key));
+    const sel = $('select', row);
+    if (sel) filterOpts(sel, v => !(excl[sel.dataset.tax] || []).includes(v));
+  });
+  // Κατηγορία γραμμής: 2/3/6 σε πωλήσεις με ΦΠΑ, 7 (αρνητικό πρόσημο) μόνο στα 17.3–17.6· χωρίς καμία → κρυφή.
+  filterOpts(rec, v => v === '7' ? RULES.negative_types.includes(t) : side() === 'income' && vat);
+  show($('.ge-rec', el), [...rec.options].some(o => o.value && !o.disabled));
+  // Γραμμή τέλους/λοιπών φόρων με ΦΠΑ (2/3): το ποσό στην καθαρή αξία, χωρίς φόρους γραμμής (ΑΑΔΕ).
+  show($('.ge-ltaxes', el), lineTaxes() && !['2', '3'].includes(rec.value) && $$('.ge-ltax', el).some(r => !r.hidden));
+  lineBar(el);
+}
+const LINE_TAX = ['withheld', 'fees', 'other', 'stamp', 'deductions'];
+const lineTaxes = () => $('input[name=tax_level]:checked').value === 'line';
+function lineGross(d) {
+  const t = lineTaxes() ? d : {};
+  return n2(d.net) + n2(d.vat_amount) + n2(t.fees) + n2(t.other) + n2(t.stamp) - n2(t.withheld) - n2(t.deductions);
+}
+function lineBar(el) {
+  const d = rowData(el), cls = JSON.parse(el.dataset.cls || '[]');
+  $('.ge-lnet', el).textContent = fmt(d.net);
+  $('.ge-lgross', el).textContent = fmt(lineGross(d));
+  const done = n2(cls.filter(c => !VAT_RE.test(c.type)).reduce((s, c) => s + n2(c.amount), 0));
+  const ok = cls.length && Math.abs(done - n2(d.net)) < .005, badge = $('.ge-badge', el);
+  badge.textContent = !cls.length ? '⚠ χωρίς χαρακτηρισμό' : ok ? '✔ χαρακτηρισμένη' : `⚠ χαρακτηρισμένα ${fmt(done)}`;
+  badge.dataset.state = ok ? 'ok' : 'warn';
+}
+
+// ---- Φόροι: κατηγορίες ανά τύπο, αυτόματο ποσό από ποσοστό ----
+function taxCats(row) {
+  const t = $('[data-k=type]', row).value, sel = $('[data-k=category]', row);
+  const cats = TAX_CATS[t] || [];
+  sel.innerHTML = '';
+  sel.add(new Option(t === '5' ? '— χωρίς κατηγορία —' : 'Επιλέξτε', ''));
+  const excl = (RULES.excluded_tax_options[type()] || {})[t] || [];  // κατηγορίες που εξαιρεί η ΑΑΔΕ για τον τύπο
+  cats.filter(([k]) => !excl.includes(k)).forEach(([k, v]) => sel.add(new Option(v, k)));
+  sel.disabled = t === '5' || !t;
+  sel.required = !sel.disabled;
+}
+const TAX_KEY = {'1': 'withheld', '2': 'fees', '3': 'other', '4': 'stamp', '5': 'deductions'};
+// Ενότητα 5: μόνο με φόρους σε επίπεδο παραστατικού και αν ο τύπος δέχεται έστω ένα είδος φόρου.
+function syncTaxSection() {
+  $('#sec-taxes').hidden = lineTaxes() || !Object.values(TAX_KEY).some(k => !isHidden(k));
+}
+function setTaxLevel() {
+  const line = lineTaxes();
+  syncTaxSection();
+  $$('#taxes .ge-tax').forEach(r => {  // κρυφή ενότητα: χωρίς υποχρεωτικά πεδία
+    const cat = $('[data-k=category]', r), v = cat.value;
+    $$('[data-k]', r).forEach(i => { i.disabled = line; });
+    if (!line) { taxCats(r); cat.value = v; }
+  });
+  $$('#lines .ge-line').forEach(syncLine);
+  recalc();
+}
+
+function newTax() {
+  const r = addRow('tpl-tax', 'taxes');
+  filterOpts($('[data-k=type]', r), v => !isHidden(TAX_KEY[v]));
+  renumber();
+}
+
+// ---- Σύνολα (ίδιος τύπος με το entry_totals του server) ----
+function totals() {
+  const t = {net: 0, vat: 0, withheld: 0, fees: 0, other: 0, stamp: 0, deductions: 0};
+  $$('#lines .ge-line').forEach(el => {
+    const d = rowData(el);
+    t.net += n2(d.net); t.vat += n2(d.vat_amount);
+    if (lineTaxes()) LINE_TAX.forEach(k => { t[k] += n2(d[k]); });
+  });
+  if (!lineTaxes()) {
+    $$('#taxes .ge-tax').forEach(el => { const d = rowData(el); if (TAX_KEY[d.type]) t[TAX_KEY[d.type]] += n2(d.amount); });
+  }
+  t.gross = t.net + t.vat + t.fees + t.other + t.stamp - t.withheld - t.deductions;
+  return t;
+}
+const rest = () => {
+  const paid = $$('#payments [data-k=amount]').reduce((s, i) => s + n2(i.value), 0);
+  return n2(totals().gross - paid).toFixed(2);
+};
+function recalc() {
+  const t = totals();
+  Object.entries(t).forEach(([k, v]) => { const el = $('#t_' + k); if (el) el.textContent = fmt(v); });
+  // Σύνολα: μόνο όσα έχουν ποσό (ο ΦΠΑ πάντα, όπου ο τύπος έχει ΦΠΑ).
+  $$('.ge-tbox').forEach(b => { const id = $('b', b).id; b.hidden = !n2(t[id.slice(2)]) && !(id === 't_vat' && !noVat()); });
+  $('#h_net').textContent = fmt(t.net);
+  $('#h_vat').textContent = fmt(t.vat);
+  $('#h_gross').textContent = fmt(t.gross);
+  // Ένας τρόπος εξόφλησης που δεν τον άλλαξε ο χρήστης: ακολουθεί τη συνολική αξία.
+  const pays = $$('#payments [data-k=amount]');
+  if (pays.length === 1 && !pays[0].dataset.touched) pays[0].value = n2(t.gross).toFixed(2);
+}
+
+document.addEventListener('input', e => {
+  const el = e.target, line = el.closest('.ge-line');
+  if (el.closest('#payments') && el.dataset.k === 'amount') el.dataset.touched = '1';
+  if (line && el.dataset.k === 'net') {
+    const r = VAT_RATE[$('[data-k=vat_category]', line).value];
+    if (r !== undefined) $('[data-k=vat_amount]', line).value = (n2(el.value) * r).toFixed(2);
+    $$('select[data-tax]', line).forEach(s => taxAuto(s, line));
+  }
+  if (el.closest('.ge-tax') && el.dataset.k === 'base') taxAutoDoc(el.closest('.ge-tax'));
+  if (el.closest('#cls-rows')) clsSum();
+  if (line) lineBar(line);
+  recalc();
+});
+document.addEventListener('change', e => {
+  const el = e.target, line = el.closest('.ge-line');
+  if (el.id === 'family') { fillTypes(); onType(); }
+  if (['invoice_type', 'self_pricing', 'omission', 'dispatch'].includes(el.id)) onType();
+  if (el.name === 'tax_level') setTaxLevel();
+  if (el.id === 'currency') syncCurrency();
+  if (el.closest('[data-party]') && el.dataset.k === 'country') foreign(el.closest('[data-party]'));
+  if (line && el.dataset.k === 'vat_category') {
+    const r = VAT_RATE[el.value];
+    if (r !== undefined) $('[data-k=vat_amount]', line).value = (n2($('[data-k=net]', line).value) * r).toFixed(2);
+  }
+  if (line && el.dataset.tax) taxAuto(el, line);
+  if (line) syncLine(line);
+  const tax = el.closest('.ge-tax');
+  if (tax && el.dataset.k === 'type') taxCats(tax);
+  if (tax && el.dataset.k === 'category') taxAutoDoc(tax);
+  if (el.closest('#cls-rows') && el.dataset.k === 'category') clsTypes(el.closest('.ge-cls'));
+  recalc();
+});
+function taxAuto(sel, line) {
+  const p = rate(sel.dataset.tax, sel.value), amt = sel.nextElementSibling;
+  if (p !== null) amt.value = (n2($('[data-k=net]', line).value) * p).toFixed(2);
+}
+function taxAutoDoc(row) {
+  const p = rate($('[data-k=type]', row).value, $('[data-k=category]', row).value), base = $('[data-k=base]', row).value;
+  if (p !== null && base !== '') $('[data-k=amount]', row).value = (n2(base) * p).toFixed(2);
+}
+// ---- ΑΦΜ εκδότη / αντισυμβαλλόμενου: κατάλογος συναλλασσόμενων → αλλιώς VIES (όπως στη «Νέα εγγραφή»).
+// Ό,τι βρεθεί γεμίζει επωνυμία/διεύθυνση· νέος συναλλασσόμενος αποθηκεύεται με την αποθήκευση της εγγραφής.
+function vatResult(box, text, state = '') {
+  const el = $('.ge-vatres', box);
+  el.textContent = text;
+  el.dataset.state = state;
+}
+function useParty(box, s) {  // s: {name, country, street, postal_code, city}
+  const key = box.dataset.party, rule = countryRule(key);
+  const okCountry = s.country && (rule === 'eu' ? EU.includes(s.country) : rule === 'third' ? s.country !== 'GR' && !EU.includes(s.country) : s.country === 'GR');
+  if (okCountry && rule !== 'gr') $('[data-k=country]', box).value = s.country;
+  fill(box, {known_name: s.name || '', name: s.name || '', street: s.street || '', number: s.number || '',
+             postal_code: s.postal_code || '', city: s.city || ''});
+  foreign(box);
+}
+let lookupSeq = 0;
+async function lookupParty(box, force) {
+  const vatIn = $('[data-k=vat]', box), afm = vatIn.value.trim(), btn = $('.ge-find', box);
+  if (vatIn.disabled || !afm) { vatResult(box, ''); return; }
+  if (!force && box.dataset.looked === afm) return;
+  if (box.dataset.looked !== afm) { fill(box, Object.fromEntries([...ADDR, 'known_name'].map(k => [k, '']))); foreign(box); }
+  box.dataset.looked = afm;
+  const seq = ++lookupSeq;
+  // 1) τοπικά: οι συναλλασσόμενοι της εταιρείας και ο κοινός κατάλογος
+  let s = SUPPLIERS.find(x => x.vat === afm);
+  if (!s) {
+    try { const r = await (await fetch(`/supplier_lookup/${encodeURIComponent(afm)}`)).json(); if (r.found) s = r; } catch (e) { /* συνεχίζουμε */ }
+  }
+  if (seq !== lookupSeq) return;
+  if (s && s.name) { useParty(box, s); vatResult(box, '✔ Από τους συναλλασσόμενους: ' + s.name, 'ok'); return; }
+  // 2) VIES: μόνο Ελλάδα και ΕΕ
+  const country = $('[data-k=country]', box).value || 'GR';
+  if (country !== 'GR' && !EU.includes(country)) {
+    vatResult(box, 'Νέος συναλλασσόμενος εκτός ΕΕ — το VIES δεν καλύπτει τρίτες χώρες· συμπλήρωσε επωνυμία και διεύθυνση. Θα αποθηκευτεί με την εγγραφή.', 'info');
+    return;
+  }
+  vatResult(box, 'Δεν υπάρχει στους συναλλασσόμενους — αναζήτηση στο VIES…', 'info');
+  btn.classList.add('is-busy');
+  try {
+    const d = await (await fetch(`/check_vat/${encodeURIComponent(country)}/${encodeURIComponent(afm)}`)).json();
+    if (seq !== lookupSeq) return;
+    if (d.valid && !d.name) {
+      // Έγκυρο, αλλά η χώρα δεν κοινοποιεί στοιχεία στο VIES (π.χ. η Γερμανία ποτέ): συμπληρώνονται με το χέρι.
+      const cname = $('[data-k=country]', box).selectedOptions[0]?.text || country;
+      vatResult(box, `✔ Έγκυρο ΑΦΜ — η χώρα (${cname}) δεν κοινοποιεί επωνυμία και διεύθυνση στο VIES. `
+        + 'Συμπλήρωσέ τα· θα αποθηκευτούν με την εγγραφή και την επόμενη φορά θα βρεθούν αυτόματα.', 'info');
+      const nm = $('[data-k=name]', box);
+      if (nm.checkVisibility() && !nm.readOnly) nm.focus();
+    } else if (d.valid) {
+      useParty(box, {name: d.legal_name || d.name || '', country, street: d.street, number: d.number,
+                     postal_code: d.postal_code, city: d.city});
+      vatResult(box, (d.message || '✔ Έγκυρο ΑΦΜ') + ' · νέος συναλλασσόμενος, θα αποθηκευτεί με την εγγραφή'
+        + (country === 'GR' ? ' (για ελληνικό ΑΦΜ τα στοιχεία είναι μόνο για ενημέρωση — δεν στέλνονται στο myDATA)' : ''), 'ok');
+    } else vatResult(box, d.message || 'Το ΑΦΜ δεν βρέθηκε στο VIES.', d.ok ? 'err' : 'info');
+  } catch (e) {
+    vatResult(box, 'Σφάλμα επικοινωνίας με το VIES — δοκίμασε ξανά με το 🔎.', 'err');
+  } finally { btn.classList.remove('is-busy'); }
+}
+document.addEventListener('change', e => {
+  const box = e.target.closest('[data-party]');
+  if (box && e.target.dataset.k === 'vat') lookupParty(box);
+  // Η χώρα που διαλέγει ο χρήστης δεν αλλάζει από αναζήτηση· το επόμενο ΑΦΜ ψάχνεται ξανά, με αυτή τη χώρα.
+  if (box && e.target.dataset.k === 'country') delete box.dataset.looked;
+});
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.ge-find');
+  if (btn) lookupParty(btn.closest('[data-party]'), true);
+});
+
+// ---- Παράθυρο χαρακτηρισμών γραμμής ----
+let clsLine = null;
+const side = () => roles().side;
+function openCls(line) {
+  if (!type()) { alert('Επίλεξε πρώτα τύπο παραστατικού.'); return; }
+  clsLine = line;
+  $('#cls-dlg-t').textContent = side() === 'income' ? 'Χαρακτηρισμός Εσόδων' : 'Χαρακτηρισμός Εξόδων';
+  $('#add_vat_cls').hidden = side() === 'income';
+  $('#cls-rows').innerHTML = '';
+  JSON.parse(line.dataset.cls || '[]').forEach(c => addCls(VAT_RE.test(c.type), c));
+  clsSum();
+  $('#cls-dlg').showModal();
+}
+function addCls(vat, data) {
+  const row = document.importNode($('#tpl-cls').content.firstElementChild, true);
+  row.dataset.vat = vat ? '1' : '';
+  $('#cls-rows').append(row);
+  const cat = $('[data-k=category]', row);
+  if (vat) {
+    cat.add(new Option('— (ΦΠΑ, χωρίς κατηγορία) —', ''));
+    cat.disabled = true;
+    const t = $('[data-k=type]', row);
+    VAT_CLS.forEach(([k, v]) => t.add(new Option(v, k)));
+  } else {
+    const allowed = COMBOS[type()] || {}, prefix = side() === 'income' ? 'category1_' : 'category2_';
+    const keys = Object.keys(allowed).some(k => k.startsWith(prefix));
+    cat.add(new Option('Επιλέξτε', ''));
+    CATS[side()].filter(([k]) => !keys || k in allowed).forEach(([k, v]) => cat.add(new Option(v, k)));
+  }
+  if (data) { cat.value = data.category || ''; clsTypes(row); fill(row, data); }
+  else {
+    if (!vat) clsTypes(row);
+    $('[data-k=amount]', row).value = vat ? n2($('[data-k=net]', clsLine).value).toFixed(2) : clsRest().toFixed(2);
+  }
+  clsSum();
+}
+function clsTypes(row) {
+  if (row.dataset.vat) return;
+  const cat = $('[data-k=category]', row).value, sel = $('[data-k=type]', row);
+  const list = (COMBOS[type()] || {})[cat];
+  sel.innerHTML = '';
+  if (list && list.length === 1 && list[0] === '-') { sel.add(new Option('— χωρίς τύπο Ε3 —', '')); sel.disabled = true; return; }
+  sel.disabled = false;
+  sel.add(new Option('Επιλέξτε', ''));
+  const names = E3[side()], name = k => label(names, k) || label(E3.income, k) || label(E3.expense, k) || k;
+  (list && !list.includes('*') ? list : names.map(x => x[0])).forEach(k => sel.add(new Option(name(k), k)));
+}
+const clsE3 = () => $$('#cls-rows .ge-cls').filter(r => !r.dataset.vat);
+const clsRest = () => n2($('[data-k=net]', clsLine).value) - clsE3().reduce((s, r) => s + n2($('[data-k=amount]', r).value), 0);
+function clsSum() {
+  $('#d_net').textContent = fmt($('[data-k=net]', clsLine).value);
+  const net = n2($('[data-k=net]', clsLine).value), done = net - clsRest();
+  $('#d_done').textContent = fmt(done);
+  $('#d_prog i').style.width = (net ? Math.min(100, Math.max(0, done / net * 100)) : 0) + '%';
+  $('#d_prog').classList.toggle('is-done', !!net && Math.abs(done - net) < .005);
+  $('#d_empty').hidden = $$('#cls-rows .ge-cls').length > 0;
+}
+function closeCls() {
+  clsLine.dataset.cls = JSON.stringify($$('#cls-rows .ge-cls').map(rowData).filter(c => c.category || c.type));
+  lineBar(clsLine);
+  $('#cls-dlg').close();
+}
+$('#cls-dlg').addEventListener('cancel', e => { e.preventDefault(); closeCls(); });
+
+// Χώρες (CountryType): ελληνικά ονόματα από τον browser, Ελλάδα πρώτη και μετά αλφαβητικά.
+function buildCountries() {
+  let names = null;
+  try { names = new Intl.DisplayNames(['el'], {type: 'region', fallback: 'none'}); } catch (e) { /* παλιός browser */ }
+  const groups = [['gr', 'Ελλάδα', c => c === 'GR'], ['eu', 'Ευρωπαϊκή Ένωση', c => EU.includes(c)],
+                  ['third', 'Λοιπές χώρες', c => c !== 'GR' && !EU.includes(c)]];
+  $$('select[data-k=country]').forEach(sel => {
+    const v = sel.value, opts = [...sel.options].filter(o => o.value);
+    opts.forEach(o => { const n = names && names.of(o.value); if (n) o.text = n; });
+    groups.forEach(([key, label, test]) => {
+      const g = Object.assign(document.createElement('optgroup'), {label});
+      g.dataset.group = key;
+      opts.filter(o => test(o.value)).sort((a, b) => a.text.localeCompare(b.text, 'el')).forEach(o => g.appendChild(o));
+      sel.appendChild(g);
+    });
+    sel.value = v || 'GR';
+  });
+}
+// Χώρα ανά τύπο (ΑΑΔΕ): μόνο Ελλάδα (κλειδωμένη) · μόνο ΕΕ · μόνο εκτός ΕΕ.
+const countryRule = key => (RULES.country[key] || {})[type()] || 'gr';
+function filterCountries(box, key) {
+  const sel = $('[data-k=country]', box), rule = countryRule(key), own = box.dataset.was === 'own';
+  $$('optgroup', sel).forEach(g => { g.hidden = g.disabled = !own && g.dataset.group !== rule; });
+  if (own || rule === 'gr') sel.value = 'GR';
+  else if (!sel.selectedOptions[0] || sel.selectedOptions[0].parentElement.disabled) sel.value = '';
+  sel.disabled = own || rule === 'gr';
+  sel.required = !sel.disabled;
+  sel.title = rule === 'eu' ? 'Ο τύπος θέλει χώρα της ΕΕ' : rule === 'third' ? 'Ο τύπος θέλει χώρα εκτός ΕΕ' : '';
+}
+
+// Ισοτιμία μόνο όταν το νόμισμα δεν είναι EUR (ΑΑΔΕ).
+function syncCurrency() {
+  const other = $('#currency').value !== 'EUR', box = $('#xrate_box');
+  box.hidden = !other;
+  $('#exchange_rate').required = other;
+  $('#exchange_rate').disabled = !other;
+}
+
+// ---- Υποβολή: ένα JSON draft ----
+$('#ge-form').addEventListener('submit', e => {
+  const d = {...rowData($('#sec-general')), invoice_type: type(), tax_level: lineTaxes() ? 'line' : 'doc',
+    issuer: rowData($('[data-party=issuer]')), counterpart: rowData($('[data-party=counterpart]')),
+    payments: $$('#payments .ge-pay').map(rowData),
+    taxes: lineTaxes() ? [] : $$('#taxes .ge-tax').map(rowData),
+    lines: $$('#lines .ge-line').map(el => ({...rowData(el), cls: JSON.parse(el.dataset.cls || '[]')}))};
+  const bad = d.lines.findIndex(l => !l.cls.length && type() !== '9.3');
+  if (bad >= 0) { e.preventDefault(); alert(`Γραμμή ${bad + 1}: πρόσθεσε χαρακτηρισμούς γραμμής.`); return; }
+  if (side() === 'income' && !confirm('Το παραστατικό θα σταλεί ΑΜΕΣΑ στο myDATA. Συνέχεια;')) { e.preventDefault(); return; }
+  $('#ge-draft').value = JSON.stringify(d);
+});
+
+// Τα σύνολα «σκάνε» όταν αλλάζει η τιμή τους.
+['h_net', 'h_vat', 'h_gross', 't_gross'].forEach(id => {
+  const el = $('#' + id);
+  new MutationObserver(() => { el.classList.remove('is-pop'); void el.offsetWidth; el.classList.add('is-pop'); })
+    .observe(el, {childList: true});
+});
+
+// ---- Αρχικοποίηση (νέο ή πρόχειρο/σφάλμα με τα στοιχεία του χρήστη) ----
+buildTypes();
+buildCountries();
+if (DRAFT.invoice_type) { $('#family').value = fam(DRAFT.invoice_type); fillTypes(DRAFT.invoice_type); }
+fill($('#sec-general'), DRAFT);
+if (DRAFT.tax_level === 'line') $('input[name=tax_level][value=line]').checked = true;
+(DRAFT.payments || []).forEach(p => { addRow('tpl-pay', 'payments', p).querySelector('[data-k=amount]').dataset.touched = '1'; });
+onType();
+['issuer', 'counterpart'].forEach(k => { const box = $(`[data-party=${k}]`); if (DRAFT[k] && box.dataset.was === 'other') { fill(box, DRAFT[k]); filterCountries(box, k); foreign(box); } });
+(DRAFT.taxes || []).forEach(t => addRow('tpl-tax', 'taxes', t));
+(DRAFT.lines && DRAFT.lines.length ? DRAFT.lines : [{vat_category: '1'}]).forEach(l => addLine(l));
+renumber(); setTaxLevel(); syncCurrency();
+</script>
+{% endblock %}

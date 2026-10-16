@@ -40,6 +40,7 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
     ('income', 'Βιβλίο εσόδων', 'in', ['income'], False),
     ('invoices', 'Βιβλίο εξόδων', 'out', ['invoices', 'document', 'classify'], False),
     ('new_expense', 'Νέα εγγραφή', 'plus', ['new_expense'], True),
+    ('entry', 'Γενική φόρμα καταχώρησης', 'plus', ['entry', 'entry_submit'], True),
     ('recurring', 'Μηνιαίες εγγραφές', 'calendar', ['recurring'], True),
   ]),
   ('Αναλύσεις', [
@@ -94,7 +95,7 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
       {% for group, items in nav %}
         <div class="nav-group">{{ group }}</div>
         {% for endpoint, label, ic, owns, is_sub in items
-              if endpoint not in ('new_expense', 'recurring') or (active_company and active_company.allow_new) %}
+              if endpoint not in ('new_expense', 'entry', 'recurring') or (active_company and active_company.allow_new) %}
           <a class="nav-link {{ 'nav-link--sub' if is_sub }} {{ 'is-active' if ep in owns }}" href="{{ url_for(endpoint) }}" title="{{ label }}"
              {% if ep in owns %}aria-current="page"{% endif %}>{{ icon(ic) }}{{ label }}</a>
         {% endfor %}
