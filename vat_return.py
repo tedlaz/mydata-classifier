@@ -10,6 +10,7 @@
 
 import json
 import xml.etree.ElementTree as ET
+from functools import lru_cache
 
 from classifications import CREDIT_INVOICE_TYPES, EU_COUNTRIES
 
@@ -126,11 +127,19 @@ def cls_lines(entries: list[dict], lines: dict) -> list[list | None]:
     return out
 
 
-def _input_vat(d: dict) -> list[tuple[str, float, float, list | None]]:
+def _input_vat(d: dict) -> tuple[tuple[str, float, float, tuple | None], ...]:
     """(χαρακτηρισμός VAT_36x, βάση, φόρος, γραμμές ή None = όλο το παραστατικό) — βλ. input_vat."""
-    sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
-    vat_cls = [e for e in json.loads(d["cls_json"] or "[]") if (e.get("type") or "") in INPUT_CODES]
-    lines = {ln.get("line_number"): ln for ln in json.loads(d["lines_json"] or "[]")}
+    return _input_vat_of(d["cls_json"], d["lines_json"], d["invoice_type"], d["total_vat"])
+
+
+# ponytail: μνήμη ανά περιεχόμενο παραστατικού (οι αναφορές ξαναϋπολογίζουν τα ίδια παραστατικά ανά μήνα/έτος)·
+# κλειδί = τα ίδια τα JSON, άρα ποτέ μπαγιάτικο. Όριο 16384 παραστατικά — μεγαλύτερο αν μια εταιρεία τα ξεπεράσει.
+# Το αποτέλεσμα είναι κοινόχρηστο: μόνο για ανάγνωση.
+@lru_cache(maxsize=16384)
+def _input_vat_of(cls_json, lines_json, invoice_type, total_vat) -> tuple:
+    sign = -1 if invoice_type in CREDIT_INVOICE_TYPES else 1
+    vat_cls = [e for e in json.loads(cls_json or "[]") if (e.get("type") or "") in INPUT_CODES]
+    lines = {ln.get("line_number"): ln for ln in json.loads(lines_json or "[]")}
     total = sum(e.get("amount") or 0.0 for e in vat_cls) or 1.0
     out = []
     for e, ns in zip(vat_cls, cls_lines(vat_cls, lines)):
@@ -142,9 +151,9 @@ def _input_vat(d: dict) -> list[tuple[str, float, float, list | None]]:
         elif net:  # μερίδιο του χαρακτηρισμού στον ΦΠΑ των γραμμών του
             tax = sign * sum(lines[n].get("vat_amount") or 0.0 for n in ns) * amount / net
         else:  # όλο το παραστατικό → αναλογικά στον ΦΠΑ του
-            tax = sign * (d["total_vat"] or 0.0) * amount / total
-        out.append((e["type"], sign * amount, tax, ns))
-    return out
+            tax = sign * (total_vat or 0.0) * amount / total
+        out.append((e["type"], sign * amount, tax, tuple(ns) if ns is not None else None))
+    return tuple(out)
 
 
 def input_vat(d: dict) -> list[tuple[str, float, float]]:
@@ -157,10 +166,15 @@ def input_vat(d: dict) -> list[tuple[str, float, float]]:
 def deductible_by_line(d: dict) -> dict:
     """Εκπιπτόμενος ΦΠΑ ανά γραμμή (με πρόσημο, χωρίς πράξεις λήπτη) — για τον κύβο OLAP. Ο φόρος
     ενός χαρακτηρισμού μοιράζεται στις γραμμές του κατά τον ΦΠΑ τους (None = σε όλες).
-    Παραστατικό χωρίς γραμμές → {None: φόρος}."""
-    lines = {ln.get("line_number"): ln for ln in json.loads(d["lines_json"] or "[]")}
+    Παραστατικό χωρίς γραμμές → {None: φόρος}. Κοινόχρηστο αποτέλεσμα (βλ. _input_vat_of): μόνο για ανάγνωση."""
+    return _deductible_of(d["cls_json"], d["lines_json"], d["invoice_type"], d["total_vat"])
+
+
+@lru_cache(maxsize=16384)
+def _deductible_of(cls_json, lines_json, invoice_type, total_vat) -> dict:
+    lines = {ln.get("line_number"): ln for ln in json.loads(lines_json or "[]")}
     out: dict = {}
-    for typ, _, tax, ns in _input_vat(d):
+    for typ, _, tax, ns in _input_vat_of(cls_json, lines_json, invoice_type, total_vat):
         if typ in REVERSE_CHARGE:
             continue
         if not lines:

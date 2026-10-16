@@ -3569,6 +3569,22 @@ _CMP_YEARS = 6  # τρέχον + έως 5 προηγούμενα (όσα έχο�
 # Μεγέθη του γραφήματος αθροιστικών ποσών (κλειδί → ετικέτα άξονα).
 _CMP_TOTALS = {"income": "Έσοδα", "cogs": "Κόστος πωληθέντων", "opex": "Έξοδα χρήσης",
                "expense": "Σύνολο εξόδων", "profit": "Καθαρό κέρδος"}
+# Χρήση 2024: αχαρακτήριστα έξοδα κατανέμονται με τις αναλογίες Ε3 (αγορές αποθεμάτων / έξοδα) των 2025–2026.
+_CMP_FILL_YEAR, _CMP_FILL_FROM = "2024", ("2025", "2026")
+
+
+def _cmp_unclassified(cid: int | None) -> list[dict]:
+    """Αχαρακτήριστα έξοδα του _CMP_FILL_YEAR με χαρακτηρισμό κατά τα ποσά Ε3 των _CMP_FILL_FROM ανά λογαριασμό
+    (αγορές 2.1/2.2 και έξοδα χρήσης· όχι αποθέματα, πάγια, αποσβέσεις). Χωρίς βάση: κανένα."""
+    base = [d for y in _CMP_FILL_FROM for d in db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y)]
+    pl = _pl([], base)
+    w = [g for g in pl["purchases"] + pl["expense"] if g["amount"] > 0 and not g["depreciation"]]
+    total = sum(g["amount"] for g in w)
+    if not total:
+        return []
+    return [dict(d, cls_json=json.dumps([{"type": g["type"], "category": g["category"],
+                                          "amount": round((d["total_net"] or 0) * g["amount"] / total, 2)} for g in w]))
+            for d in db.yearly_documents(cid, "expense", ["unclassified"], _CMP_FILL_YEAR)]
 
 
 def _counterparty_totals(docs: list[dict], stock: bool = False) -> dict:
@@ -3768,11 +3784,12 @@ def _compare(cid: int | None, now: datetime) -> dict:
     years = [str(y) for y in range(now.year - _CMP_YEARS + 1, now.year + 1) if str(y) in have or y == now.year]
     with_stock = stock_in("dashboard")
     in_cut = lambda d: "01-01" <= (d["issue_date"] or "")[5:10] <= md  # noqa: E731
+    filled = _cmp_unclassified(cid) if _CMP_FILL_YEAR in years else []
     Y = {}
     for y in years:
         all_inc = db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, y)
         inc = [d for d in all_inc if in_cut(d)]
-        raw = db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y)
+        raw = db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, y) + (filled if y == _CMP_FILL_YEAR else [])
         # Αποθέματα (_stock_check): μετρούν μόνο με έναρξης ΚΑΙ λήξης (αλλιώς το αποτέλεσμα «κρέμεται») και τότε
         # λογίζονται στην αρχή της χρήσης, ώστε η μεταβολή τους να μετρά και στο year to date (η εγγραφή γίνεται
         # οποτεδήποτε, συνήθως στο κλείσιμο).
@@ -3925,6 +3942,9 @@ def _compare(cid: int | None, now: datetime) -> dict:
     skip = [f"{y} ({Y[y]['stock_why']})" for y in years if Y[y]["stock_why"] and Y[y]["stock_why"] != "χωρίς εγγραφές αποθεμάτων"]
     if prev and skip:
         insights.append(("flat", None, "Αποθέματα εκτός υπολογισμού: " + " · ".join(skip)))
+    if filled:
+        insights.append(("flat", None, f"{_CMP_FILL_YEAR}: {len(filled)} αχαρακτήριστα έξοδα κατανεμήθηκαν σε αγορές "
+                                       f"αποθεμάτων και έξοδα με τις αναλογίες {'–'.join(_CMP_FILL_FROM)}"))
     if prev:
         amt = lambda v: format_el_amount(abs(v)) + " €"  # noqa: E731
         pct = lambda d: f" ({'+' if d['pct'] > 0 else ''}{d['pct']:.1f}%)".replace(".", ",") if d["pct"] is not None else ""  # noqa: E731
@@ -4267,25 +4287,40 @@ def _vat_due_period(kind: str, now) -> tuple[int, int]:
     return (now.year, cur - 1) if cur > 1 else (now.year - 1, 12 if kind == "m" else 4)
 
 
+_VAT_CARRY_CACHE: dict = {}  # (εταιρεία, έτος, τύπος, περίοδος) → (έκδοση παραστατικών, (401, 483))
+
+
 def _vat_auto_carry(cid: int | None, year: int, kind: str, n: int) -> tuple[float, float]:
     """(401, 483) αυτόματα από την προηγούμενη περίοδο ίδιου τύπου: το «ποσό για έκπτωση» (502)
     και το χρεωστικό έως 30 € που δεν αποδόθηκε. Επειδή κάθε περίοδος εξαρτάται από τη
-    μεταφορά της προηγούμενης, η αλυσίδα ξεκινά από την πρώτη περίοδο με δεδομένα."""
+    μεταφορά της προηγούμενης, η αλυσίδα ξεκινά από την πρώτη περίοδο με δεδομένα.
+    Cache: ξαναϋπολογίζεται μόνο όταν αλλάξει κάποιο παραστατικό της εταιρείας."""
+    end = _vat_bounds(year, kind, n)[0]
+    key, digest = (cid, year, kind, n), db.documents_rev(cid)
+    hit = _VAT_CARRY_CACHE.get(key)
+    if hit and hit[0] == digest:
+        return hit[1]
+    _VAT_CARRY_CACHE[key] = (digest, out := _vat_carry_chain(cid, year, kind, n, end))
+    return out
+
+
+def _vat_carry_chain(cid: int | None, year: int, kind: str, n: int, end: str) -> tuple[float, float]:
     years = [int(y) for y in db.document_years(cid) if y.isdigit()]
     if not years:
         return 0.0, 0.0
     per_year = 12 if kind == "m" else 4
     credit = debit = 0.0
+    # Ένα query ανά είδος για όλη την αλυσίδα (όχι 2 ανά περίοδο), μοιρασμένο μετά στις περιόδους.
+    start = f"{min(years)}-01-01"
+    # χωρίς raw_xml: οι κωδικοί εξαίρεσης δεν επηρεάζουν το 502/483 που μεταφέρεται
+    docs = {k: db.period_documents(cid, k, start, end, xml=False) for k in ("income", "expense")}
     for y in range(min(years), year + 1):
         for i in range(1, per_year + 1):
             if (y, i) >= (year, n):
                 return credit, debit
             date_from, date_to = _vat_bounds(y, kind, i)
-            codes = vat_return.compute(
-                db.period_documents(cid, "income", date_from, date_to),
-                db.period_documents(cid, "expense", date_from, date_to),
-                credit, debit,
-            )["codes"]
+            pick = lambda k: [d for d in docs[k] if date_from <= (d["issue_date"] or "") <= date_to]  # noqa: E731
+            codes = vat_return.compute(pick("income"), pick("expense"), credit, debit)["codes"]
             credit, debit = codes["502"], codes["carry"]
     return credit, debit
 
@@ -4973,17 +5008,18 @@ def _spark(values: list[float], w: int = 120, h: int = 34) -> str:
 
 
 
-def _assets_card(cid: int, year: int, rows: list[dict]) -> dict:
+def _assets_card(cid: int, year: int, month: int) -> dict:
     """Πάγια για τον πίνακα ελέγχου: αγορές (κατηγορία 2.7) φέτος / πέρσι, καταχωρημένες αποσβέσεις (E3_587) φέτος / πέρσι,
     αποσβέσεις έτους κατά τον κανόνα (_depreciation) και αναπόσβεστη αξία 31/12 των παγίων ≥ 1.500 € της 5ετίας.
-    Διάγραμμα (viewBox 760×220): ανά μήνα δύο μπάρες — αγορές φέτος (έως τον τρέχοντα μήνα) και πέρσι."""
+    Διάγραμμα (viewBox 760×220): ανά μήνα δύο μπάρες — αγορές φέτος (έως τον τρέχοντα μήνα month) και πέρσι."""
     docs = {y: db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, str(y)) for y in range(year - 4, year + 1)}
     lines = {y: _expense_lines(d)[1] for y, d in docs.items()}
     dep = _depreciation(lines, year)
     # Αναπόσβεστη αξία: 20% τον χρόνο από τη χρήση αγοράς (μαζί με αυτήν), όπως στο _depreciation.
     residual = sum(v * max(0.0, 1 - _DEPR_RATE * (year - y + 1))
                    for y, vs in lines.items() for v in vs if abs(v) >= _DEPR_FULL_LIMIT)
-    prev_t = _yearly_totals(docs[year - 1])
+    prev_t, cur_t = _yearly_totals(docs[year - 1]), _yearly_totals(docs[year])
+    rows = [{"expense": cur_t[m]} for m in range(1, month + 1)]
     buy = [r["expense"]["assets"] for r in rows] + [None] * (12 - len(rows))
     pbuy = [prev_t[m]["assets"] for m in range(1, 13)]
 
@@ -5027,8 +5063,9 @@ def dashboard():
 
     # Σύνοψη έτους (ίδιοι υπολογισμοί με την Ετήσια σύνοψη).
     with_stock = stock_in("dashboard")
-    income = _yearly_totals(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year), with_stock)
-    expense = _yearly_totals(db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year), with_stock)
+    inc_y = db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year)  # μία φορά: και για _pl/_stock_check
+    exp_y = db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year)
+    income, expense = _yearly_totals(inc_y, with_stock), _yearly_totals(exp_y, with_stock)
     rows = [{"label": f"{_GREEK_MONTHS[m - 1]} {year}", "income": income[m], "expense": expense[m],
              "balance": round(income[m]["net"] - expense[m]["net"], 2)} for m in range(1, now.month + 1)]
     ytd = lambda part, col: round(sum(r[part][col] for r in rows), 2)  # noqa: E731
@@ -5048,9 +5085,9 @@ def dashboard():
     if running:
         vy, vn = now.year, (now.month - 1) // 3 + 1
         date_from, date_to = _vat_bounds(vy, kind, vn)
-    codes = vat_return.compute(
-        db.period_documents(cid, "income", date_from, date_to),
-        db.period_documents(cid, "expense", date_from, date_to),
+    codes = vat_return.compute(  # χωρίς raw_xml: η κάρτα δείχνει μόνο 511/502/337/430
+        db.period_documents(cid, "income", date_from, date_to, xml=False),
+        db.period_documents(cid, "expense", date_from, date_to, xml=False),
         *_vat_auto_carry(cid, vy, kind, vn),
     )["codes"]
     last_month = vn if kind == "m" else 3 * vn
@@ -5118,8 +5155,8 @@ def dashboard():
     done_pct = round(exp_st.get("confirmed", 0) / exp_total * 100) if exp_total else 0
 
     # Κορυφαίοι προμηθευτές/πελάτες έτους + πρόσφατη κίνηση.
-    exp_docs = db.period_documents(cid, "expense", f"{year}-01-01", f"{year}-12-31")
-    inc_docs = db.period_documents(cid, "income", f"{year}-01-01", f"{year}-12-31")
+    exp_docs = db.period_documents(cid, "expense", f"{year}-01-01", f"{year}-12-31", xml=False)
+    inc_docs = db.period_documents(cid, "income", f"{year}-01-01", f"{year}-12-31", xml=False)
 
     def top_of(docs, stock):
         return sorted(_counterparty_totals(docs, stock).values(), key=lambda t: -t["amount"])[:5]
@@ -5135,10 +5172,8 @@ def dashboard():
     months = _last_12_months(now)  # μηνιαίος «καθρέφτης» στην κεφαλίδα
     return render_template(
         "dashboard.html", company=company, year=year, kpi=kpi, chart=_yearly_chart(rows), vat=vat,
-        assets=_assets_card(cid, now.year, rows),
-        pl=_pl(db.yearly_documents(cid, "income", _INCOME_CLASSIFIED_STATUSES, year),
-               db.yearly_documents(cid, "expense", _EXPENSE_CLASSIFIED_STATUSES, year)),  # όπως στο συνοπτικό βιβλίο
-        stock_chk=_stock_check(cid, year),
+        pl=_pl(inc_y, exp_y),  # όπως στο συνοπτικό βιβλίο
+        stock_chk=_stock_check(cid, year, exp_y),
         vat_periods=_yearly_vat_periods(rows, year, now),
         todos=todos, fetch_due_in=fetch_due_in, segments=segments,
         exp_total=exp_total, done_pct=done_pct, inc_st=inc_st,
@@ -5147,6 +5182,14 @@ def dashboard():
         type_names=INVOICE_TYPE_NAMES,
         months=months, this_month=months[-1], monthly=db.company_month_counts(months[0] + "-01").get(cid, {}),
     )
+
+
+@app.route("/dashboard/assets")
+def dashboard_assets():
+    """Κάρτα «Πάγια» του πίνακα ελέγχου (τμήμα HTML): φορτώνεται μετά τη σελίδα, γιατί διαβάζει 5 χρόνια εξόδων."""
+    now = datetime.now(ATHENS)
+    return render_template("_dashboard_assets.html", assets=_assets_card(_active_company_id(), now.year, now.month),
+                           year=str(now.year))
 
 
 @app.route("/reports")

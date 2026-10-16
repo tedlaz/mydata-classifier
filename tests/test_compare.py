@@ -165,3 +165,17 @@ for url in (f"/reports/yearly/e3?year={y}", f"/reports/yearly/e3?year={y}&print=
     assert "Επισφαλές αποτέλεσμα " + str(y) in h or "⚠ Επισφαλές:" in h, url
 assert "fc-line--res is-unsure" in c.get("/reports/forecast").data.decode()
 print("ok stock warn")
+
+# 2024: αχαρακτήριστα έξοδα κατανέμονται με τις αναλογίες 2025–2026 (αγορές 2.1 / έξοδα 2.5).
+A._CMP_FILL_FROM = (str(y - 1), str(y))
+A._CMP_FILL_YEAR = str(y - 2)
+doc("expense", "F1", y - 1, 1, "777", 300, e3=("E3_102_001", "category2_1"))
+db.upsert_document(cid, "expense", {"mark": "U1", "issue_date": f"{y - 2}-01-01", "invoice_type": "1.1", "issuer_vat": "888",
+                                    "total_net": 1000, "total_vat": 0, "total_gross": 1000}, "unclassified")
+w = A._pl([], [d for yy in A._CMP_FILL_FROM for d in db.yearly_documents(cid, "expense", A._EXPENSE_CLASSIFIED_STATUSES, yy)])
+share = w["purchases_total"] / (w["purchases_total"] + w["exp_total"] - w["depreciation"])
+d = A._compare(cid, now)
+old = d["Y"][str(y - 2)]
+assert abs(old["purchases"] - 1000 * share) < 0.05 and abs(old["exp_ns"] - 1000) < 0.05, (old["purchases"], old["exp_ns"], share)
+assert any("αχαρακτήριστα έξοδα κατανεμήθηκαν" in t for _, _, t in d["insights"]), d["insights"]
+print("ok fill 2024")

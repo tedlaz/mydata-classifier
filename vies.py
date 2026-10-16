@@ -12,6 +12,7 @@ GET https://ec.europa.eu/taxation_customs/vies/rest-api/ms/{country}/vat/{number
 
 import re
 import unicodedata
+from functools import lru_cache
 
 import requests
 
@@ -170,6 +171,7 @@ def _abbreviate(part: str) -> str:
     return " ".join(words).strip(" ,-&")
 
 
+@lru_cache(maxsize=4096)  # Levenshtein ανά λέξη: ίδιο όνομα, ίδιο αποτέλεσμα (κύβος OLAP = χιλιάδες γραμμές)
 def short_name(name):
     """Σύντομη επωνυμία για εμφάνιση: από το «αριστερό || δεξί» του VIES κρατά το
     αριστερό, ή το δεξί (διακριτικό τίτλο) αν είναι μικρότερο και χωρίς νομική μορφή,

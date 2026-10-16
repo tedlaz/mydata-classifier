@@ -106,6 +106,8 @@ def restore_bytes(data: bytes) -> str:
             dst.close()
     finally:
         mem.close()
+    global _restores
+    _restores += 1  # άκυρα τα cache με documents_rev
     init_db()  # παλαιότερο backup → τρέχουσες μεταπτώσεις schema
     prune_safety_backups()
     auth.lock()  # το backup έχει δικό του χρήστη/κλειδί → νέο login με τον κωδικό του backup
@@ -247,6 +249,18 @@ CREATE TABLE IF NOT EXISTS documents (
     UNIQUE (company_id, mark),
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
+
+-- Μετρητής αλλαγών παραστατικών ανά εταιρεία (documents_rev): cache υπολογισμών όπως η μεταφορά ΦΠΑ.
+CREATE TABLE IF NOT EXISTS doc_rev (company_id INTEGER PRIMARY KEY, rev INTEGER NOT NULL);
+CREATE TRIGGER IF NOT EXISTS doc_rev_ins AFTER INSERT ON documents BEGIN
+    INSERT INTO doc_rev VALUES (NEW.company_id, 1) ON CONFLICT(company_id) DO UPDATE SET rev = rev + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS doc_rev_upd AFTER UPDATE ON documents BEGIN
+    INSERT INTO doc_rev VALUES (NEW.company_id, 1) ON CONFLICT(company_id) DO UPDATE SET rev = rev + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS doc_rev_del AFTER DELETE ON documents BEGIN
+    INSERT INTO doc_rev VALUES (OLD.company_id, 1) ON CONFLICT(company_id) DO UPDATE SET rev = rev + 1;
+END;
 
 CREATE TABLE IF NOT EXISTS classifications (
     id                       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -445,6 +459,9 @@ def init_db() -> None:
                 "AND COALESCE(classification_mark, '') = '' AND COALESCE(cls_json, '[]') NOT IN ('', '[]') "
                 "AND (source = 'manual' OR lines_json LIKE '%\"has_expenses_classification\": true%')"
             )
+        # Αναφορές/ΦΠΑ: παραστατικά εταιρείας + είδους σε διάστημα ημερομηνιών (αλλιώς σάρωση όλου του πίνακα).
+        if "issue_date" in doc_cols:
+            conn.execute("CREATE INDEX IF NOT EXISTS ix_documents_period ON documents(company_id, kind, issue_date)")
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_documents_template_period "
             "ON documents(company_id, template_id, period) WHERE template_id IS NOT NULL"
@@ -1248,6 +1265,7 @@ def get_documents(
         statuses_str = ",".join("?" * len(statuses))
         q += f" AND status IN ({statuses_str})"
         params.extend(statuses)
+    q += " ORDER BY mark"  # η σειρά του UNIQUE (company_id, mark), όπως πριν από το ix_documents_period
     with get_conn() as conn:
         rows = conn.execute(q, params).fetchall()
     return [dict(r) for r in rows]
@@ -1338,7 +1356,7 @@ def olap_documents(company_id: int | None, kind: str, statuses: list[str]) -> li
         rows = conn.execute(
             f"SELECT {cols}, s.name AS counterparty_name FROM documents AS d "
             "LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
-            f"WHERE d.company_id = ? AND d.kind = ? AND d.status IN ({','.join('?' * len(statuses))})",
+            f"WHERE d.company_id = ? AND d.kind = ? AND d.status IN ({','.join('?' * len(statuses))}) ORDER BY d.mark",
             [company_id, kind, *statuses],
         ).fetchall()
     return [dict(r) for r in rows]
@@ -1958,27 +1976,40 @@ def yearly_documents(company_id: int | None, kind: str, statuses: list[str], yea
         rows = conn.execute(
             f"SELECT {cols}, s.name AS counterparty_name FROM documents AS d "
             "LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat WHERE d.company_id = ? AND d.kind = ? "
-            f"AND d.status IN ({','.join('?' * len(statuses))}) AND substr(d.issue_date, 1, 4) = ?",
-            [company_id, kind, *statuses, year],
+            f"AND d.status IN ({','.join('?' * len(statuses))}) AND d.issue_date >= ? AND d.issue_date < ? || '~' ORDER BY d.mark",  # = έτος (πρόθεμα), με χρήση του index
+            [company_id, kind, *statuses, year, year],
         ).fetchall()
     return [dict(r) for r in rows]
 
 
-def period_documents(company_id: int | None, kind: str, date_from: str, date_to: str) -> list[dict]:
+def period_documents(company_id: int | None, kind: str, date_from: str, date_to: str, xml: bool = True) -> list[dict]:
     """Όλα τα παραστατικά ενός διαστήματος (yyyy-mm-dd, κατά ημ/νία έκδοσης), κάθε κατάστασης,
-    με γραμμές και χαρακτηρισμούς — για τη δήλωση ΦΠΑ."""
+    με γραμμές και χαρακτηρισμούς — για τη δήλωση ΦΠΑ. xml=False: χωρίς raw_xml (αποσυμπίεση ανά γραμμή)·
+    το χρειάζονται μόνο οι κωδικοί εξαίρεσης ΦΠΑ (342–349/310), που δεν αλλάζουν πληρωτέο/πιστωτικό."""
     if not company_id:
         return []
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT d.mark, d.issue_date, d.invoice_type, d.series, d.aa, d.counterparty_vat, d.status, "
-            "d.local_action, d.total_net, d.total_vat, d.lines_json, d.cls_json, d.raw_xml, s.name AS counterparty_name "
+            f"d.local_action, d.total_net, d.total_vat, d.lines_json, d.cls_json, {'d.raw_xml' if xml else 'NULL AS raw_xml'}, "
+            "s.name AS counterparty_name "
             "FROM documents AS d LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
             "WHERE d.company_id = ? AND d.kind = ? AND d.issue_date BETWEEN ? AND ? "
             "ORDER BY d.issue_date, d.series, d.aa",
             (company_id, kind, date_from, date_to),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+_restores = 0  # επαναφορές backup σε αυτή τη διεργασία: η βάση άλλαξε ολόκληρη (και ο μετρητής doc_rev)
+
+
+def documents_rev(company_id: int | None) -> tuple[int, int]:
+    """Έκδοση των παραστατικών μιας εταιρείας: αλλάζει με κάθε προσθήκη / αλλαγή / διαγραφή (triggers doc_rev)
+    ή επαναφορά backup — για cache υπολογισμών που εξαρτώνται μόνο από αυτά (π.χ. μεταφορά ΦΠΑ)."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT rev FROM doc_rev WHERE company_id = ?", (company_id or 0,)).fetchone()
+    return _restores, row["rev"] if row else 0
 
 
 def document_years(company_id: int | None) -> list[str]:
@@ -2004,7 +2035,7 @@ def month_documents(company_id: int | None, kind: str, statuses: list[str], year
             f"SELECT {cols}, s.name AS counterparty_name FROM documents AS d "
             "LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
             f"WHERE d.company_id = ? AND d.kind = ? AND d.status IN ({','.join('?' * len(statuses))}) "
-            "AND substr(d.issue_date, 1, 7) = ? ORDER BY d.issue_date, d.series, d.aa",
-            [company_id, kind, *statuses, year_month],
+            "AND d.issue_date >= ? AND d.issue_date < ? || '~' ORDER BY d.issue_date, d.series, d.aa",  # = μήνας
+            [company_id, kind, *statuses, year_month, year_month],
         ).fetchall()
     return [dict(r) for r in rows]

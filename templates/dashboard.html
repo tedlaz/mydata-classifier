@@ -282,51 +282,9 @@
         {{ vat_tiles(vat_periods) }}
       </section>
       {# ================= Πάγια: αγορές φέτος / πέρσι ανά μήνα, αποσβέσεις ================= #}
-      {% set c = assets.chart %}
-      {% set py = year|int - 1 %}
-      <section class="card db-card db-assets" style="--i:3">
-        <div class="card-head">
-          <h2>🏗 Πάγια {{ year }}</h2>
-          {% if not assets.empty %}
-          <ul class="db-legend">
-            <li><i class="buy"></i>Αγορές {{ year }}</li>
-            <li><i class="pbuy"></i>Αγορές {{ py }}</li>
-          </ul>
-          {% endif %}
-        </div>
-        {% if assets.empty %}
-        <p class="db-empty">Δεν υπάρχουν αγορές παγίων ή αποσβέσεις τα τελευταία 5 χρόνια.</p>
-        {% else %}
-        {% set d = assets.dep %}
-        <div class="db-as-kpis">
-          <div><small>Αγορές</small><b>{{ assets.bought|el_amount }} €</b><span>{{ py }}: {{ assets.p_bought|el_amount }} €</span></div>
-          <div title="Καταχωρημένες με E3_587"><small>Αποσβέσεις</small><b>{{ assets.booked|el_amount }} €</b><span>{{ py }}: {{ assets.p_booked|el_amount }} €</span></div>
-          <div class="{{ 'is-warn' if assets.booked < d.total }}"
-               title="Πάγια < 1.500 €: 100% στη χρήση αγοράς· από 1.500 € 20% τον χρόνο για 5 χρόνια. Φετινές αγορές {{ d.cur|el_amount }} € + προηγ. ετών {{ d.older|el_amount }} €">
-            <small>Απόσβεση κανόνα</small><b>{{ d.total|el_amount }} €</b>
-            <span>{{ 'λείπουν ' ~ (d.total - assets.booked)|el_amount ~ ' €' if assets.booked < d.total else 'καταχωρήθηκε' }}</span>
-          </div>
-          <div title="Πάγια ≥ 1.500 € της 5ετίας, μετά τις αποσβέσεις του {{ year }}"><small>Αναπόσβεστη 31/12</small><b>{{ assets.residual|el_amount }} €</b></div>
-        </div>
-        <div class="db-plot">
-          <svg viewBox="0 0 {{ c.w }} {{ c.h }}" role="img"
-               aria-label="Αγορές παγίων ανά μήνα: {{ year }} {{ assets.bought|el_amount }} €, {{ py }} {{ assets.p_bought|el_amount }} €">
-            {% for t in c.ticks %}
-            <line class="grid" x1="{{ c.left }}" x2="{{ c.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
-            <text class="tick" x="{{ c.left - 8 }}" y="{{ t.y + 3 }}" text-anchor="end">{{ '{:,.0f}'.format(t.v).replace(',', '.') }}</text>
-            {% endfor %}
-            {% for m in c.months %}
-            <g class="db-m" style="--i:{{ loop.index0 }}">
-              <rect class="db-hit" x="{{ m.x }}" y="{{ c.top }}" width="{{ m.w }}" height="{{ c.base - c.top }}" rx="6"/>
-              {% if m.pbar %}<rect class="db-bar db-as-pbar" x="{{ m.pbar[0] }}" y="{{ m.pbar[1] }}" width="{{ m.pbar[2] }}" height="{{ m.pbar[3] }}" rx="4"/>{% endif %}
-              {% if m.bar %}<rect class="db-bar db-as-bar" x="{{ m.bar[0] }}" y="{{ m.bar[1] }}" width="{{ m.bar[2] }}" height="{{ m.bar[3] }}" rx="4"/>{% endif %}
-              <text class="mlab" x="{{ m.cx }}" y="{{ c.base + 18 }}" text-anchor="middle">{{ m.label }}</text>
-              <title>{{ m.label }} — Αγορές {{ year }}: {{ m.buy|el_amount ~ ' €' if m.buy is not none else '—' }} · {{ py }}: {{ m.pbuy|el_amount }} €</title>
-            </g>
-            {% endfor %}
-          </svg>
-        </div>
-        {% endif %}
+      <section class="card db-card db-assets" id="db-assets" style="--i:3" data-src="{{ url_for('dashboard_assets') }}">
+        <div class="card-head"><h2>🏗 Πάγια {{ year }}</h2></div>
+        <p class="db-empty">Φόρτωση…</p>
       </section>
     </div>
 
@@ -464,6 +422,14 @@
 
 {% block scripts %}
 <script>
+// Κάρτα «Πάγια»: βαρύς υπολογισμός (5 χρόνια εξόδων) — φορτώνεται μετά την υπόλοιπη σελίδα.
+(async () => {
+  const card = document.getElementById('db-assets');
+  try {
+    const r = await fetch(card.dataset.src, {cache: 'no-store'});
+    if (r.ok) card.outerHTML = await r.text();
+  } catch (e) { /* εκτός σύνδεσης: μένει το «Φόρτωση…» */ }
+})();
 // Ανοιχτός Πίνακας ελέγχου: όταν λήξει το διάστημα ελέγχου ανάκτησης, ξαναφέρνει μόνο το «Τι εκκρεμεί».
 (function watch() {
   const card = document.getElementById('db-todos');
