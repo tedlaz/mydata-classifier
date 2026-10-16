@@ -1248,6 +1248,16 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .yr-tag{font-size:.68rem;padding:2px 7px}
 .yr-docs tr.is-foreign td{background:var(--info-soft)}
 .yr-tag--foreign{background:var(--surface);color:var(--info);border-color:var(--info-line)}
+/* Ακυρωμένα παραστατικά: παραστατικό (κόκκινη μπάρα) → από κάτω η πράξη ακύρωσης ως κλαδί του δέντρου. */
+.yr-docs tr.hx-inv td{border-top:2px solid var(--line)}
+.yr-docs tr.hx-inv td:first-child,.yr-docs tr.hx-cxl td:first-child{box-shadow:inset 4px 0 var(--err)}
+.yr-docs tr.hx-inv:has(+ tr.hx-cxl) td{border-bottom:0}
+.yr-docs tr.hx-cxl td{background:var(--err-soft);color:var(--ink-2);font-size:.92em}
+.yr-docs tr.hx-cxl td:first-child{box-shadow:inset 4px 0 var(--err-line)}
+.hx-branch{display:inline-block;width:16px;height:14px;margin:0 6px 6px 2px;vertical-align:middle;
+  border-left:2px solid var(--err);border-bottom:2px solid var(--err);border-bottom-left-radius:6px}
+.hx-tag-inv{background:var(--err);color:var(--surface);border-color:var(--err)}
+.hx-tag-cxl{background:var(--surface);color:var(--err);border-color:var(--err-line)}
 .yr-tag--asset{background:var(--yr-out-soft);color:var(--ink)}
 .yr-docs tr.is-credit td{color:var(--err)}
 .yr-docs tfoot th{text-align:left}

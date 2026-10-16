@@ -41,9 +41,12 @@
   <tbody>
     {% for r in rows %}
     {% set item = url_for('reports_history_item', kind=r.kind, mark=r.mark, back=here) %}
-    <tr{% if cat == 'movement' and r.foreign %} class="is-foreign"{% endif %}>
+    {% set row_cls = 'is-foreign' if cat == 'movement' and r.foreign else 'hx-cxl' if r.kind == 'cancel' else 'hx-inv' if cat == 'cancelled' else '' %}
+    <tr{% if row_cls %} class="{{ row_cls }}"{% endif %}>
       <td>{{ '/'.join(r.date[:10].split('-')[::-1]) if r.date }}</td>
-      <td class="yr-docs-mark">{% if cat == 'movement' and r.foreign %}<span class="pill yr-tag yr-tag--foreign" title="Εκδότης εμείς, λήπτης άλλος">άλλου λήπτη</span> {% endif %}{% if r.kind == 'cancel' %}↳ {% endif %}<a href="{{ item }}" data-docs="{{ item }}">{{ r.mark }}</a>{% if r.kind == 'cancel' %} <span class="pill yr-tag" title="Πράξη ακύρωσης του σχετικού MARK">ακύρωση</span>{% endif %}</td>
+      <td class="yr-docs-mark">{% if cat == 'movement' and r.foreign %}<span class="pill yr-tag yr-tag--foreign" title="Εκδότης εμείς, λήπτης άλλος">άλλου λήπτη</span> {% endif %}{% if r.kind == 'cancel' %}<span class="hx-branch" aria-hidden="true"></span>{% endif %}<a href="{{ item }}" data-docs="{{ item }}">{{ r.mark }}</a>
+        {%- if r.kind == 'cancel' %} <span class="pill yr-tag hx-tag-cxl" title="Πράξη ακύρωσης του σχετικού MARK">πράξη ακύρωσης</span>
+        {%- elif cat == 'cancelled' %} <span class="pill yr-tag hx-tag-inv" title="Το παραστατικό ακυρώθηκε στο myDATA">ακυρωμένο</span>{% endif %}</td>
       <td>{{ r.invoice_mark or '' }}{% if r.invoice_mark and r.ref_in_books %} <span class="pill yr-tag" title="Το παραστατικό είναι στα βιβλία">βιβλία</span>{% endif %}</td>
       <td><span title="{{ type_names.get(r.invoice_type, '') }}">{{ r.invoice_type or '' }}</span></td>
       <td class="yr-docs-cp">{% if r.issuer_vat %}<b>{{ names.get(r.issuer_vat) or '—' }}</b><span class="vat">{{ r.issuer_vat }}</span>{% endif %}</td>

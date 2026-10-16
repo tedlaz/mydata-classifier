@@ -147,7 +147,7 @@ docs_html = web.get("/reports/history/docs?cat=expenses_cls").get_data(as_text=T
 assert "kind=invoice&amp;mark=2&amp;" in docs_html  # MARK → στοιχεία παραστατικού (κουβάς)
 assert docs_html.count("/history/cls/2") == 1 and "<td class=\"num\">3</td>" in docs_html, docs_html  # 9/10/12 → 1 γραμμή
 docs_html = web.get("/reports/history/docs?cat=cancelled").get_data(as_text=True)  # ακύρωση 11 κάτω από το 3
-assert "cat=cancel\"" not in page_html and docs_html.index("mark=3&") < docs_html.index("↳") < docs_html.index("mark=11&"), docs_html
+assert "cat=cancel\"" not in page_html and docs_html.index("mark=3&") < docs_html.index("hx-branch") < docs_html.index("mark=11&"), docs_html
 item = web.get("/reports/history/item?kind=expenses_cls&mark=12")
 assert item.status_code == 200 and "xml-tree" in item.get_data(as_text=True)
 assert web.get("/reports/history/docs?cat=nope").status_code == 400
