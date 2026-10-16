@@ -18,6 +18,7 @@ import json
 import os
 import re as _re
 import sqlite3
+import zlib
 from datetime import UTC, datetime
 
 import auth
@@ -28,23 +29,50 @@ os.makedirs(_DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(_DATA_DIR, "mydata.db")
 
 
+def _z(s: str) -> bytes:
+    """XML (raw_xml / cls_xml / mydata_archive.xml) → zlib BLOB (~5x μικρότερο)."""
+    return zlib.compress(s.encode())
+
+
+# ponytail: κάθε BLOB θεωρείται συμπιεσμένο XML (δεν υπάρχει άλλη BLOB στήλη)· αν προστεθεί, ανά στήλη.
+def _unz(v):
+    return zlib.decompress(v).decode() if isinstance(v, bytes) else v
+
+
 def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn.create_function("z", 1, lambda s: _z(s) if isinstance(s, str) else s, deterministic=True)
+    conn.create_function("unz", 1, _unz, deterministic=True)
+    # Τα συμπιεσμένα XML διαβάζονται πάντα ως str: οι αναγνώστες δεν ξέρουν τη συμπίεση.
+    conn.row_factory = lambda cur, row: sqlite3.Row(cur, tuple(map(_unz, row)))
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
 def backup_bytes() -> bytes:
-    """Συνεπές στιγμιότυπο όλης της βάσης (online backup API· ασφαλές με WAL)."""
+    """Συνεπές στιγμιότυπο όλης της βάσης (online backup API· ασφαλές με WAL), συμπιεσμένο (VACUUM στο
+    αντίγραφο της μνήμης — όχι στη ζωντανή βάση): το αρχείο λήψης χωρίς τον κενό χώρο των διαγραφών."""
     src, mem = get_conn(), sqlite3.connect(":memory:")
     try:
         src.backup(mem)
+        mem.execute("VACUUM")
         return mem.serialize()
     finally:
         src.close()
         mem.close()
+
+
+def vacuum() -> None:
+    """Συμπίεση της βάσης: το SQLite δεν μικραίνει το αρχείο μόνο του μετά από διαγραφές. Πρώτα αδειάζει
+    το WAL στο κύριο αρχείο, μετά VACUUM (ξαναγράφει τη βάση χωρίς κενές σελίδες) και ξανά άδειασμα του WAL."""
+    conn = get_conn()
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("VACUUM")
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        conn.close()
 
 
 def restore_bytes(data: bytes) -> str:
@@ -296,7 +324,12 @@ _DOCUMENT_COLUMNS = {
     "late_since": "TEXT",
     # Απεσταλμένος/επιβεβαιωμένος χαρακτηρισμός πριν τον αλλάξουμε τοπικά — η «Επαναφορά» γυρνά σε αυτόν.
     "prev_state": "TEXT",
+    # Η ΕΝΕΡΓΗ εγγραφή χαρακτηρισμού του myDATA (MARK = classification_mark), όπως ήρθε· οι υπόλοιπες
+    # στον κουβά (mydata_archive) — βλ. archive_sync.
+    "cls_xml": "TEXT",
 }
+# Στήλες του κουβά που προστέθηκαν μετά τη δημιουργία του.
+_ARCHIVE_COLUMNS = {"event_date": "TEXT", "amount": "REAL"}
 EXTRA_TOTALS = ("total_withheld", "total_other_taxes", "total_stamp_duty", "total_fees", "total_deductions")
 # Ανά παραστατικό, ο χαρακτηρισμός ΦΠΑ κρατά κατηγορία ΦΠΑ + ποσό ΦΠΑ της ομάδας.
 _CLASSIFICATION_COLUMNS = {
@@ -422,42 +455,142 @@ def init_db() -> None:
         if "status" in doc_cols:
             conn.execute("UPDATE documents SET local_action = 'classify' "
                          "WHERE local_action = 'create' AND status IN ('sent', 'confirmed')")
-        # Μετά τα ALTER: το view χρειάζεται το documents.raw_xml.
+        arc_cols = {r["name"] for r in conn.execute("PRAGMA table_info(mydata_archive)")}
+        for col, decl in _ARCHIVE_COLUMNS.items():
+            if col not in arc_cols:
+                conn.execute(f"ALTER TABLE mydata_archive ADD COLUMN {col} {decl}")
+        # myDATA = documents + κουβάς: κάθε εγγραφή (kind, mark) ακριβώς μία φορά. Μετά τα ALTER (raw_xml, cls_xml).
+        conn.execute("DROP VIEW IF EXISTS mydata_all")
         conn.execute(
-            "CREATE VIEW IF NOT EXISTS mydata_all AS "
+            "CREATE VIEW mydata_all AS "
             "SELECT company_id, 'documents' AS src, 'invoice' AS kind, mark, NULL AS invoice_mark, "
-            "issue_date, invoice_type, raw_xml AS xml FROM documents "
-            "UNION ALL SELECT company_id, 'archive', kind, mark, invoice_mark, issue_date, invoice_type, xml "
+            "issue_date AS event_date, invoice_type, total_gross AS amount, raw_xml AS xml "
+            "FROM documents WHERE COALESCE(raw_xml, '') <> '' "
+            "UNION ALL SELECT company_id, 'documents', CASE WHEN unz(cls_xml) LIKE '%incomeInvoiceClassification%' "
+            "THEN 'income_cls' ELSE 'expenses_cls' END, classification_mark, mark, NULL, NULL, NULL, cls_xml "
+            "FROM documents WHERE COALESCE(cls_xml, '') <> '' "
+            "UNION ALL SELECT company_id, 'archive', kind, mark, invoice_mark, event_date, invoice_type, amount, xml "
             "FROM mydata_archive"
         )
+        # XML ως zlib BLOB (μία φορά· όσα είναι ακόμα text).
+        squeezed = sum(conn.execute(
+            f"UPDATE {t} SET {c} = z({c}) WHERE typeof({c}) = 'text' AND {c} <> ''").rowcount
+            for t, c in (("documents", "raw_xml"), ("documents", "cls_xml"), ("mydata_archive", "xml")))
+    if squeezed:
+        vacuum()  # αλλιώς το αρχείο δεν μικραίνει
+
+
+_CLS_KINDS = "('expenses_cls', 'income_cls')"
+
+
+def _archive_upsert(conn, company_id: int, rows: list[dict], now: str) -> None:
+    conn.executemany(
+        "INSERT INTO mydata_archive (company_id, kind, mark, invoice_mark, endpoint, issue_date, invoice_type, "
+        "issuer_vat, counterpart_vat, event_date, amount, xml, first_seen, last_seen) VALUES (:company_id, "
+        ":kind, :mark, :invoice_mark, :endpoint, :issue_date, :invoice_type, :issuer_vat, :counterpart_vat, "
+        ":event_date, :amount, :xml, :now, :now) ON CONFLICT (company_id, kind, mark) DO UPDATE SET "
+        "invoice_mark = excluded.invoice_mark, endpoint = COALESCE(excluded.endpoint, endpoint), "
+        "issue_date = excluded.issue_date, invoice_type = excluded.invoice_type, "
+        "issuer_vat = excluded.issuer_vat, counterpart_vat = excluded.counterpart_vat, "
+        "event_date = excluded.event_date, amount = excluded.amount, "
+        "xml = excluded.xml, last_seen = excluded.last_seen",
+        [{**r, "xml": _z(r["xml"]), "company_id": company_id, "now": now} for r in rows],
+    )
+
+
+def _to_archive(conn, where: str, params: tuple) -> None:
+    """Πριν από κάθε διαγραφή από το documents: το παραστατικό (raw_xml) και ο ενεργός χαρακτηρισμός
+    (cls_xml) περνούν στον κουβά, ώστε myDATA = documents + κουβάς να ισχύει και μετά."""
+    from mydata_client import archive_records
+
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    for r in conn.execute(f"SELECT company_id, raw_xml, cls_xml FROM documents WHERE {where}", params).fetchall():
+        rows = [rec for x in (r["raw_xml"], r["cls_xml"]) if x for rec in archive_records(x.encode())]
+        if rows:
+            _archive_upsert(conn, r["company_id"], [{**rec, "endpoint": None} for rec in rows], now)
 
 
 def archive_sync(company_id: int | None, rows: list[dict]) -> None:
-    """Γράφει στον κουβά τις εγγραφές του myDATA (mydata_client.archive_records) και βγάζει από αυτόν
-    όσα παραστατικά υπάρχουν στο documents — καλείται στο τέλος του request, μετά την ενημέρωση του
-    documents, ώστε π.χ. ένα ακυρωμένο που μόλις σβήστηκε από εκεί να περάσει εδώ."""
-    if not company_id or not rows:
+    """Στο τέλος κάθε request (μετά την ενημέρωση του documents) — myDATA = documents + κουβάς,
+    κάθε εγγραφή ακριβώς μία φορά:
+    1. ό,τι ήρθε από το myDATA (mydata_client.archive_records) γράφεται στον κουβά·
+    2. παλιός ενεργός χαρακτηρισμός (cls_xml χωρίς το τρέχον classification_mark) → κουβάς·
+    3. ο ενεργός χαρακτηρισμός (MARK = classification_mark) → documents.cls_xml, έξω από τον κουβά·
+    4. παραστατικά που είναι στο documents (με raw_xml) → έξω από τον κουβά."""
+    from mydata_client import archive_records
+
+    if not company_id:
         return
     now = datetime.now(UTC).isoformat(timespec="seconds")
     with get_conn() as conn:
-        conn.executemany(
-            "INSERT INTO mydata_archive (company_id, kind, mark, invoice_mark, endpoint, issue_date, "
-            "invoice_type, issuer_vat, counterpart_vat, xml, first_seen, last_seen) VALUES (:company_id, "
-            ":kind, :mark, :invoice_mark, :endpoint, :issue_date, :invoice_type, :issuer_vat, "
-            ":counterpart_vat, :xml, :now, :now) ON CONFLICT (company_id, kind, mark) DO UPDATE SET "
-            "invoice_mark = excluded.invoice_mark, endpoint = excluded.endpoint, "
-            "issue_date = excluded.issue_date, invoice_type = excluded.invoice_type, "
-            "issuer_vat = excluded.issuer_vat, counterpart_vat = excluded.counterpart_vat, "
-            "xml = excluded.xml, last_seen = excluded.last_seen",
-            [{**r, "company_id": company_id, "now": now} for r in rows],
-        )
-        # Μηδενική επικάλυψη: έξω και οι χαρακτηρισμοί/ακυρώσεις παραστατικών του documents.
+        if rows:
+            _archive_upsert(conn, company_id, rows, now)
+        stale = conn.execute(
+            "SELECT id, cls_xml FROM documents WHERE company_id = ? AND COALESCE(cls_xml, '') <> '' "
+            "AND (COALESCE(classification_mark, '') = '' OR instr(unz(cls_xml), 'classificationMark>' || classification_mark || '<') = 0)",
+            (company_id,),
+        ).fetchall()
+        for r in stale:
+            _archive_upsert(conn, company_id, [{**rec, "endpoint": None}
+                                               for rec in archive_records(r["cls_xml"].encode())], now)
+            conn.execute("UPDATE documents SET cls_xml = NULL WHERE id = ?", (r["id"],))
+        active = (f"FROM mydata_archive a WHERE a.company_id = documents.company_id AND a.kind IN {_CLS_KINDS} "
+                  "AND a.invoice_mark = documents.mark AND a.mark = documents.classification_mark")
+        conn.execute(f"UPDATE documents SET cls_xml = (SELECT a.xml {active}) "
+                     f"WHERE company_id = ? AND EXISTS (SELECT 1 {active})", (company_id,))
         conn.execute(
-            "DELETE FROM mydata_archive WHERE company_id = ? AND "
-            "(CASE kind WHEN 'invoice' THEN mark ELSE invoice_mark END) "
-            "IN (SELECT mark FROM documents WHERE company_id = ?)",
-            (company_id, company_id),
+            f"DELETE FROM mydata_archive WHERE company_id = ? AND ("
+            f"(kind = 'invoice' AND mark IN (SELECT mark FROM documents WHERE company_id = ? "
+            f"AND COALESCE(raw_xml, '') <> '')) OR (kind IN {_CLS_KINDS} AND EXISTS (SELECT 1 FROM documents d "
+            f"WHERE d.company_id = ? AND d.mark = mydata_archive.invoice_mark "
+            f"AND d.classification_mark = mydata_archive.mark AND COALESCE(d.cls_xml, '') <> '')))",
+            (company_id, company_id, company_id),
         )
+
+
+def archive_rows(company_id: int | None) -> list[dict]:
+    """Όλος ο κουβάς της εταιρείας (χωρίς xml), για την αναφορά «Ιστορικό κινήσεων». Ο χαρακτηρισμός δεν
+    έχει δική του ημερομηνία: παίρνει (date) του παραστατικού του, από το documents ή τον κουβά."""
+    if not company_id:
+        return []
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT a.kind, a.mark, a.invoice_mark, a.endpoint, a.invoice_type, a.issuer_vat, a.counterpart_vat, "
+            "a.amount, COALESCE(a.event_date, d.issue_date, ai.event_date) AS date, "
+            "COALESCE(d.counterparty_vat, ai.issuer_vat) AS ref_vat, COALESCE(d.invoice_type, ai.invoice_type) AS ref_type, "
+            "instr(unz(a.xml), 'cancelledByMark') > 0 AS has_cancelled_by, "
+            "(instr(unz(a.xml), 'transactionMode>1<') + instr(unz(a.xml), 'transactionMode>2<')) > 0 AS has_transaction_mode, "
+            "d.id IS NOT NULL AS ref_in_books "
+            "FROM mydata_archive a "
+            "LEFT JOIN documents d ON d.company_id = a.company_id AND d.mark = a.invoice_mark "
+            "LEFT JOIN mydata_archive ai ON ai.company_id = a.company_id AND ai.kind = 'invoice' "
+            "AND ai.mark = a.invoice_mark "
+            "WHERE a.company_id = ? ORDER BY date DESC, a.mark DESC", (company_id,))]
+
+
+def cls_history(company_id: int | None, invoice_mark: str) -> list[dict]:
+    """Όλες οι εγγραφές χαρακτηρισμού ενός παραστατικού, νεότερη πρώτα: η ενεργή (documents.cls_xml,
+    active=True) και οι προηγούμενες/απορρίψεις του κουβά. {kind, mark, xml, active}."""
+    if not company_id:
+        return []
+    with get_conn() as conn:
+        rows = [dict(r) for r in conn.execute(
+            f"SELECT kind, mark, xml, 0 AS active, NULL AS sent_at FROM mydata_archive "
+            f"WHERE company_id = ? AND kind IN {_CLS_KINDS} "
+            "AND invoice_mark = ? UNION ALL SELECT CASE WHEN unz(cls_xml) LIKE '%incomeInvoiceClassification%' "
+            "THEN 'income_cls' ELSE 'expenses_cls' END, classification_mark, cls_xml, 1, sent_at FROM documents "
+            "WHERE company_id = ? AND mark = ? AND COALESCE(cls_xml, '') <> ''",
+            (company_id, invoice_mark, company_id, invoice_mark))]
+    return sorted(rows, key=lambda r: int(r["mark"]) if (r["mark"] or "").isdigit() else 0, reverse=True)
+
+
+def archive_item(company_id: int | None, kind: str, mark: str) -> dict | None:
+    if not company_id:
+        return None
+    with get_conn() as conn:
+        r = conn.execute("SELECT * FROM mydata_archive WHERE company_id = ? AND kind = ? AND mark = ?",
+                         (company_id, kind, mark)).fetchone()
+    return dict(r) if r else None
 
 
 # --------------------------------------------------------------------- #
@@ -1092,7 +1225,7 @@ def _set_extra_totals(conn: sqlite3.Connection, company_id: int, doc: dict) -> N
     """Λοιπά σύνολα σύνοψης (παρακρατήσεις, τέλη κ.λπ.), όταν τα έφερε το myDATA."""
     if doc.get("raw_xml"):  # κενό (τοπικό draft, παλιά ανάκτηση) δεν σβήνει ό,τι έχουμε
         conn.execute("UPDATE documents SET raw_xml = ? WHERE company_id = ? AND mark = ?",
-                     (doc["raw_xml"], company_id, doc["mark"]))
+                     (_z(doc["raw_xml"]), company_id, doc["mark"]))
     extra = doc.get("extra_totals")
     if extra:
         conn.execute(
@@ -1386,6 +1519,7 @@ def delete_document(company_id: int | None, mark: str) -> None:
     if not company_id:
         return
     with get_conn() as conn:
+        _to_archive(conn, "company_id = ? AND mark = ?", (company_id, mark))
         conn.execute(
             "DELETE FROM documents WHERE company_id = ? AND mark = ?",
             (company_id, mark),
@@ -1399,6 +1533,21 @@ def delete_documents_range(
     if not company_id or kind not in ("expense", "income"):
         return 0
     with get_conn() as conn:
+        # Ρητή διαγραφή του τοπικού αντιγράφου: φεύγει ΚΑΙ ο κουβάς του διαστήματος (όχι μεταφορά σε αυτόν).
+        # Ημερομηνία όπως στο archive_rows (ο χαρακτηρισμός παίρνει του παραστατικού του)· «όλα» = όλος ο κουβάς.
+        # ponytail: ο κουβάς δεν χωρίζεται σε έσοδα/έξοδα — σβήνει και του άλλου βιβλίου στο διάστημα· τον
+        # ξαναφέρνει η επόμενη ανάκτηση εκείνου.
+        if not date_from:
+            conn.execute("DELETE FROM mydata_archive WHERE company_id = ?", (company_id,))
+        else:
+            conn.execute(
+                "DELETE FROM mydata_archive WHERE company_id = ? AND rowid IN (SELECT a.rowid FROM mydata_archive a "
+                "LEFT JOIN documents d ON d.company_id = a.company_id AND d.mark = a.invoice_mark "
+                "LEFT JOIN mydata_archive ai ON ai.company_id = a.company_id AND ai.kind = 'invoice' "
+                "AND ai.mark = a.invoice_mark WHERE a.company_id = ? "
+                "AND COALESCE(a.event_date, d.issue_date, ai.event_date) BETWEEN ? AND ?)",
+                (company_id, company_id, date_from, date_to),
+            )
         cursor = conn.execute(
             "DELETE FROM documents "
             "WHERE company_id = ? AND kind = ? AND issue_date BETWEEN ? AND ?",
@@ -1493,6 +1642,7 @@ def finalize_created(doc_id: int, new_mark: str | None) -> None:
 
 def delete_document_by_id(doc_id: int) -> None:
     with get_conn() as conn:
+        _to_archive(conn, "id = ?", (doc_id,))
         conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
 
 

@@ -23,13 +23,13 @@
 <svg class="i-{{ name }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{ _icons[name]|safe }}</svg>
 {%- endmacro %}
 
-{# Χαρακτηρισμοί ως chips. #}
-{% macro cls_chips(entries, empty='—') -%}
+{# Χαρακτηρισμοί ως chips· marks: προαιρετικές επιπλέον κλάσεις ανά chip (π.χ. διαφορές στο ιστορικό). #}
+{% macro cls_chips(entries, empty='—', marks=none) -%}
   {% for c in entries %}
     {% if c.transaction_mode %}
       <span class="chip chip--flag">{{ 'Απόρριψη' if c.transaction_mode == '1' else ('Ακύρωση' if c.transaction_mode == 'cancel' else 'Απόκλιση') }}</span>
     {% else %}
-      <span class="chip" title="{{ c.category or '' }} · {{ c.type or '' }}">
+      <span class="chip {{ marks[loop.index0] if marks else '' }}" title="{{ c.category or '' }} · {{ c.type or '' }}">
         {%- if c.category %}{{ categories.get(c.category, c.category) }}{% endif -%}
         {%- if c.category and c.type %} / {% endif -%}
         {%- if c.type %}{{ types.get(c.type) or vat_types.get(c.type) or c.type }}{% endif -%}
@@ -145,4 +145,20 @@
         title="{{ mnames[m - 1] }} {{ ym[:4] }}: έσοδα {{ inc }} · έξοδα {{ ex }}"><i class="in"></i><i class="ex"></i><small>{{ mnames[m - 1][0] }}</small></span>
   {% endfor %}
 </div>
+{%- endmacro %}
+
+{# Δέντρο στοιχείων XML του myDATA (app._xml_tree) — καρτέλα παραστατικού, Ιστορικό κινήσεων. #}
+{% macro xml_nodes(nodes) -%}
+  {% for n in nodes %}
+    {% if n.children %}
+    <details open class="xml-g" data-tag="{{ n.tag }}"><summary>{{ n.label }}</summary>{{ xml_nodes(n.children) }}</details>
+    {% else %}
+    {# URL (μόνο http/https) → σύνδεσμος σε νέα καρτέλα. #}
+    <div class="xml-row"><span>{{ n.label }}</span><b>
+      {%- if n.value[:8]|lower == 'https://' or n.value[:7]|lower == 'http://' -%}
+      <a href="{{ n.value }}" target="_blank" rel="noopener noreferrer">{{ n.value }}</a>
+      {%- else %}{{ n.value or '—' }}{% endif -%}
+    </b></div>
+    {% endif %}
+  {% endfor %}
 {%- endmacro %}

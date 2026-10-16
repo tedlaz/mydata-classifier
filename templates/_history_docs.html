@@ -1,0 +1,61 @@
+{# Modal του Ιστορικού κινήσεων: οι εγγραφές μίας κατηγορίας του κουβά. #}
+{% from "_macros.html" import pager with context %}
+{% set here = url_for('reports_history_docs', page=page, **q) %}
+<div class="modal-head">
+  <h2>{{ label }}</h2>
+  <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
+</div>
+<p class="muted small">{{ n }} {{ 'παραστατικά' if grouped else 'εγγραφές' }}{% if pages > 1 %} (σελίδα {{ page }} από {{ pages }}){% endif %} · {{ 'κλικ στο «Ιστορικό» για τις αλλαγές χαρακτηρισμού' if grouped else 'κλικ σε μια γραμμή για όλα τα στοιχεία' }}</p>
+{% if rows and grouped %}
+{# Χαρακτηρισμοί: μία γραμμή ανά παραστατικό· «Ιστορικό» = όλες οι υποβολές του, από την ισχύουσα προς την παλαιότερη. #}
+<div class="yr-scroll">
+<table class="yr-table yr-docs">
+  <thead>
+    <tr><th>Ημ/νία</th><th>Παραστατικό</th><th>Τύπος</th><th>Συναλλασσόμενος</th><th class="num">Υποβολές</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    {% set hist = url_for('cls_history', mark=r.invoice_mark, back=here) %}
+    <tr>
+      <td>{{ '/'.join(r.date[:10].split('-')[::-1]) if r.date }}</td>
+      <td class="yr-docs-mark">{{ r.invoice_mark }}{% if r.ref_in_books %} <span class="pill yr-tag" title="Το παραστατικό είναι στα βιβλία">βιβλία</span>{% endif %}</td>
+      <td><span title="{{ type_names.get(r.ref_type, '') }}">{{ r.ref_type or '' }}</span></td>
+      <td class="yr-docs-cp">{% if r.ref_vat %}<b>{{ names.get(r.ref_vat) or '—' }}</b><span class="vat">{{ r.ref_vat }}</span>{% endif %}</td>
+      <td class="num">{{ r.n }}</td>
+      <td><button type="button" class="btn btn-ghost btn-sm" data-docs="{{ hist }}">🕘 Ιστορικό</button></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{{ pager(request.endpoint, q, page, pages) }}
+{% elif rows %}
+<div class="yr-scroll">
+<table class="yr-table yr-docs">
+  <thead>
+    <tr><th>Ημ/νία</th><th>MARK</th><th>Σχετικό MARK</th><th>Τύπος</th><th>Εκδότης</th><th>Λήπτης</th><th class="num">Ποσό</th></tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    {% set item = url_for('reports_history_item', kind=r.kind, mark=r.mark, back=here) %}
+    <tr>
+      <td>{{ '/'.join(r.date[:10].split('-')[::-1]) if r.date }}</td>
+      <td class="yr-docs-mark"><a href="{{ item }}" data-docs="{{ item }}">{{ r.mark }}</a></td>
+      <td>{{ r.invoice_mark or '' }}{% if r.invoice_mark and r.ref_in_books %} <span class="pill yr-tag" title="Το παραστατικό είναι στα βιβλία">βιβλία</span>{% endif %}</td>
+      <td><span title="{{ type_names.get(r.invoice_type, '') }}">{{ r.invoice_type or '' }}</span></td>
+      <td class="yr-docs-cp">{% if r.issuer_vat %}<b>{{ names.get(r.issuer_vat) or '—' }}</b><span class="vat">{{ r.issuer_vat }}</span>{% endif %}</td>
+      <td class="yr-docs-cp">{% if r.counterpart_vat %}<b>{{ names.get(r.counterpart_vat) or '—' }}</b><span class="vat">{{ r.counterpart_vat }}</span>{% endif %}</td>
+      <td class="num">{{ r.amount|el_amount if r.amount is not none }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  {% if total %}
+  <tfoot><tr class="yr-total"><th colspan="6">Σύνολο{% if pages > 1 %} <small class="muted">— όλων των σελίδων ({{ n }})</small>{% endif %}</th>
+    <td class="num">{{ total|el_amount }}</td></tr></tfoot>
+  {% endif %}
+</table>
+</div>
+{{ pager(request.endpoint, q, page, pages) }}
+{% else %}
+<div class="empty"><b>Καμία εγγραφή</b></div>
+{% endif %}

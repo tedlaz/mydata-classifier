@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import cls_chips with context %}
+{% from "_macros.html" import cls_chips, xml_nodes with context %}
 {% from "_ledger_hero.html" import money %}
 {% block title %}{{ inv.mark }}{% endblock %}
 {% block content %}
@@ -132,23 +132,6 @@
 .xml-links a:hover{background:var(--accent);color:var(--on-accent)}
 .xml-links svg{width:20px;height:20px}
 .dc-sec--xml > details > summary::-webkit-details-marker{display:none}
-.xml-tree{--x:var(--accent);margin:12px 0 0;font-size:.86rem}
-/* Χρώμα ανά ενότητα (μόνο καθολικά tokens — τα --yr-* υπάρχουν μόνο στις αναφορές)· οι υποενότητες (π.χ. Διεύθυνση) κρατούν το χρώμα της ενότητάς τους. */
-.xml-g[data-tag=issuer],.xml-g[data-tag=counterpart]{--x:var(--info)}
-.xml-g[data-tag=invoiceHeader]{--x:var(--accent)}
-.xml-g[data-tag=paymentMethods]{--x:var(--co-ye)}
-.xml-g[data-tag=invoiceDetails]{--x:var(--ok)}
-.xml-g[data-tag=taxesTotals]{--x:var(--warn)}
-.xml-g[data-tag=invoiceSummary]{--x:var(--accent-deep)}
-.xml-g[data-tag$=Classification]{--x:var(--co-or)}
-.xml-tree details{margin:4px 0 4px 2px;padding-left:12px;border-left:3px solid var(--x)}
-.xml-tree > details{margin:10px 0;padding:6px 12px;border-radius:0 10px 10px 0;background:color-mix(in srgb,var(--x) 7%,transparent)}
-.xml-tree summary{cursor:pointer;font-weight:700;padding:2px 0;color:var(--x)}
-/* Γραμμές: πιο έντονο φόντο· το κενό ανάμεσά τους αρκεί για να ξεχωρίζουν. */
-.xml-tree > .xml-g[data-tag=invoiceDetails]{background:var(--ok-soft)}
-.xml-row{display:grid;grid-template-columns:minmax(140px,240px) minmax(0,1fr);gap:12px;padding:3px 0;border-bottom:1px dashed var(--line-soft)}
-.xml-row span{color:var(--muted)}
-.xml-row b{font-family:var(--font-data);font-weight:600;overflow-wrap:anywhere}
 </style>
 
 <div class="dc" data-doc>
@@ -314,6 +297,7 @@
   </table>
   </div>
   {% if classification_mark %}<p class="muted small">MARK χαρακτηρισμού <span class="mono">{{ classification_mark }}</span>{% if classification_mark == inv.mark %} (ενσωματωμένος στο παραστατικό){% endif %}</p>{% elif inv.cls_source %}<p class="muted small">Χαρακτηρισμός: {{ inv.cls_source }}</p>{% endif %}
+  {% if cls_history %}<p><button type="button" class="btn btn-ghost btn-sm" data-cls-history="{{ url_for('cls_history', mark=inv.mark) }}">🕘 Ιστορικό χαρακτηρισμών ({{ cls_history|length }})</button></p>{% endif %}
 </div>
 
 {# Φόροι & κρατήσεις σε επίπεδο παραστατικού (taxesTotals). Παλιά ανάκτηση χωρίς ανάλυση
@@ -349,20 +333,6 @@
 {% endif %}
 
 {# Ολόκληρο το παραστατικό όπως το έδωσε το myDATA (ό,τι κι αν χρησιμοποιεί η εφαρμογή). #}
-{% macro xml_nodes(nodes) -%}
-  {% for n in nodes %}
-    {% if n.children %}
-    <details open class="xml-g" data-tag="{{ n.tag }}"><summary>{{ n.label }}</summary>{{ xml_nodes(n.children) }}</details>
-    {% else %}
-    {# URL (μόνο http/https) → σύνδεσμος σε νέα καρτέλα. #}
-    <div class="xml-row"><span>{{ n.label }}</span><b>
-      {%- if n.value[:8]|lower == 'https://' or n.value[:7]|lower == 'http://' -%}
-      <a href="{{ n.value }}" target="_blank" rel="noopener noreferrer">{{ n.value }}</a>
-      {%- else %}{{ n.value or '—' }}{% endif -%}
-    </b></div>
-    {% endif %}
-  {% endfor %}
-{%- endmacro %}
 <div class="card dc-sec dc-sec--xml">
   <details>
     <summary><h2><span class="dc-ico">🗂</span>Όλα τα στοιχεία</h2><span class="muted small">όπως τα έδωσε το myDATA</span>
@@ -421,9 +391,26 @@
 <div class="card"><p class="muted small">🔒 Οι ακυρώσεις/απορρίψεις είναι απενεργοποιημένες για την εταιρεία (Παράμετροι εταιρείας).</p></div>
 {% endif %}
 </div>
+<dialog class="modal modal--wide" id="cls-history" aria-label="Ιστορικό χαρακτηρισμών" closedby="any"></dialog>
 {% endblock %}
 
 {% block scripts %}
+<script>
+// Ιστορικό χαρακτηρισμών (modal· το κουμπί ζει μέσα στο [data-doc] που αλλάζει με AJAX → delegation).
+(function(){
+  var dlg = document.getElementById('cls-history');
+  document.addEventListener('click', function(e){
+    var b = e.target.closest('[data-cls-history]');
+    if (b) {
+      dlg.innerHTML = '<p class="muted">Φόρτωση…</p>';
+      dlg.showModal();
+      fetch(b.dataset.clsHistory).then(function(r){ return r.text(); })
+        .then(function(t){ dlg.innerHTML = t; }, function(){ dlg.innerHTML = '<p class="note note--err">Σφάλμα σύνδεσης.</p>'; });
+    }
+    if (e.target.closest('#cls-history [data-close]')) dlg.close();
+  });
+})();
+</script>
 <script>
 // Προηγούμενο/επόμενο παραστατικό με AJAX (και ← → από το πληκτρολόγιο): αλλάζει μόνο το περιεχόμενο.
 (function(){

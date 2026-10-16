@@ -33,7 +33,9 @@ NS = {
 ECLS_NS = "https://www.aade.gr/myDATA/expensesClassificaton/v1.0"
 
 # Τύποι παραστατικών διακίνησης - δεν χαρακτηρίζονται, εξαιρούνται από τη λίστα
-MOVEMENT_INVOICE_TYPES = {"9.3"}  # Δελτίο Αποστολής
+MOVEMENT_INVOICE_TYPES = {"9.3"}
+# transactionMode χαρακτηρισμού εξόδων: 1 = απόρριψη, 2 = απόκλιση· 0 (ή κενό) = κανονικός χαρακτηρισμός.
+REJECTION_MODES = ("1", "2")  # Δελτίο Αποστολής
 
 # Τύποι παραστατικών εξόδων που διαβιβάζει Ο ΙΔΙΟΣ ο λήπτης (αυτοτιμολόγηση):
 # λιανικής ημεδαπής/αλλοδαπής, αλλοδαπής, ενοίκιο, μισθοδοσία, αποσβέσεις, τακτοποίηση.
@@ -145,6 +147,7 @@ def archive_records(content: bytes, endpoint: str = "") -> list[dict]:
         if not mark:
             continue
         inv = kind == "invoice"
+        amounts = [_f(a.text) for a in el.iter() if _local(a.tag) == "amount"]
         rows.append({
             "kind": kind, "mark": mark, "endpoint": endpoint, "xml": _invoice_xml(el),
             "invoice_mark": None if inv else text(el, "invoiceMark"),
@@ -152,8 +155,25 @@ def archive_records(content: bytes, endpoint: str = "") -> list[dict]:
             "invoice_type": text(el, "invoiceHeader", "invoiceType") if inv else None,
             "issuer_vat": text(el, "issuer", "vatNumber") if inv else None,
             "counterpart_vat": text(el, "counterpart", "vatNumber") if inv else None,
+            "event_date": text(el, "invoiceHeader", "issueDate") if inv else text(el, "cancellationDate"),
+            "amount": _f(text(el, "invoiceSummary", "totalGrossValue")) if inv
+            else sum(a for a in amounts if a) if amounts else None,
         })
     return rows
+
+
+def cls_record(xml: str) -> dict:
+    """Μία εγγραφή χαρακτηρισμού (xml του κουβά / documents.cls_xml) → {"entries", "transaction_mode"}·
+    entries όπως στα _parse_*_classifications (ίδιος parser), transaction_mode: "1" απόρριψη, "2" απόκλιση."""
+    el = ET.fromstring(xml)
+    doc = "incomeClassificationsDoc" if _local(el.tag).startswith("income") else "expensesClassificationsDoc"
+    wrap = ET.Element("r")
+    ET.SubElement(wrap, doc).append(el)
+    parsed = (MyDataClient._parse_income_classifications if doc.startswith("income")
+              else MyDataClient._parse_expenses_classifications)(wrap)
+    tmode = next((c.text.strip() for c in el if _local(c.tag) == "transactionMode" and c.text), None)
+    return {"entries": [e for e in next(iter(parsed.values()), {}).get("entries", []) if "transaction_mode" not in e],
+            "transaction_mode": tmode if tmode in REJECTION_MODES else None}
 
 
 def _continuation(root: ET.Element) -> tuple[str | None, str | None]:
@@ -510,7 +530,7 @@ class MyDataClient:
         Με mark: ό,τι ανέβηκε μετά το MARK (χωρίς ημερομηνίες), όπως το new_since.
         """
         invoices: list[ExpenseInvoice] = []
-        cls_map: dict[str, list[dict]] = {}
+        cls_map: dict[str, dict] = {}
         cancelled_marks: set[str] = set()
         query_to = date_to if mark is not None else _today_gr()
         for root in self._pages("RequestTransmittedDocs", self._query(date_from, query_to, mark)):
@@ -535,24 +555,27 @@ class MyDataClient:
             if i.mark in cancelled_marks:
                 continue
             if i.mark in cls_map:
-                i.cls_info = cls_map[i.mark]
+                i.cls_info = cls_map[i.mark]["entries"]
+                i.classification_mark = cls_map[i.mark]["cls_mark"]
                 classified.append(i)
             elif i.has_income_line_classification:
                 i.cls_info = i.income_classifications  # ενσωματωμένος (γραμμές ή σύνοψη)
+                i.classification_mark = i.mark  # όπως στα έξοδα: ο χαρακτηρισμός πήρε το MARK του παραστατικού
                 classified.append(i)
             else:
                 unclassified.append(i)
         return unclassified, classified, cancelled_marks
 
     @staticmethod
-    def _parse_income_classifications(root: ET.Element) -> dict[str, list[dict]]:
+    def _parse_income_classifications(root: ET.Element) -> dict[str, dict]:
         """
         Χάρτης MARK -> λίστα χαρακτηρισμών εσόδων από το incomeClassificationsDoc
         (ξεχωριστές υποβολές SendIncomeClassification). Δομή ανάλογη των εξόδων:
         incomeInvoiceClassification → invoicesIncomeClassificationDetails →
         incomeClassificationDetailData. Νεότερη υποβολή αντικαθιστά την παλιά.
+        Επιστρέφει MARK -> {"entries", "cls_mark"} (όπως στα έξοδα).
         """
-        result: dict[str, list[dict]] = {}
+        result: dict[str, dict] = {}
         for el in root.iter():
             if _local(el.tag) != "incomeClassificationsDoc":
                 continue
@@ -560,11 +583,14 @@ class MyDataClient:
                 if _local(cls.tag) != "incomeInvoiceClassification":
                     continue
                 mark = None
+                cls_mark = ""
                 entries: list[dict] = []
                 for child in cls:
                     tag = _local(child.tag)
                     if tag == "invoiceMark" and child.text:
                         mark = child.text.strip()
+                    elif tag == "classificationMark" and child.text:
+                        cls_mark = child.text.strip()
                     elif tag == "invoicesIncomeClassificationDetails":
                         line_no = None
                         for node in child:
@@ -587,7 +613,7 @@ class MyDataClient:
                                 if entry.get("type") or entry.get("category"):
                                     entries.append(entry)
                 if mark:
-                    result[mark] = entries
+                    result[mark] = {"entries": entries, "cls_mark": cls_mark}
         return result
 
     def _fetch_all(self, date_from: str | None, date_to: str | None, marks: dict | None = None):
@@ -780,8 +806,8 @@ class MyDataClient:
                                         entry["amount"] = _f(ch.text)
                                 if entry.get("type") or entry.get("category"):
                                     entries.append(entry)
-                # transactionMode μόνο αν ΔΕΝ υπάρχουν αναλυτικά στοιχεία
-                if tmode and not entries:
+                # transactionMode μόνο αν ΔΕΝ υπάρχουν αναλυτικά στοιχεία (0 = κανονικός χαρακτηρισμός)
+                if tmode in REJECTION_MODES and not entries:
                     entries.append({"transaction_mode": tmode})
                 if mark:
                     # νεότερη υποβολή για το ίδιο MARK αντικαθιστά την παλαιότερη

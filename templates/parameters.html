@@ -258,8 +258,7 @@
     <div class="card pm-tile">
       <span class="pm-tile-icon" aria-hidden="true">💾</span>
       <h2>Λήψη αντιγράφου</h2>
-      <p class="muted">Ολόκληρη η βάση σε ένα αρχείο <span class="mono">.db</span>: εταιρείες, credentials, παραστατικά,
-        χαρακτηρισμοί, κανόνες και ρυθμίσεις.</p>
+      <p class="muted">Όλη η βάση σε ένα αρχείο <span class="mono">.db</span> (συμπιεσμένο).</p>
       <p class="note note--warn">🔐 Περιέχει τα κλειδιά ΑΑΔΕ — φύλαξέ το σε ασφαλές σημείο.</p>
       <a class="btn" href="{{ url_for('backup_download') }}" download>💾 Λήψη τώρα</a>
     </div>
@@ -267,14 +266,22 @@
     <div class="card pm-tile">
       <span class="pm-tile-icon pm-tile-icon--warn" aria-hidden="true">♻️</span>
       <h2>Επαναφορά από αρχείο</h2>
-      <p class="muted">Αντικαθιστά την τρέχουσα βάση. Πριν από αυτό η τρέχουσα φυλάγεται αυτόματα και μπορείς να
-        επιστρέψεις σε αυτήν με «Αναίρεση».</p>
+      <p class="muted">Αντικαθιστά την τρέχουσα, που φυλάγεται πρώτα (βλ. «Αναίρεση» παρακάτω).</p>
       <form method="post" action="{{ url_for('backup_restore') }}" enctype="multipart/form-data" class="pm-drop"
             data-confirm="Η τρέχουσα βάση θα αντικατασταθεί από το επιλεγμένο αντίγραφο. Συνέχεια;">
         <input type="file" name="file" accept=".db" required data-autosubmit aria-label="Αρχείο αντιγράφου (.db)">
         <span class="pm-drop-icon" aria-hidden="true">📂</span>
-        <strong>Σύρε εδώ το αρχείο <span class="mono">.db</span></strong>
-        <span class="muted small">ή κάνε κλικ για επιλογή</span>
+        <strong>Σύρε εδώ το <span class="mono">.db</span></strong>
+        <span class="muted small">ή κλικ</span>
+      </form>
+    </div>
+
+    <div class="card pm-tile">
+      <span class="pm-tile-icon" aria-hidden="true">🧹</span>
+      <h2>Συμπίεση βάσης</h2>
+      <p class="muted">Μικραίνει το αρχείο μετά από διαγραφές (VACUUM)· τα δεδομένα δεν αλλάζουν.</p>
+      <form method="post" action="{{ url_for('backup_vacuum') }}">
+        <button class="btn" type="submit">🧹 Συμπίεση τώρα</button>
       </form>
     </div>
   </div>
@@ -289,8 +296,7 @@
         <button type="submit" class="btn-ghost btn-sm">Αποθήκευση</button>
       </form>
     </div>
-    <p class="muted prose">Σε κάθε επαναφορά η βάση όπως ήταν φυλάγεται εδώ. Η «Αναίρεση» κρατά κι αυτή αντίγραφο,
-      οπότε μπορεί κι αυτή να αναιρεθεί. Τα παλαιότερα διαγράφονται αυτόματα.</p>
+    <p class="muted small">Η βάση πριν από κάθε επαναφορά (και πριν από κάθε «Αναίρεση»)· τα παλαιότερα διαγράφονται αυτόματα.</p>
 
     {% if safety_backups %}
     <ul class="bk-list">
@@ -325,7 +331,7 @@
     <div class="bk-empty">
       <span aria-hidden="true">✨</span>
       <strong>Δεν υπάρχουν αντίγραφα</strong>
-      <span class="muted small">Θα εμφανιστούν εδώ αυτόματα μετά από κάθε επαναφορά.</span>
+      <span class="muted small">— εμφανίζονται μετά από κάθε επαναφορά</span>
     </div>
     {% endif %}
   </div>
@@ -340,8 +346,7 @@
         <button type="submit" class="btn-ghost btn-sm">Αποθήκευση</button>
       </form>
     </div>
-    <p class="muted prose">Logs ενεργειών που επικοινώνησαν με το myDATA, ανά εταιρεία (Ανάκτηση → «Ιστορικό συνδέσεων»).
-      Τα παλαιότερα διαγράφονται αυτόματα στην επόμενη ενέργεια.</p>
+    <p class="muted small">Logs των ενεργειών με το myDATA ανά εταιρεία (Ανάκτηση → «Ιστορικό συνδέσεων»).</p>
   </div>
 </section>
 

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Ιστορικό κινήσεων{% endblock %}
+
+{% block content %}
+<style>
+.hx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.hx-cat{display:flex;flex-direction:column;gap:6px;padding:14px 16px;text-align:left;font:inherit;color:inherit;cursor:pointer;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.hx-cat:hover,.hx-cat:focus-visible{border-color:var(--accent-glow)}
+.hx-cat[disabled]{cursor:default;opacity:.55;box-shadow:none}
+.hx-cat b{font-size:.95rem}
+.hx-cat small{color:var(--muted);line-height:1.35}
+.hx-num{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:auto}
+.hx-num strong{font:800 1.5rem var(--font-data)}
+.hx-num span{font-family:var(--font-data);color:var(--ink-2)}
+.hx-dates{font-size:.78rem;color:var(--muted)}
+</style>
+
+<div class="yr">
+  <section class="db-hero yr-hero">
+    <span class="db-blob b1"></span><span class="db-blob b2"></span><span class="db-blob b3"></span>
+    <div class="db-hero-in">
+      <div>
+        <h1>ΙΣΤΟΡΙΚΟ ΚΙΝΗΣΕΩΝ{% if year %} <span class="yr-hero-year">{{ year }}</span>{% endif %}</h1>
+        <p class="db-hi">Ό,τι έφεραν οι ανακτήσεις από το myDATA και δεν είναι ενεργό στα βιβλία · {{ total }} εγγραφές · κλικ σε μια κατηγορία για τις λεπτομέρειες</p>
+      </div>
+      <div class="yr-hero-tools">
+        {% if years %}
+        <nav class="yr-years" aria-label="Έτος">
+          <a href="{{ url_for('reports_history') }}" {% if not year %}aria-current="page"{% endif %}>Όλα</a>
+          {% for y in years %}<a href="{{ url_for('reports_history', year=y) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
+        </nav>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <div class="hx-grid">
+    {% for c in cats %}
+    <button type="button" class="hx-cat" {% if c.n %}data-docs="{{ url_for('reports_history_docs', cat=c.key, year=year) }}"{% else %}disabled{% endif %}>
+      <b>{{ c.label }}</b>
+      <small>{{ c.desc }}</small>
+      <span class="hx-num"><strong>{{ c.n }}</strong>{% if c.n_docs %}<span>σε {{ c.n_docs }} παραστατικά</span>{% endif %}{% if c.amount %}<span>{{ c.amount|el_amount }} €</span>{% endif %}</span>
+      {% if c.first %}<span class="hx-dates">{{ '/'.join(c.first.split('-')[::-1]) }}{% if c.last != c.first %} – {{ '/'.join(c.last.split('-')[::-1]) }}{% endif %}</span>{% endif %}
+    </button>
+    {% endfor %}
+  </div>
+
+  <dialog class="modal modal--wide yr-docs-modal" id="hx-docs" aria-label="Ιστορικό κινήσεων" closedby="any"></dialog>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  // Drill down μέσα στο ίδιο modal: κατηγορία → εγγραφές (σελίδες) → στοιχεία εγγραφής → πίσω.
+  const dlg = document.getElementById('hx-docs');
+  async function open(url) {
+    dlg.innerHTML = '<p class="muted">Φόρτωση…</p>';
+    if (!dlg.open) dlg.showModal();
+    try {
+      const r = await fetch(url);
+      dlg.innerHTML = r.ok ? await r.text() : '<p class="note note--err">Σφάλμα φόρτωσης (' + r.status + ').</p>';
+    } catch (_) {
+      dlg.innerHTML = '<p class="note note--err">Σφάλμα σύνδεσης.</p>';
+    }
+  }
+  document.addEventListener('click', e => {
+    const el = e.target.closest('[data-docs]');
+    if (el) { e.preventDefault(); return open(el.dataset.docs); }
+    const pg = e.target.closest('#hx-docs .pager a');
+    if (pg && !e.ctrlKey && !e.metaKey) { e.preventDefault(); return open(pg.getAttribute('href')); }
+    if (e.target.closest('#hx-docs [data-close]')) dlg.close();
+  });
+  dlg.addEventListener('close', () => { dlg.innerHTML = ''; });
+})();
+</script>
+{% endblock %}

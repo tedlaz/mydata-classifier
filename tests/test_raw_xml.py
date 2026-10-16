@@ -33,6 +33,14 @@ doc = A._invoice_to_doc(inv)
 db.upsert_document(cid, "expense", doc, "unclassified")
 db.upsert_document(cid, "expense", dict(doc, raw_xml=""), "unclassified")
 assert db.get_document(cid, "4001")["raw_xml"] == inv.raw_xml
+# Αποθηκεύεται συμπιεσμένο· παλιά εγγραφή σε text συμπιέζεται στο init_db.
+with db.get_conn() as conn:
+    conn.execute("UPDATE documents SET raw_xml = ? WHERE mark = '4001'", (inv.raw_xml,))
+    assert conn.execute("SELECT typeof(raw_xml) FROM documents WHERE mark = '4001'").fetchone()[0] == "text"
+db.init_db()
+with db.get_conn() as conn:
+    assert conn.execute("SELECT typeof(raw_xml) FROM documents WHERE mark = '4001'").fetchone()[0] == "blob"
+assert db.get_document(cid, "4001")["raw_xml"] == inv.raw_xml
 
 # (γ) Δέντρο με ελληνικές ετικέτες· κωδικοί με περιγραφή· άγνωστο πεδίο ως έχει.
 tree = A._xml_tree(inv.raw_xml.replace("</invoice>", "<fooBar>x</fooBar></invoice>"))

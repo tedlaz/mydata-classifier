@@ -13,6 +13,7 @@ import statistics
 import sys
 import textwrap
 import shutil
+import sqlite3
 import threading
 import time
 import tomllib
@@ -1780,6 +1781,10 @@ def document(mark):
     # σε γραμμή, μένουν στο κάτω μπλοκ.
     flags = [c for c in (inv.cls_info or []) if c.get("transaction_mode")]
     line_cls, doc_cls = _document_cls_rows(db.get_local_classification(row["id"]), inv)
+    # Κουμπί «Ιστορικό χαρακτηρισμών»: μόνο όταν υπάρχει προηγούμενη εγγραφή (στον κουβά).
+    cls_hist = db.cls_history(cid, mark)
+    if all(r["active"] for r in cls_hist):
+        cls_hist = []
     # URL επιστροφής στη λίστα, διατηρώντας ταξινόμηση/σελίδα/φίλτρα (fallback: view).
     # Έσοδα: ίδια προβολή, μόνο για ανάγνωση (χωρίς ενέργειες χαρακτηρισμού/απόρριψης).
     is_income = row.get("kind") == "income"
@@ -1808,6 +1813,7 @@ def document(mark):
         local_action=row.get("local_action") or "classify",
         source=row.get("source") or "rest",
         classification_mark=row.get("classification_mark"),
+        cls_history=cls_hist,
         type_desc=INVOICE_TYPE_NAMES.get(inv.invoice_type or ""),
         is_credit=inv.invoice_type in CREDIT_INVOICE_TYPES,
         vat_rates=VAT_CATEGORY_RATES,
@@ -4046,6 +4052,174 @@ def reports_flows_docs():
     q = {k: v for k, v in request.args.items() if k != "page"}
     return render_template("_flow_docs.html", docs=page_docs, n_docs=len(docs), page=page, pages=pages, q=q,
                            total=total, label=label, is_in=side == "src", year=year, type_names=INVOICE_TYPE_NAMES, opts=opts)
+
+# ------------------------------------------------------------------ #
+# ΙΣΤΟΡΙΚΟ ΚΙΝΗΣΕΩΝ: ο κουβάς (db.mydata_archive) — ό,τι του myDATA δεν είναι ενεργό στα βιβλία — ανά κατηγορία,
+# με drill down ως τα στοιχεία της εγγραφής. myDATA = documents + κουβάς (βλ. db.archive_sync).
+# ------------------------------------------------------------------ #
+HISTORY_CATEGORIES = {
+    "cancelled": ("Ακυρωμένα παραστατικά", "Παραστατικά που ακυρώθηκαν στο myDATA"),
+    "cancel": ("Πράξεις ακύρωσης", "Οι εγγραφές ακύρωσης (MARK ακύρωσης → παραστατικό)"),
+    "foreign": ("Παραστατικά άλλων ληπτών", "Με εκδότη εμάς, διαβιβασμένα από τον λήπτη για δικό του έξοδο (π.χ. 13.1)"),
+    "movement": ("Παραστατικά διακίνησης", "Δελτία αποστολής — δεν χαρακτηρίζονται"),
+    "other": ("Λοιπά παραστατικά εκτός βιβλίων", "Παραστατικά του myDATA που δεν είναι στα βιβλία της εφαρμογής"),
+    "rejection": ("Απορρίψεις / αποκλίσεις", "Χαρακτηρισμοί με απόρριψη ή απόκλιση (transactionMode)"),
+    "expenses_cls": ("Προηγούμενοι χαρακτηρισμοί εξόδων", "Χαρακτηρισμοί εξόδων που δεν είναι πια ενεργοί"),
+    "income_cls": ("Προηγούμενοι χαρακτηρισμοί εσόδων", "Χαρακτηρισμοί εσόδων που δεν είναι πια ενεργοί"),
+}
+
+
+def _history_category(row: dict, own_vat: str, cancelled: set) -> str:
+    """Κατηγορία μίας εγγραφής του κουβά (κλειδί του HISTORY_CATEGORIES)."""
+    from mydata_client import MOVEMENT_INVOICE_TYPES
+
+    kind = row["kind"]
+    if kind == "cancel":
+        return "cancel"
+    if kind == "expenses_cls":
+        return "rejection" if row.get("has_transaction_mode") else "expenses_cls"
+    if kind == "income_cls":
+        return "income_cls"
+    if row.get("has_cancelled_by") or row["mark"] in cancelled:
+        return "cancelled"
+    if own_vat and row.get("issuer_vat") == own_vat and row.get("counterpart_vat") not in (None, "", own_vat):
+        return "foreign"
+    if (row.get("invoice_type") or "") in MOVEMENT_INVOICE_TYPES:
+        return "movement"
+    return "other"
+
+
+def _history_rows(cid) -> tuple[list[dict], list[int]]:
+    """(εγγραφές του κουβά με «cat», διαθέσιμα έτη) — φίλτρο έτους από το ?year=."""
+    rows = db.archive_rows(cid)
+    own_vat = str((get_active_company() or {}).get("AADE_VAT_NUMBER") or "").strip()
+    cancelled = {r["invoice_mark"] for r in rows if r["kind"] == "cancel"}
+    for r in rows:
+        r["cat"] = _history_category(r, own_vat, cancelled)
+    years = sorted({int(r["date"][:4]) for r in rows if (r["date"] or "")[:4].isdigit()}, reverse=True)
+    year = request.args.get("year", type=int)
+    if year:
+        rows = [r for r in rows if (r["date"] or "").startswith(str(year))]
+    return rows, years
+
+
+@app.route("/reports/history")
+def reports_history():
+    """ΙΣΤΟΡΙΚΟ ΚΙΝΗΣΕΩΝ: ο κουβάς ανά κατηγορία (πλήθος, ποσό, εύρος ημερομηνιών)."""
+    rows, years = _history_rows(_active_company_id())
+    cats = []
+    for key, (label, desc) in HISTORY_CATEGORIES.items():
+        rs = [r for r in rows if r["cat"] == key]
+        dates = sorted(r["date"][:10] for r in rs if r["date"])
+        grouped = key in _HISTORY_GROUPED
+        cats.append({"key": key, "label": label, "desc": desc, "n": len(rs),
+                     "n_docs": len({r["invoice_mark"] for r in rs}) if grouped else None,
+                     # ποσά χαρακτηρισμών διαδοχικών υποβολών δεν αθροίζονται
+                     "amount": 0 if grouped else sum(r["amount"] or 0 for r in rs),
+                     "first": dates[0] if dates else None, "last": dates[-1] if dates else None})
+    return render_template("reports_history.html", cats=cats, total=len(rows), years=years,
+                           year=request.args.get("year", type=int))
+
+
+@app.route("/reports/history/docs")
+def reports_history_docs():
+    """Τμήμα HTML για το modal: οι εγγραφές μίας κατηγορίας."""
+    cat = request.args.get("cat", "")
+    if cat not in HISTORY_CATEGORIES:
+        return "Μη έγκυρη κατηγορία.", 400
+    rows, _years = _history_rows(_active_company_id())
+    rows = [r for r in rows if r["cat"] == cat]
+    grouped = cat in _HISTORY_GROUPED
+    if grouped:  # χαρακτηρισμοί: μία γραμμή ανά παραστατικό (rows: νεότερο πρώτα → ο πρώτος = τελευταίος)
+        groups: dict = {}
+        for r in rows:
+            g_ = groups.setdefault(r["invoice_mark"], dict(r, n=0))
+            g_["n"] += 1
+        rows = list(groups.values())
+    page_rows, page, pages = paginate(rows, request.args.get("page"))
+    vats = ("ref_vat",) if grouped else ("issuer_vat", "counterpart_vat")
+    names = {r[k]: db.get_supplier_name(r[k]) for r in page_rows for k in vats if r[k]}
+    q = {k: v for k, v in request.args.items() if k != "page"}
+    return render_template("_history_docs.html", rows=page_rows, n=len(rows), page=page, pages=pages, q=q,
+                           cat=cat, label=HISTORY_CATEGORIES[cat][0], names=names, grouped=grouped,
+                           total=0 if grouped else sum(r["amount"] or 0 for r in rows), type_names=INVOICE_TYPE_NAMES)
+
+
+_HISTORY_GROUPED = ("rejection", "expenses_cls", "income_cls")
+
+
+def _local_dt(iso: str) -> str:
+    """ISO (UTC, όπως τα γράφει το db) → «yyyy-mm-dd HH:MM» σε ώρα Ελλάδας."""
+    try:
+        return datetime.fromisoformat(iso).astimezone(ATHENS).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return iso[:16]
+
+
+@app.route("/history/cls/<mark>")
+def cls_history(mark):
+    """Τμήμα HTML (modal): το ιστορικό χαρακτηρισμών ενός παραστατικού, από τον ισχύοντα προς τον παλαιότερο —
+    από την καρτέλα του παραστατικού και από το «Ιστορικό κινήσεων»."""
+    from itertools import groupby
+
+    from mydata_client import cls_record
+
+    cid = _active_company_id()
+    recs = [dict(r, **cls_record(r["xml"])) for r in db.cls_history(cid, mark)]
+    # Πίνακας σύγκρισης: στήλη ανά υποβολή (νεότερη αριστερά), σειρά ανά γραμμή του παραστατικού
+    # (None = χαρακτηρισμός ανά παραστατικό). Σε κάθε κελί, «new» ό,τι δεν υπήρχε στην αμέσως παλαιότερη
+    # υποβολή και «gone» ό,τι δεν κράτησε η αμέσως νεότερη — δηλαδή τι άλλαξε από υποβολή σε υποβολή.
+    def key(e):  # στον χαρακτηρισμό ΦΠΑ (VAT_xxx) η κατηγορία δεν έχει ουσία: ίδιος τύπος + ποσό = ίδιος
+        t = e.get("type") or ""
+        return t, None if t.startswith("VAT_") else e.get("category"), round(e.get("amount") or 0, 2)
+
+    for r in recs:
+        r["cells"] = {ln: list(es) for ln, es in groupby(r["entries"], key=lambda e: e.get("line"))}
+        # Ημερομηνία: το myDATA δεν δίνει· ακριβής μόνο όταν τον στείλαμε από την εφαρμογή.
+        r["sent"] = _local_dt(r["sent_at"]) if r.get("sent_at") else None
+    lines = sorted({ln for r in recs for ln in r["cells"]}, key=lambda ln: (ln is not None, ln or 0))
+    for i, r in enumerate(recs):
+        newer, older = (recs[i - 1] if i else None), (recs[i + 1] if i + 1 < len(recs) else None)
+        r["diff"] = {}
+        for ln in lines:
+            mine = r["cells"].get(ln, [])
+            o_keys = {key(e) for e in older["cells"].get(ln, [])} if older else None
+            n_keys = {key(e) for e in newer["cells"].get(ln, [])} if newer else None
+            r["diff"][ln] = [("new" if o_keys is not None and key(e) not in o_keys else "")
+                             + (" gone" if n_keys is not None and key(e) not in n_keys else "") for e in mine]
+    if not recs:
+        return "Δεν υπάρχει ιστορικό χαρακτηρισμών.", 404
+    row = db.get_document(cid, mark)
+    # Ισχύει στο myDATA η ΝΕΟΤΕΡΗ υποβολή (recs[0])· το βιβλίο μπορεί να δείχνει παλαιότερη, αν η νέα ήρθε
+    # (RequestTransmittedDocs έως σήμερα) χωρίς ανάκτηση της περιόδου του παραστατικού.
+    stale = next((r for r in recs[1:] if r["active"]), None)
+    return render_template("_cls_history.html", mark=mark, recs=recs, lines=lines, stale=stale,
+                           back=request.args.get("back"),
+                           doc_url=url_for("document", mark=mark) if row else None,
+                           categories={**EXPENSE_CATEGORIES, **INCOME_CATEGORIES},
+                           types={**EXPENSE_TYPES, **INCOME_TYPES}, vat_types=VAT_TYPES)
+
+
+@app.route("/reports/history/item")
+def reports_history_item():
+    """Τμήμα HTML για το modal: όλα τα στοιχεία μίας εγγραφής του κουβά, όπως τα έδωσε το myDATA."""
+    cid = _active_company_id()
+    item = db.archive_item(cid, request.args.get("kind", ""), request.args.get("mark", ""))
+    if not item:
+        return "Η εγγραφή δεν βρέθηκε.", 404
+    ref = item.get("invoice_mark")
+    ref_url = None
+    if ref and db.get_document(cid, ref):
+        ref_url = url_for("document", mark=ref, back=url_for("reports_history"))
+    elif ref and db.archive_item(cid, "invoice", ref):
+        ref_url = url_for("reports_history_item", kind="invoice", mark=ref)
+    return render_template("_history_item.html", item=item, xml_tree=_xml_tree(item["xml"]), ref_url=ref_url,
+                           back=request.args.get("back"), kind_labels=_HISTORY_KIND_LABELS)
+
+
+_HISTORY_KIND_LABELS = {"invoice": "Παραστατικό", "expenses_cls": "Χαρακτηρισμός εξόδων",
+                        "income_cls": "Χαρακτηρισμός εσόδων", "cancel": "Ακύρωση"}
+
 
 _QUARTER_NAMES = ("Α΄", "Β΄", "Γ΄", "Δ΄")
 
@@ -6830,6 +7004,21 @@ def backup_safety_download(name):
     except ValueError:
         abort(404)
     return send_file(path, as_attachment=True, download_name=name)
+
+
+@app.route("/backup/vacuum", methods=["POST"])
+def backup_vacuum():
+    """Συμπίεση βάσης (VACUUM) από Παράμετροι → Αντίγραφα ασφαλείας."""
+    before = _backup_info()["size"]
+    try:
+        db.vacuum()
+    except sqlite3.OperationalError as e:  # π.χ. άλλη ενέργεια κρατά τη βάση εκείνη τη στιγμή
+        flash(f"Η συμπίεση δεν έγινε ({e}). Δοκίμασε ξανά σε λίγο.", "error")
+        return redirect(url_for("parameters", tab="backup"))
+    after = _backup_info()["size"]
+    mb = lambda n: f"{n / 1048576:.1f} MB"  # noqa: E731
+    flash(f"✔ Η βάση συμπιέστηκε: {mb(before)} → {mb(after)}.", "ok")
+    return redirect(url_for("parameters", tab="backup"))
 
 
 @app.route("/backup/safety/delete", methods=["POST"])

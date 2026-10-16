@@ -1,0 +1,19 @@
+{# Modal του Ιστορικού κινήσεων: όλα τα στοιχεία μίας εγγραφής του κουβά, όπως τα έδωσε το myDATA. #}
+{% from "_macros.html" import xml_nodes with context %}
+<div class="modal-head">
+  <h2>{{ kind_labels.get(item.kind, item.kind) }} {{ item.mark }}</h2>
+  <span>
+    {% if back %}<button type="button" class="btn-ghost btn-sm" data-docs="{{ back }}">← Πίσω</button>{% endif %}
+    <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
+  </span>
+</div>
+<p class="muted small">
+  {% if item.invoice_mark %}Αφορά το παραστατικό
+    {% if ref_url and ref_url.startswith(url_for('reports_history_item')) %}<a href="{{ ref_url }}" data-docs="{{ ref_url }}">{{ item.invoice_mark }}</a>
+    {% elif ref_url %}<a href="{{ ref_url }}">{{ item.invoice_mark }}</a> (στα βιβλία)
+    {% else %}{{ item.invoice_mark }}{% endif %} ·
+  {% endif %}
+  {% if item.endpoint %}από {{ item.endpoint }} · {% endif %}
+  πρώτη λήψη {{ item.first_seen[:10] if item.first_seen }}{% if item.last_seen and item.last_seen[:10] != item.first_seen[:10] %} · τελευταία {{ item.last_seen[:10] }}{% endif %}
+</p>
+<div class="xml-tree">{{ xml_nodes(xml_tree) }}</div>

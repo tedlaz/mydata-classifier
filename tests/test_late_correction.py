@@ -12,7 +12,7 @@ c.session.get = lambda url, params, **k: calls.append(dict(params)) or NS(status
 doc = lambda mark, d: NS(mark=mark, issuer_vat="1", invoice_type="2.1", is_movement_doc=False,  # noqa: E731
                          is_cancelled=False, issue_date=d, has_income_line_classification=False)
 c._parse_requested_doc = lambda root: [doc("10", "2026-01-15"), doc("20", "2026-05-01")]
-c._parse_income_classifications = lambda root: {"10": [{"type": "E3_561_001"}]}  # χαρακτηρισμός του Μαΐου
+c._parse_income_classifications = lambda root: {"10": {"entries": [{"type": "E3_561_001"}], "cls_mark": "11"}}  # χαρακτηρισμός του Μαΐου
 c._parse_cancelled_invoices = lambda root: set()
 
 unc, cls, _ = c.request_income("01/01/2026", "31/01/2026")

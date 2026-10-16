@@ -1963,6 +1963,35 @@ main > .is-live{animation:none}
 }
 @media (prefers-reduced-motion:reduce){.bk-item{animation:none}}
 
+/* Αντίγραφα ασφαλείας: συμπαγής διάταξη (μόνο αυτή η καρτέλα) — 3 ενέργειες σε μία σειρά, εικονίδιο δίπλα
+   στον τίτλο, μικρότερα κενά, drop zone σε μία γραμμή, σφιχτή λίστα. */
+.bk .pm-hero{padding:12px 16px;gap:10px 20px}
+.bk .pm-hero-icon{width:38px;height:38px;font-size:1.2rem;border-radius:11px}
+.bk .pm-stat{padding:6px 12px;min-width:0}
+.bk .pm-stat b{font-size:1.05rem}
+.bk .pm-tiles{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.bk .pm-tile{padding:12px 14px;display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto 1fr;
+  align-items:center;column-gap:10px;margin:0}
+.bk .pm-tile > :not(.pm-tile-icon):not(h2){grid-column:1/-1}
+.bk .pm-tile-icon{width:30px;height:30px;font-size:.95rem;border-radius:9px;margin:0}
+.bk .pm-tile h2{margin:0;font-size:.98rem}
+.bk .pm-tile > .muted{align-self:start;margin:6px 0 8px;font-size:.82rem;line-height:1.4}
+.bk .pm-tile .note{margin:0 0 8px;padding:5px 10px;font-size:.76rem}
+.bk .pm-tile .btn,.bk .pm-tile form{justify-self:start}
+.bk .pm-drop{flex-direction:row;justify-content:center;gap:8px;padding:8px 12px}
+.bk .pm-drop-icon{font-size:1.15rem}
+.bk > .card{padding:12px 16px;margin-bottom:12px}
+.bk .card-head{margin-bottom:4px}
+.bk .card-head h2{font-size:1rem}
+.bk > .card > p.small{margin:0 0 8px}
+.bk .bk-list{gap:6px;margin-top:4px}
+.bk .bk-item{gap:10px;padding:7px 10px}
+.bk .bk-item-icon{width:28px;height:28px;font-size:.9rem;border-radius:8px}
+.bk .bk-item-main{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 14px}
+.bk .bk-empty{flex-direction:row;justify-content:center;gap:8px;padding:10px 12px}
+.bk .bk-empty > span:first-child{font-size:1.1rem}
+@media (max-width:900px){.bk .pm-tiles{grid-template-columns:1fr}}
+
 /* ---------- Παράμετροι: λογιστής, αναφορές, συνδυασμοί ---------- */
 .pm-stat{animation:rise .45s var(--ease) both;animation-delay:calc(var(--i, 0) * 70ms + 80ms)}
 .pm-status{display:inline-flex;align-items:center;margin-left:8px;padding:2px 10px;border-radius:999px;font:700 .7rem/1.5 var(--font-ui);
@@ -2444,3 +2473,22 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .cmp-st--none{background:var(--surface-3);color:var(--muted)}
 .cmp-cogs .cmp-name span{padding-left:14px;font-weight:500}
 .cmp-cogs td{color:var(--muted)}
+
+/* Δέντρο στοιχείων XML του myDATA (macro xml_nodes): καρτέλα παραστατικού, Ιστορικό κινήσεων. */
+.xml-tree{--x:var(--accent);margin:12px 0 0;font-size:.86rem}
+/* Χρώμα ανά ενότητα (μόνο καθολικά tokens — τα --yr-* υπάρχουν μόνο στις αναφορές)· οι υποενότητες (π.χ. Διεύθυνση) κρατούν το χρώμα της ενότητάς τους. */
+.xml-g[data-tag=issuer],.xml-g[data-tag=counterpart]{--x:var(--info)}
+.xml-g[data-tag=invoiceHeader]{--x:var(--accent)}
+.xml-g[data-tag=paymentMethods]{--x:var(--co-ye)}
+.xml-g[data-tag=invoiceDetails]{--x:var(--ok)}
+.xml-g[data-tag=taxesTotals]{--x:var(--warn)}
+.xml-g[data-tag=invoiceSummary]{--x:var(--accent-deep)}
+.xml-g[data-tag$=Classification]{--x:var(--co-or)}
+.xml-tree details{margin:4px 0 4px 2px;padding-left:12px;border-left:3px solid var(--x)}
+.xml-tree > details{margin:10px 0;padding:6px 12px;border-radius:0 10px 10px 0;background:color-mix(in srgb,var(--x) 7%,transparent)}
+.xml-tree summary{cursor:pointer;font-weight:700;padding:2px 0;color:var(--x)}
+/* Γραμμές: πιο έντονο φόντο· το κενό ανάμεσά τους αρκεί για να ξεχωρίζουν. */
+.xml-tree > .xml-g[data-tag=invoiceDetails]{background:var(--ok-soft)}
+.xml-row{display:grid;grid-template-columns:minmax(140px,240px) minmax(0,1fr);gap:12px;padding:3px 0;border-bottom:1px dashed var(--line-soft)}
+.xml-row span{color:var(--muted)}
+.xml-row b{font-family:var(--font-data);font-weight:600;overflow-wrap:anywhere}
