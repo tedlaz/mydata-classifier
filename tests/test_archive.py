@@ -123,7 +123,7 @@ icls = ET.fromstring(
     f'<classificationMark>50</classificationMark></incomeInvoiceClassification></incomeClassificationsDoc></RequestedDoc>')
 assert MyDataClient._parse_income_classifications(icls)["5"]["cls_mark"] == "50"
 
-# 7. Αναφορά «Ιστορικό κινήσεων»: κατηγορίες και drill down (κατηγορία → εγγραφές → στοιχεία).
+# 7. Αναφορά «myData λοιπά»: κατηγορίες και drill down (κατηγορία → εγγραφές → στοιχεία).
 import app as A  # noqa: E402
 
 mydata.update((r["kind"], r["mark"]) for r in rows)
@@ -142,7 +142,7 @@ assert A._history_category({"kind": "income_cls", "mark": "9"}, "", set()) == "i
 A.app.testing = True
 web = A.app.test_client()
 page_html = web.get("/reports/history").get_data(as_text=True)
-assert "ΙΣΤΟΡΙΚΟ ΚΙΝΗΣΕΩΝ" in page_html and "/reports/history/docs?cat=foreign" in page_html
+assert "myData λοιπά" in page_html and "/reports/history/docs?cat=foreign" in page_html
 docs_html = web.get("/reports/history/docs?cat=expenses_cls").get_data(as_text=True)
 assert "kind=invoice&amp;mark=2&amp;" in docs_html  # MARK → στοιχεία παραστατικού (κουβάς)
 assert docs_html.count("/history/cls/2") == 1 and "<td class=\"num\">3</td>" in docs_html, docs_html  # 9/10/12 → 1 γραμμή

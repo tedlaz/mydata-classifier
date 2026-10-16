@@ -549,7 +549,7 @@ def archive_sync(company_id: int | None, rows: list[dict]) -> None:
 
 
 def archive_rows(company_id: int | None) -> list[dict]:
-    """Όλος ο κουβάς της εταιρείας (χωρίς xml), για την αναφορά «Ιστορικό κινήσεων». Ο χαρακτηρισμός δεν
+    """Όλος ο κουβάς της εταιρείας (χωρίς xml), για την αναφορά «myData λοιπά». Ο χαρακτηρισμός δεν
     έχει δική του ημερομηνία: παίρνει (date) του παραστατικού του, από το documents ή τον κουβά."""
     if not company_id:
         return []

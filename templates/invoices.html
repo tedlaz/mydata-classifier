@@ -181,6 +181,12 @@
         <button type="submit" name="action" value="rules" class="btn-ghost" data-require=".sel">
           💡 Χαρακτηρισμός με την πρόταση ανά συναλλασσόμενο
         </button>
+        <select name="bulk_post_mode" aria-label="Τρόπος χαρακτηρισμού">
+          <option value="auto">Αυτόματα — συγκεντρωτικά με πολλές γραμμές, ανά γραμμή με μία</option>
+          <option value="invoice">Συγκεντρωτικά</option>
+          <option value="line">Ανά γραμμή</option>
+          <option value="rule">Όπως ο τελευταίος χαρακτηρισμός του συναλλασσόμενου</option>
+        </select>
       </div>
     </div>
     {% elif view == 'classified' %}

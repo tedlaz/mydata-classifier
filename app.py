@@ -2305,7 +2305,8 @@ def _rule_per_invoice(inv, rule: dict, patterns: dict) -> tuple[dict, dict]:
         r = patterns.get(g["vat_category"]) or rule
         # Κατηγορία 2.5 (χωρίς δικαίωμα έκπτωσης): χωρίς χαρακτηρισμό ΦΠΑ, ο ΦΠΑ στο Ε3.
         if g["classify_vat"]:
-            pi_vat[g["vat_category"]] = "" if r.get("category") == NO_VAT_RIGHT else (r.get("vat_type") or "VAT_361")
+            no_vat = r.get("category") == NO_VAT_RIGHT or r.get("vat_type") == "none"
+            pi_vat[g["vat_category"]] = "" if no_vat else (r.get("vat_type") or "VAT_361")
         amount = g["net"] if pi_vat.get(g["vat_category"]) else g["net"] + g["vat"]
         pi_e3[g["vat_category"]] = [
             {"category": r.get("category", ""), "type": r.get("type", ""), "amount": round(amount, 2)}
@@ -2750,13 +2751,16 @@ def bulk_classify():
     Συνολικός χαρακτηρισμός: ο ίδιος συνδυασμός εφαρμόζεται σε κάθε γραμμή
     ενός ή περισσότερων επιλεγμένων παραστατικών (ανά γραμμή - το myDATA δεν
     δέχεται το στοιχείο classificationPostMode στο XML, σφάλμα 340· ο συγκεντρωτικός
-    χαρακτηρισμός γίνεται με την παράμετρο postPerInvoice: από τη φόρμα, ή εδώ όταν
-    η «πρόταση ανά συναλλασσόμενο» είναι συγκεντρωτική).
+    χαρακτηρισμός γίνεται με την παράμετρο postPerInvoice). Τρόπος (bulk_post_mode):
+    "auto" = συγκεντρωτικά με περισσότερες από μία γραμμές, ανά γραμμή με μία·
+    "invoice" = πάντα συγκεντρωτικά· "line" = πάντα ανά γραμμή· "rule" = όπως ο τελευταίος
+    χαρακτηρισμός του συναλλασσόμενου (db.get_rule_post_mode).
     """
     marks = request.form.getlist("marks")
     ctype = request.form.get("bulk_type", "")
     ccat = request.form.get("bulk_category", "")
     vat_type = request.form.get("bulk_vat_type", "auto")
+    mode = request.form.get("bulk_post_mode", "auto")
     use_rules = (
         request.form.get("action") == "rules"
     )  # "με βάση την πρόταση ανά συναλλασσόμενο"
@@ -2770,6 +2774,9 @@ def bulk_classify():
         return redirect(url_for("invoices"))
     if vat_type not in ("auto", "none") and vat_type not in VAT_TYPES:
         flash("Μη έγκυρος χαρακτηρισμός ΦΠΑ.", "error")
+        return redirect(url_for("invoices"))
+    if mode not in ("auto", "invoice", "line", "rule"):
+        flash("Μη έγκυρος τρόπος χαρακτηρισμού.", "error")
         return redirect(url_for("invoices"))
 
     cid = _active_company_id()
@@ -2799,32 +2806,33 @@ def bulk_classify():
             )
         ]
 
-        # Συνδυασμός ανά γραμμή: (type, category, vat). Με «πρόταση ανά συναλλασσόμενο» κάθε
-        # γραμμή —ή ομάδα ΦΠΑ, αν η πρόταση είναι συγκεντρωτική— παίρνει την πρόταση της
-        # κατηγορίας ΦΠΑ της, αλλιώς τη βασική του.
-        post_mode = 0
+        # Συνδυασμός ανά γραμμή —ή ομάδα ΦΠΑ, συγκεντρωτικά—: (type, category, vat). Με «πρόταση
+        # ανά συναλλασσόμενο» παίρνει την πρόταση της κατηγορίας ΦΠΑ της, αλλιώς τη βασική του.
+        if mode == "rule":
+            post_mode = db.get_rule_post_mode(cid, inv.issuer_vat)
+        else:
+            post_mode = len(inv.lines) > 1 if mode == "auto" else mode == "invoice"
+        post_mode = int(bool(inv.lines and post_mode))
         if use_rules:
             default = rules.get(inv.issuer_vat or "") or {}
             pats = _patterns_for(inv.issuer_vat)
-            post_mode = db.get_rule_post_mode(cid, inv.issuer_vat) if inv.lines else 0
-            if post_mode:
-                pi_e3, pi_vat = _rule_per_invoice(inv, default, pats)
-                pairs = [(r["type"], r["category"]) for rs in pi_e3.values() for r in rs]
-            else:
-                choice = {}
-                for line in src_lines:
-                    r = pats.get(str(line.vat_category or "")) or default
-                    choice[line.line_number] = (r.get("type"), r.get("category"), r.get("vat_type") or "auto")
-                pairs = [(t, c) for t, c, _ in choice.values()]
-            if not all(t and c for t, c in pairs):
-                failed.append(
-                    f"{mark}: δεν υπάρχει αποθηκευμένη πρόταση για τον συναλλασσόμενο "
-                    f"{inv.issuer_vat or '—'}"
-                )
-                continue
         else:
-            choice = {line.line_number: (ctype, ccat, vat_type) for line in src_lines}
-            pairs = [(ctype, ccat)]
+            default, pats = {"type": ctype, "category": ccat, "vat_type": "" if vat_type == "auto" else vat_type}, {}
+        if post_mode:
+            pi_e3, pi_vat = _rule_per_invoice(inv, default, pats)
+            pairs = [(r["type"], r["category"]) for rs in pi_e3.values() for r in rs]
+        else:
+            choice = {}
+            for line in src_lines:
+                r = pats.get(str(line.vat_category or "")) or default
+                choice[line.line_number] = (r.get("type"), r.get("category"), r.get("vat_type") or "auto")
+            pairs = [(t, c) for t, c, _ in choice.values()]
+        if not all(t and c for t, c in pairs):
+            failed.append(
+                f"{mark}: δεν υπάρχει αποθηκευμένη πρόταση για τον συναλλασσόμενο "
+                f"{inv.issuer_vat or '—'}"
+            )
+            continue
 
         # Επίσημοι συνδυασμοί ΑΑΔΕ για τον τύπο του παραστατικού (αλλιώς απόρριψη στην αποστολή).
         bad = sorted({(c, t) for t, c in pairs if not _combo_allowed(inv.invoice_type, c, t)})
@@ -2835,7 +2843,7 @@ def bulk_classify():
             )
             continue
 
-        if post_mode:  # συγκεντρωτικά (postPerInvoice), όπως ορίζει η πρόταση
+        if post_mode:  # συγκεντρωτικά (postPerInvoice)
             errors = _per_invoice_errors(inv, pi_e3, pi_vat)
             if errors:
                 failed.append(f"{mark}: " + " · ".join(errors))
@@ -4054,7 +4062,7 @@ def reports_flows_docs():
                            total=total, label=label, is_in=side == "src", year=year, type_names=INVOICE_TYPE_NAMES, opts=opts)
 
 # ------------------------------------------------------------------ #
-# ΙΣΤΟΡΙΚΟ ΚΙΝΗΣΕΩΝ: ο κουβάς (db.mydata_archive) — ό,τι του myDATA δεν είναι ενεργό στα βιβλία — ανά κατηγορία,
+# MYDATA ΛΟΙΠΑ: ο κουβάς (db.mydata_archive) — ό,τι του myDATA δεν είναι ενεργό στα βιβλία — ανά κατηγορία,
 # με drill down ως τα στοιχεία της εγγραφής. myDATA = documents + κουβάς (βλ. db.archive_sync).
 # ------------------------------------------------------------------ #
 HISTORY_CATEGORIES = {
@@ -4110,7 +4118,7 @@ def _history_rows(cid) -> tuple[list[dict], list[int]]:
 
 @app.route("/reports/history")
 def reports_history():
-    """ΙΣΤΟΡΙΚΟ ΚΙΝΗΣΕΩΝ: ο κουβάς ανά κατηγορία (πλήθος, ποσό, εύρος ημερομηνιών)."""
+    """MYDATA ΛΟΙΠΑ: ο κουβάς ανά κατηγορία (πλήθος, ποσό, εύρος ημερομηνιών)."""
     rows, years = _history_rows(_active_company_id())
     cats = []
     for key, (label, desc) in HISTORY_CATEGORIES.items():
@@ -4173,7 +4181,7 @@ def _local_dt(iso: str) -> str:
 @app.route("/history/cls/<mark>")
 def cls_history(mark):
     """Τμήμα HTML (modal): το ιστορικό χαρακτηρισμών ενός παραστατικού, από τον ισχύοντα προς τον παλαιότερο —
-    από την καρτέλα του παραστατικού και από το «Ιστορικό κινήσεων»."""
+    από την καρτέλα του παραστατικού και από το «myData λοιπά»."""
     from itertools import groupby
 
     from mydata_client import cls_record

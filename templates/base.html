@@ -18,6 +18,9 @@ try{if(localStorage.getItem('navMini'))r.dataset.navMini=''}catch(e){}})();
 (function(){var s=false;try{s=new URL(document.referrer).pathname.split('/')[1]===location.pathname.split('/')[1]}catch(e){}
 if(!s)return;document.documentElement.dataset.samePage='';
 addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.catch(function(){});v.skipTransition()}})})();
+// Έξοδος από σελίδα με ανοιχτό modal (π.χ. MARK μέσα στο myData λοιπά): χωρίς view transition. Το στιγμιότυπο
+// έπαιρνε το modal με το γκρι backdrop του, και στη νέα σελίδα το επόμενο modal έμενε γκρι οθόνη ως το refresh.
+addEventListener('pageswap',function(e){var v=e.viewTransition;if(v&&document.querySelector('dialog:modal')){v.ready.catch(function(){});v.skipTransition()}});
 </script>
 {# Inline opt-in: ο Chrome το ελέγχει πριν φορτωθεί το app.css → αλλιώς «ViewTransition opt-in disabled». #}
 <style>@view-transition{navigation:auto}</style>
@@ -51,7 +54,7 @@ addEventListener('pagereveal',function(e){var v=e.viewTransition;if(v){v.ready.c
     ('reports_forecast', 'Πρόβλεψη έτους', 'chart', ['reports_forecast'], False),
     ('reports_compare', 'Σύγκριση ετών', 'chart', ['reports_compare'], False),
     ('reports_flows', 'Ροές', 'flow', ['reports_flows'], False),
-    ('reports_history', 'Ιστορικό κινήσεων', 'receipt', ['reports_history'], False),
+    ('reports_history', 'myData λοιπά', 'receipt', ['reports_history'], False),
   ]),
   ('Κατάλογοι', [
     ('suppliers', 'Συναλλασσόμενοι', 'users', ['suppliers'], False),

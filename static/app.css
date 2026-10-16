@@ -2486,7 +2486,7 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .cmp-cogs .cmp-name span{padding-left:14px;font-weight:500}
 .cmp-cogs td{color:var(--muted)}
 
-/* Δέντρο στοιχείων XML του myDATA (macro xml_nodes): καρτέλα παραστατικού, Ιστορικό κινήσεων. */
+/* Δέντρο στοιχείων XML του myDATA (macro xml_nodes): καρτέλα παραστατικού, myData λοιπά. */
 .xml-tree{--x:var(--accent);margin:12px 0 0;font-size:.86rem}
 /* Χρώμα ανά ενότητα (μόνο καθολικά tokens — τα --yr-* υπάρχουν μόνο στις αναφορές)· οι υποενότητες (π.χ. Διεύθυνση) κρατούν το χρώμα της ενότητάς τους. */
 .xml-g[data-tag=issuer],.xml-g[data-tag=counterpart]{--x:var(--info)}

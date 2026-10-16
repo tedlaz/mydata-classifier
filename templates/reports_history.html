@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Ιστορικό κινήσεων{% endblock %}
+{% block title %}myData λοιπά{% endblock %}
 
 {% block content %}
 <style>
@@ -21,7 +21,7 @@
     <span class="db-blob b1"></span><span class="db-blob b2"></span><span class="db-blob b3"></span>
     <div class="db-hero-in">
       <div>
-        <h1>ΙΣΤΟΡΙΚΟ ΚΙΝΗΣΕΩΝ{% if year %} <span class="yr-hero-year">{{ year }}</span>{% endif %}</h1>
+        <h1>myData λοιπά{% if year %} <span class="yr-hero-year">{{ year }}</span>{% endif %}</h1>
         <p class="db-hi">Ό,τι έφεραν οι ανακτήσεις από το myDATA και δεν είναι ενεργό στα βιβλία · {{ total }} εγγραφές · κλικ σε μια κατηγορία για τις λεπτομέρειες</p>
       </div>
       <div class="yr-hero-tools">
@@ -46,7 +46,7 @@
     {% endfor %}
   </div>
 
-  <dialog class="modal modal--wide yr-docs-modal" id="hx-docs" aria-label="Ιστορικό κινήσεων" closedby="any"></dialog>
+  <dialog class="modal modal--wide yr-docs-modal" id="hx-docs" aria-label="myData λοιπά" closedby="any"></dialog>
 </div>
 {% endblock %}
 
