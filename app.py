@@ -4086,12 +4086,14 @@ def _history_category(row: dict, own_vat: str, cancelled: set) -> str:
     kind = row["kind"]
     if kind == "cancel":  # μαζί με το παραστατικό που ακυρώνει
         return "cancelled"
-    if kind == "expenses_cls" and row.get("has_transaction_mode"):
-        return "rejection"
     if kind in ("expenses_cls", "income_cls"):
-        # παραστατικό που δεν ανακτήθηκε: όλες οι υποβολές του μαζί με την ισχύουσα (Ιστορικό), όχι χωρίς link εδώ
-        known = row.get("ref_in_books") or row.get("ref_in_archive")
-        return kind if row.get("superseded") and known else "active_cls"
+        # παραστατικό που δεν ανακτήθηκε: όλες οι υποβολές του (και απορρίψεις) μαζί με την ισχύουσα (Ιστορικό),
+        # όχι χωρίς link στις άλλες κατηγορίες
+        if not (row.get("ref_in_books") or row.get("ref_in_archive")):
+            return "active_cls"
+        if kind == "expenses_cls" and row.get("has_transaction_mode"):
+            return "rejection"
+        return kind if row.get("superseded") else "active_cls"
     if row.get("has_cancelled_by") or row["mark"] in cancelled:
         return "cancelled"
     if (row.get("invoice_type") or "") in MOVEMENT_INVOICE_TYPES:  # και όσα είναι άλλων ληπτών (row["foreign"])

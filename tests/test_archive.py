@@ -137,7 +137,9 @@ assert A._history_category({"kind": "invoice", "mark": "7", "invoice_type": "9.3
 assert A._history_category({"kind": "invoice", "mark": "8", "invoice_type": "1.1"}, "999758350", set()) == "other"
 foreign93 = {"kind": "invoice", "mark": "7", "invoice_type": "9.3", "issuer_vat": "999758350", "counterpart_vat": "1"}
 assert A._history_category(foreign93, "999758350", set()) == "movement" and A._history_foreign(foreign93, "999758350")
-assert A._history_category({"kind": "expenses_cls", "mark": "9", "has_transaction_mode": 1}, "", set()) == "rejection"
+assert A._history_category({"kind": "expenses_cls", "mark": "9", "has_transaction_mode": 1, "ref_in_books": 1}, "", set()) == "rejection"
+# απόρριψη παραστατικού που δεν ανακτήθηκε (π.χ. προηγούμενου έτους): όχι στις απορρίψεις χωρίς link
+assert A._history_category({"kind": "expenses_cls", "mark": "9", "has_transaction_mode": 1}, "", set()) == "active_cls"
 assert A._history_category({"kind": "income_cls", "mark": "9", "superseded": 1, "ref_in_books": 1}, "", set()) == "income_cls"
 # παλιά υποβολή παραστατικού που δεν ανακτήθηκε: μαζί με την ισχύουσα, όχι στους «προηγούμενους» (χωρίς link)
 assert A._history_category({"kind": "expenses_cls", "mark": "9", "superseded": 1}, "", set()) == "active_cls"
