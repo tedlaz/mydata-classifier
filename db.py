@@ -560,7 +560,7 @@ def archive_rows(company_id: int | None) -> list[dict]:
             "COALESCE(d.counterparty_vat, ai.issuer_vat) AS ref_vat, COALESCE(d.invoice_type, ai.invoice_type) AS ref_type, "
             "instr(unz(a.xml), 'cancelledByMark') > 0 AS has_cancelled_by, "
             "(instr(unz(a.xml), 'transactionMode>1<') + instr(unz(a.xml), 'transactionMode>2<')) > 0 AS has_transaction_mode, "
-            "d.id IS NOT NULL AS ref_in_books "
+            "d.id IS NOT NULL AS ref_in_books, ai.mark IS NOT NULL AS ref_in_archive "
             "FROM mydata_archive a "
             "LEFT JOIN documents d ON d.company_id = a.company_id AND d.mark = a.invoice_mark "
             "LEFT JOIN mydata_archive ai ON ai.company_id = a.company_id AND ai.kind = 'invoice' "

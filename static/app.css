@@ -1246,6 +1246,8 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .yr-docs-type{font-family:var(--font-ui) !important;white-space:normal !important}
 .yr-docs-type span{margin-right:6px}
 .yr-tag{font-size:.68rem;padding:2px 7px}
+.yr-docs tr.is-foreign td{background:var(--info-soft)}
+.yr-tag--foreign{background:var(--surface);color:var(--info);border-color:var(--info-line)}
 .yr-tag--asset{background:var(--yr-out-soft);color:var(--ink)}
 .yr-docs tr.is-credit td{color:var(--err)}
 .yr-docs tfoot th{text-align:left}

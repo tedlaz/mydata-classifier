@@ -4058,10 +4058,9 @@ def reports_flows_docs():
 # με drill down ως τα στοιχεία της εγγραφής. myDATA = documents + κουβάς (βλ. db.archive_sync).
 # ------------------------------------------------------------------ #
 HISTORY_CATEGORIES = {
-    "cancelled": ("Ακυρωμένα παραστατικά", "Παραστατικά που ακυρώθηκαν στο myDATA"),
-    "cancel": ("Πράξεις ακύρωσης", "Οι εγγραφές ακύρωσης (MARK ακύρωσης → παραστατικό)"),
+    "cancelled": ("Ακυρωμένα παραστατικά", "Παραστατικά που ακυρώθηκαν στο myDATA, το καθένα με την πράξη ακύρωσής του"),
     "foreign": ("Παραστατικά άλλων ληπτών", "Με εκδότη εμάς, διαβιβασμένα από τον λήπτη για δικό του έξοδο (π.χ. 13.1)"),
-    "movement": ("Παραστατικά διακίνησης", "Δελτία αποστολής — δεν χαρακτηρίζονται"),
+    "movement": ("Παραστατικά διακίνησης", "Δελτία αποστολής — δεν χαρακτηρίζονται· με χρώμα όσα είναι άλλων ληπτών"),
     "other": ("Λοιπά παραστατικά εκτός βιβλίων", "Παραστατικά του myDATA που δεν είναι στα βιβλία της εφαρμογής"),
     "rejection": ("Απορρίψεις / αποκλίσεις", "Χαρακτηρισμοί με απόρριψη ή απόκλιση (transactionMode)"),
     "expenses_cls": ("Προηγούμενοι χαρακτηρισμοί εξόδων", "Χαρακτηρισμοί εξόδων που δεν είναι πια ενεργοί"),
@@ -4074,19 +4073,24 @@ def _history_category(row: dict, own_vat: str, cancelled: set) -> str:
     from mydata_client import MOVEMENT_INVOICE_TYPES
 
     kind = row["kind"]
-    if kind == "cancel":
-        return "cancel"
+    if kind == "cancel":  # μαζί με το παραστατικό που ακυρώνει
+        return "cancelled"
     if kind == "expenses_cls":
         return "rejection" if row.get("has_transaction_mode") else "expenses_cls"
     if kind == "income_cls":
         return "income_cls"
     if row.get("has_cancelled_by") or row["mark"] in cancelled:
         return "cancelled"
-    if own_vat and row.get("issuer_vat") == own_vat and row.get("counterpart_vat") not in (None, "", own_vat):
-        return "foreign"
-    if (row.get("invoice_type") or "") in MOVEMENT_INVOICE_TYPES:
+    if (row.get("invoice_type") or "") in MOVEMENT_INVOICE_TYPES:  # και όσα είναι άλλων ληπτών (row["foreign"])
         return "movement"
+    if _history_foreign(row, own_vat):
+        return "foreign"
     return "other"
+
+
+def _history_foreign(row: dict, own_vat: str) -> bool:
+    """Εκδότης εμείς, λήπτης άλλος: παραστατικό άλλου λήπτη."""
+    return bool(own_vat and row.get("issuer_vat") == own_vat and row.get("counterpart_vat") not in (None, "", own_vat))
 
 
 def _history_rows(cid) -> tuple[list[dict], list[int]]:
@@ -4096,6 +4100,7 @@ def _history_rows(cid) -> tuple[list[dict], list[int]]:
     cancelled = {r["invoice_mark"] for r in rows if r["kind"] == "cancel"}
     for r in rows:
         r["cat"] = _history_category(r, own_vat, cancelled)
+        r["foreign"] = r["kind"] == "invoice" and _history_foreign(r, own_vat)
     years = sorted({int(r["date"][:4]) for r in rows if (r["date"] or "")[:4].isdigit()}, reverse=True)
     year = request.args.get("year", type=int)
     if year:
@@ -4113,7 +4118,8 @@ def reports_history():
         dates = sorted(r["date"][:10] for r in rs if r["date"])
         grouped = key in _HISTORY_GROUPED
         cats.append({"key": key, "label": label, "desc": desc, "n": len(rs),
-                     "n_docs": len({r["invoice_mark"] for r in rs}) if grouped else None,
+                     "n_docs": len({r["invoice_mark"] for r in rs}) if grouped
+                     else len({r["invoice_mark"] or r["mark"] for r in rs}) if key == "cancelled" else None,
                      # ποσά χαρακτηρισμών διαδοχικών υποβολών δεν αθροίζονται
                      "amount": 0 if grouped else sum(r["amount"] or 0 for r in rs),
                      "first": dates[0] if dates else None, "last": dates[-1] if dates else None})
@@ -4136,6 +4142,14 @@ def reports_history_docs():
             g_ = groups.setdefault(r["invoice_mark"], dict(r, n=0))
             g_["n"] += 1
         rows = list(groups.values())
+    elif cat == "cancelled":  # κάθε πράξη ακύρωσης αμέσως κάτω από το παραστατικό που ακυρώνει
+        invoices = {r["mark"] for r in rows if r["kind"] == "invoice"}
+        cancels: dict = {}
+        for r in rows:
+            if r["kind"] == "cancel" and r["invoice_mark"] in invoices:
+                cancels.setdefault(r["invoice_mark"], []).append(r)
+        rows = [x for r in rows if not (r["kind"] == "cancel" and r["invoice_mark"] in invoices)
+                for x in [r, *cancels.get(r["mark"], [])]]
     page_rows, page, pages = paginate(rows, request.args.get("page"))
     vats = ("ref_vat",) if grouped else ("issuer_vat", "counterpart_vat")
     names = {r[k]: db.get_supplier_name(r[k]) for r in page_rows for k in vats if r[k]}

@@ -18,7 +18,10 @@
     {% set hist = url_for('cls_history', mark=r.invoice_mark, back=here) %}
     <tr>
       <td>{{ '/'.join(r.date[:10].split('-')[::-1]) if r.date }}</td>
-      <td class="yr-docs-mark">{{ r.invoice_mark }}{% if r.ref_in_books %} <span class="pill yr-tag" title="Το παραστατικό είναι στα βιβλία">βιβλία</span>{% endif %}</td>
+      <td class="yr-docs-mark">
+        {%- if r.ref_in_books %}<a href="{{ url_for('document', mark=r.invoice_mark, back=url_for('reports_history')) }}">{{ r.invoice_mark }}</a>
+        {%- elif r.ref_in_archive %}{% set inv = url_for('reports_history_item', kind='invoice', mark=r.invoice_mark, back=here) %}<a href="{{ inv }}" data-docs="{{ inv }}">{{ r.invoice_mark }}</a>
+        {%- else %}{{ r.invoice_mark }}{% endif %}{% if r.ref_in_books %} <span class="pill yr-tag" title="Το παραστατικό είναι στα βιβλία">βιβλία</span>{% endif %}</td>
       <td><span title="{{ type_names.get(r.ref_type, '') }}">{{ r.ref_type or '' }}</span></td>
       <td class="yr-docs-cp">{% if r.ref_vat %}<b>{{ names.get(r.ref_vat) or '—' }}</b><span class="vat">{{ r.ref_vat }}</span>{% endif %}</td>
       <td class="num">{{ r.n }}</td>
@@ -38,9 +41,9 @@
   <tbody>
     {% for r in rows %}
     {% set item = url_for('reports_history_item', kind=r.kind, mark=r.mark, back=here) %}
-    <tr>
+    <tr{% if cat == 'movement' and r.foreign %} class="is-foreign"{% endif %}>
       <td>{{ '/'.join(r.date[:10].split('-')[::-1]) if r.date }}</td>
-      <td class="yr-docs-mark"><a href="{{ item }}" data-docs="{{ item }}">{{ r.mark }}</a></td>
+      <td class="yr-docs-mark">{% if cat == 'movement' and r.foreign %}<span class="pill yr-tag yr-tag--foreign" title="Εκδότης εμείς, λήπτης άλλος">άλλου λήπτη</span> {% endif %}{% if r.kind == 'cancel' %}↳ {% endif %}<a href="{{ item }}" data-docs="{{ item }}">{{ r.mark }}</a>{% if r.kind == 'cancel' %} <span class="pill yr-tag" title="Πράξη ακύρωσης του σχετικού MARK">ακύρωση</span>{% endif %}</td>
       <td>{{ r.invoice_mark or '' }}{% if r.invoice_mark and r.ref_in_books %} <span class="pill yr-tag" title="Το παραστατικό είναι στα βιβλία">βιβλία</span>{% endif %}</td>
       <td><span title="{{ type_names.get(r.invoice_type, '') }}">{{ r.invoice_type or '' }}</span></td>
       <td class="yr-docs-cp">{% if r.issuer_vat %}<b>{{ names.get(r.issuer_vat) or '—' }}</b><span class="vat">{{ r.issuer_vat }}</span>{% endif %}</td>

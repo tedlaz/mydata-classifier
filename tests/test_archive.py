@@ -132,9 +132,11 @@ check()
 
 cats = {r["mark"]: A._history_category(r, "999758350", {"3"}) for r in db.archive_rows(cid)}
 assert cats == {"1": "foreign", "2": "foreign", "3": "cancelled", "9": "expenses_cls", "10": "expenses_cls",
-                "11": "cancel", "12": "expenses_cls"}, cats
+                "11": "cancelled", "12": "expenses_cls"}, cats
 assert A._history_category({"kind": "invoice", "mark": "7", "invoice_type": "9.3"}, "999758350", set()) == "movement"
 assert A._history_category({"kind": "invoice", "mark": "8", "invoice_type": "1.1"}, "999758350", set()) == "other"
+foreign93 = {"kind": "invoice", "mark": "7", "invoice_type": "9.3", "issuer_vat": "999758350", "counterpart_vat": "1"}
+assert A._history_category(foreign93, "999758350", set()) == "movement" and A._history_foreign(foreign93, "999758350")
 assert A._history_category({"kind": "expenses_cls", "mark": "9", "has_transaction_mode": 1}, "", set()) == "rejection"
 assert A._history_category({"kind": "income_cls", "mark": "9"}, "", set()) == "income_cls"
 A.app.testing = True
@@ -142,7 +144,10 @@ web = A.app.test_client()
 page_html = web.get("/reports/history").get_data(as_text=True)
 assert "ΙΣΤΟΡΙΚΟ ΚΙΝΗΣΕΩΝ" in page_html and "/reports/history/docs?cat=foreign" in page_html
 docs_html = web.get("/reports/history/docs?cat=expenses_cls").get_data(as_text=True)
+assert "kind=invoice&amp;mark=2&amp;" in docs_html  # MARK → στοιχεία παραστατικού (κουβάς)
 assert docs_html.count("/history/cls/2") == 1 and "<td class=\"num\">3</td>" in docs_html, docs_html  # 9/10/12 → 1 γραμμή
+docs_html = web.get("/reports/history/docs?cat=cancelled").get_data(as_text=True)  # ακύρωση 11 κάτω από το 3
+assert "cat=cancel\"" not in page_html and docs_html.index("mark=3&") < docs_html.index("↳") < docs_html.index("mark=11&"), docs_html
 item = web.get("/reports/history/item?kind=expenses_cls&mark=12")
 assert item.status_code == 200 and "xml-tree" in item.get_data(as_text=True)
 assert web.get("/reports/history/docs?cat=nope").status_code == 400
@@ -166,6 +171,7 @@ db.upsert_document(cid, "expense", doc("2", "12"), "confirmed")
 db.archive_sync(cid, [])
 assert [(r["mark"], r["active"]) for r in db.cls_history(cid, "2")] == [("12", 1), ("10", 0), ("9", 0)]
 assert "Ιστορικό χαρακτηρισμών (3)" in web.get("/document/2").get_data(as_text=True)
+assert "href=\"/document/2?back=" in web.get("/reports/history/docs?cat=expenses_cls").get_data(as_text=True)  # MARK → καρτέλα
 h = web.get("/history/cls/2").get_data(as_text=True)
 assert "ισχύει" in h and h.index('<span class="mono">12</span>') < h.index('<span class="mono">9</span>')
 assert "Απόκλιση" not in h and "(εκτίμηση)" not in h and 'class="chip new' not in h[h.index("<tbody>"):], h  # 9/10/12 ίδιοι: καμία διαφορά
