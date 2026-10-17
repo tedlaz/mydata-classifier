@@ -9,7 +9,7 @@ from mydata_client import MyDataClient
 c = MyDataClient("u", "k", "dev", own_vat="1")
 calls = []
 c.session.get = lambda url, params, **k: calls.append(dict(params)) or NS(status_code=200, content=b"<x/>")
-doc = lambda mark, d: NS(mark=mark, issuer_vat="1", invoice_type="2.1", is_movement_doc=False,  # noqa: E731
+doc = lambda mark, d: NS(mark=mark, issuer_vat="1", invoice_type="2.1", is_off_books=False,  # noqa: E731
                          is_cancelled=False, issue_date=d, has_income_line_classification=False)
 c._parse_requested_doc = lambda root: [doc("10", "2026-01-15"), doc("20", "2026-05-01")]
 c._parse_income_classifications = lambda root: {"10": {"entries": [{"type": "E3_561_001"}], "cls_mark": "11"}}  # χαρακτηρισμός του Μαΐου

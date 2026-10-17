@@ -514,6 +514,10 @@ def init_db() -> None:
             conn.executemany(f"UPDATE {t} SET uid = ? WHERE rowid = ?",
                              [(u, r["r"]) for r in rows if (u := _uid_of(r["x"]))])
         _drop_uid_duplicates(conn)
+        # Αποδείξεις POS (8.4/8.5) εκτός βιβλίων: όσες είχαν ήδη μπει → κουβάς («myData λοιπά»).
+        if "invoice_type" in {r["name"] for r in conn.execute("PRAGMA table_info(documents)")}:
+            _to_archive(conn, "invoice_type IN ('8.4', '8.5')", ())
+            conn.execute("DELETE FROM documents WHERE invoice_type IN ('8.4', '8.5')")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_documents_uid ON documents(company_id, uid) "
                      "WHERE uid IS NOT NULL")
         conn.execute("CREATE INDEX IF NOT EXISTS ix_archive_uid ON mydata_archive(company_id, uid)")

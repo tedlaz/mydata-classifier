@@ -9,9 +9,9 @@ import db  # noqa: E402
 from mydata_client import MyDataClient  # noqa: E402
 
 c = MyDataClient("u", "k", "dev", own_vat="999758350")
-docs = [NS(mark="1", issuer_vat="999758350", invoice_type="2.1", is_movement_doc=False, is_cancelled=False, issue_date="2026-01-10",
+docs = [NS(mark="1", issuer_vat="999758350", invoice_type="2.1", is_off_books=False, is_cancelled=False, issue_date="2026-01-10",
            has_income_line_classification=False),
-        NS(mark="2", issuer_vat="800000000", invoice_type="2.1", is_movement_doc=False, is_cancelled=False, issue_date="2026-01-10",
+        NS(mark="2", issuer_vat="800000000", invoice_type="2.1", is_off_books=False, is_cancelled=False, issue_date="2026-01-10",
            has_income_line_classification=False)]
 c._parse_requested_doc = lambda root: docs
 c._parse_income_classifications = lambda root: {}

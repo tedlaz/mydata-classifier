@@ -34,6 +34,8 @@ ECLS_NS = "https://www.aade.gr/myDATA/expensesClassificaton/v1.0"
 
 # Τύποι παραστατικών διακίνησης - δεν χαρακτηρίζονται, εξαιρούνται από τη λίστα
 MOVEMENT_INVOICE_TYPES = {"9.3"}
+# Αποδείξεις είσπραξης/επιστροφής POS - αποδεικτικά πληρωμής, όχι έσοδο/έξοδο· μόνο στο «myData λοιπά»
+POS_RECEIPT_TYPES = {"8.4", "8.5"}
 # transactionMode χαρακτηρισμού εξόδων: 1 = απόρριψη, 2 = απόκλιση· 0 (ή κενό) = κανονικός χαρακτηρισμός.
 REJECTION_MODES = ("1", "2")  # Δελτίο Αποστολής
 
@@ -299,9 +301,9 @@ class ExpenseInvoice:
         )
 
     @property
-    def is_movement_doc(self) -> bool:
-        """Παραστατικό διακίνησης (π.χ. 9.3 Δελτίο Αποστολής) - δεν χαρακτηρίζεται."""
-        return (self.invoice_type or "") in MOVEMENT_INVOICE_TYPES
+    def is_off_books(self) -> bool:
+        """Διακίνηση (9.3) ή απόδειξη POS (8.4/8.5) - δεν χαρακτηρίζεται, εκτός βιβλίων."""
+        return (self.invoice_type or "") in MOVEMENT_INVOICE_TYPES | POS_RECEIPT_TYPES
 
     @property
     def is_self_issued(self) -> bool:
@@ -435,7 +437,7 @@ class MyDataClient:
         for root in self._pages("RequestTransmittedDocs", self._query(date_from, date_to, mark)):
             for inv in self._parse_requested_doc(root):
                 if (inv.invoice_type or "") in SELF_EXPENSE_DOC_TYPES or (
-                    self._recipient_transmitted(inv) and not inv.is_movement_doc
+                    self._recipient_transmitted(inv) and not inv.is_off_books
                 ):
                     self_invoices.append(inv)
             cls_map.update(self._parse_expenses_classifications(root))
@@ -493,7 +495,7 @@ class MyDataClient:
         return [
             i
             for i in invoices
-            if not i.is_movement_doc
+            if not i.is_off_books
             and i.mark not in cancelled_marks
             and i.mark not in cls_map
             and not i.has_embedded_classification
@@ -511,7 +513,7 @@ class MyDataClient:
         invoices, cls_map, cancelled_marks = self._fetch_all(date_from, date_to, marks)
         result = []
         for i in invoices:
-            if i.is_movement_doc or i.mark in cancelled_marks:
+            if i.is_off_books or i.mark in cancelled_marks:
                 continue
             if i.mark not in cls_map and not i.has_embedded_classification:
                 continue
@@ -557,7 +559,7 @@ class MyDataClient:
         for root in self._pages("RequestTransmittedDocs", self._query(date_from, query_to, mark)):
             for inv in self._parse_requested_doc(root):
                 itype = inv.invoice_type or ""
-                if itype in SELF_EXPENSE_DOC_TYPES or inv.is_movement_doc or self._recipient_transmitted(inv):
+                if itype in SELF_EXPENSE_DOC_TYPES or inv.is_off_books or self._recipient_transmitted(inv):
                     continue  # αυτοτιμολογούμενα έξοδα / διακίνηση / διαβίβαση από λήπτη — όχι έσοδα
                 if mark is None and not _in_range(inv, date_from, date_to):
                     continue  # εκδόθηκε μετά την περίοδο: ήρθε μόνο λόγω κλήσης έως σήμερα

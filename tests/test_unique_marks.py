@@ -7,7 +7,7 @@ from types import SimpleNamespace as NS
 os.environ["MYDATA_DATA_DIR"] = tempfile.mkdtemp()
 from mydata_client import MyDataClient  # noqa: E402
 
-doc = dict(invoice_type="1.1", issue_date="2025-01-23", is_movement_doc=False, is_cancelled=False,
+doc = dict(invoice_type="1.1", issue_date="2025-01-23", is_off_books=False, is_cancelled=False,
            has_embedded_classification=True, has_income_line_classification=True, income_classifications=[],
            counterpart_vat="", lines=[], issuer_vat="")
 c = MyDataClient("u", "k", "dev")

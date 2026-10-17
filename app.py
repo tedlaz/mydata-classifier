@@ -4113,6 +4113,8 @@ HISTORY_CATEGORIES = {
                   "Το ίδιο παραστατικό διαβιβάστηκε ξανά με νέο MARK· στα βιβλία μετρά μόνο το νεότερο"),
     "foreign": ("Παραστατικά άλλων ληπτών", "Με εκδότη εμάς, διαβιβασμένα από τον λήπτη για δικό του έξοδο (π.χ. 13.1)"),
     "movement": ("Παραστατικά διακίνησης", "Δελτία αποστολής — δεν χαρακτηρίζονται· με χρώμα όσα είναι άλλων ληπτών"),
+    "pos": ("Αποδείξεις είσπραξης / επιστροφής POS",
+            "Αποδεικτικά πληρωμής με κάρτα (8.4, 8.5) — δεν είναι έσοδο ή έξοδο, δεν χαρακτηρίζονται"),
     "other": ("Λοιπά παραστατικά εκτός βιβλίων", "Παραστατικά του myDATA που δεν είναι στα βιβλία της εφαρμογής"),
     "rejection": ("Απορρίψεις / αποκλίσεις", "Χαρακτηρισμοί με απόρριψη ή απόκλιση (transactionMode)"),
     "expenses_cls": ("Προηγούμενοι χαρακτηρισμοί εξόδων", "Χαρακτηρισμοί εξόδων που αντικαταστάθηκαν από νεότερους"),
@@ -4125,7 +4127,7 @@ HISTORY_CATEGORIES = {
 
 def _history_category(row: dict, own_vat: str, cancelled: set) -> str:
     """Κατηγορία μίας εγγραφής του κουβά (κλειδί του HISTORY_CATEGORIES)."""
-    from mydata_client import MOVEMENT_INVOICE_TYPES
+    from mydata_client import MOVEMENT_INVOICE_TYPES, POS_RECEIPT_TYPES
 
     kind = row["kind"]
     if kind == "cancel":  # μαζί με το παραστατικό που ακυρώνει
@@ -4144,6 +4146,8 @@ def _history_category(row: dict, own_vat: str, cancelled: set) -> str:
         return "cancelled"
     if row.get("dup_of"):
         return "duplicate"
+    if (row.get("invoice_type") or "") in POS_RECEIPT_TYPES:
+        return "pos"
     if (row.get("invoice_type") or "") in MOVEMENT_INVOICE_TYPES:  # και όσα είναι άλλων ληπτών (row["foreign"])
         return "movement"
     if _history_foreign(row, own_vat):
