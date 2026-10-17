@@ -1074,6 +1074,19 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .yr-tip em{margin-left:auto;padding-left:24px;white-space:nowrap;font-style:normal;font-family:var(--font-data);font-weight:600;color:var(--ink)}
 .yr-tip-bal{margin-top:6px;padding-top:8px !important;border-top:1px solid var(--line-soft);font-weight:700;color:var(--ink) !important}
 .yr-tip-bal em{color:var(--ok)} .yr-tip-bal.is-neg em{color:var(--err)}
+/* Συνοπτικό βιβλίο: συμπαγής πίνακας, σταθερά πάνω αριστερά στο διάγραμμα. */
+.yr-tip--c{transform:none;min-width:0;padding:7px 10px;font-size:.74rem}
+.yr-tip--c b{margin-bottom:4px;padding-bottom:3px;font-size:.8rem}
+.yr-tip--c table{border-collapse:collapse;font-variant-numeric:tabular-nums}
+.yr-tip--c th,.yr-tip--c td{padding:1px 0;white-space:nowrap;text-align:right;font-weight:500}
+.yr-tip--c :is(th,td) + :is(th,td){padding-left:14px}
+.yr-tip--c tbody th{text-align:left;color:var(--ink-2)}
+.yr-tip--c thead th{font-size:.66rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.yr-tip--c td{font-family:var(--font-data);color:var(--ink)}
+.yr-tip--c .yr-dot{margin-right:5px}
+.yr-tip--c .yr-tip-sub :is(th,td){color:var(--muted);font-size:.68rem}
+.yr-tip--c .yr-tip-res :is(th,td){border-top:1px solid var(--line-soft);padding-top:3px;font-weight:700}
+.yr-tip--c .is-pos{color:var(--ok)} .yr-tip--c .is-neg{color:var(--err)}
 
 .yr-table-card{position:relative;padding:6px 0 0}
 .yr-scroll{overflow-x:auto;container-type:inline-size}
@@ -2105,6 +2118,11 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .fc-line--in{stroke:var(--yr-in)} .fc-line--out{stroke:var(--yr-out)} .fc-line--res{stroke:var(--fc-res);stroke-width:3}
 .fc-area{stroke:none;opacity:0;animation:fc-fade .8s var(--ease) forwards .5s}
 .fc-area--in{fill:var(--yr-in-soft)} .fc-area--out{fill:var(--yr-out-soft)}
+.fc-bar{opacity:.8;transform-box:fill-box;transform-origin:50% 100%;animation:fc-grow .9s var(--ease) both;animation-delay:calc(var(--i) * 55ms + 300ms)}
+@keyframes fc-grow{from{transform:scaleY(0)}}
+.fc-mm{fill:none;stroke:var(--line-soft);stroke-width:.4;opacity:.7} .fc-mm--5{stroke:var(--line);stroke-width:.6}
+.fc-bar--in{fill:var(--yr-in)} .fc-bar--out{fill:var(--yr-out)}
+.fc-dot--bar{border-radius:2px;background:linear-gradient(90deg,var(--yr-in) 50%,var(--yr-out) 50%);opacity:.6}
 .fc-fan{fill:color-mix(in srgb,var(--fan) 14%,transparent);stroke:color-mix(in srgb,var(--fan) 45%,transparent);stroke-width:1;
   opacity:0;animation:fc-fade .9s var(--ease) forwards 1.3s}
 .fc-prev{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:1 4;stroke-linecap:round;opacity:.8}

@@ -21,6 +21,18 @@
     <div class="db-hero-in">
       <div>
         <a class="yr-hero-back" href="{{ url_for('reports') }}">← Αναφορές</a>
+        <script>
+        // «←» στη σελίδα από όπου άνοιξε (όπως στο Φ2)· αλλαγές έτους/φίλτρων και η Ανάλυση Ε3 δεν το αλλάζουν.
+        (function () {
+          const NAMES = {'/dashboard': 'Πίνακας ελέγχου', '/reports': 'Αναφορές', '/reports/vat': 'Δήλωση ΦΠΑ'};
+          try {
+            const r = document.referrer ? new URL(document.referrer) : null;
+            if (r && r.origin === location.origin && !r.pathname.startsWith('/reports/yearly')) sessionStorage.setItem('yr-back', r.pathname + r.search);
+            const back = sessionStorage.getItem('yr-back'), a = document.currentScript.previousElementSibling;
+            if (back) { a.href = back; a.textContent = '← ' + (NAMES[back.split('?')[0]] || 'Πίσω'); }
+          } catch (_) {}
+        })();
+        </script>
         <h1>Συνοπτικό βιβλίο <span class="yr-hero-year">{{ year }}</span></h1>
         <p class="db-hi">Ανά μήνα, όπως η «Σύνοψη» της πύλης myDATA{{ ' · μαζί με τα αχαρακτήριστα' if unc }}</p>
       </div>
@@ -76,6 +88,7 @@
           <li><i class="yr-dot yr-dot--in"></i>Έσοδα</li>
           <li><i class="yr-dot yr-dot--out"></i>Σύνολο εξόδων</li>
           <li><i class="yr-dot fc-dot--res"></i>Υπόλοιπο</li>
+          <li><i class="yr-dot fc-dot--bar"></i>Ανά μήνα</li>
           {% if has_prev %}<li><i class="fc-dash"></i>Υπόλοιπο {{ prev_year }}</li>{% endif %}
         </ul>
       </div>
@@ -83,7 +96,13 @@
       <div class="yr-plot fc-plot">
         <svg viewBox="0 0 {{ c.w }} {{ c.h }}" role="img"
              aria-label="Σωρευτικά έσοδα, έξοδα και υπόλοιπο {{ year }}: έσοδα {{ income_total.net|el_amount }} €, έξοδα {{ expense_total.net|el_amount }} €, υπόλοιπο {{ balance|el_amount }} € — αναλυτικά στον πίνακα παρακάτω">
-          <defs><clipPath id="fc-reveal"><rect class="fc-reveal" x="0" y="0" width="{{ c.w }}" height="{{ c.h }}"/></clipPath></defs>
+          <defs><clipPath id="fc-reveal"><rect class="fc-reveal" x="0" y="0" width="{{ c.w }}" height="{{ c.h }}"/></clipPath>
+            {# Μιλιμετρέ: λεπτές γραμμές ανά 5, λίγο εντονότερες ανά 25 (μονάδες viewBox). #}
+            <pattern id="fc-mm" x="{{ c.left }}" y="{{ c.top }}" width="25" height="25" patternUnits="userSpaceOnUse">
+              <path class="fc-mm" d="M5 0V25M10 0V25M15 0V25M20 0V25M0 5H25M0 10H25M0 15H25M0 20H25"/>
+              <path class="fc-mm fc-mm--5" d="M0 0V25M0 0H25"/>
+            </pattern></defs>
+          <rect fill="url(#fc-mm)" x="{{ c.left }}" y="{{ c.top }}" width="{{ c.right - c.left }}" height="{{ c.base - c.top }}"/>
           {% for t in c.ticks %}
           <line class="yr-grid {{ 'yr-grid--base' if t.v == 0 }}" x1="{{ c.left }}" x2="{{ c.right }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
           <text class="yr-tick" x="{{ c.left - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ '{:,.0f}'.format(t.v).replace(',', '.') }}</text>
@@ -91,9 +110,14 @@
           {% for m in c.months %}
           <text class="yr-month {{ 'is-now' if loop.index == current_month }}" x="{{ m.cx }}" y="{{ c.h - 9 }}" text-anchor="middle">{{ m.label }}</text>
           {% endfor %}
+          {# Μηνιαία έσοδα/έξοδα (ίδια κλίμακα) πίσω από τις σωρευτικές γραμμές. #}
+          <g class="fc-bars">
+            {% for m in c.months %}
+            <rect class="fc-bar fc-bar--in" style="--i:{{ loop.index0 }}" x="{{ m.bar_in.x }}" y="{{ m.bar_in.y }}" width="{{ m.bw }}" height="{{ m.bar_in.h }}" rx="3"/>
+            <rect class="fc-bar fc-bar--out" style="--i:{{ loop.index0 }}" x="{{ m.bar_out.x }}" y="{{ m.bar_out.y }}" width="{{ m.bw }}" height="{{ m.bar_out.h }}" rx="3"/>
+            {% endfor %}
+          </g>
           <g clip-path="url(#fc-reveal)">
-            <path class="fc-area fc-area--in" d="{{ c.in.area }}"/>
-            <path class="fc-area fc-area--out" d="{{ c.out.area }}"/>
             {% if has_prev %}<path class="fc-prev" d="{{ c.prev }}"/>{% endif %}
             {% for key in ('in', 'out', 'res') %}<path class="fc-line fc-line--{{ key }}{{ ' is-unsure' if key == 'res' and stock_chk.unsure }}" d="{{ c[key].actual or c[key].future }}"/>{% endfor %}
           </g>
@@ -115,7 +139,7 @@
           </g>
           {% endfor %}
         </svg>
-        <div class="yr-tip" role="status" hidden></div>
+        <div class="yr-tip yr-tip--c" role="status" hidden></div>
       </div>
       {{ vat_tiles(vat_periods) }}
     </section>
@@ -219,24 +243,18 @@
   // ---- Διάγραμμα: tooltip ανά μήνα (οι στήλες μένουν ίδιοι κόμβοι και στις ανανεώσεις) ----
   const plot = $('.yr-plot'), ptip = plot.querySelector('.yr-tip');
   function showCol(g) {
-    const d = g.dataset, box = plot.getBoundingClientRect(), r = g.querySelector('.yr-hit').getBoundingClientRect();
-    // Δύο στήλες δίπλα-δίπλα: ο μήνας και τα σωρευτικά έως τον μήνα (σε στοίβα δεν χωρά στο ύψος του διαγράμματος).
-    ptip.innerHTML = '<b>' + d.month + '</b><div class="yr-tip-2"><div><b class="yr-tip-sec">Μήνας</b>' +
-      '<span><i class="yr-dot yr-dot--in"></i>Έσοδα<em>' + d.in + ' €</em></span>' +
-      (d.assets
-        ? '<span><i class="yr-dot yr-dot--out"></i>Έξοδα χωρίς πάγια<em>' + d.op + ' €</em></span>' +
-          '<span><i class="yr-dot yr-dot--asset"></i>Αγορές παγίων<em>' + d.assets + ' €</em></span>' +
-          '<span class="yr-tip-sum">Σύνολο εξόδων<em>' + d.out + ' €</em></span>'
-        : '<span><i class="yr-dot yr-dot--out"></i>Έξοδα<em>' + d.out + ' €</em></span>') +
-      '<span class="yr-tip-bal' + (d.neg === '1' ? ' is-neg' : '') + '">Καθαρό κέρδος<em>' + d.profit + ' €</em></span>' +
-      '</div><div><b class="yr-tip-sec">Σωρευτικά από Ιανουάριο</b>' +
-      '<span><i class="yr-dot yr-dot--in"></i>Έσοδα<em>' + d.cin + ' €</em></span>' +
-      '<span><i class="yr-dot yr-dot--out"></i>Σύνολο εξόδων<em>' + d.cout + ' €</em></span>' +
-      '<span class="yr-tip-bal' + (d.cneg === '1' ? ' is-neg' : '') + '">Υπόλοιπο εσ. − εξ.<em>' + d.cres + ' €</em></span>' +
-      (d.prev ? '<span class="yr-tip-sum">Πέρσι ίδιο διάστημα<em>' + d.prev + ' €</em></span>' : '') + '</div></div>';
+    const d = g.dataset, box = plot.getBoundingClientRect();
+    // Συμπαγής πίνακας: γραμμή | μήνας | σωρευτικά από Ιανουάριο· σταθερά πάνω αριστερά.
+    const row = (cls, label, m, c) => '<tr class="' + cls + '"><th>' + label + '</th><td>' + m + '</td><td>' + c + '</td></tr>';
+    ptip.innerHTML = '<b>' + d.month + '</b><table><thead><tr><th></th><th>Μήνας</th><th>Σωρευτικά</th></tr></thead><tbody>' +
+      row('', '<i class="yr-dot yr-dot--in"></i>Έσοδα', d.in, d.cin) +
+      row('', '<i class="yr-dot yr-dot--out"></i>Έξοδα', d.out, d.cout) +
+      (d.assets ? row('yr-tip-sub', 'εκ των οποίων πάγια', d.assets, '') : '') +
+      row('yr-tip-res', 'Αποτέλεσμα', '<span class="' + (d.neg === '1' ? 'is-neg' : 'is-pos') + '">' + d.profit + '</span>',
+          '<span class="' + (d.cneg === '1' ? 'is-neg' : 'is-pos') + '">' + d.cres + '</span>') +
+      (d.prev ? row('yr-tip-sub', 'Πέρσι ίδιο διάστημα', '', d.prev) : '') + '</tbody></table>';
     ptip.hidden = false;
-    const x = r.left - box.left + r.width / 2;
-    ptip.style.left = Math.min(Math.max(x, ptip.offsetWidth / 2 + 4), box.width - ptip.offsetWidth / 2 - 4) + 'px';
+    ptip.style.left = (plot.querySelector('.yr-hit').getBoundingClientRect().left - box.left + 6) + 'px';  // πάνω αριστερά, μέσα στο πλαίσιο
     plot.querySelectorAll('.yr-col').forEach(c => c.classList.toggle('is-active', c === g));
   }
   function hideCol() { ptip.hidden = true; plot.querySelectorAll('.yr-col').forEach(c => c.classList.remove('is-active')); }

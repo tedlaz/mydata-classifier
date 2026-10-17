@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import vat_tiles, month_spark with context %}
+{% from "_months.html" import month_style, month_legend, year_strip %}
 {% block title %}Πίνακας ελέγχου{% endblock %}
 {% set status_names = {'unclassified': 'Αχαρακτήριστο', 'classified': 'Προς αποστολή', 'sent': 'Απεσταλμένο', 'confirmed': 'Επιβεβαιωμένο'} %}
 {% macro num(v, cls='') -%}<span class="{{ cls }}" data-num="{{ v }}">{{ v|el_amount }}</span>{%- endmacro %}
@@ -146,7 +147,10 @@
 .db > .db-hero{padding:clamp(14px,2vw,20px);border-radius:18px}
 .db > .db-hero .db-hero-in{align-items:center;gap:14px 24px}
 .db > .db-hero h1{font-size:clamp(1.4rem,3vw,1.95rem)}
-.db > .db-hero .db-meta{margin-top:8px}
+.db-title{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.db > .db-hero .db-meta{margin-top:0}
+.db-hero-strip{position:relative;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)}
+.db-hero-strip .sy-legend > span:last-child{display:none}  /* Shift+κλικ: μόνο στην Ανάκτηση */
 .db > .db-hero .db-kpis{margin-top:14px;gap:8px}
 .db > .db-hero .db-kpi{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:7px 12px;border-radius:10px}
 .db > .db-hero .db-kpi small{white-space:nowrap}
@@ -159,11 +163,13 @@
     <span class="db-blob b1"></span><span class="db-blob b2"></span><span class="db-blob b3"></span>
     <div class="db-hero-in">
       <div>
-        <h1>{{ company.company_name }}</h1>
-        <div class="db-meta">
-          {% if company.AADE_VAT_NUMBER %}<span class="db-chip">ΑΦΜ {{ company.AADE_VAT_NUMBER }}</span>{% endif %}
-          <span class="db-chip {{ 'is-dev' if company.MYDATA_ENV == 'dev' }}">{{ '🟡 Δοκιμαστικό' if company.MYDATA_ENV == 'dev' else '🟢 Παραγωγή' }}</span>
-          <span class="db-chip">ΦΠΑ {{ 'τριμηνιαίος' if vat.kind == 'q' else 'μηνιαίος' }}</span>
+        <div class="db-title">
+          <h1>{{ company.company_name }}</h1>
+          <div class="db-meta">
+            {% if company.AADE_VAT_NUMBER %}<span class="db-chip">ΑΦΜ {{ company.AADE_VAT_NUMBER }}</span>{% endif %}
+            <span class="db-chip {{ 'is-dev' if company.MYDATA_ENV == 'dev' }}">{{ '🟡 Δοκιμαστικό' if company.MYDATA_ENV == 'dev' else '🟢 Παραγωγή' }}</span>
+            <span class="db-chip">ΦΠΑ {{ 'τριμηνιαίος' if vat.kind == 'q' else 'μηνιαίος' }}</span>
+          </div>
         </div>
       </div>
       <div class="db-spark">
@@ -174,20 +180,38 @@
 
     {# Συμπαγή KPI: μία γραμμή το καθένα· οι εξηγήσεις στο title. #}
     <div class="db-kpis">
-      <a class="db-kpi" style="--i:0" href="{{ url_for('reports_yearly', year=year) }}" title="Καθαρά έσοδα από την αρχή του {{ year }}">
+      <a class="db-kpi" style="--i:0" href="{{ url_for('income', f_date=year) }}" title="Καθαρά έσοδα από την αρχή του {{ year }}">
         <small><i class="db-dot" style="background:var(--yr-in)"></i>Έσοδα {{ year }}</small><b>{{ num(kpi.income) }}<i>€</i></b>
       </a>
-      <a class="db-kpi" style="--i:1" href="{{ url_for('reports_yearly', year=year) }}" title="Καθαρά έξοδα από την αρχή του {{ year }}">
+      <a class="db-kpi" style="--i:1" href="{{ url_for('invoices', f_date=year) }}" title="Καθαρά έξοδα από την αρχή του {{ year }}">
         <small><i class="db-dot" style="background:var(--yr-out)"></i>Έξοδα {{ year }}</small><b>{{ num(kpi.expense) }}<i>€</i></b>
       </a>
-      <div class="db-kpi" style="--i:2" title="Έσοδα − έξοδα από την αρχή του έτους">
+      <a class="db-kpi" style="--i:2" href="{{ url_for('reports_yearly', year=year) }}" title="Έσοδα − έξοδα από την αρχή του έτους">
         <small>📈 Αποτέλεσμα</small><b>{{ num(kpi.result, 'neg' if kpi.result < 0) }}<i>€</i></b>
-      </div>
-      <div class="db-kpi" style="--i:3" title="ΦΠΑ εκροών − εισροών: {{ 'χρεωστικό' if kpi.vat > 0 else 'πιστωτικό' }} από τα τιμολόγια του έτους">
+      </a>
+      <a class="db-kpi" style="--i:3" href="{{ url_for('reports_vat', year=vat.year, period=vat.period) }}" title="ΦΠΑ εκροών − εισροών: {{ 'χρεωστικό' if kpi.vat > 0 else 'πιστωτικό' }} από τα τιμολόγια του έτους">
         <small>🧮 ΦΠΑ</small><b>{{ num(kpi.vat, 'neg' if kpi.vat < 0) }}<i>€</i></b>
-      </div>
+      </a>
+    </div>
+
+    {# Λωρίδα ετών/μηνών όπως στην Ανάκτηση: κλικ σε μήνα/τρίμηνο = Ανάκτηση με αυτό το διάστημα. #}
+    {{ month_style() }}
+    <div class="db-hero-strip sy-strip sy-strip--dark" aria-label="Παραστατικά ανά μήνα" data-href="{{ strip_href }}">
+      {{ month_legend('both') }}
+      {{ year_strip(strip, 'both') }}
     </div>
   </section>
+  <script>
+  document.querySelector('.db-hero-strip').addEventListener('click', function(e){
+    var b = e.target.closest('[data-preset=month-of],[data-preset=quarter-of]');
+    if (!b) return;
+    var pad = function(n){ return String(n).padStart(2, '0'); }, y, m1, m2;
+    if (b.dataset.ym) { y = b.dataset.ym.slice(0, 4); m1 = m2 = +b.dataset.ym.slice(5); }
+    else { y = b.dataset.y; m2 = 3 * b.dataset.q; m1 = m2 - 2; }
+    location.href = this.dataset.href + '&' + new URLSearchParams({date_from: y + '-' + pad(m1) + '-01',
+      date_to: y + '-' + pad(m2) + '-' + new Date(+y, m2, 0).getDate()});
+  });
+  </script>
 
   {# ================= Εκκρεμότητες + ΦΠΑ ================= #}
   <div class="db-grid">

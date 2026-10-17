@@ -4878,7 +4878,13 @@ def _forecast_chart(inc: list[float], out: list[float], res_m: list[float], prev
     for e in ends:
         e["y"], e["ly"] = y(e["v"]), max(y(e["v"]), last + 15)
         last = e["ly"]
+    bw = min(12.0, slot * 0.2)
+
+    def bar(i: int, dx: float, v: float) -> dict:  # μηνιαία μπάρα από το 0 έως το v (αρνητικό: προς τα κάτω)
+        return {"x": round(x(i) + dx, 1), "y": min(y(0), y(v)), "h": abs(y(v) - y(0))}
+
     months = [{"label": _GREEK_MONTHS[i], "cx": x(i), "x": round(left + slot * i, 1), "w": round(slot, 1),
+               "bar_in": bar(i, -bw - 1, inc[i]), "bar_out": bar(i, 1, out[i]), "bw": round(bw, 1),
                "in": round(ci[i], 2), "out": round(co[i], 2), "res": round(res[i], 2), "prev": round(pr[i], 2),
                "forecast": i >= done, "dep": dep if i == n - 1 else 0,
                **{f"{key}_{k}": bands[key][0][k][i - done] if key in bands and i >= done else None
@@ -5458,6 +5464,9 @@ def dashboard():
         top_in=top_in, top_in_max=max([t["amount"] for t in top_in] + [1]), recent=recent,
         type_names=INVOICE_TYPE_NAMES,
         months=months, this_month=months[-1], monthly=db.company_month_counts(months[0] + "-01").get(cid, {}),
+        strip=_month_strip(cid, _SYNC_SCOPES["both"]),
+        # Κλικ σε μήνα/τρίμηνο της λωρίδας → Ανάκτηση με αυτό το διάστημα (σε τρόπο MARK: καρτέλα προηγούμενων περιόδων).
+        strip_href=url_for("sync", tab="past" if (db.get_setting("sync_mode") or "mark") == "mark" else "main"),
     )
 
 
