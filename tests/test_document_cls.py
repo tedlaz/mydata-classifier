@@ -256,9 +256,12 @@ REPLIES = {
     "RequestE3Info": f"<RequestedE3Info {NSX}><E3Info><V_Mark>4001</V_Mark><V_Class_Category>category2_4</V_Class_Category>"
                      f"<V_Class_Type>E3_585_016</V_Class_Type><V_Class_Value>72.12</V_Class_Value></E3Info>"
                      f"<E3Info><V_Mark>4001</V_Mark><V_Class_Category>category2_7</V_Class_Category>"
+                     f"<V_Class_Type>E3_882_001</V_Class_Type><V_Class_Value>314.97</V_Class_Value></E3Info>"
+                     f"<E3Info><V_Mark>4001</V_Mark><V_Class_Category>category2_7</V_Class_Category>"  # διπλή εγγραφή ΑΑΔΕ
                      f"<V_Class_Type>E3_882_001</V_Class_Type><V_Class_Value>314.97</V_Class_Value></E3Info></RequestedE3Info>",
     "RequestVatInfo": f"<RequestedVatInfo {NSX}><VatInfo><Mark>4001</Mark><Vat361>72.12</Vat361><Vat362>314.97</Vat362>"
-                      f"<Vat381>17.31</Vat381></VatInfo><VatInfo><Mark>4999</Mark><Vat361>1</Vat361></VatInfo></RequestedVatInfo>",
+                      f"<Vat381>17.31</Vat381></VatInfo><VatInfo><Mark>4001</Mark><Vat361>72.12</Vat361></VatInfo>"
+                      f"<VatInfo><Mark>4999</Mark><Vat361>1</Vat361></VatInfo></RequestedVatInfo>",
 }
 fake = MyDataClient("u", "k")
 fake.session = NS(get=lambda url, params, timeout: NS(status_code=200, content=REPLIES[url.rsplit("/", 1)[-1]].encode(), text=""))

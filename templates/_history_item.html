@@ -16,4 +16,18 @@
   {% if item.endpoint %}από {{ item.endpoint }} · {% endif %}
   πρώτη λήψη {{ item.first_seen[:10] if item.first_seen }}{% if item.last_seen and item.last_seen[:10] != item.first_seen[:10] %} · τελευταία {{ item.last_seen[:10] }}{% endif %}
 </p>
+{% if valid %}
+<p class="muted small">Ίδιο UID {{ item.uid }}: στα βιβλία μετρά μόνο το νεότερο MARK. <mark class="xml-diff-key">Επισημασμένα</mark> όσα διαφέρουν.</p>
+<div class="xml-cmp">
+  <section>
+    <h3 class="xml-cmp-h is-valid">Έγκυρο · {% if valid.in_books %}<a href="{{ url_for('document', mark=valid.mark, back=url_for('reports_history')) }}">{{ valid.mark }}</a> (στα βιβλία){% else %}{{ valid.mark }}{% endif %}</h3>
+    <div class="xml-tree">{{ xml_nodes(valid.tree) }}</div>
+  </section>
+  <section>
+    <h3 class="xml-cmp-h is-dup">Διπλό · {{ item.mark }}</h3>
+    <div class="xml-tree">{{ xml_nodes(xml_tree) }}</div>
+  </section>
+</div>
+{% else %}
 <div class="xml-tree">{{ xml_nodes(xml_tree) }}</div>
+{% endif %}

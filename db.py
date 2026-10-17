@@ -341,9 +341,33 @@ _DOCUMENT_COLUMNS = {
     # Η ΕΝΕΡΓΗ εγγραφή χαρακτηρισμού του myDATA (MARK = classification_mark), όπως ήρθε· οι υπόλοιπες
     # στον κουβά (mydata_archive) — βλ. archive_sync.
     "cls_xml": "TEXT",
+    # myDATA UID: ένα παραστατικό μία φορά, ακόμα κι αν ξαναδιαβιβάστηκε με νέο MARK (ux_documents_uid).
+    "uid": "TEXT",
 }
 # Στήλες του κουβά που προστέθηκαν μετά τη δημιουργία του.
-_ARCHIVE_COLUMNS = {"event_date": "TEXT", "amount": "REAL"}
+_ARCHIVE_COLUMNS = {"event_date": "TEXT", "amount": "REAL", "uid": "TEXT"}
+_UID_RE = _re.compile(r"<(?:\w+:)?uid>([^<]+)</")
+
+
+def _uid_of(xml: str | None) -> str | None:
+    m = _UID_RE.search(xml or "")
+    return m and m.group(1).strip()
+
+
+def _mark_no(mark: str | None) -> int:
+    return int(mark) if (mark or "").isdigit() else 0
+
+
+def _drop_uid_duplicates(conn) -> None:
+    """Ίδιο UID με πολλά MARK (το myDATA δέχτηκε ξαναδιαβίβαση): στα βιβλία μένει το νεότερο MARK,
+    τα υπόλοιπα στον κουβά (όπως τα ακυρωμένα) — «myDATA λοιπά» → «Διπλές διαβιβάσεις»."""
+    for g in conn.execute("SELECT company_id, uid FROM documents WHERE uid IS NOT NULL "
+                          "GROUP BY company_id, uid HAVING COUNT(*) > 1").fetchall():
+        marks = [r["mark"] for r in conn.execute("SELECT mark FROM documents WHERE company_id = ? AND uid = ?",
+                                                 (g["company_id"], g["uid"]))]
+        where, params = "company_id = ? AND uid = ? AND mark <> ?", (g["company_id"], g["uid"], max(marks, key=_mark_no))
+        _to_archive(conn, where, params)
+        conn.execute(f"DELETE FROM documents WHERE {where}", params)
 EXTRA_TOTALS = ("total_withheld", "total_other_taxes", "total_stamp_duty", "total_fees", "total_deductions")
 # Ανά παραστατικό, ο χαρακτηρισμός ΦΠΑ κρατά κατηγορία ΦΠΑ + ποσό ΦΠΑ της ομάδας.
 _CLASSIFICATION_COLUMNS = {
@@ -476,6 +500,18 @@ def init_db() -> None:
         for col, decl in _ARCHIVE_COLUMNS.items():
             if col not in arc_cols:
                 conn.execute(f"ALTER TABLE mydata_archive ADD COLUMN {col} {decl}")
+        # UID από το XML όσων δεν το έχουν ακόμα (παλιές εγγραφές), μετά ένα UID = ένα παραστατικό στη βάση.
+        for t, c, extra in (("documents", "raw_xml", ""), ("mydata_archive", "xml", " AND kind = 'invoice'")):
+            rows = conn.execute(f"SELECT rowid AS r, {c} AS x FROM {t} WHERE uid IS NULL "
+                                f"AND COALESCE({c}, '') <> ''{extra}").fetchall()
+            if rows and t == "documents":  # η συμπλήρωση μπορεί να φέρει διπλό UID: index ξανά μετά το _drop_uid_duplicates
+                conn.execute("DROP INDEX IF EXISTS ux_documents_uid")
+            conn.executemany(f"UPDATE {t} SET uid = ? WHERE rowid = ?",
+                             [(u, r["r"]) for r in rows if (u := _uid_of(r["x"]))])
+        _drop_uid_duplicates(conn)
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_documents_uid ON documents(company_id, uid) "
+                     "WHERE uid IS NOT NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_archive_uid ON mydata_archive(company_id, uid)")
         # myDATA = documents + κουβάς: κάθε εγγραφή (kind, mark) ακριβώς μία φορά. Μετά τα ALTER (raw_xml, cls_xml).
         conn.execute("DROP VIEW IF EXISTS mydata_all")
         conn.execute(
@@ -503,15 +539,16 @@ _CLS_KINDS = "('expenses_cls', 'income_cls')"
 def _archive_upsert(conn, company_id: int, rows: list[dict], now: str) -> None:
     conn.executemany(
         "INSERT INTO mydata_archive (company_id, kind, mark, invoice_mark, endpoint, issue_date, invoice_type, "
-        "issuer_vat, counterpart_vat, event_date, amount, xml, first_seen, last_seen) VALUES (:company_id, "
+        "issuer_vat, counterpart_vat, event_date, amount, xml, uid, first_seen, last_seen) VALUES (:company_id, "
         ":kind, :mark, :invoice_mark, :endpoint, :issue_date, :invoice_type, :issuer_vat, :counterpart_vat, "
-        ":event_date, :amount, :xml, :now, :now) ON CONFLICT (company_id, kind, mark) DO UPDATE SET "
+        ":event_date, :amount, :xml, :uid, :now, :now) ON CONFLICT (company_id, kind, mark) DO UPDATE SET "
         "invoice_mark = excluded.invoice_mark, endpoint = COALESCE(excluded.endpoint, endpoint), "
+        "uid = COALESCE(excluded.uid, uid), "
         "issue_date = excluded.issue_date, invoice_type = excluded.invoice_type, "
         "issuer_vat = excluded.issuer_vat, counterpart_vat = excluded.counterpart_vat, "
         "event_date = excluded.event_date, amount = excluded.amount, "
         "xml = excluded.xml, last_seen = excluded.last_seen",
-        [{**r, "xml": _z(r["xml"]), "company_id": company_id, "now": now} for r in rows],
+        [{"uid": None, **r, "xml": _z(r["xml"]), "company_id": company_id, "now": now} for r in rows],
     )
 
 
@@ -578,6 +615,11 @@ def archive_rows(company_id: int | None) -> list[dict]:
             "instr(unz(a.xml), 'cancelledByMark') > 0 AS has_cancelled_by, "
             "(instr(unz(a.xml), 'transactionMode>1<') + instr(unz(a.xml), 'transactionMode>2<')) > 0 AS has_transaction_mode, "
             "d.id IS NOT NULL AS ref_in_books, ai.mark IS NOT NULL AS ref_in_archive, "
+            # ίδιο UID με άλλο MARK: το παραστατικό των βιβλίων ή νεότερη διαβίβαση στον κουβά
+            "COALESCE((SELECT u.mark FROM documents u WHERE u.company_id = a.company_id AND u.uid = a.uid "
+            "AND u.mark <> a.mark), (SELECT MAX(CAST(n.mark AS INTEGER)) FROM mydata_archive n "
+            "WHERE n.company_id = a.company_id AND n.kind = 'invoice' AND n.uid = a.uid "
+            "AND CAST(n.mark AS INTEGER) > CAST(a.mark AS INTEGER))) AS dup_of, "
             # χαρακτηρισμός που αντικαταστάθηκε: ο ενεργός είναι στο documents ή υπάρχει νεότερος στον κουβά
             "(d.id IS NOT NULL OR EXISTS (SELECT 1 FROM mydata_archive n WHERE n.company_id = a.company_id "
             "AND n.kind = a.kind AND n.invoice_mark = a.invoice_mark "
@@ -611,6 +653,21 @@ def archive_item(company_id: int | None, kind: str, mark: str) -> dict | None:
     with get_conn() as conn:
         r = conn.execute("SELECT * FROM mydata_archive WHERE company_id = ? AND kind = ? AND mark = ?",
                          (company_id, kind, mark)).fetchone()
+    return dict(r) if r else None
+
+
+def uid_current(company_id: int | None, uid: str | None, mark: str) -> dict | None:
+    """Η έγκυρη διαβίβαση ενός UID που έχει και άλλο MARK (ίδια λογική με το dup_of του archive_rows):
+    το παραστατικό των βιβλίων, αλλιώς η νεότερη του κουβά. {mark, xml, in_books}."""
+    if not (company_id and uid):
+        return None
+    with get_conn() as conn:
+        r = conn.execute(
+            "SELECT * FROM (SELECT mark, raw_xml AS xml, 1 AS in_books FROM documents WHERE company_id = ? AND uid = ? "
+            "AND mark <> ? UNION ALL SELECT mark, xml, 0 FROM mydata_archive WHERE company_id = ? AND kind = 'invoice' "
+            "AND uid = ? AND CAST(mark AS INTEGER) > CAST(? AS INTEGER)) "
+            "ORDER BY in_books DESC, CAST(mark AS INTEGER) DESC LIMIT 1",
+            (company_id, uid, mark, company_id, uid, mark)).fetchone()
     return dict(r) if r else None
 
 
@@ -1159,7 +1216,20 @@ def upsert_document(
     now = datetime.now(UTC).isoformat(timespec="seconds")
     lines_json = json.dumps(doc.get("lines") or [], ensure_ascii=False)
     cls_json = json.dumps(doc.get("cls_info") or [], ensure_ascii=False)
+    uid = doc.get("uid") or _uid_of(doc.get("raw_xml"))
     with get_conn() as conn:
+        # Ίδιο UID με άλλο MARK (ξαναδιαβίβαση): μετρά μόνο το νεότερο MARK — το άλλο στον κουβά (_drop_uid_duplicates).
+        other = uid and conn.execute(
+            "SELECT id, mark, status, cls_json FROM documents WHERE company_id = ? AND uid = ? AND mark <> ?",
+            (company_id, uid, doc["mark"]),
+        ).fetchone()
+        if other:
+            if _mark_no(other["mark"]) > _mark_no(doc["mark"]):
+                return  # μένει στον κουβά (archive_sync)
+            if other["status"] == "classified" and incoming_status == "unclassified":
+                incoming_status, cls_json = "classified", other["cls_json"]  # τοπικός χαρακτηρισμός δεν χάνεται
+            _to_archive(conn, "id = ?", (other["id"],))
+            conn.execute("DELETE FROM documents WHERE id = ?", (other["id"],))
         existing = conn.execute(
             "SELECT id, status, cls_json FROM documents WHERE company_id = ? AND mark = ?",
             (company_id, doc["mark"]),
@@ -1169,8 +1239,8 @@ def upsert_document(
                 "INSERT INTO documents (company_id, kind, mark, issue_date, "
                 "counterparty_vat, invoice_type, series, aa, "
                 "total_net, total_vat, total_gross, is_self_issued, status, "
-                "lines_json, cls_json, classification_mark, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "lines_json, cls_json, classification_mark, updated_at, uid) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     company_id,
                     kind,
@@ -1189,6 +1259,7 @@ def upsert_document(
                     cls_json,
                     doc.get("classification_mark") or "",
                     now,
+                    uid,
                 ),
             )
             _set_extra_totals(conn, company_id, doc)
@@ -1225,6 +1296,7 @@ def upsert_document(
             new_status,
             lines_json,
             now,
+            uid,
         ]
         if set_cls:
             params.append(cls_json)
@@ -1235,7 +1307,7 @@ def upsert_document(
             "UPDATE documents SET kind = ?, issue_date = ?, counterparty_vat = ?, "
             "invoice_type = ?, series = ?, aa = ?, "
             "total_net = ?, total_vat = ?, total_gross = ?, is_self_issued = ?, "
-            f"status = ?, lines_json = ?, updated_at = ?{set_cls}{set_mark} "
+            f"status = ?, lines_json = ?, updated_at = ?, uid = COALESCE(?, uid){set_cls}{set_mark} "
             "WHERE id = ?",
             params,
         )

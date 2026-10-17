@@ -2504,3 +2504,10 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .xml-row{display:grid;grid-template-columns:minmax(140px,240px) minmax(0,1fr);gap:12px;padding:3px 0;border-bottom:1px dashed var(--line-soft)}
 .xml-row span{color:var(--muted)}
 .xml-row b{font-family:var(--font-data);font-weight:600;overflow-wrap:anywhere}
+/* Διπλή διαβίβαση (ίδιο UID): έγκυρο αριστερά, διπλό δεξιά· επισήμανση όσων διαφέρουν. */
+.xml-cmp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:720px){.xml-cmp{grid-template-columns:minmax(0,1fr)}}
+.xml-cmp .xml-row{grid-template-columns:minmax(110px,180px) minmax(0,1fr)}
+.xml-cmp-h{margin:8px 0 0;font-size:.95rem}
+.xml-cmp-h.is-valid{color:var(--ok)} .xml-cmp-h.is-dup{color:var(--err)}
+.xml-row.is-diff,.xml-diff-key{background:var(--warn-soft);color:inherit;border-radius:4px}

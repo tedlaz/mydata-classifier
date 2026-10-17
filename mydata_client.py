@@ -151,6 +151,7 @@ def archive_records(content: bytes, endpoint: str = "") -> list[dict]:
         rows.append({
             "kind": kind, "mark": mark, "endpoint": endpoint, "xml": _invoice_xml(el),
             "invoice_mark": None if inv else text(el, "invoiceMark"),
+            "uid": text(el, "uid") if inv else None,
             "issue_date": text(el, "invoiceHeader", "issueDate") if inv else None,
             "invoice_type": text(el, "invoiceHeader", "invoiceType") if inv else None,
             "issuer_vat": text(el, "issuer", "vatNumber") if inv else None,
@@ -187,6 +188,12 @@ def _continuation(root: ET.Element) -> tuple[str | None, str | None]:
 def _today_gr() -> str:
     """Σήμερα (dd/mm/yyyy) σε ώρα Ελλάδας, ώστε να μην εξαρτάται από τη ζώνη του server."""
     return datetime.now(ZoneInfo("Europe/Athens")).strftime("%d/%m/%Y")
+
+
+def _unique(invoices: list) -> list:
+    """Κάθε MARK μία φορά (το πρώτο): η ΑΑΔΕ / επικάλυψη σελίδων μπορεί να φέρει το ίδιο παραστατικό ξανά."""
+    seen: set = set()
+    return [i for i in invoices if not (i.mark in seen or seen.add(i.mark))]
 
 
 def _in_range(inv, date_from: str, date_to: str) -> bool:
@@ -404,7 +411,7 @@ class MyDataClient:
                 invoices.append(inv)
             cls_map.update(self._parse_expenses_classifications(root))
             cancelled_marks |= self._parse_cancelled_invoices(root)
-        return invoices, cls_map, cancelled_marks
+        return _unique(invoices), cls_map, cancelled_marks
 
     def request_transmitted(self, date_from: str | None, date_to: str | None, mark=None):
         """
@@ -433,7 +440,7 @@ class MyDataClient:
                     self_invoices.append(inv)
             cls_map.update(self._parse_expenses_classifications(root))
             cancelled_marks |= self._parse_cancelled_invoices(root)
-        return self_invoices, cls_map, cancelled_marks
+        return _unique(self_invoices), cls_map, cancelled_marks
 
     def new_since(self, endpoint: str, mark: int) -> tuple[int, list[tuple[str, str]], set[str]]:
         """
@@ -551,7 +558,7 @@ class MyDataClient:
 
         unclassified: list[ExpenseInvoice] = []
         classified: list[ExpenseInvoice] = []
-        for i in invoices:
+        for i in _unique(invoices):
             if i.mark in cancelled_marks:
                 continue
             if i.mark in cls_map:
@@ -741,16 +748,18 @@ class MyDataClient:
             if not (r.get("V_Class_Category") or "category2_").startswith("category"):
                 continue
             if r.get("V_Mark") and (r.get("V_Class_Type") or r.get("V_Class_Category")):
-                entries.setdefault(r["V_Mark"], []).append(
-                    {"line": None, "type": r.get("V_Class_Type") or None,
+                e = {"line": None, "type": r.get("V_Class_Type") or None,
                      "category": r.get("V_Class_Category") or None, "amount": _f(r.get("V_Class_Value"))}
-                )
+                # Η ΑΑΔΕ επιστρέφει κάποτε την ίδια εγγραφή πολλές φορές (π.χ. 17.5 απογραφή ×3): χωρίς
+                # αριθμό γραμμής, ίδιος (τύπος, κατηγορία, ποσό) στο ίδιο MARK = διπλή, όχι δεύτερη γραμμή.
+                if e not in entries.setdefault(r["V_Mark"], []):
+                    entries[r["V_Mark"]].append(e)
         for r in self._request_info("RequestVatInfo", date_from, date_to):
             if r.get("Mark") in entries:  # ΦΠΑ μόνο δίπλα σε Ε3 του ίδιου παραστατικού
-                entries[r["Mark"]] += [
+                entries[r["Mark"]] += [e for e in (
                     {"line": None, "type": "VAT_" + k[3:], "amount": _f(v)}
                     for k, v in r.items() if k.startswith("Vat36") and v
-                ]
+                ) if e not in entries[r["Mark"]]]
         return {m: {"entries": e, "cls_mark": ""} for m, e in entries.items()}
 
     @staticmethod

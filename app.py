@@ -768,6 +768,7 @@ def _invoice_to_doc(inv) -> dict:
     """Σειριοποιεί ExpenseInvoice σε dict για αποθήκευση στον πίνακα documents."""
     return {
         "mark": inv.mark,
+        "uid": getattr(inv, "uid", None),
         "issue_date": inv.issue_date,
         "issuer_vat": inv.issuer_vat,
         "issuer_name": inv.issuer_name,
@@ -4087,6 +4088,8 @@ def reports_flows_docs():
 # ------------------------------------------------------------------ #
 HISTORY_CATEGORIES = {
     "cancelled": ("Ακυρωμένα παραστατικά", "Παραστατικά που ακυρώθηκαν στο myDATA, το καθένα με την πράξη ακύρωσής του"),
+    "duplicate": ("Διπλές διαβιβάσεις (ίδιο UID)",
+                  "Το ίδιο παραστατικό διαβιβάστηκε ξανά με νέο MARK· στα βιβλία μετρά μόνο το νεότερο"),
     "foreign": ("Παραστατικά άλλων ληπτών", "Με εκδότη εμάς, διαβιβασμένα από τον λήπτη για δικό του έξοδο (π.χ. 13.1)"),
     "movement": ("Παραστατικά διακίνησης", "Δελτία αποστολής — δεν χαρακτηρίζονται· με χρώμα όσα είναι άλλων ληπτών"),
     "other": ("Λοιπά παραστατικά εκτός βιβλίων", "Παραστατικά του myDATA που δεν είναι στα βιβλία της εφαρμογής"),
@@ -4116,6 +4119,8 @@ def _history_category(row: dict, own_vat: str, cancelled: set) -> str:
         return kind if row.get("superseded") else "active_cls"
     if row.get("has_cancelled_by") or row["mark"] in cancelled:
         return "cancelled"
+    if row.get("dup_of"):
+        return "duplicate"
     if (row.get("invoice_type") or "") in MOVEMENT_INVOICE_TYPES:  # και όσα είναι άλλων ληπτών (row["foreign"])
         return "movement"
     if _history_foreign(row, own_vat):
@@ -4262,8 +4267,35 @@ def reports_history_item():
         ref_url = url_for("document", mark=ref, back=url_for("reports_history"))
     elif ref and db.archive_item(cid, "invoice", ref):
         ref_url = url_for("reports_history_item", kind="invoice", mark=ref)
-    return render_template("_history_item.html", item=item, xml_tree=_xml_tree(item["xml"]), ref_url=ref_url,
+    tree = _xml_tree(item["xml"])
+    # Διπλή διαβίβαση (?dup=1 από την κατηγορία «Διπλές διαβιβάσεις»): δίπλα-δίπλα με την έγκυρη.
+    valid = request.args.get("dup") and db.uid_current(cid, item.get("uid"), item["mark"])
+    if valid:
+        valid["tree"] = _xml_tree(valid["xml"])
+        _xml_diff(valid["tree"], tree)
+        _xml_diff(tree, valid["tree"])
+    return render_template("_history_item.html", item=item, xml_tree=tree, ref_url=ref_url, valid=valid,
                            back=request.args.get("back"), kind_labels=_HISTORY_KIND_LABELS)
+
+
+def _xml_diff(nodes: list[dict], other: list[dict]) -> None:
+    """Σημειώνει (diff=True) κάθε τιμή του nodes που δεν υπάρχει, στην ίδια θέση, στο other (δέντρα του _xml_tree)."""
+    def leaves(ns, path=""):
+        for n in ns:
+            p = f"{path}/{n['label']}"
+            yield from leaves(n["children"], p) if n["children"] else [(p, n["value"])]
+
+    have = set(leaves(other))
+
+    def walk(ns, path=""):
+        for n in ns:
+            p = f"{path}/{n['label']}"
+            if n["children"]:
+                walk(n["children"], p)
+            else:
+                n["diff"] = (p, n["value"]) not in have
+
+    walk(nodes)
 
 
 _HISTORY_KIND_LABELS = {"invoice": "Παραστατικό", "expenses_cls": "Χαρακτηρισμός εξόδων",
