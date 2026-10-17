@@ -71,4 +71,16 @@ r.close()
 c.post("/backup/safety/delete", data={"name": n})
 assert names() == []
 
+# 7) Επαναφορά στην πρώτη εκκίνηση: μόνο χωρίς χρήστη.
+io = __import__("io")
+db.delete_company(db.list_companies()[0]["id"])
+r = c.post("/setup/restore", data={"file": (io.BytesIO(backup), "b.db")})
+assert r.status_code == 302 and "/login" in r.location
+assert [x["company_name"] for x in db.list_companies()] == ["Πριν"]
+assert names() == []  # άδεια βάση: χωρίς αντίγραφο πριν την επαναφορά
+db.save_auth(A.auth.create("u", "p"))
+db.delete_company(db.list_companies()[0]["id"])
+c.post("/setup/restore", data={"file": (io.BytesIO(backup), "b.db")})
+assert db.list_companies() == []  # υπάρχει χρήστης → απορρίπτεται
+
 print("OK")

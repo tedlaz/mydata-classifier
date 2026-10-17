@@ -98,7 +98,7 @@ def _same_origin_post():
             abort(403)
 
 
-_PUBLIC = {"login", "setup", "static"}
+_PUBLIC = {"login", "setup", "setup_restore", "static"}
 
 
 @app.before_request
@@ -178,6 +178,22 @@ def setup():
             flash("✔ Δημιουργήθηκε ο χρήστης. Τα κλειδιά myDATA αποθηκεύονται πλέον κρυπτογραφημένα.", "ok")
             return _remember(redirect(url_for("dashboard")), rec["auth_salt"])
     return render_template("login.html", setup=True)
+
+
+@app.route("/setup/restore", methods=["POST"])
+def setup_restore():
+    """Πρώτη εκκίνηση: επαναφορά αντιγράφου αντί για νέο χρήστη. Μόνο χωρίς χρήστη — αλλιώς θα ήταν
+    επαναφορά χωρίς login. Ο χρήστης/κωδικός είναι πλέον αυτός του αντιγράφου."""
+    if db.get_auth():
+        return redirect(url_for("login"))
+    f = request.files.get("file")
+    try:
+        db.restore_bytes(f.read() if f else b"", keep=False)
+    except ValueError as e:
+        flash(f"Αποτυχία επαναφοράς: {e}", "error")
+        return redirect(url_for("setup"))
+    flash("✔ Έγινε επαναφορά. Συνδέσου με τον χρήστη και τον κωδικό του αντιγράφου.", "ok")
+    return redirect(url_for("login"))
 
 
 @app.route("/login", methods=["GET", "POST"])

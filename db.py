@@ -14,6 +14,7 @@ supplier_rules_*, pending_classifications_*) και το per-session pickle cach
 Η βάση ζει στο <MYDATA_DATA_DIR>/mydata.db (ίδια σύμβαση με τα υπόλοιπα stores).
 """
 
+from contextlib import closing
 import json
 import os
 import re as _re
@@ -125,9 +126,10 @@ def vacuum() -> None:
         conn.close()
 
 
-def restore_bytes(data: bytes) -> str:
+def restore_bytes(data: bytes, keep: bool = True) -> str | None:
     """Αντικαθιστά τη βάση με το backup `data`. Πρώτα κρατά αντίγραφο της τρέχουσας
-    (mydata-before-restore-*.db στον φάκελο δεδομένων) και επιστρέφει το όνομά του."""
+    (mydata-before-restore-*.db στον φάκελο δεδομένων) και επιστρέφει το όνομά του.
+    keep=False (πρώτη εκκίνηση, άδεια βάση): χωρίς αντίγραφο."""
     if data[:16] != b"SQLite format 3\x00":
         raise ValueError("Το αρχείο δεν είναι βάση SQLite.")
     mem = sqlite3.connect(":memory:")
@@ -146,14 +148,15 @@ def restore_bytes(data: bytes) -> str:
         if not has_companies:
             raise ValueError("Το αρχείο δεν είναι backup της εφαρμογής.")
 
-        safety = f"{_SAFETY_PREFIX}{datetime.now():%Y%m%d-%H%M%S-%f}.db"
-        live, dst = get_conn(), sqlite3.connect(os.path.join(_DATA_DIR, safety))
+        safety = f"{_SAFETY_PREFIX}{datetime.now():%Y%m%d-%H%M%S-%f}.db" if keep else None
+        live = get_conn()
         try:
-            live.backup(dst)
+            if safety:
+                with closing(sqlite3.connect(os.path.join(_DATA_DIR, safety))) as dst:
+                    live.backup(dst)
             mem.backup(live)
         finally:
             live.close()
-            dst.close()
     finally:
         mem.close()
     global _restores

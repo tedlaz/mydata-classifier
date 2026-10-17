@@ -42,7 +42,16 @@ if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme:
       <span><b>Να με θυμάσαι σε αυτή τη συσκευή</b><small>30 μέρες, και μετά από επανεκκίνηση.</small></span>
     </label>
     <div class="btn-row"><button type="submit">{{ 'Δημιουργία' if setup else 'Είσοδος' }}</button></div>
+    {% if setup %}
+    <details>
+      <summary class="muted small">Ή επαναφορά από αντίγραφο ασφαλείας</summary>
+      <p class="muted small">Αρχείο .db από «Παράμετροι → Αντίγραφα ασφαλείας». Μετά συνδέεσαι με τον χρήστη του αντιγράφου.</p>
+      <input type="file" name="file" accept=".db" form="restore" required>
+      <div class="btn-row"><button type="submit" form="restore">Επαναφορά</button></div>
+    </details>
+    {% endif %}
   </form>
+  {% if setup %}<form id="restore" method="post" action="{{ url_for('setup_restore') }}" enctype="multipart/form-data"></form>{% endif %}
 </main>
 </body>
 </html>
