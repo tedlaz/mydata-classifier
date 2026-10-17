@@ -60,8 +60,6 @@ from classifications import (
     VAT_CATEGORY_RATES,
     VAT_TYPES,
     WITHHELD_CATEGORIES,
-    country_allowed,
-    country_rule,
 )
 from ensure_env import ensure_env, env_path
 from mydata_client import (
@@ -136,7 +134,7 @@ def _remember(resp, salt: str, force: bool = False):
 _GATED = {
     "allow_classify": ({"auto_classify", "classify", "submit", "bulk_classify"},
                        "Οι χαρακτηρισμοί είναι απενεργοποιημένοι για την εταιρεία — ενεργοποίησέ τους στις Παραμέτρους εταιρείας."),
-    "allow_new": ({"new_expense", "new_expense_submit", "entry", "entry_submit", "expense_template_save", "expense_template_delete",
+    "allow_new": ({"new_expense", "entry", "entry_submit", "expense_template_save", "expense_template_delete",
                    "recurring", "recurring_days", "recurring_create"},
                   "Η «Νέα εγγραφή» είναι απενεργοποιημένη για την εταιρεία — ενεργοποίησέ την στις Παραμέτρους εταιρείας."),
 }
@@ -1831,10 +1829,11 @@ def document(mark):
         categories=INCOME_CATEGORIES if is_income else EXPENSE_CATEGORIES,
         types=INCOME_TYPES if is_income else EXPENSE_TYPES,
         vat_types=VAT_TYPES,
-        xml_tree=(xml_tree := _xml_tree(row.get("raw_xml"))),
+        xml_tree=(xml_tree := _xml_tree(row.get("raw_xml") or _local_xml(row))),
         xml_links=_xml_links(xml_tree),
         payments=_xml_payments(xml_tree),
-        has_xml=bool(row.get("raw_xml")),
+        has_xml=bool(xml_tree),
+        local_xml=bool(xml_tree) and not row.get("raw_xml"),
         # {γραμμή: κατηγορία εξαίρεσης ΦΠΑ}· τοπικό draft (χωρίς XML) → από τις γραμμές του draft.
         exemptions=vat_return._parse_exempt(row)[1] or {
             n: ln.get("vat_exemption") for n, ln in
@@ -2001,6 +2000,8 @@ def _xml_tree(xml: str | None) -> list[dict]:
         root = ET.fromstring(xml)
     except ET.ParseError:
         return []
+    if root.tag.endswith("}InvoicesDoc") and len(root):  # τοπικό πρόχειρο: το invoice μέσα στο InvoicesDoc
+        root = root[0]
     return node(root)["children"]
 
 
@@ -2030,15 +2031,26 @@ def _xml_payments(tree: list[dict]) -> list[dict]:
     return out
 
 
+def _local_xml(row: dict) -> str:
+    """Τοπικό πρόχειρο που δεν έχει σταλεί: το XML που θα στείλει η «Αποστολή στο myDATA»."""
+    if row.get("local_action") != "create" or not row.get("draft_json"):
+        return ""
+    try:
+        return draft_xml(json.loads(row["draft_json"]), get_own_vat())
+    except Exception:  # χαλασμένο/παλιό draft: η σελίδα φορτώνει χωρίς XML
+        return ""
+
+
 @app.route("/document/<mark>/xml")
 def document_xml(mark):
-    """Λήψη του XML του παραστατικού όπως το έδωσε το myDATA."""
+    """Λήψη του XML του παραστατικού όπως το έδωσε το myDATA (ή, για πρόχειρο, όπως θα σταλεί)."""
     cid = _active_company_id()
     row = db.get_document(cid, mark) if cid else None
-    if not row or not row.get("raw_xml"):
+    xml = row and (row.get("raw_xml") or _local_xml(row))
+    if not xml:
         flash("Δεν υπάρχει αποθηκευμένο XML — κάνε νέα ανάκτηση του διαστήματος.", "error")
         return redirect(url_for("document", mark=mark))
-    return Response(row["raw_xml"], mimetype="application/xml",
+    return Response(xml, mimetype="application/xml",
                     headers={"Content-Disposition": f'attachment; filename="{mark}.xml"'})
 
 
@@ -5377,7 +5389,7 @@ def dashboard():
     todo(inc_st.get("unclassified", 0), "💶", "Έσοδα προς χαρακτηρισμό", "Αχαρακτήριστα παραστατικά εσόδων",
          url_for("income", view="unclassified"), "warn")
     due_monthly = [t for t in _recurring_pending(cid, today.strftime("%Y-%m")) if t["monthly_day"] <= today.day]
-    todo(len(due_monthly), "🔁", "Μηνιαίες εγγραφές προς δημιουργία", ", ".join(t["name"] for t in due_monthly),
+    todo(len(due_monthly), "🔁", "Προγραμματισμένες εγγραφές προς δημιουργία", ", ".join(t["name"] for t in due_monthly),
          url_for("recurring"), "accent")
     if vat["days"] <= 15:
         todo(f"{max(vat['days'], 0)}ημ", "🏛", f"Δήλωση ΦΠΑ {vat['label']}",
@@ -5520,482 +5532,25 @@ def _copy_draft(row: dict) -> dict:
 
 @app.route("/new_expense")
 def new_expense():
-    from mydata_client import SELF_EXPENSE_TYPES
-
-    # Επεξεργασία υπάρχοντος τοπικού draft (Νέα εγγραφή στα «Χαρακτηρισμένα»).
-    edit_mark = request.args.get("edit", "").strip()
-    draft = None
-    if edit_mark:
-        cid = _active_company_id()
-        row = db.get_document(cid, edit_mark) if cid else None
-        if row and (row.get("local_action") == "create"):
-            draft = json.loads(row.get("draft_json") or "{}")
-            if draft.get("form") == "entry":  # πρόχειρο της Γενικής φόρμας καταχώρησης
-                return redirect(url_for("entry", edit=edit_mark))
-        else:
-            flash("Η εγγραφή προς επεξεργασία δεν βρέθηκε.", "error")
-            edit_mark = ""
-
-    # Αντιγραφή ολοκληρωμένης δικής μας εγγραφής (χωρίς υπόχρεο εκδότη) σε νέα.
-    copy_mark = request.args.get("copy", "").strip()
-    if copy_mark and not draft:
-        cid = _active_company_id()
-        row = db.get_document(cid, copy_mark) if cid else None
-        if (
-            row
-            and row.get("status") == "confirmed"
-            and row.get("invoice_type") in SELF_EXPENSE_TYPES
-        ):
-            draft = _copy_draft(row)
-            if draft.get("form") == "entry":
-                return redirect(url_for("entry", copy=copy_mark))
-        else:
-            flash(
-                "Αντιγραφή γίνεται μόνο από ολοκληρωμένη εγγραφή τύπου 13.x–17.x.",
-                "error",
-            )
-            copy_mark = ""
-
-    # Πρότυπο (π.χ. ΕΦΚΑ, ενοίκιο): η αποθηκευμένη φόρμα με σημερινή ημ/νία και κενό Α/Α.
-    template = None
-    if request.args.get("template") and not draft:
-        template = db.get_template(_active_company_id(), request.args["template"])
-        if template:
-            d = template["draft"]
-            # Κάθε πρότυπο έχει δική του σειρά· ο Α/Α συνεχίζει από την τελευταία εγγραφή της.
-            aa = db.next_aa(_active_company_id(), _self_counterparty(d), d.get("series", ""))
-            draft = dict(d, issue_date=datetime.now(ATHENS).strftime("%Y-%m-%d"), aa=str(aa))
-        else:
-            flash("Το πρότυπο δεν βρέθηκε.", "error")
-
-    return _render_new_expense(draft, edit_mark if draft else "", copy_mark, template=template)
-
-
-def _self_counterparty(draft: dict) -> str:
-    """Ο συναλλασσόμενος (counterparty_vat) που θα αποθηκευτεί για τη «Νέα εγγραφή» — ίδιοι
-    κανόνες με το new_expense_submit: 17.x = εμείς, 13.3/13.4 = κανένας, αλλιώς ο εκδότης."""
-    from mydata_client import SELF_TYPES_NO_ISSUER
-
-    itype = draft.get("invoice_type") or ""
-    if itype.startswith("17."):
-        return get_own_vat()
-    return "" if itype in SELF_TYPES_NO_ISSUER else (draft.get("issuer_vat") or "").strip()
-
-
-@app.route("/new_expense/template", methods=["POST"])
-def expense_template_save():
-    """Η τρέχουσα φόρμα «Νέας εγγραφής» ως πρότυπο (χωρίς ημ/νία και Α/Α)."""
-    cid = _active_company_id()
-    name = " ".join(request.form.get("template_name", "").split())[:80]
-    if not cid or not name:
-        flash("Δώσε όνομα προτύπου (π.χ. «ΕΦΚΑ εργοδότη»).", "error")
-        return _render_new_expense(_draft_from_form(), request.form.get("edit_mark", "").strip(), "", 422)
-    draft = _draft_from_form()
-    series = draft.get("series", "")
-    other = db.template_with_series(cid, series, name) if series else None
-    if not series or other:
-        flash(f"Η σειρά «{series}» χρησιμοποιείται ήδη από το πρότυπο «{other}» — κάθε πρότυπο θέλει δική του σειρά."
-              if other else "Δώσε σειρά στο πρότυπο — ο Α/Α του συνεχίζει μέσα στη σειρά.", "error")
-        return _render_new_expense(draft, request.form.get("edit_mark", "").strip(), "", 422)
-    draft.pop("issue_date", None)
-    draft.pop("aa", None)
-    draft["lines"] = [ln for ln in draft["lines"] if ln] or [None]
-    tid = db.save_template(cid, name, draft)
-    flash(f"✔ Αποθηκεύτηκε το πρότυπο «{name}».", "ok")
-    return redirect(url_for("new_expense", template=tid))
-
-
-@app.route("/new_expense/template/<int:tid>/delete", methods=["POST"])
-def expense_template_delete(tid):
-    db.delete_template(_active_company_id(), tid)
-    flash("✔ Το πρότυπο διαγράφηκε.", "ok")
-    return redirect(url_for("new_expense"))
-
-
-def _render_new_expense(draft: dict | None, edit_mark: str = "", copy_mark: str = "", status: int = 200,
-                        template: dict | None = None):
-    """Η φόρμα «Νέας εγγραφής» — κενή, με draft (επεξεργασία/αντιγραφή) ή ξανά με τις
-    τιμές του χρήστη μετά από σφάλμα, ώστε να μη χάνεται ό,τι συμπλήρωσε."""
-    from mydata_client import (
-        NEW_ENTRY_TYPES,
-        PAYMENT_METHODS,
-        SELF_TYPE_RULES,
-        SELF_TYPES_INTRA_EU,
-        SELF_TYPES_ISSUER_OPTIONAL,
-        SELF_TYPES_NO_ISSUER,
-        SELF_TYPES_WITH_VAT,
-        VAT_CATEGORIES,
-    )
-
-    # Επιτρεπόμενοι συνδυασμοί ΕΞΟΔΩΝ ανά self-expense τύπο (για αλυσιδωτό φιλτράρισμα).
-    combos_all = {
-        t: {k: v for k, v in db.combos_for_type(t).items() if k.startswith("category2")}
-        for t in NEW_ENTRY_TYPES
-    }
-    return render_template(
-        "new_expense.html",
-        self_types=NEW_ENTRY_TYPES,
-        categories=EXPENSE_CATEGORIES,
-        types=EXPENSE_TYPES,
-        vat_categories=VAT_CATEGORIES,
-        exemption_labels=XML_EXTRA_CODES["vatExemptionCategory"],
-        vat_types={k: v for k, v in VAT_TYPES.items() if k},  # χαρακτηρισμοί ΦΠΑ γραμμής
-        payment_methods=PAYMENT_METHODS,
-        today=datetime.now(ATHENS).strftime("%Y-%m-%d"),
-        draft=draft,
-        edit_mark=edit_mark,
-        copy_mark=copy_mark,
-        template=template,
-        templates=db.list_templates(_active_company_id()),
-        suppliers=db.list_suppliers(_active_company_id()),
-        eu_countries=sorted(EU_COUNTRIES),
-        country_rules={t: country_rule(t) for t in NEW_ENTRY_TYPES},
-        # Κανόνες ΑΑΔΕ ανά τύπο για τη φόρμα (ίδια πηγή με το mydata_client).
-        with_vat=sorted(SELF_TYPES_WITH_VAT),
-        intra_eu=SELF_TYPES_INTRA_EU,
-        no_issuer=sorted(SELF_TYPES_NO_ISSUER),
-        issuer_optional=sorted(SELF_TYPES_ISSUER_OPTIONAL),
-        no_payment=sorted(f for f, r in SELF_TYPE_RULES.items() if not r["payment"]),
-        combos_all=combos_all,
-    ), status
-
-
-def _draft_from_form() -> dict:
-    """Οι τιμές που έστειλε ο χρήστης (και οι κενές γραμμές), στη μορφή draft της φόρμας."""
-    f = request.form
-
-    def num(v: str):
-        try:
-            return float(v) if v.strip() else None
-        except ValueError:
-            return None
-
-    cols = [f.getlist(k) for k in
-            ("line_amount", "line_category", "line_type", "line_vat_category", "line_vat_amount",
-             "line_vat_type", "line_vat_exemption")]
-    at = lambda col, i, default="": col[i] if i < len(col) else default  # noqa: E731
-    lines = [
-        {
-            "amount": num(at(cols[0], i)),
-            "classification_category": at(cols[1], i),
-            "classification_type": at(cols[2], i),
-            "vat_category": at(cols[3], i, "8") or "8",
-            "vat_amount": num(at(cols[4], i)) or 0.0,
-            "vat_type": at(cols[5], i),
-            "vat_exemption": at(cols[6], i),
-        }
-        for i in range(len(cols[0]))
-    ]
-    return {
-        "withheld_amount": num(f.get("withheld_amount", "")),
-        "deductions_amount": num(f.get("deductions_amount", "")),
-        "withheld_base": num(f.get("withheld_base", "")),
-        **{k: f.get(k, "").strip() for k in
-           ("invoice_type", "issue_date", "series", "aa", "issuer_vat", "issuer_country", "payment_method",
-            "issuer_name", "issuer_street", "issuer_postal_code", "issuer_city")},
-        "lines": lines or [None],
-    }
+    """Η παλιά «Νέα εγγραφή»: όλα πλέον από τη Φόρμα καταχώρησης."""
+    return redirect(url_for("entry", **request.args))
 
 
 @app.route("/draft/<mark>/delete", methods=["POST"])
 def draft_delete(mark):
-    """Διαγραφή τοπικού draft «Νέας εγγραφής» (δεν έχει διαβιβαστεί στο myDATA)."""
+    """Διαγραφή τοπικού draft (δεν έχει διαβιβαστεί στο myDATA)."""
     cid = _active_company_id()
     row = db.get_document(cid, mark) if cid else None
     if row is None or row.get("local_action") != "create":
-        flash("Η εγγραφή δεν βρέθηκε ή δεν είναι τοπική «Νέα εγγραφή».", "error")
+        flash("Η εγγραφή δεν βρέθηκε ή δεν είναι τοπικό πρόχειρο.", "error")
         return redirect(url_for("invoices", view="classified"))
     db.delete_document(cid, mark)
     flash(f"✔ Η τοπική εγγραφή {mark} διαγράφηκε.", "ok")
     return redirect(url_for("invoices", view="classified"))
 
 
-@app.route("/new_expense", methods=["POST"])
-def new_expense_submit():
-    from mydata_client import (
-        NEW_ENTRY_TYPES,
-        SELF_TYPES_ISSUER_OPTIONAL,
-        SELF_TYPES_INTRA_EU,
-        SELF_TYPES_NO_ISSUER,
-        SELF_TYPES_WITH_VAT,
-    )
-
-    edit_mark = request.form.get("edit_mark", "").strip()
-
-    def again():
-        """Σφάλμα: ξανά η φόρμα με ό,τι συμπλήρωσε ο χρήστης (όχι κενή), για διόρθωση."""
-        return _render_new_expense(_draft_from_form(), edit_mark, "", 422)
-
-    invoice_type = request.form.get("invoice_type", "")
-    series = request.form.get("series", "").strip()
-    aa = request.form.get("aa", "").strip()
-    issue_date = request.form.get("issue_date", "")
-
-    if not series or not aa:
-        flash("Συμπλήρωσε τη σειρά και τον Α/Α της εγγραφής.", "error")
-        return again()
-
-    if invoice_type not in NEW_ENTRY_TYPES:
-        flash("Μη έγκυρος τύπος εγγραφής.", "error")
-        return again()
-
-    # γραμμές: παράλληλες λίστες από τη φόρμα
-    amounts = request.form.getlist("line_amount")
-    cats = request.form.getlist("line_category")
-    typs = request.form.getlist("line_type")
-    vat_cats = request.form.getlist("line_vat_category")
-    vat_amts = request.form.getlist("line_vat_amount")
-    vat_types = request.form.getlist("line_vat_type")
-    vat_exs = request.form.getlist("line_vat_exemption")
-    lines = []
-    for i, (amt, cat, typ) in enumerate(zip(amounts, cats, typs)):
-        if not amt.strip():
-            continue
-        if not (cat and typ):
-            flash("Κάθε γραμμή με ποσό πρέπει να έχει κατηγορία και τύπο.", "error")
-            return again()
-        try:
-            vat_amount = float(vat_amts[i]) if i < len(vat_amts) and vat_amts[i].strip() else 0.0
-        except ValueError:
-            flash(f"Μη έγκυρο ποσό ΦΠΑ στη γραμμή {i + 1}.", "error")
-            return again()
-        # Χαρακτηρισμός ΦΠΑ της γραμμής (όταν έχει κατηγορία ΦΠΑ, και 0%· προεπιλογή VAT_361).
-        vat_type = (vat_types[i] if i < len(vat_types) else "") or "VAT_361"
-        if not vat_type.startswith("VAT_") or vat_type not in VAT_TYPES:
-            flash(f"Μη έγκυρος χαρακτηρισμός ΦΠΑ στη γραμμή {i + 1}.", "error")
-            return again()
-        try:
-            lines.append(
-                {
-                    "amount": float(amt),
-                    "classification_category": cat,
-                    "classification_type": typ,
-                    "vat_category": (vat_cats[i] if i < len(vat_cats) else "8") or "8",
-                    "vat_amount": vat_amount,
-                    "vat_type": vat_type if needs_vat_cls(vat_cats[i] if i < len(vat_cats) else "") else "",
-                    "vat_exemption": vat_exs[i] if i < len(vat_exs) else "",
-                }
-            )
-        except ValueError:
-            flash(f"Μη έγκυρο ποσό στη γραμμή {i + 1}.", "error")
-            return again()
-
-    if not lines:
-        flash("Συμπλήρωσε τουλάχιστον μία γραμμή.", "error")
-        return again()
-
-    # Μισθοδοσία: παρακράτηση φόρου + κρατήσεις ΕΦΚΑ εργαζομένου, σε επίπεδο παραστατικού.
-    withheld = deductions = 0.0
-    withheld_base = None
-    if invoice_type == "17.1":
-        try:
-            withheld = round(float(request.form.get("withheld_amount") or 0), 2)
-            deductions = round(float(request.form.get("deductions_amount") or 0), 2)
-            withheld_base = round(float(request.form.get("withheld_base") or 0), 2) or None
-        except ValueError:
-            flash("Μη έγκυρο ποσό παρακράτησης φόρου ή κρατήσεων ΕΦΚΑ.", "error")
-            return again()
-        if withheld < 0 or deductions < 0 or withheld + deductions > sum(ln["amount"] for ln in lines):
-            flash("Παρακράτηση φόρου και κρατήσεις ΕΦΚΑ: μη αρνητικά και όχι πάνω από το σύνολο αποδοχών.", "error")
-            return again()
-        if withheld and not (withheld_base and withheld <= withheld_base):
-            flash("Συμπλήρωσε το ποσό πάνω στο οποίο γίνεται η παρακράτηση φόρου "
-                  "(όχι μικρότερο από τον φόρο).", "error")
-            return again()
-        if not withheld:
-            withheld_base = None
-
-    # ΦΠΑ μόνο στις λιανικές 13.1/13.2/13.31 (ΑΑΔΕ: αλλιώς σφάλματα 215/218).
-    if invoice_type not in SELF_TYPES_WITH_VAT:
-        if any(ln["vat_amount"] for ln in lines):
-            flash(
-                f"Ο τύπος {invoice_type} δεν έχει ΦΠΑ — ΦΠΑ επιτρέπεται μόνο στα "
-                "13.1, 13.2, 13.31 και στη διαβίβαση λόγω παράλειψης εκδότη.",
-                "error",
-            )
-            return again()
-        for ln in lines:
-            ln["vat_category"] = "8"
-            ln["vat_type"] = ""
-    elif invoice_type in SELF_TYPES_INTRA_EU and any(ln["vat_category"] == "8" for ln in lines):
-        flash(f"Ο τύπος {invoice_type} θέλει κατηγορία ΦΠΑ (π.χ. 24%) με τον ΦΠΑ της αυτοπαράδοσης "
-              "— όχι «Χωρίς ΦΠΑ».", "error")
-        return again()
-    # Κατηγορία ΦΠΑ 7 (0%): η ΑΑΔΕ θέλει και κατηγορία εξαίρεσης ΦΠΑ· στις άλλες δεν δηλώνεται.
-    for n, ln in enumerate(lines, start=1):
-        if ln["vat_category"] != "7":
-            ln["vat_exemption"] = ""
-        elif ln["vat_exemption"] not in XML_EXTRA_CODES["vatExemptionCategory"]:
-            flash(f"Γραμμή {n}: με κατηγορία ΦΠΑ 0% συμπλήρωσε και την κατηγορία εξαίρεσης ΦΠΑ.", "error")
-            return again()
-
-    # Το δικό μας ΑΦΜ χρειάζεται πάντα: ως εκδότης στα 17.x, ως αντισυμβαλλόμενος
-    # (λήπτης) στα 14.x/15.1/16.1 - error 204 "Counterpart is mandatory".
-    payment_method = request.form.get("payment_method", "5")
-    own_vat = get_own_vat()
-    if not own_vat:
-        flash(
-            "Λείπει το ΑΦΜ της εταιρείας - συμπλήρωσέ το στη Διαχείριση εταιρειών "
-            "(ή ως AADE_VAT_NUMBER στο .env). Απαιτείται ως εκδότης στα 17.x "
-            "ή ως λήπτης στους άλλους τύπους.",
-            "error",
-        )
-        return again()
-
-    if invoice_type.startswith("17."):
-        issuer_vat = own_vat
-        issuer_country = "GR"
-    elif invoice_type in SELF_TYPES_NO_ISSUER or (  # κοινόχρηστα/συνδρομές: χωρίς εκδότη
-        invoice_type in SELF_TYPES_ISSUER_OPTIONAL  # λιανικές: προαιρετικός — εδώ κενός
-        and not request.form.get("issuer_vat", "").strip()
-    ):
-        issuer_vat = ""
-        issuer_country = "GR"
-    else:
-        issuer_vat = request.form.get("issuer_vat", "").strip()
-        issuer_country = (
-            request.form.get("issuer_country", "GR").strip() or "GR"
-        ).upper()
-        if not issuer_vat:
-            flash(
-                "Για τον τύπο αυτό απαιτείται το ΑΦΜ του εκδότη "
-                "(π.χ. 997072577 για τον ΕΦΚΑ).",
-                "error",
-            )
-            return again()
-        if not country_allowed(invoice_type, issuer_country):
-            rule = country_rule(invoice_type)
-            flash(
-                f"Μη αποδεκτή χώρα εκδότη «{issuer_country}» για τον τύπο {invoice_type}: "
-                + ("επιτρέπεται μόνο Ελλάδα (GR)." if rule == "gr"
-                   else "απαιτείται χώρα της ΕΕ (εκτός GR)." if rule == "eu"
-                   else "απαιτείται χώρα εκτός ΕΕ." if rule == "third"
-                   else "δώσε έγκυρο κωδικό 2 γραμμάτων."),
-                "error",
-            )
-            return again()
-
-    # Εκδότης εκτός Ελλάδας: η ΑΑΔΕ θέλει επωνυμία και διεύθυνση (σφάλμα 204).
-    foreign = {k: request.form.get("issuer_" + k, "").strip() for k in ("name", "street", "postal_code", "city")}
-    if issuer_vat and issuer_country != "GR":
-        if not (foreign["name"] and foreign["postal_code"] and foreign["city"]):
-            flash("Για εκδότη εκτός Ελλάδας συμπλήρωσε επωνυμία, Τ.Κ. και πόλη.", "error")
-            return again()
-    else:
-        foreign = dict.fromkeys(foreign, "")
-
-    cid = _active_company_id()
-    if not cid:
-        flash("Δεν έχει οριστεί ενεργή εταιρεία.", "error")
-        return redirect(url_for("companies"))
-
-    # Αποθήκευση ΤΟΠΙΚΑ στα «Χαρακτηρισμένα» (χωρίς διαβίβαση). Η μαζική «Αποστολή
-    # στο myDATA» θα εκτελέσει το SendInvoices (δημιουργία+διαβίβαση+χαρακτηρισμός).
-    draft = {
-        "invoice_type": invoice_type,
-        "series": series,
-        "aa": aa,
-        "issue_date": issue_date,
-        "lines": lines,
-        "issuer_vat": issuer_vat,
-        "issuer_country": issuer_country,
-        **{"issuer_" + k: v for k, v in foreign.items()},
-        "payment_method": payment_method,
-        "withheld_amount": withheld,
-        "deductions_amount": deductions,
-        "withheld_base": withheld_base,
-    }
-    if foreign["name"]:  # ο συναλλασσόμενος κρατά χώρα και διεύθυνση για τις επόμενες εγγραφές
-        db.save_supplier_address(issuer_vat, foreign["name"], issuer_country, foreign["street"],
-                                 foreign["postal_code"], foreign["city"])
-    # Μηνιαίο πρότυπο: μία εγγραφή ανά μήνα. Στην επεξεργασία κρατιέται το πρότυπο της παλιάς.
-    edit_mark = request.form.get("edit_mark", "").strip()
-    existing = db.get_document(cid, edit_mark) if edit_mark else None
-    if existing and existing.get("local_action") != "create":
-        existing = None
-    tid = (existing or {}).get("template_id") or request.form.get("template_id", "").strip()
-    origin = (int(tid), issue_date[:7]) if str(tid).isdigit() else None
-    if origin:
-        taken = db.template_periods(cid, origin[1]).get(origin[0])
-        if taken and taken["mark"] != edit_mark:
-            flash(f"Υπάρχει ήδη εγγραφή του προτύπου για τον μήνα {origin[1]} ({taken['mark']}).", "error")
-            return again()
-    if _flash_xsd(draft):
-        return again()
-    # Επεξεργασία: αντικατάσταση του υπάρχοντος τοπικού draft.
-    if existing:
-        db.delete_document(cid, edit_mark)
-    _store_self_expense(cid, draft, origin)
-    verb = "ενημερώθηκε" if edit_mark else "αποθηκεύτηκε"
-    flash(
-        f"✔ Η εγγραφή {invoice_type} ({NEW_ENTRY_TYPES[invoice_type]}) {verb} "
-        "τοπικά στα «Χαρακτηρισμένα». Μάζεψε κι άλλες και στείλ' τες μαζικά με "
-        "«Αποστολή στο myDATA».",
-        "ok",
-    )
-    return redirect(_safe_back(request.form.get("back")) or url_for("invoices", view="classified"))
-
-
-def _flash_xsd(draft: dict) -> bool:
-    """Έλεγχος του XML του draft με το XSD της ΑΑΔΕ πριν την αποθήκευση· True (με μήνυμα) αν δεν περνά."""
-    errors = xsd_errors(draft_xml(draft, get_own_vat()))
-    for e in errors:
-        flash(f"Έλεγχος XSD ΑΑΔΕ: {e}", "error")
-    return bool(errors)
-
-
-def _store_self_expense(cid: int, draft: dict, origin: tuple | None = None) -> int | None:
-    """Έγκυρο draft «Νέας εγγραφής» → τοπική εγγραφή στα «Χαρακτηρισμένα».
-    None αν υπάρχει ήδη εγγραφή του ίδιου προτύπου για τον μήνα (origin)."""
-    lines = draft["lines"]
-    withheld, deductions = draft["withheld_amount"] or 0.0, draft["deductions_amount"] or 0.0
-    withheld_base = draft["withheld_base"]
-    total_net = round(sum(line["amount"] for line in lines), 2)
-    total_vat = round(sum(line["vat_amount"] for line in lines), 2)
-    def line_cls(line):  # Ε3 + (αν υπάρχει ΦΠΑ) ο χαρακτηρισμός ΦΠΑ της γραμμής
-        out = [{"type": line["classification_type"], "category": line["classification_category"],
-                "amount": line["amount"]}]
-        if line["vat_type"]:
-            out.append({"type": line["vat_type"], "category": "", "amount": line["amount"]})
-        return out
-
-    disp_lines = [
-        {
-            "line_number": i + 1,
-            "net_value": line["amount"],
-            "vat_amount": line["vat_amount"],
-            "vat_category": line["vat_category"],
-            "has_expenses_classification": True,
-            "classifications": line_cls(line),
-        }
-        for i, line in enumerate(lines)
-    ]
-    cls_info = [c for line in lines for c in line_cls(line)]
-    doc = {
-        "issue_date": draft["issue_date"],
-        "issuer_vat": draft["issuer_vat"],
-        "issuer_name": draft.get("issuer_name") or None,
-        "invoice_type": draft["invoice_type"],
-        "series": draft["series"],
-        "aa": draft["aa"],
-        "total_net": total_net,
-        "total_vat": total_vat,
-        "total_gross": round(total_net + total_vat - withheld - deductions, 2),
-        "lines": disp_lines,
-        "extra_totals": {
-            "total_withheld": withheld,
-            "total_deductions": deductions,
-            "taxes_json": json.dumps(
-                [t for t in ({"type": "1", "category": "11", "base": withheld_base, "amount": withheld},
-                             {"type": "5", "category": "", "base": None, "amount": deductions})
-                 if t["amount"]]),
-        },
-    }
-    return db.create_local_expense(cid, doc, draft, cls_info, origin)
-
-
 # ------------------------------------------------------------------ #
-# ΓΕΝΙΚΗ ΦΟΡΜΑ ΚΑΤΑΧΩΡΗΣΗΣ — κάθε τύπος παραστατικού (όπως η Ειδική Φόρμα της ΑΑΔΕ).
+# ΦΟΡΜΑ ΚΑΤΑΧΩΡΗΣΗΣ — κάθε τύπος παραστατικού (όπως η Ειδική Φόρμα της ΑΑΔΕ).
 # Έξοδα → τοπικό πρόχειρο στα «Χαρακτηρισμένα» (μαζική «Αποστολή»)· έσοδα → άμεση αποστολή.
 # ------------------------------------------------------------------ #
 # Είδη και τύποι παραστατικού, με τα ονόματα και τη σειρά της Ειδικής Φόρμας της ΑΑΔΕ (aade_form.py).
@@ -6003,24 +5558,102 @@ _ENTRY_FAMILIES = {code: label for code, label in aade_form.OPTIONS["family"]}
 _ENTRY_TYPES = {code: label for code, label in aade_form.OPTIONS["invoice_type"]}
 
 
+# Έτοιμα πρότυπα: τύπος, εκδότης, γραμμές και Ε3 (επιτρεπτοί συνδυασμοί ΑΑΔΕ)· ποσά, σειρά και Α/Α ο χρήστης.
+_ENTRY_PRESETS = {
+    "efka": ("ΕΦΚΑ", {"invoice_type": "14.5", "issuer": {"country": "GR", "vat": "997072577"},
+                      "lines": [{"vat_category": "8", "cls": [{"category": "category2_5", "type": "E3_585_007"}]}]}),
+    "rent": ("Ενοίκιο", {"invoice_type": "16.1",
+                         "lines": [{"vat_category": "8", "cls": [{"category": "category2_5", "type": "E3_585_014"}]}],
+                         "taxes": [{"type": "4", "category": "3"}]}),
+    "payroll": ("Μισθοδοσία", {"invoice_type": "17.1",
+                               "lines": [{"vat_category": "8", "cls": [{"category": "category2_6", "type": "E3_581_001"}]},
+                                         {"vat_category": "8", "cls": [{"category": "category2_6", "type": "E3_581_002"}]}],
+                               "taxes": [{"type": "1", "category": "11"}, {"type": "5"}],
+                               "payments": [{"type": "1"}]}),  # Επαγ. Λογαριασμός Πληρωμών Ημεδαπής
+    "stock": ("Απογραφή", {"invoice_type": "17.5",
+                           "lines": [{"vat_category": "8", "cls": [{"category": "category2_13", "type": "E3_101"}]},
+                                     {"vat_category": "8", "cls": [{"category": "category2_14", "type": "E3_104"}]}]}),
+}
+
+
+def _as_entry(d: dict) -> dict:
+    """Draft της Φόρμας καταχώρησης· τα παλιά της «Νέας εγγραφής» (πρότυπα, πρόχειρα) μετατρέπονται."""
+    from mydata_client import OMISSION_TYPES, type_rules
+
+    if not d or d.get("form") == "entry":
+        return d
+    t = d.get("invoice_type", "")
+    lines = []
+    for ln in d.get("lines") or []:
+        if not ln:
+            continue
+        net = ln.get("amount")
+        cls = [{"category": ln.get("classification_category", ""), "type": ln.get("classification_type", ""), "amount": net}]
+        if ln.get("vat_type"):
+            cls.append({"category": "", "type": ln["vat_type"], "amount": net})
+        lines.append({"net": net, "vat_category": ln.get("vat_category") or "8", "vat_amount": ln.get("vat_amount") or 0.0,
+                      "vat_exemption": ln.get("vat_exemption", ""), "cls": cls})
+    withheld, deductions = d.get("withheld_amount") or 0.0, d.get("deductions_amount") or 0.0
+    taxes = ([{"type": "1", "category": "11", "base": d.get("withheld_base"), "amount": withheld}] if withheld else []) \
+        + ([{"type": "5", "category": "", "base": None, "amount": deductions}] if deductions else [])
+    gross = round(sum((ln["net"] or 0) + ln["vat_amount"] for ln in lines) - withheld - deductions, 2)
+    return {
+        "form": "entry",
+        "invoice_type": t,
+        **{k: d.get(k) or "" for k in ("series", "aa", "issue_date")},
+        "omission": t in OMISSION_TYPES,
+        "issuer": {"country": d.get("issuer_country") or "GR", "vat": d.get("issuer_vat") or "",
+                   **{k: d.get("issuer_" + k) or "" for k in ("name", "street", "postal_code", "city")}},
+        "payments": [{"type": d.get("payment_method") or "5", "amount": gross}] if type_rules(t)["payment"] else [],
+        "taxes": taxes,
+        "lines": lines,
+    }
+
+
+def _self_counterparty(d: dict) -> str:
+    """Ο συναλλασσόμενος (counterparty_vat) που θα αποθηκευτεί για το draft (εκδότης· εμείς όπου εκδίδουμε)."""
+    from mydata_client import entry_roles
+
+    role = entry_roles(d.get("invoice_type", ""), d.get("self_pricing"), d.get("omission"))["issuer"]
+    return get_own_vat() if role == "own" else "" if role == "none" else ((d.get("issuer") or {}).get("vat") or "").strip()
+
+
 @app.route("/entry")
 def entry():
+    from mydata_client import SELF_EXPENSE_TYPES
+
+    cid = _active_company_id()
+    today = datetime.now(ATHENS).strftime("%Y-%m-%d")
     edit_mark = request.args.get("edit", "").strip()
-    draft = None
+    draft, template_id = None, ""
     if edit_mark:
-        row = db.get_document(_active_company_id(), edit_mark) if _active_company_id() else None
-        draft = json.loads(row.get("draft_json") or "{}") if row and row.get("local_action") == "create" else {}
-        if draft.get("form") != "entry":
+        row = db.get_document(cid, edit_mark) if cid else None
+        if row and row.get("local_action") == "create":
+            draft = _as_entry(json.loads(row.get("draft_json") or "{}"))
+        else:
             flash("Η εγγραφή προς επεξεργασία δεν βρέθηκε.", "error")
-            draft, edit_mark = None, ""
+            edit_mark = ""
     elif request.args.get("copy"):  # αντίγραφο ολοκληρωμένης εγγραφής: σημερινή ημ/νία, κενός Α/Α
-        row = db.get_document(_active_company_id(), request.args["copy"]) if _active_company_id() else None
-        draft = json.loads((row or {}).get("draft_json") or "{}")
-        draft = dict(draft, issue_date=datetime.now(ATHENS).strftime("%Y-%m-%d"), aa="") if draft.get("form") == "entry" else None
-    return _render_entry(draft, edit_mark)
+        row = db.get_document(cid, request.args["copy"]) if cid else None
+        if row and (json.loads(row.get("draft_json") or "{}").get("form") == "entry"
+                    or (row.get("status") == "confirmed" and row.get("invoice_type") in SELF_EXPENSE_TYPES)):
+            draft = dict(_as_entry(_copy_draft(row)), issue_date=today, aa="")
+        else:
+            flash("Αντιγραφή γίνεται μόνο από δική μας εγγραφή εξόδου (13.x–17.x).", "error")
+    elif request.args.get("template"):  # πρότυπο: σημερινή ημ/νία, Α/Α συνέχεια της σειράς του
+        template = db.get_template(cid, request.args["template"])
+        if template:
+            d = _as_entry(template["draft"])
+            draft = dict(d, issue_date=today, aa=str(db.next_aa(cid, _self_counterparty(d), d.get("series", ""))))
+            template_id = str(template["id"])
+        else:
+            flash("Το πρότυπο δεν βρέθηκε.", "error")
+    elif request.args.get("preset") in _ENTRY_PRESETS:
+        draft = _ENTRY_PRESETS[request.args["preset"]][1]
+    return _render_entry(draft, edit_mark, template_id=template_id)
 
 
-def _render_entry(draft: dict | None, edit_mark: str = "", status: int = 200):
+def _render_entry(draft: dict | None, edit_mark: str = "", status: int = 200, template_id: str = ""):
     from mydata_client import ENTRY_OPTIONS, ENTRY_RATES, ENTRY_RULES, SELF_TYPES_ISSUER_OPTIONAL, entry_roles
 
     company = get_active_company() or {}
@@ -6055,16 +5688,20 @@ def _render_entry(draft: dict | None, edit_mark: str = "", status: int = 200):
         own={"vat": get_own_vat(), "name": company.get("company_name", "")},
         suppliers=db.list_suppliers(_active_company_id()),
         today=datetime.now(ATHENS).strftime("%Y-%m-%d"),
+        templates=db.list_templates(_active_company_id()),
+        presets={k: name for k, (name, _) in _ENTRY_PRESETS.items()},
+        template_id=template_id,
+        back=_safe_back(request.values.get("back")) or "",
     ), status
 
 
 def _is_vat_cls(ctype: str) -> bool:
-    """Χαρακτηρισμός ΦΠΑ της Γενικής φόρμας: VAT_36x ή NOT_VAT_295 (όχι Ε3)."""
+    """Χαρακτηρισμός ΦΠΑ της Φόρμας καταχώρησης: VAT_36x ή NOT_VAT_295 (όχι Ε3)."""
     return ctype.startswith(("VAT_", "NOT_VAT_"))
 
 
 def _entry_clean(raw: dict) -> tuple[dict, list[str]]:
-    """JSON της Γενικής φόρμας → καθαρό draft (αριθμοί, εκδότης/αντισυμβαλλόμενος) και λίστα λαθών."""
+    """JSON της Φόρμας καταχώρησης → καθαρό draft (αριθμοί, εκδότης/αντισυμβαλλόμενος) και λίστα λαθών."""
     from mydata_client import (ENTRY_OPTIONS, ENTRY_RULES, ENTRY_TAX_KEYS, REC_NEGATIVE_TYPES,
                                SELF_TYPES_ISSUER_OPTIONAL, VAT_EXPENSE_TYPE, entry_country_rule, entry_roles,
                                entry_totals)
@@ -6169,6 +5806,8 @@ def _entry_clean(raw: dict) -> tuple[dict, list[str]]:
         d["vat_suspension"] = False  # αναστολή καταβολής ΦΠΑ: μόνο σε πωλήσεις με ΦΠΑ
     if "payments" in hidden:
         d["payments"] = []
+    elif fam == "17" and not d["payments"]:  # ΑΑΔΕ: στα 17.x (όπου δηλώνεται) ο τρόπος πληρωμής είναι υποχρεωτικός
+        errors.append(f"Ο τύπος {t} θέλει τρόπο εξόφλησης.")
     if any(p["type"] not in O["payment"] for p in d["payments"]):
         errors.append("Μη έγκυρος τρόπος εξόφλησης.")
     excluded = ENTRY_RULES["excluded_tax_options"].get(t, {})
@@ -6276,6 +5915,12 @@ def _entry_clean(raw: dict) -> tuple[dict, list[str]]:
             errors.append(f"Φόρος {n}: επίλεξε κατηγορία φόρου.")
         if tx["amount"] <= 0:
             errors.append(f"Φόρος {n}: συμπλήρωσε ποσό.")
+    if t == "17.1" and d["lines"]:  # μισθοδοσία: παρακράτηση και κρατήσεις μέσα στις αποδοχές
+        tot = entry_totals(d)
+        if tot["withheld"] + tot["deductions"] > tot["net"] + 0.005:
+            errors.append("Παρακράτηση φόρου και κρατήσεις ΕΦΚΑ: όχι πάνω από το σύνολο αποδοχών.")
+        if any(tx["type"] == "1" and not (tx["base"] and tx["amount"] <= tx["base"]) for tx in d["taxes"]):
+            errors.append("Συμπλήρωσε την υποκείμενη αξία της παρακράτησης φόρου (όχι μικρότερη από τον φόρο).")
     if d["lines"] and d["payments"]:
         gross = entry_totals(d)["gross"]
         paid = round(sum(p["amount"] for p in d["payments"]), 2)
@@ -6289,17 +5934,14 @@ def entry_submit():
     from mydata_client import entry_roles
 
     edit_mark = request.form.get("edit_mark", "").strip()
-    try:
-        raw = json.loads(request.form.get("draft") or "{}")
-    except ValueError:
-        raw = {}
-    draft, errors = _entry_clean(raw if isinstance(raw, dict) else {})
+    template_id = request.form.get("template_id", "").strip()
+    draft, errors = _entry_clean(_posted_draft())
     if not errors:  # και το XML που θα σταλεί, με το XSD της ΑΑΔΕ
         errors = [f"Έλεγχος XSD ΑΑΔΕ: {e}" for e in xsd_errors(draft_xml(draft))]
     if errors:
         for e in errors:
             flash(e, "error")
-        return _render_entry(draft, edit_mark, 422)
+        return _render_entry(draft, edit_mark, 422, template_id)
     cid = _active_company_id()
     if not cid:
         flash("Δεν έχει οριστεί ενεργή εταιρεία.", "error")
@@ -6324,13 +5966,67 @@ def entry_submit():
         return redirect(url_for("income"))
 
     existing = db.get_document(cid, edit_mark) if edit_mark else None
-    if existing and existing.get("local_action") == "create":
+    if existing and existing.get("local_action") != "create":
+        existing = None
+    # Μηνιαίο πρότυπο: μία εγγραφή ανά μήνα. Στην επεξεργασία κρατιέται το πρότυπο της παλιάς.
+    tid = (existing or {}).get("template_id") or template_id
+    origin = (int(tid), draft["issue_date"][:7]) if str(tid).isdigit() else None
+    if origin:
+        taken = db.template_periods(cid, origin[1]).get(origin[0])
+        if taken and taken["mark"] != edit_mark:
+            flash(f"Υπάρχει ήδη εγγραφή του προτύπου για τον μήνα {origin[1]} ({taken['mark']}).", "error")
+            return _render_entry(draft, edit_mark, 422, template_id)
+    if existing:
         db.delete_document(cid, edit_mark)
-    _store_entry(cid, draft)
+    _store_entry(cid, draft, origin)
     _save_entry_parties(cid, draft)
     flash(f"✔ Η εγγραφή {draft['invoice_type']} {'ενημερώθηκε' if existing else 'αποθηκεύτηκε'} τοπικά στα "
           "«Χαρακτηρισμένα». Στείλ' την με «Αποστολή στο myDATA».", "ok")
-    return redirect(url_for("invoices", view="classified"))
+    return redirect(_safe_back(request.form.get("back")) or url_for("invoices", view="classified"))
+
+
+def _posted_draft() -> dict:
+    """Το JSON draft που στέλνει η Φόρμα καταχώρησης (κρυφό πεδίο «draft»)."""
+    try:
+        raw = json.loads(request.form.get("draft") or "{}")
+    except ValueError:
+        raw = {}
+    return raw if isinstance(raw, dict) else {}
+
+
+@app.route("/entry/template", methods=["POST"])
+def expense_template_save():
+    """Η τρέχουσα φόρμα ως πρότυπο εξόδου (χωρίς ημ/νία και Α/Α)."""
+    from mydata_client import entry_roles
+
+    cid = _active_company_id()
+    name = " ".join(request.form.get("template_name", "").split())[:80]
+    draft, _ = _entry_clean(_posted_draft())  # λάθη ποσών δεν μετρούν: τα ποσά ελέγχονται σε κάθε χρήση
+    edit_mark = request.form.get("edit_mark", "").strip()
+    series = draft.get("series", "")
+    other = db.template_with_series(cid, series, name) if series else None
+    error = (
+        "Δώσε όνομα προτύπου (π.χ. «ΕΦΚΑ εργοδότη»)." if not cid or not name
+        else "Πρότυπα γίνονται μόνο για παραστατικά εξόδων." if draft["invoice_type"] not in _ENTRY_TYPES
+        or entry_roles(draft["invoice_type"], draft["self_pricing"], draft["omission"])["side"] != "expense"
+        else f"Η σειρά «{series}» χρησιμοποιείται ήδη από το πρότυπο «{other}» — κάθε πρότυπο θέλει δική του σειρά."
+        if other else "Δώσε σειρά στο πρότυπο — ο Α/Α του συνεχίζει μέσα στη σειρά." if not series else ""
+    )
+    if error:
+        flash(error, "error")
+        return _render_entry(draft, edit_mark, 422, request.form.get("template_id", "").strip())
+    draft.pop("issue_date", None)
+    draft.pop("aa", None)
+    tid = db.save_template(cid, name, draft)
+    flash(f"✔ Αποθηκεύτηκε το πρότυπο «{name}».", "ok")
+    return redirect(url_for("entry", template=tid))
+
+
+@app.route("/entry/template/<int:tid>/delete", methods=["POST"])
+def expense_template_delete(tid):
+    db.delete_template(_active_company_id(), tid)
+    flash("✔ Το πρότυπο διαγράφηκε.", "ok")
+    return redirect(url_for("entry"))
 
 
 def _save_entry_parties(cid: int, d: dict) -> None:
@@ -6354,8 +6050,9 @@ def _save_entry_parties(cid: int, d: dict) -> None:
             db.upsert_supplier(vat, name)
 
 
-def _store_entry(cid: int, d: dict) -> int | None:
-    """Καθαρό draft εξόδου της Γενικής φόρμας → τοπική εγγραφή στα «Χαρακτηρισμένα»."""
+def _store_entry(cid: int, d: dict, origin: tuple | None = None) -> int | None:
+    """Καθαρό draft εξόδου της Φόρμας καταχώρησης → τοπική εγγραφή στα «Χαρακτηρισμένα».
+    None αν υπάρχει ήδη εγγραφή του ίδιου προτύπου για τον μήνα (origin)."""
     from mydata_client import ENTRY_TAX_KEYS, entry_totals
 
     tot = entry_totals(d)
@@ -6394,44 +6091,46 @@ def _store_entry(cid: int, d: dict) -> int | None:
             "taxes_json": json.dumps(taxes),
         },
     }
-    return db.create_local_expense(cid, doc, d, [c for ln in lines for c in ln["classifications"]])
+    return db.create_local_expense(cid, doc, d, [c for ln in lines for c in ln["classifications"]], origin)
+
+
+# Συχνότητες προγραμματισμένων εγγραφών: κάθε πόσους μήνες.
+_EVERY = {1: "Μηνιαία", 2: "Διμηνιαία", 3: "Τριμηνιαία", 6: "Εξαμηνιαία", 12: "Ετήσια"}
+
+
+def _is_due(t: dict, period: str) -> bool:
+    """Το πρότυπο γράφεται τον μήνα; (ημέρα ορισμένη και μήνας στη σειρά: έναρξη, έναρξη + κάθε, …)."""
+    every, start = t.get("every_months") or 1, t.get("start_month") or 1
+    return bool(t.get("monthly_day")) and (int(period[5:]) - start) % every == 0
+
+
+def _next_due(t: dict, period: str) -> str:
+    """Ο επόμενος μήνας (YYYY-MM) μετά το period που γράφεται το πρότυπο."""
+    y, m = map(int, period.split("-"))
+    for _ in range(12):
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+        if _is_due(t, f"{y}-{m:02d}"):
+            return f"{y}-{m:02d}"
+    return ""
 
 
 def _recurring_pending(cid: int | None, period: str) -> list[dict]:
-    """Μηνιαία πρότυπα χωρίς εγγραφή για τον μήνα."""
+    """Προγραμματισμένα πρότυπα που γράφονται τον μήνα και δεν έχουν ακόμα εγγραφή."""
     done = db.template_periods(cid, period)
-    return [t for t in db.list_templates(cid) if t["monthly_day"] and t["id"] not in done]
+    return [t for t in db.list_templates(cid) if _is_due(t, period) and t["id"] not in done]
 
 
 def _draft_for_month(cid: int, template: dict, period: str) -> dict | None:
     """Το πρότυπο ως έγκυρο draft για τον μήνα: ημ/νία = ημέρα προτύπου (ή τελευταία του μήνα),
     Α/Α συνέχεια της σειράς. None αν το πρότυπο δεν έχει γραμμές με ποσό."""
-    d = template["draft"]
+    d = _as_entry(template["draft"])
     y, m = map(int, period.split("-"))
     day = min(template["monthly_day"], calendar.monthrange(y, m)[1])
-    lines = []
-    for ln in d.get("lines") or []:
-        if not ln or not ln.get("amount"):
-            continue
-        vat_amount = ln.get("vat_amount") or 0.0
-        lines.append(dict(ln, vat_amount=vat_amount, vat_category=ln.get("vat_category") or "8",
-                          vat_type=(ln.get("vat_type") or "VAT_361") if needs_vat_cls(ln.get("vat_category")) else ""))
+    lines = [ln for ln in d.get("lines") or [] if ln and ln.get("net")]
     if not lines:
         return None
-    counterparty = _self_counterparty(d)
-    withheld = d.get("withheld_amount") or 0.0
-    return dict(
-        d,
-        lines=lines,
-        issue_date=f"{period}-{day:02d}",
-        aa=str(db.next_aa(cid, counterparty, d.get("series", ""))),
-        issuer_vat=counterparty,
-        issuer_country=d.get("issuer_country") or "GR",
-        payment_method=d.get("payment_method") or "5",
-        withheld_amount=withheld,
-        deductions_amount=d.get("deductions_amount") or 0.0,
-        withheld_base=d.get("withheld_base") if withheld else None,
-    )
+    return dict(d, lines=lines, issue_date=f"{period}-{day:02d}",
+                aa=str(db.next_aa(cid, _self_counterparty(d), d.get("series", ""))))
 
 
 def _period_arg(value: str | None) -> str:
@@ -6440,20 +6139,43 @@ def _period_arg(value: str | None) -> str:
 
 @app.route("/recurring")
 def recurring():
-    """Μηνιαίες εγγραφές από πρότυπα: ημέρα ανά πρότυπο + δημιουργία για έναν μήνα."""
+    """Προγραμματισμένες εγγραφές από πρότυπα (μηνιαίες έως ετήσιες): πρόγραμμα ανά πρότυπο + δημιουργία για έναν μήνα."""
     cid = _active_company_id()
     period = _period_arg(request.args.get("period"))
-    return render_template("recurring.html", period=period, templates=db.list_templates(cid),
-                           done=db.template_periods(cid, period))
+    y, m = map(int, period.split("-"))
+    now = datetime.now(ATHENS)
+    cards = []
+    for t in db.list_templates(cid):  # ό,τι δείχνει η κάρτα: τύπος, συναλλασσόμενος, ποσό, αν άργησε
+        d = _as_entry(db.get_template(cid, t["id"])["draft"])
+        vat = ((d.get("issuer") or {}).get("vat") or "").strip()
+        due = _is_due(t, period)
+        day = min(t["monthly_day"], calendar.monthrange(y, m)[1]) if due else None
+        cards.append(dict(t, type=d.get("invoice_type", ""), type_name=_ENTRY_TYPES.get(d.get("invoice_type", ""), ""),
+                          series=d.get("series", ""), vat=vat, party=db.get_supplier_name(vat) if vat else "",
+                          net=round(sum((ln or {}).get("net") or 0 for ln in d.get("lines") or []), 2), day=day,
+                          late=bool(day) and (period, day) <= (now.strftime("%Y-%m"), now.day),
+                          next_due="" if due or not t["monthly_day"] else _next_due(t, period)))
+    done = db.template_periods(cid, period)
+    # Πρώτα ό,τι θέλει δουλειά: άργησε → εκκρεμεί → έγινε → όχι αυτόν τον μήνα → χωρίς πρόγραμμα.
+    cards.sort(key=lambda t: (2 if t["id"] in done else 0 if t["late"] else 1 if t["day"] else 3 if t["next_due"] else 4,
+                              t["day"] or 0, t["next_due"]))
+    return render_template("recurring.html", period=period, templates=cards, done=done, every=_EVERY,
+                           prev=f"{y - (m == 1)}-{12 if m == 1 else m - 1:02d}",
+                           next=f"{y + (m == 12)}-{1 if m == 12 else m + 1:02d}")
 
 
 @app.route("/recurring/days", methods=["POST"])
 def recurring_days():
     cid = _active_company_id()
+    def num(key, default, lo, hi):
+        v = request.form.get(key, "").strip()
+        return min(max(int(v), lo), hi) if v.isdigit() else default
+
     for t in db.list_templates(cid):
-        v = request.form.get(f"day_{t['id']}", "").strip()
-        db.set_template_monthly_day(cid, t["id"], min(max(int(v), 1), 31) if v.isdigit() else None)
-    flash("✔ Αποθηκεύτηκαν οι ημέρες των μηνιαίων εγγραφών.", "ok")
+        every = num(f"every_{t['id']}", 1, 1, 12)
+        db.set_template_monthly_day(cid, t["id"], num(f"day_{t['id']}", None, 1, 31),
+                                    every if every in _EVERY else 1, num(f"start_{t['id']}", 1, 1, 12))
+    flash("✔ Αποθηκεύτηκε το πρόγραμμα των εγγραφών.", "ok")
     return redirect(url_for("recurring", period=request.form.get("period")))
 
 
@@ -6461,7 +6183,7 @@ def recurring_days():
 def recurring_create():
     cid = _active_company_id()
     period = _period_arg(request.form.get("period"))
-    if not get_own_vat():  # ίδιος έλεγχος με τη «Νέα εγγραφή» (εκδότης 17.x / λήπτης)
+    if not get_own_vat():  # ίδιος έλεγχος με τη Φόρμα καταχώρησης (εκδότης 17.x / λήπτης)
         flash("Λείπει το ΑΦΜ της εταιρείας - συμπλήρωσέ το στη Διαχείριση εταιρειών.", "error")
         return redirect(url_for("recurring", period=period))
     ids = set(request.form.getlist("template_ids"))
@@ -6473,9 +6195,14 @@ def recurring_create():
         draft = _draft_for_month(cid, template, period)
         if draft is None:
             empty.append(t["name"])
-        elif _flash_xsd(draft):
+            continue
+        draft, errors = _entry_clean(draft)
+        errors = errors or [f"Έλεγχος XSD ΑΑΔΕ: {e}" for e in xsd_errors(draft_xml(draft))]
+        for e in errors:
+            flash(f"{t['name']}: {e}", "error")
+        if errors:
             skipped_xsd.append(t["name"])
-        elif _store_self_expense(cid, draft, (t["id"], period)):
+        elif _store_entry(cid, draft, (t["id"], period)):
             made.append(t["name"])
         else:  # ταυτόχρονη δημιουργία — το unique index το απέτρεψε
             skipped.append(t["name"])
@@ -6487,7 +6214,7 @@ def recurring_create():
     if empty:
         flash(f"Χωρίς γραμμές με ποσό (διόρθωσε το πρότυπο): {', '.join(empty)}.", "error")
     if skipped_xsd:
-        flash(f"Δεν δημιουργήθηκαν (λάθη XSD — διόρθωσε το πρότυπο): {', '.join(skipped_xsd)}.", "error")
+        flash(f"Δεν δημιουργήθηκαν (λάθη — διόρθωσε το πρότυπο): {', '.join(skipped_xsd)}.", "error")
     if not (made or skipped or empty or skipped_xsd):
         flash("Δεν επιλέχθηκε κανένα εκκρεμές πρότυπο.", "error")
         return redirect(url_for("recurring", period=period))
@@ -6901,7 +6628,7 @@ def companies_select(idx):
         return redirect(url_for("companies"))
     db.set_active_company_id(comps[idx]["id"])
     flash(f"✔ Ενεργή εταιρεία: «{comps[idx].get('company_name', '')}».", "ok")
-    return redirect(url_for("companies"))
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/supplier_lookup/<vat>")

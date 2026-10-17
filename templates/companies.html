@@ -442,12 +442,12 @@
   document.addEventListener('keydown', function(e){
     if (e.key === 'Escape') document.querySelectorAll('[data-co-guard].is-open').forEach(function(g){ guard(g, false); });
   });
-  // Ενεργοποίηση και tags-διακόπτες με ajax: ίδιο POST, και από τη σελίδα που επιστρέφει αλλάζουν μόνο τα κομμάτια
+  // Tags-διακόπτες με ajax (η ενεργοποίηση πάει κανονικά στον Πίνακα ελέγχου): ίδιο POST, και από τη σελίδα που επιστρέφει αλλάζουν μόνο τα κομμάτια
   // που εξαρτώνται από την ενεργή εταιρεία — χωρίς reload/αναβόσβημα. Αποτυχία → κανονική πλοήγηση.
   var SWAP = ['meta[name=active-company]', '.sidebar .who--top', '.sidebar .nav', '.topbar .who--bar', '#co-edit-active', '.co-grid'];
   document.addEventListener('submit', function(e){
     var f = e.target;
-    if (!f.action || !/\/companies\/(select|toggle)\//.test(f.action)) return;
+    if (!f.action || !/\/companies\/toggle\//.test(f.action)) return;
     e.preventDefault(); e.stopPropagation();  // πριν το γενικό submit του app.js (is-busy)
     fetch(f.action, {method: 'POST', body: new FormData(f)}).then(function(r){
       if (!r.ok || new URL(r.url).pathname !== location.pathname) throw new Error('redirect');

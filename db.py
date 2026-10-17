@@ -213,7 +213,7 @@ CREATE TABLE IF NOT EXISTS supplier_rules (
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 
--- Συναλλασσόμενοι που δήλωσε η ίδια η εταιρεία (Γενική φόρμα καταχώρησης), ακόμα κι αν δεν υπάρχει ακόμα
+-- Συναλλασσόμενοι που δήλωσε η ίδια η εταιρεία (Φόρμα καταχώρησης), ακόμα κι αν δεν υπάρχει ακόμα
 -- παραστατικό τους στο τοπικό βιβλίο (π.χ. έσοδο που στάλθηκε αμέσως, πριν την επόμενη «Ανάκτηση»).
 CREATE TABLE IF NOT EXISTS company_suppliers (
     company_id  INTEGER NOT NULL,
@@ -490,8 +490,13 @@ def init_db() -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_documents_template_period "
             "ON documents(company_id, template_id, period) WHERE template_id IS NOT NULL"
         )
-        if "monthly_day" not in {r["name"] for r in conn.execute("PRAGMA table_info(expense_templates)")}:
+        tpl_cols = {r["name"] for r in conn.execute("PRAGMA table_info(expense_templates)")}
+        if "monthly_day" not in tpl_cols:
             conn.execute("ALTER TABLE expense_templates ADD COLUMN monthly_day INTEGER")
+        # Προγραμματισμένες εγγραφές: κάθε πόσους μήνες (1, 2, 3, 6, 12) και από ποιον μήνα του έτους.
+        if "every_months" not in tpl_cols:
+            conn.execute("ALTER TABLE expense_templates ADD COLUMN every_months INTEGER NOT NULL DEFAULT 1")
+            conn.execute("ALTER TABLE expense_templates ADD COLUMN start_month INTEGER NOT NULL DEFAULT 1")
         # Διαβιβασμένες «Νέες εγγραφές» που έμειναν σημειωμένες ως πρόχειρα (παλιό finalize_created).
         if "status" in doc_cols:
             conn.execute("UPDATE documents SET local_action = 'classify' "
@@ -1170,7 +1175,7 @@ def get_supplier(vat: str | None) -> dict | None:
 
 def list_suppliers(company_id: int | None = None) -> list[dict]:
     """Ολόκληρος ο κοινός κατάλογος· με company_id μόνο οι συναλλασσόμενοι της εταιρείας
-    (με παραστατικά, δική της πρόταση χαρακτηρισμού ή δηλωμένοι από τη Γενική φόρμα)."""
+    (με παραστατικά, δική της πρόταση χαρακτηρισμού ή δηλωμένοι από τη Φόρμα καταχώρησης)."""
     q = "SELECT vat, name, country, street, postal_code, city FROM suppliers"
     params: tuple = ()
     if company_id is not None:
@@ -2015,7 +2020,7 @@ def list_templates(company_id: int | None) -> list[dict]:
         return []
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, name, monthly_day FROM expense_templates WHERE company_id = ? ORDER BY name",
+            "SELECT id, name, monthly_day, every_months, start_month FROM expense_templates WHERE company_id = ? ORDER BY name",
             (company_id,)
         ).fetchall()
     return [dict(r) for r in rows]
@@ -2024,18 +2029,20 @@ def list_templates(company_id: int | None) -> list[dict]:
 def get_template(company_id: int | None, template_id) -> dict | None:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, name, draft_json, monthly_day FROM expense_templates WHERE company_id = ? AND id = ?",
+            "SELECT id, name, draft_json, monthly_day, every_months, start_month FROM expense_templates WHERE company_id = ? AND id = ?",
             (company_id or 0, template_id),
         ).fetchone()
     return {"id": row["id"], "name": row["name"], "draft": json.loads(row["draft_json"]),
-            "monthly_day": row["monthly_day"]} if row else None
+            "monthly_day": row["monthly_day"], "every_months": row["every_months"], "start_month": row["start_month"]} if row else None
 
 
-def set_template_monthly_day(company_id: int | None, template_id, day: int | None) -> None:
-    """Ημέρα του μήνα για τη μηνιαία εγγραφή (None = όχι μηνιαίο)."""
+def set_template_monthly_day(company_id: int | None, template_id, day: int | None,
+                             every_months: int = 1, start_month: int = 1) -> None:
+    """Πρόγραμμα του προτύπου: ημέρα του μήνα (None = όχι προγραμματισμένο), κάθε πόσους μήνες
+    και από ποιον μήνα του έτους (π.χ. 3 και 3 = Μάρτιος, Ιούνιος, Σεπτέμβριος, Δεκέμβριος)."""
     with get_conn() as conn:
-        conn.execute("UPDATE expense_templates SET monthly_day = ? WHERE company_id = ? AND id = ?",
-                     (day, company_id or 0, template_id))
+        conn.execute("UPDATE expense_templates SET monthly_day = ?, every_months = ?, start_month = ? "
+                     "WHERE company_id = ? AND id = ?", (day, every_months, start_month, company_id or 0, template_id))
 
 
 def template_periods(company_id: int | None, period: str) -> dict[int, dict]:

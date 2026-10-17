@@ -177,7 +177,7 @@
     </div>
     <div class="dc-acts">
     {% if not is_income and status == 'confirmed' and inv.invoice_type in self_types and active_company.allow_new %}
-    <a class="btn btn-ghost btn-sm" href="{{ url_for('new_expense', copy=inv.mark) }}" title="Νέα εγγραφή με τα ίδια στοιχεία και χαρακτηρισμούς">📄 Αντιγραφή σε νέα εγγραφή</a>
+    <a class="btn btn-ghost btn-sm" href="{{ url_for('entry', copy=inv.mark) }}" title="Νέο παραστατικό με τα ίδια στοιχεία και χαρακτηρισμούς">📄 Αντιγραφή σε νέα εγγραφή</a>
     {% endif %}
     </div>
   </div>
@@ -346,6 +346,7 @@
       </span>
       {% endif %}</summary>
     {% if has_xml %}
+    {% if local_xml %}<p class="muted small">Δεν έχει διαβιβαστεί ακόμη — αυτό είναι το XML που θα σταλεί με την «Αποστολή στο myDATA».</p>{% endif %}
     <p><a class="btn btn-ghost btn-sm" href="{{ url_for('document_xml', mark=inv.mark) }}">⬇ XML</a></p>
     <div class="xml-tree">{{ xml_nodes(xml_tree) }}</div>
     {% elif local_action == 'create' and status == 'classified' %}
@@ -366,9 +367,9 @@
 {% elif not is_income %}
 <div class="card card-danger">
   {% if local_action == 'create' and status == 'classified' %}
-  {# Τοπική «Νέα εγγραφή» που ΔΕΝ έχει διαβιβαστεί: επεξεργασία ή διαγραφή. #}
+  {# Τοπικό πρόχειρο που ΔΕΝ έχει διαβιβαστεί: επεξεργασία ή διαγραφή. #}
   <div class="btn-row">
-    {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense', edit=inv.mark, back=back) }}">✏️ Επεξεργασία εγγραφής</a>{% endif %}
+    {% if active_company.allow_new %}<a class="btn" href="{{ url_for('entry', edit=inv.mark, back=back) }}">✏️ Επεξεργασία εγγραφής</a>{% endif %}
     <form method="post" action="{{ url_for('draft_delete', mark=inv.mark) }}" class="inline-form">
       <button type="submit" class="btn-danger"
               data-confirm="Η τοπική εγγραφή {{ inv.mark }} θα διαγραφεί οριστικά. Συνέχεια;">🗑️ Διαγραφή</button>

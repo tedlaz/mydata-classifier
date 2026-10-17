@@ -58,7 +58,7 @@ same("Σκοπός διακίνησης (§8.14)", A.XML_EXTRA_CODES["movePurpos
 same("Κατηγορίες εσόδων (§8.8)", C.INCOME_CATEGORIES, type_values("IncomeClassificationCategoryType") - {"category3"})
 same("Κατηγορίες εξόδων (§8.10)", C.EXPENSE_CATEGORIES, type_values("ExpensesClassificationCategoryType"))
 # Η ΑΑΔΕ δεν δείχνει όλες τις τιμές σε αυτά (ανενεργές / μόνο για ανάγνωση): αρκεί να είναι έγκυρες.
-# Επιλογές της Γενικής φόρμας (από την Ειδική Φόρμα της ΑΑΔΕ, aade_form.py): η ΑΑΔΕ δείχνει λιγότερες
+# Επιλογές της Φόρμας καταχώρησης (από την Ειδική Φόρμα της ΑΑΔΕ, aade_form.py): η ΑΑΔΕ δείχνει λιγότερες
 # από όσες επιτρέπει το σχήμα (π.χ. 3 μονάδες μέτρησης), αλλά ποτέ τιμή εκτός σχήματος.
 O = M.ENTRY_OPTIONS
 for label, key, spec in (("ΦΠΑ", "vat", element_values("vatCategory")),
@@ -76,8 +76,8 @@ for label, key, spec in (("ΦΠΑ", "vat", element_values("vatCategory")),
                          ("Τύπος παραστατικού", "invoice_type", type_values("InvoiceType")),
                          ("Κατηγορίες εσόδων", "income_category", type_values("IncomeClassificationCategoryType")),
                          ("Κατηγορίες εξόδων", "expense_category", type_values("ExpensesClassificationCategoryType"))):
-    same(f"Γενική φόρμα · {label}", O[key], spec, subset=True)
-same("Γενική φόρμα · Τύπος φόρου", dict(aade_form.TAX_TYPES), element_values("taxType"))
+    same(f"Φόρμα καταχώρησης · {label}", O[key], spec, subset=True)
+same("Φόρμα καταχώρησης · Τύπος φόρου", dict(aade_form.TAX_TYPES), element_values("taxType"))
 same("Τύποι παραστατικού", C.INVOICE_TYPE_NAMES, type_values("InvoiceType"), subset=True)
 # Ε3: κάθε κωδικός του σχήματος θέλει ονομασία (αλλιώς φαίνεται σκέτος ο κωδικός)· έξτρα επιτρέπονται
 # για εμφάνιση παλιών παραστατικών (π.χ. E3_585_017, που η φόρμα ήδη φιλτράρει με το XSD).

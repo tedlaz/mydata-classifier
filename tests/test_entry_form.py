@@ -1,4 +1,4 @@
-"""Γενική φόρμα καταχώρησης: XML για όλους τους τύπους, πρόχειρο εξόδου, έλεγχοι (python -m tests.test_entry_form)."""
+"""Φόρμα καταχώρησης: XML για όλους τους τύπους, πρόχειρο εξόδου, έλεγχοι (python -m tests.test_entry_form)."""
 import json
 import os
 import tempfile
@@ -173,5 +173,79 @@ other = db.add_company({"company_name": "Άλλη", "AADE_VAT_NUMBER": "09999999
 assert "129484218" not in {s["vat"] for s in db.list_suppliers(other)}  # μόνο στην εταιρεία που τον δήλωσε
 
 # 4) Η σελίδα φορτώνει.
-assert "Γενική φόρμα καταχώρησης" in c.get("/entry").get_data(as_text=True)
+assert "Φόρμα καταχώρησης" in c.get("/entry").get_data(as_text=True)
+
+# 5) Έτοιμα πρότυπα (ΕΦΚΑ, Ενοίκιο, Μισθοδοσία, Απογραφή): με ποσά περνούν τους ελέγχους και το XSD της ΑΑΔΕ.
+fill = {"efka": ([300], [], "997072577"), "rent": ([500], [{"base": 500, "amount": 18}], "123456789"),
+        "payroll": ([1000, 220], [{"base": 1000, "amount": 50}, {"amount": 140}], ""), "stock": ([800, 650], [], "")}
+for key, (nets, tax_vals, issuer) in fill.items():
+    assert f"preset={key}" in c.get("/entry").get_data(as_text=True)
+    p = json.loads(json.dumps(A._ENTRY_PRESETS[key][1]))
+    p.update(series="P" + key, aa="1", issue_date="2026-10-16")
+    if issuer:
+        p["issuer"] = {"country": "GR", "vat": issuer}
+    for ln, net in zip(p["lines"], nets):
+        ln["net"] = net
+        ln["cls"] = [dict(x, amount=net) for x in ln["cls"]]
+    for tx, v in zip(p.get("taxes", []), tax_vals):
+        tx.update(v)
+    for pm in p.get("payments", []):  # στη φόρμα: μία πληρωμή = η συνολική αξία
+        pm["amount"] = sum(nets) - sum(v["amount"] for v in tax_vals if p["invoice_type"] == "17.1")
+    with A.app.test_request_context():
+        d, errors = A._entry_clean(p)
+    assert not errors, (key, errors)
+    assert not A.xsd_errors(M.draft_xml(d)), (key, A.xsd_errors(M.draft_xml(d)))
+
+# 6) Μισθοδοσία 17.1: παρακράτηση + κρατήσεις όχι πάνω από τις αποδοχές· παρακράτηση με υποκείμενη αξία.
+pay = {"invoice_type": "17.1", "series": "M", "aa": "1", "issue_date": "2026-10-16",
+       "lines": [{"net": 1000, "vat_category": "8", "cls": [{"category": "category2_6", "type": "E3_581_001", "amount": 1000}]}],
+       "payments": [{"type": "1", "amount": 1000}]}
+with A.app.test_request_context():
+    _, e1 = A._entry_clean(dict(pay, taxes=[{"type": "1", "category": "11", "base": 1000, "amount": 600},
+                                            {"type": "5", "amount": 500}]))
+    _, e2 = A._entry_clean(dict(pay, taxes=[{"type": "1", "category": "11", "amount": 50}]))
+assert any("σύνολο αποδοχών" in e for e in e1), e1
+assert any("υποκείμενη αξία" in e for e in e2), e2
+# Τρόπος πληρωμής υποχρεωτικός στο 17.1 (ΑΑΔΕ)· το έτοιμο πρότυπο βάζει «Επαγ. Λογαριασμός Πληρωμών Ημεδαπής».
+with A.app.test_request_context():
+    _, e3 = A._entry_clean(dict(pay, payments=[]))
+assert e3 == ["Ο τύπος 17.1 θέλει τρόπο εξόφλησης."], e3
+assert A._ENTRY_PRESETS["payroll"][1]["payments"] == [{"type": "1"}]
+
+# 7) Παλιό πρότυπο της «Νέας εγγραφής» (17.1 με παρακράτηση/κρατήσεις) → draft Φόρμας καταχώρησης, έγκυρο XSD.
+old = {"invoice_type": "17.1", "series": "MIS", "aa": "1", "issue_date": "2026-10-31", "payment_method": "3",
+       "withheld_amount": 50.0, "withheld_base": 1000.0, "deductions_amount": 140.0,
+       "lines": [{"amount": 1000.0, "classification_category": "category2_6", "classification_type": "E3_581_001",
+                  "vat_category": "8", "vat_amount": 0.0, "vat_type": ""}, None]}
+with A.app.test_request_context():
+    d, errors = A._entry_clean(A._as_entry(old))
+assert not errors, errors
+assert not A.xsd_errors(M.draft_xml(d))
+assert {(t["type"], t["amount"]) for t in d["taxes"]} == {("1", 50.0), ("5", 140.0)}
+assert M.entry_totals(d)["gross"] == 810.0 and d["payments"] == [{"type": "3", "amount": 810.0, "info": ""}]
+
+# 8) «Ως πρότυπο» από τη Φόρμα καταχώρησης → φόρτωση με σημερινή ημ/νία και επόμενο Α/Α της σειράς.
+r = c.post("/entry/template", data={"draft": json.dumps(dict(pay, series="TPL")), "template_name": "Μισθοδοσία"})
+tid = int(r.headers["Location"].rsplit("=", 1)[1])
+assert "issue_date" not in db.get_template(cid, tid)["draft"]
+c.post("/entry", data={"draft": json.dumps(dict(pay, series="TPL", aa="4")), "template_id": str(tid)})
+page = c.get(f"/entry?template={tid}").get_data(as_text=True)
+assert '"aa": "5"' in page and '"series": "TPL"' in page
+assert c.post("/entry/template", data={"draft": json.dumps(dict(pay, series="TPL")), "template_name": "Άλλο"}).status_code == 422
+assert c.post("/entry/template", data={"draft": json.dumps(sale), "template_name": "Πώληση"}).status_code == 422  # όχι έσοδα
+c.post(f"/entry/template/{tid}/delete")
+assert db.get_template(cid, tid) is None
+
+# 9) Πρόχειρο που δεν έχει σταλεί (Φόρμα καταχώρησης ή παλιό της «Νέας εγγραφής»): η σελίδα δείχνει το XML που θα σταλεί.
+c.post("/entry", data={"draft": json.dumps(dict(pay, series="XMLV", aa="1"))})
+mark = next(x["mark"] for x in db.get_documents(cid, "expense") if x["series"] == "XMLV")
+page = c.get(f"/document/{mark}").get_data(as_text=True)
+assert "αυτό είναι το XML που θα σταλεί" in page and "17.1 ·" in page, page[-3000:]
+xml = c.get(f"/document/{mark}/xml").get_data(as_text=True)
+assert "<invoiceType>17.1</invoiceType>" in xml and "InvoicesDoc" in xml
+db.create_local_expense(cid, {"issue_date": "2026-10-31", "invoice_type": "17.1", "series": "OLD", "aa": "1"},
+                         dict(old, lines=old["lines"][:1]), [])  # αποθηκευμένο draft: χωρίς κενές γραμμές
+mark = next(x["mark"] for x in db.get_documents(cid, "expense") if x["series"] == "OLD")
+assert "αυτό είναι το XML που θα σταλεί" in c.get(f"/document/{mark}").get_data(as_text=True)
 print("OK")
+

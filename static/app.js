@@ -267,6 +267,29 @@
     e.target.querySelectorAll?.('.co-tabs .tab input').forEach(i => { i.checked = i.defaultChecked; });
   }, true);
 
+  // ---- Θέση scroll: κάθε επιστροφή σε σελίδα (link «Επιστροφή», redirect μετά από ενέργεια) γυρίζει
+  //      στο ίδιο σημείο. Το «Πίσω» του browser το κάνει ήδη μόνος του· το μενού ανοίγει από την αρχή. ----
+  const scrollKey = href => {
+    const u = new URL(href, location.href);
+    u.searchParams.delete('docs');  // ?docs= απλώς ξανανοίγει modal
+    u.searchParams.sort();
+    return 'scroll:' + u.pathname + (u.searchParams.size ? '?' + u.searchParams : '');
+  };
+  addEventListener('pagehide', () => {
+    try { scrollY ? sessionStorage.setItem(scrollKey(location.href), scrollY) : sessionStorage.removeItem(scrollKey(location.href)); } catch (_) {}
+  });
+  document.addEventListener('click', e => {
+    const a = e.target.closest('.sidebar a[href]');
+    if (a) try { sessionStorage.removeItem(scrollKey(a.href)); } catch (_) {}
+  });
+  // ponytail: επαναφορά στο load· περιεχόμενο που έρχεται με AJAX αργότερα θέλει δική του επανάληψη.
+  addEventListener('load', () => {
+    if (location.hash || performance.getEntriesByType('navigation')[0]?.type !== 'navigate') return;
+    let y = null;
+    try { y = sessionStorage.getItem(scrollKey(location.href)); } catch (_) {}
+    if (y) scrollTo(0, +y);
+  });
+
   // Επιστροφή με «Πίσω» (bfcache): καθάρισε τις ενδείξεις.
   addEventListener('pageshow', () => {
     document.body.classList.remove('is-busy', 'nav-open');

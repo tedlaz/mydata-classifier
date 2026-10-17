@@ -57,15 +57,16 @@ cid = db.add_company({"company_name": "Β"})
 assert next(x for x in db.list_companies() if x["id"] == cid)["allow_send"] is False
 print("ok")
 
-# 5) Χαρακτηρισμοί / «Νέα εγγραφή»: κλειστά εξ ορισμού, ανοίγουν από τις Παραμέτρους.
+# 5) Χαρακτηρισμοί / καταχώρηση εγγραφών: κλειστά εξ ορισμού, ανοίγουν από τις Παραμέτρους.
 assert comp["allow_classify"] is False and comp["allow_new"] is False
 for url in ("/classify/1001", "/new_expense", "/recurring", "/invoices/auto-classify"):
     r = c.get(url)
     assert r.status_code == 302 and r.headers["Location"].endswith("/invoices"), url
 assert c.post("/bulk_classify").status_code == 302
 page = c.get("/invoices?view=unclassified").data.decode()
-assert 'href="/new_expense"' not in page and "Μαζικός χαρακτηρισμός" not in page
+assert 'href="/entry"' not in page and "Μαζικός χαρακτηρισμός" not in page
 db.update_company(1, {**comp, "allow_send": True, "allow_classify": True, "allow_new": True})
-assert c.get("/new_expense").status_code == 200
+assert c.get("/entry").status_code == 200
+assert c.get("/new_expense").headers["Location"].endswith("/entry")  # η παλιά «Νέα εγγραφή» → Φόρμα καταχώρησης
 assert c.get("/classify/1001").status_code == 200
 print("ok gates")

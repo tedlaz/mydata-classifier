@@ -109,8 +109,8 @@
           <td data-label="">
             <div class="actions">
               {% if view == 'classified' and inv.local_action == 'create' %}
-                {# Τοπική «Νέα εγγραφή» που δεν έχει διαβιβαστεί: επεξεργασία/διαγραφή. #}
-                {% if active_company.allow_new %}<a class="btn" href="{{ url_for('new_expense', edit=inv.mark, back=request.full_path) }}">Επεξεργασία</a>{% endif %}
+                {# Τοπικό πρόχειρο που δεν έχει διαβιβαστεί: επεξεργασία/διαγραφή. #}
+                {% if active_company.allow_new %}<a class="btn" href="{{ url_for('entry', edit=inv.mark, back=request.full_path) }}">Επεξεργασία</a>{% endif %}
                 <button type="submit" formaction="{{ url_for('draft_delete', mark=inv.mark) }}" formmethod="post" class="btn-danger"
                         data-confirm="Η τοπική εγγραφή {{ inv.mark }} θα διαγραφεί. Συνέχεια;">Διαγραφή</button>
               {% elif not active_company.allow_classify %}

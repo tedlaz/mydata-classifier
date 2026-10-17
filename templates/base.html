@@ -42,23 +42,21 @@ addEventListener('pageswap',function(e){var v=e.viewTransition;if(v&&document.qu
     ('sync', 'Ανάκτηση', 'sync', ['sync'], False),
     ('income', 'Βιβλίο εσόδων', 'in', ['income'], False),
     ('invoices', 'Βιβλίο εξόδων', 'out', ['invoices', 'document', 'classify'], False),
-    ('new_expense', 'Νέα εγγραφή', 'plus', ['new_expense'], True),
-    ('entry', 'Γενική φόρμα καταχώρησης', 'plus', ['entry', 'entry_submit'], True),
-    ('recurring', 'Μηνιαίες εγγραφές', 'calendar', ['recurring'], True),
+    ('entry', 'Φόρμα καταχώρησης', 'plus', ['entry', 'entry_submit', 'new_expense', 'expense_template_save'], False),
+    ('recurring', 'Προγραμματισμένες εγγραφές', 'calendar', ['recurring'], False),
   ]),
   ('Αναλύσεις', [
-    ('dashboard', 'Πίνακας ελέγχου', 'home', ['dashboard'], False),
     ('reports_yearly', 'Συνοπτικό βιβλίο', 'calendar', ['reports_yearly'], False),
     ('reports_vat', 'Δήλωση ΦΠΑ (Φ2)', 'receipt', ['reports_vat', 'reports_vat_reconcile'], False),
     ('reports', 'OLAP', 'chart', ['reports'], False),
     ('reports_forecast', 'Πρόβλεψη έτους', 'chart', ['reports_forecast'], False),
     ('reports_compare', 'Σύγκριση ετών', 'chart', ['reports_compare'], False),
     ('reports_flows', 'Ροές', 'flow', ['reports_flows'], False),
-    ('reports_history', 'myData λοιπά', 'receipt', ['reports_history'], False),
-    ('mark_lookup', 'Αναζήτηση MARK', 'search', ['mark_lookup'], False),
   ]),
   ('Κατάλογοι', [
     ('suppliers', 'Συναλλασσόμενοι', 'users', ['suppliers'], False),
+    ('reports_history', 'myData λοιπά', 'receipt', ['reports_history'], False),
+    ('mark_lookup', 'Αναζήτηση MARK', 'search', ['mark_lookup'], False),
   ]),
   ('Ρυθμίσεις', [
     ('parameters', 'Παράμετροι', 'sliders', ['parameters'], False),
@@ -97,21 +95,30 @@ addEventListener('pageswap',function(e){var v=e.viewTransition;if(v&&document.qu
       </a>
       {% endif %}
     <nav class="nav">
+      <a class="nav-link {{ 'is-active' if ep == 'dashboard' }}" href="{{ url_for('dashboard') }}" title="Πίνακας ελέγχου"
+         {% if ep == 'dashboard' %}aria-current="page"{% endif %}>{{ icon('home') }}Πίνακας ελέγχου</a>
+      {# Accordion: ανοιχτή μόνο η ομάδα της τρέχουσας σελίδας· name="nav" = μία ανοιχτή κάθε φορά. #}
       {% for group, items in nav %}
-        <div class="nav-group">{{ group }}</div>
+        {% set ns = namespace(open=False) %}
+        {% for it in items if ep in it[3] %}{% set ns.open = True %}{% endfor %}
+        <details class="nav-sec" name="nav" {{ 'open' if ns.open }}>
+        <summary class="nav-group">{{ group }}</summary>
         {% for endpoint, label, ic, owns, is_sub in items
-              if endpoint not in ('new_expense', 'entry', 'recurring') or (active_company and active_company.allow_new) %}
+              if endpoint not in ('entry', 'recurring') or (active_company and active_company.allow_new) %}
           <a class="nav-link {{ 'nav-link--sub' if is_sub }} {{ 'is-active' if ep in owns }}" href="{{ url_for(endpoint) }}" title="{{ label }}"
              {% if ep in owns %}aria-current="page"{% endif %}>{{ icon(ic) }}{{ label }}</a>
         {% endfor %}
+        {% if loop.last %}
+        <button type="button" class="theme-toggle" popovertarget="theme-menu" title="Επιλογή θέματος">
+          {{ icon('sun') }}{{ icon('moon') }}Θέμα: <span class="theme-name"></span>
+        </button>
+        {% endif %}
+        </details>
       {% endfor %}
     </nav>
     <div class="sidebar-foot">
       <a class="nav-link {{ 'is-active' if ep == 'companies' }}" href="{{ url_for('companies') }}" title="Εταιρείες"
          {% if ep == 'companies' %}aria-current="page"{% endif %}>{{ icon('building') }}Εταιρείες</a>
-      <button type="button" class="theme-toggle" popovertarget="theme-menu" title="Επιλογή θέματος">
-        {{ icon('sun') }}{{ icon('moon') }}Θέμα: <span class="theme-name"></span>
-      </button>
       <div id="theme-menu" class="theme-menu" popover>
         {% for key, name, bg, side, ac in [
              ('light', 'Φωτεινό', '#f4f6fb', '#10142a', '#4a55e8'),

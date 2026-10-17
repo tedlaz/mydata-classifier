@@ -320,7 +320,10 @@
       <section class="card db-card yr-pl-card" style="--i:4">
         <div class="yr-chart-head">
           <h2>💰 Καθαρό κέρδος {{ year }}</h2>
-          <a class="btn btn-ghost btn-sm" href="{{ url_for('reports_yearly_e3', year=year) }}" title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">Ανάλυση Ε3 →</a>
+          <span style="display:flex;gap:6px;flex-wrap:wrap">
+            <a class="btn btn-ghost btn-sm" href="{{ url_for('reports_yearly', year=year) }}" title="Έσοδα-έξοδα του {{ year }} ανά μήνα">Συνοπτικό βιβλίο →</a>
+            <a class="btn btn-ghost btn-sm" href="{{ url_for('reports_yearly_e3', year=year) }}" title="Συγκεντρωτικά ανά χαρακτηρισμό Ε3">Ανάλυση Ε3 →</a>
+          </span>
         </div>
         {% macro wf(label, v, i, li_cls='') -%}
           <li class="{{ li_cls }}" style="--i:{{ i }}"><span class="yr-wf-l">{{ label }}</span><b>{{ v|el_amount }}</b></li>
@@ -354,7 +357,7 @@
         {% if pl.assets_total and not pl.depreciation %}
         <p class="note note--warn yr-pl-warn">
           ⚠ Αγορές παγίων χωρίς <strong>καμία απόσβεση</strong> στο {{ year }} — πέρασέ τες με
-          <a href="{{ url_for('new_expense') }}">Νέα εγγραφή</a> (τύπος 17.x, E3_587).
+          <a href="{{ url_for('entry') }}">Φόρμα καταχώρησης</a> (τύπος 17.2, E3_587).
         </p>
         {% endif %}
       </section>

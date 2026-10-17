@@ -1,4 +1,4 @@
-"""Παράγει το aade_form.py (κανόνες και επιλογές της Γενικής φόρμας) από την Ειδική Φόρμα Καταχώρησης της ΑΑΔΕ.
+"""Παράγει το aade_form.py (κανόνες και επιλογές της Φόρμας καταχώρησης) από την Ειδική Φόρμα Καταχώρησης της ΑΑΔΕ.
 
 Χρήση (Βοήθεια → Αλλαγές ΑΑΔΕ):  uv run python tools/aade_form_rules.py <φάκελος με aade_labels.json και aade_app.js>
 
@@ -15,7 +15,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "aade_form.py")
 
-# Πεδίο της ΑΑΔΕ → ομάδα της Γενικής φόρμας (ό,τι δεν είναι εδώ, η φόρμα μας δεν το έχει).
+# Πεδίο της ΑΑΔΕ → ομάδα της Φόρμας καταχώρησης (ό,τι δεν είναι εδώ, η φόρμα μας δεν το έχει).
 FIELDS = {
     "dispatchDate": "dispatch", "dispatchTime": "dispatch", "movePurpose": "dispatch", "vehicleNumber": "dispatch",
     "measurementUnit": "unit", "quantity": "unit",
@@ -116,7 +116,7 @@ def main(folder: str) -> None:
         exec(open(OUT, encoding="utf-8").read(), old)  # noqa: S102 — δικό μας, παραγόμενο αρχείο
     lines = ['"""ΠΑΡΑΓΕΤΑΙ ΑΥΤΟΜΑΤΑ από το tools/aade_form_rules.py — μην το αλλάζεις με το χέρι.',
              "",
-             "Κανόνες και επιλογές της Ειδικής Φόρμας Καταχώρησης της ΑΑΔΕ (εφαρμογή myDATA), για τη Γενική φόρμα",
+             "Κανόνες και επιλογές της Ειδικής Φόρμας Καταχώρησης της ΑΑΔΕ (εφαρμογή myDATA), για τη Φόρμα καταχώρησης",
              'καταχώρησης. Οδηγίες ενημέρωσης: Βοήθεια → Αλλαγές ΑΑΔΕ."""', ""]
     for name, value in new.items():
         lines.append(f"{name} = " + pprint.pformat(value, width=118, sort_dicts=False))

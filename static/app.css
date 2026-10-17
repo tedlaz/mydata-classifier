@@ -226,6 +226,12 @@ a{color:var(--accent)}
 .nav{display:flex;flex-direction:column;gap:2px;flex:1;overflow-y:auto}
 .nav-group{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
   color:#6a729a;padding:10px 12px 4px}
+summary.nav-group{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;border-radius:8px}
+summary.nav-group::-webkit-details-marker{display:none}
+summary.nav-group::after{content:"▸";font-size:.8rem;transition:rotate .15s}
+summary.nav-group:hover{color:var(--side-ink-hi)}
+.nav-sec[open] > summary.nav-group::after{rotate:90deg}
+.nav-sec > .nav-link{margin-bottom:2px}
 .nav-link{position:relative;display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;
   color:var(--side-ink);text-decoration:none;font-size:.9rem;font-weight:500;
   transition:background .18s,color .18s,transform .18s var(--ease)}
@@ -250,10 +256,10 @@ a{color:var(--accent)}
 .who small{display:flex;align-items:center;gap:6px;color:var(--side-ink);font-weight:500;font-family:var(--font-data);font-size:.72rem;margin-top:3px}
 .who small::before{content:"";width:7px;height:7px;border-radius:50%;background:#4fd1a0;box-shadow:0 0 0 3px rgba(79,209,160,.2)}
 .who.is-dev small::before{background:#f2c265;box-shadow:0 0 0 3px rgba(242,194,101,.2)}
-.theme-toggle{display:flex;align-items:center;gap:10px;width:100%;background:transparent;border:1px solid var(--side-2);
-  color:var(--side-ink);padding:8px 12px;border-radius:10px;font-size:.84rem;font-weight:500;box-shadow:none}
+.theme-toggle{display:flex;align-items:center;justify-content:flex-start;gap:11px;width:100%;background:transparent;border:0;
+  color:var(--side-ink);padding:8px 12px;border-radius:10px;font-size:.9rem;font-weight:500;box-shadow:none}
 .theme-toggle:hover{background:var(--side-2);color:#fff;transform:none;box-shadow:none}
-.theme-toggle svg{width:16px;height:16px}
+.theme-toggle svg{width:18px;height:18px;flex:none;opacity:.85}
 .theme-toggle .i-moon,[data-theme-now="dark"] .theme-toggle .i-sun{display:none}
 [data-theme-now="dark"] .theme-toggle .i-moon{display:inline}
 .theme-name::after{content:"Φωτεινό"}
@@ -269,6 +275,11 @@ a{color:var(--accent)}
 .theme-menu{position:fixed;inset:auto auto 64px 12px;margin:0;padding:6px;min-width:200px;display:none;flex-direction:column;gap:2px;
   background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-hi)}
 .theme-menu:popover-open{display:flex}
+/* Δίπλα στο κουμπί «Θέμα» (μέσα στις Ρυθμίσεις)· αλλιώς μένει κάτω αριστερά. */
+@supports (position-area:right){
+  .theme-toggle{anchor-name:--theme-btn}
+  .theme-menu{inset:auto;position-anchor:--theme-btn;position-area:right span-bottom;position-try-fallbacks:flip-block;margin-left:8px}
+}
 .theme-menu button{justify-content:flex-start;gap:10px;width:100%;padding:8px 10px;background:transparent;color:var(--ink);
   border:0;border-radius:8px;box-shadow:none;font-size:.86rem;font-weight:500}
 .theme-menu button:hover{background:var(--surface-3);transform:none;filter:none;box-shadow:none}
@@ -289,6 +300,8 @@ a{color:var(--accent)}
   [data-nav-mini] .nav-link,[data-nav-mini] .theme-toggle{font-size:0;gap:0;justify-content:center}
   [data-nav-mini] .nav-link--sub{margin-left:0} [data-nav-mini] .nav-link--sub::after{display:none}
   [data-nav-mini] .nav-link:hover{transform:none}
+  /* Μαζεμένο μενού: όλα τα εικονίδια ορατά, ανεξάρτητα από το accordion. */
+  [data-nav-mini] .nav-sec::details-content{content-visibility:visible;display:contents}
 }
 
 .topbar{display:none}
@@ -365,8 +378,6 @@ input[type=file]{width:auto;padding:7px;font-size:.84rem}
 input:disabled{opacity:.55;cursor:not-allowed}
 .check{display:flex;align-items:center;gap:9px;margin:12px 0 0;text-transform:none;letter-spacing:0;
   font-size:.9rem;font-weight:500;color:var(--ink-2);cursor:pointer}
-.input-group{display:flex;gap:6px}
-.input-group button{white-space:nowrap}
 
 button,.btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:7px;
   background:var(--accent-grad);color:var(--on-accent);border:1px solid transparent;border-radius:var(--radius-sm);
@@ -407,8 +418,6 @@ body.is-busy .progress{opacity:1;animation:progress 8s cubic-bezier(.1,.8,.2,1) 
 .grid-supplier{grid-template-columns:1fr 2fr auto}
 .grid-company{grid-template-columns:2fr 1.5fr 2fr 1.2fr 1fr auto;gap:10px}
 .grid-accountant{grid-template-columns:repeat(3,minmax(0,1fr)) auto}
-.grid-entry{grid-template-columns:2fr 1fr .7fr .7fr}
-.grid-issuer{grid-template-columns:1.4fr .8fr 1.2fr;align-items:start}
 .range-actions{display:flex;gap:8px;align-items:center}
 .btn-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
 .inline-form{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0}
@@ -416,7 +425,7 @@ body.is-busy .progress{opacity:1;animation:progress 8s cubic-bezier(.1,.8,.2,1) 
   .grid-company{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 @media (max-width:760px){
-  .grid-2,.grid-3,.grid-fetch,.grid-supplier,.grid-company,.grid-accountant,.grid-entry,.grid-issuer{grid-template-columns:1fr}
+  .grid-2,.grid-3,.grid-fetch,.grid-supplier,.grid-company,.grid-accountant{grid-template-columns:1fr}
   .range-actions{display:grid;grid-template-columns:1fr 1fr}
   .btn-row > button,.btn-row > .btn,.btn-row > form{width:100%}
   .btn-row > form > button{flex:1}
@@ -702,20 +711,10 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
   .cls-footer .btn-row{width:100%}
 }
 
-/* ---------- Νέα εγγραφή ---------- */
-.line-item{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:14px;
-  margin-bottom:12px;animation:rise .3s var(--ease) both}
-.line-item__head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-.line-item__no{font-size:.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-.line-item .btn-x{width:30px;height:30px;border-radius:999px}
-.line-main{grid-template-columns:.8fr 2.6fr 2.6fr}
-.line-vat{grid-template-columns:1fr 1fr;max-width:420px;margin-top:10px}
 .totals{display:flex;gap:22px;flex-wrap:wrap;justify-content:flex-end;padding:12px 14px;
   border-top:1px dashed var(--accent-glow);margin-top:4px;font-size:.85rem;color:var(--ink-2)}
 .totals b{font-family:var(--font-data);color:var(--accent-deep);margin-left:6px}
-.is-dimmed{opacity:.6}
 @media (max-width:760px){
-  .line-main,.line-vat{grid-template-columns:1fr;max-width:none}
   .totals{justify-content:space-between}
 }
 
@@ -809,7 +808,7 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 }
 .doc-head .btn-row{margin:0}
 
-/* Υπο-στοιχείο μενού (π.χ. «Νέα εγγραφή» μέσα στα Έξοδα) */
+/* Υπο-στοιχείο μενού (π.χ. «Φόρμα καταχώρησης» μέσα στα Βιβλία) */
 .nav-link--sub{margin-left:18px;padding-top:6px;padding-bottom:6px;font-size:.86rem}
 .nav-link--sub::after{content:"";position:absolute;left:-8px;top:0;bottom:50%;width:8px;
   border-left:1px solid var(--side-2);border-bottom:1px solid var(--side-2);border-bottom-left-radius:6px}
@@ -1005,40 +1004,6 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
   .pi-group ~ .pi-group .cls-row .btn-x{margin-top:0}
 }
 
-/* ---------- Νέα εγγραφή: συμπαγής διάταξη (ίδια λογική με τον χαρακτηρισμό) ---------- */
-#ne-form .cls-top-row--progress{margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft)}
-#ne-form .grid{gap:10px}
-#ne-form label{font-size:.66rem;margin-bottom:3px}
-#ne-form select,#ne-form input:not([type=checkbox]){padding:7px 9px;font-size:.86rem}
-.ne-card{padding:12px 16px;margin-bottom:12px}
-.ne-card-head{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;margin-bottom:8px}
-.ne-card-head h2{margin:0;font-size:.95rem;color:var(--accent-deep)}
-.ne-card-head .btn-sm{margin-left:auto;padding:4px 10px}
-#ne-form .input-group .btn-sm{padding:6px 10px}
-#ne-form #vat_result,#ne-form #country_hint{margin-top:2px}
-/* Κάθε γραμμή σε μία σειρά πεδίων */
-#ne-form .line-item{display:grid;grid-template-columns:24px minmax(90px,.9fr) minmax(0,2.2fr) minmax(0,2.2fr) minmax(0,1fr) minmax(80px,.8fr) auto;
-  gap:8px;align-items:end;padding:6px 8px;margin-bottom:6px;background:var(--surface-2);border-color:var(--line-soft)}
-#ne-form .line-item__no{align-self:end;padding-bottom:9px;text-align:center;font-family:var(--font-data);font-size:.8rem}
-#ne-form .line-item .btn-x{width:32px;height:32px;border-radius:var(--radius-sm)}
-@media (min-width:981px){ #ne-form .line-item + .line-item label{display:none} }
-@media (max-width:980px){
-  #ne-form .line-item{grid-template-columns:24px 1fr 1fr}
-  #ne-form .line-item .ne-field:nth-of-type(2),#ne-form .line-item .ne-field:nth-of-type(3){grid-column:span 2}
-}
-@media (max-width:520px){ #ne-form .line-item{grid-template-columns:1fr} #ne-form .line-item .ne-field{grid-column:auto !important} }
-/* Νέα εγγραφή: + στήλη «Χαρ. ΦΠΑ» στη σειρά κάθε γραμμής */
-#ne-form .line-item{grid-template-columns:24px minmax(84px,.8fr) minmax(0,2fr) minmax(0,2fr) minmax(0,.9fr) minmax(74px,.7fr) minmax(0,1.3fr) auto}
-@media (max-width:980px){ #ne-form .line-item{grid-template-columns:24px 1fr 1fr} }
-@media (max-width:520px){ #ne-form .line-item{grid-template-columns:1fr} }
-/* Ολόκληρο το κείμενο Κατηγορίας / Τύπου Ε3 κάτω από τα select (που κόβουν το κείμενο) */
-#ne-form .sel-full{grid-column:3/8;display:grid;grid-template-columns:subgrid;margin-top:-4px;
-  font-size:.72rem;line-height:1.3;color:var(--muted);overflow-wrap:anywhere}
-#ne-form .sel-full span:empty{visibility:hidden}
-#ne-form .sel-full span:last-child{grid-column:5}  /* κάτω από τη στήλη «Χαρ. ΦΠΑ» */
-@media (max-width:980px){ #ne-form .sel-full{grid-column:2/-1;grid-template-columns:1fr} #ne-form .sel-full span:last-child{grid-column:auto} }
-@media (max-width:520px){ #ne-form .sel-full{grid-column:auto} }
-
 /* ---------- Modal (<dialog>) ---------- */
 .modal{width:min(720px,calc(100vw - 32px));max-height:calc(100vh - 48px);padding:20px 22px;border:1px solid var(--line);
   border-radius:var(--radius);background:var(--surface);color:var(--ink);box-shadow:var(--shadow-hi)}
@@ -1050,15 +1015,6 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .rule-row{grid-template-columns:minmax(0,1.2fr) minmax(0,2.2fr) minmax(0,2.2fr) minmax(0,1.8fr) auto;margin-bottom:10px}
 .rule-row + .rule-row .cls-field label{display:none}
 @media (max-width:980px){ .rule-row{grid-template-columns:1fr} .rule-row + .rule-row .cls-field label{display:block} }
-/* Πρότυπα «Νέας εγγραφής» */
-.tpl-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 14px;margin-bottom:12px}
-.tpl-chip{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;background:var(--surface);overflow:hidden}
-.tpl-chip a{padding:5px 4px 5px 12px;font-size:.85rem;font-weight:600;text-decoration:none;color:var(--ink)}
-.tpl-chip.is-current{border-color:var(--accent)}
-.tpl-chip a:hover{color:var(--accent)}
-.tpl-del{background:none;border:0;box-shadow:none;color:var(--muted);padding:5px 10px 5px 6px;font-size:.8rem}
-.tpl-del:hover{color:var(--err);background:none;transform:none;box-shadow:none;filter:none}
-.tpl-save input{width:210px}
 
 /* =====================================================================
    Ετήσια σύνοψη (Αναφορές → ανά μήνα)
@@ -1539,8 +1495,7 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 
 /* Ίδια σελίδα (data-same-page, ορίζεται στο base.html): τα εισαγωγικά animations των κεφαλίδων δεν ξαναπαίζουν. */
 [data-same-page] :is(.co-card,.co-add,.spark-m i,.co-meter .needle,.lh-tile,.lh-sums,
-  .cp-tile,.cp-ring,.cp-ring .fg,.cp-search,.ne-tot,.ne-hero .tpl-chip,.sy-card,.sy-act){animation:none}
-[data-same-page] #ne-form .ne-card{animation:none}
+  .cp-tile,.cp-ring,.cp-ring .fg,.cp-search,.sy-card,.sy-act){animation:none}
 [data-same-page] .lh-tile.is-on{animation:lh-spin 4s linear infinite}
 
 /* =====================================================================
@@ -2498,7 +2453,7 @@ input[type=checkbox].pm-switch{width:44px;height:24px}
 .cmp-cogs td{color:var(--muted)}
 
 /* Δέντρο στοιχείων XML του myDATA (macro xml_nodes): καρτέλα παραστατικού, myData λοιπά, Αναζήτηση MARK.
-   Όπως η Γενική φόρμα καταχώρησης: ενότητες-κάρτες με αριθμό και χρωματιστή μπάρα, δίπλα-δίπλα όσο χωράνε· μέσα τους
+   Όπως η Φόρμα καταχώρησης: ενότητες-κάρτες με αριθμό και χρωματιστή μπάρα, δίπλα-δίπλα όσο χωράνε· μέσα τους
    πεδία σε πλέγμα (ετικέτα πάνω, τιμή σε «κουτί» πεδίου) που γεμίζει το πλάτος. */
 /* Στήλες (masonry) αντί για grid: κάθε ενότητα κάτω από την προηγούμενη της στήλης της — χωρίς κενά ύψους. */
 .xml-tree{--x:var(--accent);columns:3 380px;column-gap:12px;margin:12px 0 0;font-size:.86rem}

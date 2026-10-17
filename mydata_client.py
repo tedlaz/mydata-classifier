@@ -1036,7 +1036,7 @@ class MyDataClient:
         return self._post_xml("SendInvoices", xml_payload)
 
     def send_invoice(self, xml_payload: str) -> dict:
-        """SendInvoices με έτοιμο InvoicesDoc (Γενική φόρμα καταχώρησης — build_invoice_xml)."""
+        """SendInvoices με έτοιμο InvoicesDoc (Φόρμα καταχώρησης — build_invoice_xml)."""
         return self._post_xml("SendInvoices", xml_payload)
 
     def _post_xml(self, endpoint: str, xml_payload: str, extra: dict | None = None) -> dict:
@@ -1405,7 +1405,7 @@ def build_self_expense_invoice_xml(
 
 
 # ------------------------------------------------------------------ #
-# Γενική φόρμα καταχώρησης: οποιοσδήποτε τύπος παραστατικού (έσοδα & έξοδα).
+# Φόρμα καταχώρησης: οποιοσδήποτε τύπος παραστατικού (έσοδα & έξοδα).
 # ------------------------------------------------------------------ #
 ICLS_NS = "https://www.aade.gr/myDATA/incomeClassificaton/v1.0"
 
@@ -1483,7 +1483,7 @@ def entry_totals(draft: dict) -> dict:
 
 
 def build_invoice_xml(draft: dict) -> str:
-    """InvoicesDoc από το (καθαρό) draft της Γενικής φόρμας. Εκδότης/αντισυμβαλλόμενος έρχονται
+    """InvoicesDoc από το (καθαρό) draft της Φόρμας καταχώρησης. Εκδότης/αντισυμβαλλόμενος έρχονται
     έτοιμοι από το draft (το app βάζει το δικό μας ΑΦΜ όπου χρειάζεται). Σειρά στοιχείων κατά το σχήμα."""
     ET.register_namespace("", INV_NS)
     ET.register_namespace("icls", ICLS_NS)
@@ -1619,7 +1619,7 @@ def build_invoice_xml(draft: dict) -> str:
 
 
 def draft_xml(draft: dict, own_vat: str = "") -> str:
-    """XML ενός τοπικού draft (Γενική φόρμα ή «Νέα εγγραφή»): το ίδιο ελέγχεται με το XSD στην
+    """XML ενός τοπικού draft (Φόρμα καταχώρησης ή «Νέα εγγραφή»): το ίδιο ελέγχεται με το XSD στην
     αποθήκευση και στέλνεται στο /send."""
     if draft.get("form") == "entry":
         return build_invoice_xml(draft)

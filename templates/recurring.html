@@ -1,58 +1,197 @@
 {% extends "base.html" %}
-{% block title %}Μηνιαίες εγγραφές{% endblock %}
+{% block title %}Προγραμματισμένες εγγραφές{% endblock %}
 {% block content %}
-<div class="page-head">
-  <div>
-    <h1>Μηνιαίες εγγραφές</h1>
-    <p class="page-sub">Πρότυπα «Νέας εγγραφής» (ΕΦΚΑ, ενοίκιο, μισθοδοσία…) που δημιουργούνται μία φορά τον μήνα.
-      Δεύτερη εγγραφή του ίδιου προτύπου για τον ίδιο μήνα δεν γίνεται ποτέ. Οι εγγραφές μπαίνουν στα
-      «Χαρακτηρισμένα» με τα ποσά του προτύπου — έλεγξέ τα πριν την αποστολή.</p>
+{% set months = ['Ιανουάριος','Φεβρουάριος','Μάρτιος','Απρίλιος','Μάιος','Ιούνιος','Ιούλιος','Αύγουστος','Σεπτέμβριος','Οκτώβριος','Νοέμβριος','Δεκέμβριος'] %}
+{% set month_name = months[period[5:]|int - 1] ~ ' ' ~ period[:4] %}
+{% set status_names = {'classified': 'προς αποστολή', 'sent': 'απεσταλμένο', 'confirmed': 'ολοκληρωμένο'} %}
+{% set monthly = templates|selectattr('day')|list %}{# όσα γράφονται αυτόν τον μήνα #}
+{% set n_done = monthly|selectattr('id', 'in', done.keys()|list)|list|length %}
+{% set pending = monthly|rejectattr('id', 'in', done.keys()|list)|list %}
+{% set n_late = pending|selectattr('late')|list|length %}
+{% set pct = (100 * n_done / monthly|length)|round|int if monthly else 0 %}
+<style>
+/* ================= Προγραμματισμένες εγγραφές =================
+   Ίδια γλώσσα με τη Φόρμα καταχώρησης (hero με blobs, κάρτες με χρώμα κατάστασης --c)· μόνο μεταβλητές θέματος. */
+.rc{--gap:12px}
+.rc-hero{position:relative;border-radius:20px;padding:18px clamp(14px,2.4vw,26px);color:#fff;margin-bottom:16px;overflow:hidden;
+  background:radial-gradient(120% 150% at 0% 0%,color-mix(in oklab,#3b3f9a,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 55%,var(--hero-end) 100%);
+  box-shadow:var(--shadow-hi)}
+.rc-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.42;pointer-events:none;animation:rc-float 16s ease-in-out infinite}
+.rc-blob.b1{width:300px;height:300px;background:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));top:-170px;right:4%}
+.rc-blob.b2{width:240px;height:240px;background:color-mix(in oklab,#0fb880,var(--hero-glow) var(--hero-fade));bottom:-170px;left:22%;opacity:.3;animation-delay:-7s}
+@keyframes rc-float{50%{transform:translate(26px,-18px) scale(1.12)}}
+.rc-top{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px}
+.rc-hero h1{margin:0;font-size:clamp(1.25rem,2.4vw,1.6rem);font-weight:800;letter-spacing:-.02em;color:#fff;display:flex;align-items:center;gap:10px}
+.rc-hero h1 .ico{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.16);font-size:1.2rem;animation:rc-spin 6s ease-in-out infinite}
+@keyframes rc-spin{0%,70%{transform:rotate(0)}85%,100%{transform:rotate(360deg)}}
+.rc-sub{position:relative;margin:8px 0 0;max-width:70ch;font-size:.86rem;line-height:1.5;color:var(--hero-ink)}
+
+/* Πλοήγηση μήνα */
+.rc-nav{margin-left:auto;display:flex;align-items:center;gap:4px;padding:4px;border-radius:14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14)}
+.rc-nav a{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;color:#fff;text-decoration:none;font-size:1.1rem;transition:background .2s,transform .2s var(--ease)}
+.rc-nav a:hover{background:rgba(255,255,255,.14);transform:scale(1.08)}
+.rc-nav form{margin:0;position:relative}
+.rc-nav b{display:block;min-width:150px;padding:0 6px;text-align:center;font-weight:800;letter-spacing:.01em;pointer-events:none}
+.rc-nav input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}  /* ο native picker πάνω στο όνομα του μήνα */
+.rc-nav form:focus-within b{text-decoration:underline}
+
+/* Πρόοδος μήνα */
+.rc-stats{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px}
+.rc-ring{--p:0;position:relative;width:66px;height:66px;border-radius:50%;flex:none;
+  background:conic-gradient(var(--ok) calc(var(--p) * 1%),rgba(255,255,255,.12) 0);animation:rc-fill 1s var(--ease) both}
+.rc-ring::after{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--hero-mid)}
+.rc-ring b{position:absolute;inset:0;z-index:1;display:grid;place-items:center;font:800 .95rem var(--font-data)}
+@property --p{syntax:"<number>";inherits:false;initial-value:0}
+@keyframes rc-fill{from{--p:0}}
+.rc-chip{display:flex;flex-direction:column;gap:2px;padding:8px 14px;border-radius:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12)}
+.rc-chip span{font-size:.64rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--hero-ink)}
+.rc-chip b{font:800 1.1rem var(--font-data)}
+.rc-chip.is-late{background:color-mix(in srgb,var(--err) 26%,transparent);border-color:color-mix(in srgb,var(--err) 55%,transparent)}
+.rc-chip.is-ok{background:color-mix(in srgb,var(--ok) 22%,transparent);border-color:color-mix(in srgb,var(--ok) 50%,transparent)}
+
+/* Κάρτες προτύπων */
+.rc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:var(--gap)}
+.rc-card{--c:var(--muted);position:relative;display:flex;flex-direction:column;gap:8px;padding:14px 16px 12px;border-radius:16px;
+  background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden;
+  animation:rc-rise .5s var(--ease) both;animation-delay:calc(var(--i) * 45ms);transition:transform .25s var(--ease),box-shadow .25s,border-color .25s}
+.rc-card::before{content:"";position:absolute;inset:0 0 auto;height:4px;background:linear-gradient(90deg,var(--c),color-mix(in srgb,var(--c) 40%,transparent))}
+.rc-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-hi);border-color:color-mix(in srgb,var(--c) 45%,var(--line))}
+.rc-card.is-done{--c:var(--ok)}
+.rc-card.is-pending{--c:var(--warn)}
+.rc-card.is-late{--c:var(--err)}
+.rc-card.is-off{opacity:.78}
+.rc-card:has(.sel:checked){border-color:var(--c);box-shadow:0 0 0 2px color-mix(in srgb,var(--c) 30%,transparent),var(--shadow)}
+@keyframes rc-rise{from{opacity:0;transform:translateY(14px)}}
+.rc-head{display:flex;align-items:center;gap:8px}
+.rc-type{font:800 .74rem var(--font-data);padding:3px 8px;border-radius:8px;color:var(--c);background:color-mix(in srgb,var(--c) 13%,transparent)}
+.rc-state{margin-left:auto;font-size:.72rem;font-weight:800;padding:3px 10px;border-radius:999px;color:var(--c);
+  background:color-mix(in srgb,var(--c) 12%,transparent);border:1px solid color-mix(in srgb,var(--c) 30%,transparent);white-space:nowrap}
+.rc-card.is-late .rc-state{animation:rc-pulse 2s ease-in-out infinite}
+@keyframes rc-pulse{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--err) 18%,transparent)}}
+.rc-name{margin:2px 0 0;font-size:1.05rem;font-weight:800;line-height:1.25;text-transform:none;letter-spacing:-.01em;color:var(--ink)}
+.rc-name a{color:var(--ink);text-decoration:none}
+.rc-name a:hover{color:var(--c)}
+.rc-meta{margin:0;font-size:.78rem;color:var(--muted);line-height:1.4}
+.rc-party{display:flex;align-items:center;gap:6px;margin:0;font-size:.84rem;color:var(--ink-2);min-width:0}
+.rc-party span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-foot{display:flex;align-items:flex-end;gap:10px;margin-top:auto;padding-top:10px;border-top:1px dashed var(--line)}
+.rc-amt{display:flex;flex-direction:column}
+.rc-amt span{font-size:.62rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.rc-amt b{font:800 1.15rem var(--font-data);font-variant-numeric:tabular-nums}
+.rc-card.is-later{--c:var(--info)}
+/* Πρόγραμμα: συχνότητα · πρώτος μήνας · ημέρα (ο πρώτος μήνας κρύβεται στα μηνιαία) */
+.rc-sched{display:grid;grid-template-columns:minmax(0,1fr) 4.4em;gap:8px;padding:10px;border-radius:12px;
+  background:color-mix(in srgb,var(--c) 6%,var(--surface-2));border:1px solid color-mix(in srgb,var(--c) 18%,var(--line-soft))}
+/* μηνιαία: συχνότητα + ημέρα σε μία σειρά· αλλιώς συχνότητα σε όλο το πλάτος και από κάτω πρώτος μήνας + ημέρα */
+.rc-sched:not(:has(select[name^=every] option[value="1"]:checked)) label:first-child{grid-column:1/-1}
+.rc-sched:has(select[name^=every] option[value="1"]:checked) .rc-start{display:none}
+.rc-sched label{margin:0;display:flex;flex-direction:column;gap:3px;min-width:0;text-transform:none;letter-spacing:0}
+.rc-sched span{font-size:.6rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.rc-sched :is(select,input){padding:6px 8px;min-height:34px;font-size:.84rem;border-radius:9px}
+.rc-day input{text-align:center;font:700 .95rem var(--font-data)}
+.rc-doc{display:flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;text-decoration:none;color:var(--ok)}
+.rc-doc:hover{text-decoration:underline}
+
+/* Επιλογή κάρτας: native checkbox στο χρώμα της κάρτας */
+.rc-pick{margin:0;display:inline-grid;place-items:center;cursor:pointer}
+.rc-pick input[type=checkbox]{width:20px;height:20px;accent-color:var(--c)}
+
+/* Μπάρα ενεργειών: κολλάει στο κάτω μέρος */
+.rc-bar{position:sticky;bottom:12px;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px;padding:10px 14px;
+  border-radius:16px;background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(10px);border:1px solid var(--line);box-shadow:var(--shadow-hi)}
+.rc-bar .muted{font-size:.8rem;margin-right:auto}
+.rc-bar button[data-require]{box-shadow:0 10px 24px -10px var(--accent)}
+.rc-empty{text-align:center;padding:48px 20px}
+.rc-empty .ico{font-size:2.6rem;display:block;margin-bottom:8px;animation:rc-spin 6s ease-in-out infinite}
+@media (max-width:560px){ .rc-nav{margin-left:0;width:100%;justify-content:space-between} .rc-bar{bottom:6px} }
+@media (prefers-reduced-motion:reduce){ .rc *,.rc *::before,.rc *::after{animation:none!important;transition:none!important} }
+</style>
+
+<div class="rc">
+<header class="rc-hero">
+  <i class="rc-blob b1" aria-hidden="true"></i><i class="rc-blob b2" aria-hidden="true"></i>
+  <div class="rc-top">
+    <h1><span class="ico">🔁</span>Προγραμματισμένες εγγραφές</h1>
+    <nav class="rc-nav" aria-label="Μήνας">
+      <a href="{{ url_for('recurring', period=prev) }}" title="Προηγούμενος μήνας" aria-label="Προηγούμενος μήνας">‹</a>
+      <form method="get"><b>{{ month_name }}</b>
+        <input type="month" name="period" value="{{ period }}" data-autosubmit aria-label="Επιλογή μήνα"></form>
+      <a href="{{ url_for('recurring', period=next) }}" title="Επόμενος μήνας" aria-label="Επόμενος μήνας">›</a>
+    </nav>
   </div>
-</div>
-
-<div class="card">
-  <form method="get" class="inline-form">
-    <label>Μήνας <input type="month" name="period" value="{{ period }}" data-autosubmit></label>
-  </form>
-
-  {% if templates %}
-  <form method="post">
-    <input type="hidden" name="period" value="{{ period }}">
-    <div class="table-wrap">
-    <table class="ledger">
-      <thead>
-        <tr><th class="col-check"></th><th>Πρότυπο</th><th>Ημέρα μήνα</th><th>{{ period }}</th></tr>
-      </thead>
-      <tbody>
-        {% for t in templates %}
-        {% set d = done.get(t.id) %}
-        <tr>
-          <td class="row-head" data-label="">
-            {% if t.monthly_day and not d %}<input type="checkbox" class="sel" name="template_ids" value="{{ t.id }}" checked aria-label="Επιλογή {{ t.name }}">{% endif %}
-          </td>
-          <td data-label="Πρότυπο"><a href="{{ url_for('new_expense', template=t.id) }}">{{ t.name }}</a></td>
-          <td data-label="Ημέρα μήνα">
-            <input type="number" name="day_{{ t.id }}" value="{{ t.monthly_day or '' }}" min="1" max="31"
-                   placeholder="—" style="width:5em" aria-label="Ημέρα μήνα για {{ t.name }}">
-          </td>
-          <td data-label="{{ period }}">
-            {% if d %}✔ <a href="{{ url_for('document', mark=d.mark) }}">{{ d.mark }}</a> <span class="muted">({{ d.status }})</span>
-            {% elif t.monthly_day %}<span class="pill">εκκρεμεί</span>
-            {% else %}<span class="muted">όχι μηνιαίο</span>{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    </div>
-    <p class="muted">Κενή ημέρα = το πρότυπο δεν είναι μηνιαίο. Ημέρα 31 = τελευταία του μήνα.</p>
-    <div class="btn-row">
-      <button type="submit" formaction="{{ url_for('recurring_create') }}" data-require=".sel">🔁 Δημιουργία επιλεγμένων για {{ period }}</button>
-      <button type="submit" formaction="{{ url_for('recurring_days') }}" class="btn-ghost">Αποθήκευση ημερών</button>
-    </div>
-  </form>
-  {% else %}
-  <div class="empty"><b>Δεν υπάρχουν πρότυπα.</b> Φτιάξε ένα από τη <a href="{{ url_for('new_expense') }}">Νέα εγγραφή</a> → «Αποθήκευση ως πρότυπο».</div>
+  <p class="rc-sub">ΕΦΚΑ, ενοίκιο, μισθοδοσία κάθε μήνα· συνδρομές ή απογραφές ανά δίμηνο, τρίμηνο, εξάμηνο ή έτος. Κάθε πρότυπο γράφεται
+    <b>μία φορά σε κάθε μήνα του προγράμματός του</b>, ποτέ δεύτερη.
+    Μπαίνουν στα «Χαρακτηρισμένα» με τα ποσά του προτύπου — έλεγξέ τα πριν την αποστολή.</p>
+  {% if monthly %}
+  <div class="rc-stats" aria-live="polite">
+    <div class="rc-ring" style="--p:{{ pct }}" role="img" aria-label="{{ n_done }} από {{ monthly|length }} έγιναν"><b>{{ pct }}%</b></div>
+    <div class="rc-chip is-ok"><span>Έγιναν</span><b>{{ n_done }} / {{ monthly|length }}</b></div>
+    <div class="rc-chip"><span>Εκκρεμούν</span><b>{{ pending|length }}</b></div>
+    {% if n_late %}<div class="rc-chip is-late"><span>Πέρασε η ημέρα</span><b>⏰ {{ n_late }}</b></div>{% endif %}
+    <div class="rc-chip"><span>Ποσά εκκρεμών</span><b>{{ pending|sum(attribute='net')|el_amount }} €</b></div>
+  </div>
   {% endif %}
+</header>
+
+{% if templates %}
+<form method="post" class="rc-form">
+  <input type="hidden" name="period" value="{{ period }}">
+  <div class="rc-grid">
+    {% for t in templates %}
+    {% set d = done.get(t.id) %}
+    {% set state = 'done' if d else 'late' if t.late else 'pending' if t.day else 'later' if t.next_due else 'off' %}
+    <article class="rc-card is-{{ state }}" style="--i:{{ loop.index0 }}">
+      <div class="rc-head">
+        {% if state in ('pending', 'late') %}
+        <label class="rc-pick" title="Δημιουργία για {{ month_name }}"><input type="checkbox" class="sel" name="template_ids" value="{{ t.id }}" checked aria-label="Επιλογή {{ t.name }}"></label>
+        {% endif %}
+        {% if t.type %}<span class="rc-type" title="{{ t.type_name }}">{{ t.type }}</span>{% endif %}
+        <span class="rc-state">
+          {%- if state == 'done' %}✔ Έγινε
+          {%- elif state == 'late' %}⏰ Από τις {{ t.day }}
+          {%- elif state == 'pending' %}📅 Στις {{ t.day }}
+          {%- elif state == 'later' %}⏭ {{ months[t.next_due[5:]|int - 1] }}{% if t.next_due[:4] != period[:4] %} {{ t.next_due[:4] }}{% endif %}
+          {%- else %}Χωρίς πρόγραμμα{% endif -%}
+        </span>
+      </div>
+      <h3 class="rc-name"><a href="{{ url_for('entry', template=t.id) }}" title="Νέα εγγραφή από το πρότυπο">{{ t.name }}</a></h3>
+      <p class="rc-meta">{{ t.type_name or 'Χωρίς τύπο' }}{% if t.series %} · σειρά <b>{{ t.series }}</b>{% endif %}</p>
+      {% if t.vat %}<p class="rc-party">🏢 <span title="{{ t.vat }}">{{ t.party or 'ΑΦΜ ' ~ t.vat }}</span></p>{% endif %}
+      {% if d %}<a class="rc-doc" href="{{ url_for('document', mark=d.mark) }}">📄 {{ d.mark }} · {{ status_names.get(d.status, d.status) }}</a>{% endif %}
+      <div class="rc-foot">
+        <div class="rc-amt"><span>Ποσό προτύπου</span><b>{{ t.net|el_amount }} €</b></div>
+      </div>
+      <div class="rc-sched">
+        <label><span>Συχνότητα</span>
+          <select name="every_{{ t.id }}" aria-label="Συχνότητα για {{ t.name }}">
+            {% for k, v in every.items() %}<option value="{{ k }}" {{ 'selected' if k == (t.every_months or 1) }}>{{ v }}</option>{% endfor %}
+          </select></label>
+        <label class="rc-start" title="Ο πρώτος μήνας του έτους στη σειρά"><span>Πρώτος μήνας</span>
+          <select name="start_{{ t.id }}" aria-label="Πρώτος μήνας για {{ t.name }}">
+            {% for mn in months %}<option value="{{ loop.index }}" {{ 'selected' if loop.index == (t.start_month or 1) }}>{{ mn }}</option>{% endfor %}
+          </select></label>
+        <label class="rc-day"><span>Ημέρα</span>
+          <input type="number" name="day_{{ t.id }}" value="{{ t.monthly_day or '' }}" min="1" max="31" placeholder="—"
+                 aria-label="Ημέρα μήνα για {{ t.name }}"></label>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  <div class="rc-bar">
+    <span class="muted">Κενή ημέρα = χωρίς πρόγραμμα · 31 = τελευταία του μήνα</span>
+    <button type="submit" formaction="{{ url_for('recurring_days') }}" class="btn-ghost">💾 Αποθήκευση προγράμματος</button>
+    <button type="submit" formaction="{{ url_for('recurring_create') }}" data-require=".sel">🔁 Δημιουργία για {{ month_name }}</button>
+  </div>
+</form>
+{% else %}
+<div class="card rc-empty">
+  <span class="ico">🗓️</span>
+  <h2>Δεν υπάρχουν ακόμη πρότυπα</h2>
+  <p class="muted">Άνοιξε τη <a href="{{ url_for('entry') }}">Φόρμα καταχώρησης</a>, ξεκίνα από «ΕΦΚΑ», «Ενοίκιο» ή «Μισθοδοσία»,
+    δώσε σειρά και πάτησε «📌 Ως πρότυπο».</p>
+  <a class="btn" href="{{ url_for('entry', preset='payroll') }}">＋ Πρότυπο μισθοδοσίας</a>
+</div>
+{% endif %}
 </div>
 {% endblock %}

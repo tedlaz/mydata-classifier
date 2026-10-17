@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Γενική φόρμα καταχώρησης{% endblock %}
+{% block title %}Φόρμα καταχώρησης{% endblock %}
 {% block content %}
 {% macro opts(d, fmt='both', empty='Επιλέξτε') %}<option value="">{{ empty }}</option>{% for k, v in d.items() %}<option value="{{ k }}">{{ k ~ ' · ' ~ v if fmt == 'both' else v }}</option>{% endfor %}{% endmacro %}
 {% macro party(key, title, no, i) %}
@@ -26,7 +26,7 @@
 /* Κρυφό = κρυφό: αλλιώς τα display:flex/grid της σελίδας νικούν το [hidden] του browser. */
 [hidden]{display:none!important}
 
-/* ================= Γενική φόρμα καταχώρησης =================
+/* ================= Φόρμα καταχώρησης =================
    Μόνο μεταβλητές θέματος (accent/ok/info/warn/err/hero-*): ταιριάζει σε κάθε θέμα και παλέτα.
    Κάθε ενότητα έχει το δικό της χρώμα (--c) για badge, περίγραμμα και focus. */
 .ge{--c:var(--accent);--gap:10px}
@@ -233,13 +233,24 @@ select[data-k=country]:disabled{opacity:1}
 }
 @media (prefers-reduced-motion:reduce){ .ge *,.ge-hero *,.ge{animation:none!important;transition:none!important} }
 :root[data-same-page] .ge *,:root[data-same-page] .ge{animation:none!important}
+/* Γρήγορη έναρξη: έτοιμα πρότυπα ΑΑΔΕ και πρότυπα της εταιρείας */
+.ge-tpls{position:relative;display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:12px 0 4px}
+.ge .ge-tpls-l{margin:0;font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--hero-ink)}
+.ge .ge-tpls select{width:auto;min-width:min(280px,100%);background-color:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.18)}
+.ge-tpls option,.ge-tpls optgroup{color:var(--ink);background:var(--surface)}
+.ge-tpls form{margin:0}
+.ge-tpl-del{padding:6px 12px;min-height:36px;font-size:.78rem;border-radius:8px;box-shadow:none;color:#ffd1d1;
+  background:color-mix(in srgb,var(--err) 18%,transparent);border:1px solid color-mix(in srgb,var(--err) 45%,transparent)}
+.ge-tpl-del:hover{background:color-mix(in srgb,var(--err) 32%,transparent);filter:none}
+.ge-tpl-save{display:inline-flex;gap:6px;align-items:center}
+.ge-tpl-save input{width:160px}
 </style>
 
 <div class="ge">
 <header class="ge-hero">
   <div class="ge-hero-bg" aria-hidden="true"><i class="ge-blob b1"></i><i class="ge-blob b2"></i></div>
   <div class="ge-hero-top">
-    <h1><span class="ico">🧾</span>Γενική φόρμα καταχώρησης</h1>
+    <h1><span class="ico">🧾</span>Φόρμα καταχώρησης</h1>
     <span class="ge-state">{{ 'Πρόχειρο · ' ~ edit_mark if edit_mark else 'Νέο παραστατικό' }}</span>
     <span class="ge-side" id="side_pill" data-side="">Επίλεξε τύπο</span>
     <div class="ge-hero-tools">
@@ -254,6 +265,26 @@ select[data-k=country]:disabled{opacity:1}
     </div>
   </div>
   <p class="muted">Κάθε τύπος, όπως η Ειδική Φόρμα της ΑΑΔΕ. <b>Έξοδα</b> → «Χαρακτηρισμένα» και μαζική «Αποστολή» · <b>έσοδα</b> → αμέσως στο myDATA.</p>
+  <div class="ge-tpls">
+    <label for="ge-start" class="ge-tpls-l">Γρήγορη έναρξη</label>
+    {# Η επιλογή ανοίγει τη φόρμα από το πρότυπο: πρώτα τα έτοιμα, μετά της εταιρείας (σημερινή ημ/νία, επόμενος Α/Α). #}
+    <select id="ge-start" onchange="location.href = this.value">
+      <option value="{{ url_for('entry') }}">Κενή φόρμα</option>
+      <optgroup label="Έτοιμα πρότυπα">
+        {% for k, name in presets.items() %}<option value="{{ url_for('entry', preset=k) }}" {{ 'selected' if request.args.get('preset') == k }}>{{ name }}</option>{% endfor %}
+      </optgroup>
+      {% if templates %}
+      <optgroup label="Πρότυπα εταιρείας">
+        {% for tp in templates %}<option value="{{ url_for('entry', template=tp.id) }}" {{ 'selected' if template_id == tp.id|string }}>{{ tp.name }}{% if tp.monthly_day %} · 🔁{% endif %}</option>{% endfor %}
+      </optgroup>
+      {% endif %}
+    </select>
+    {% set cur = templates|selectattr('id', 'equalto', template_id|int)|first if template_id %}
+    {% if cur %}
+    <form method="post" action="{{ url_for('expense_template_delete', tid=cur.id) }}" onsubmit="return confirm({{ ('Διαγραφή του προτύπου «' ~ cur.name ~ '»;')|tojson|forceescape }})">
+      <button type="submit" class="ge-tpl-del" title="Διαγραφή του επιλεγμένου προτύπου">🗑 Διαγραφή προτύπου</button></form>
+    {% endif %}
+  </div>
   <div class="ge-hero-pick">
     <div><label for="family">Είδος παραστατικού *</label><select id="family" form="ge-form" required></select></div>
     <div><label for="invoice_type">Τύπος παραστατικού *</label><select id="invoice_type" form="ge-form" data-k="invoice_type" required></select></div>
@@ -267,6 +298,8 @@ select[data-k=country]:disabled{opacity:1}
 
 <form method="post" action="{{ url_for('entry_submit') }}" id="ge-form">
   <input type="hidden" name="edit_mark" value="{{ edit_mark }}">
+  <input type="hidden" name="template_id" value="{{ template_id }}">
+  <input type="hidden" name="back" value="{{ back }}">
   <input type="hidden" name="draft" id="ge-draft">
   <datalist id="ge-suppliers">{% for s in suppliers %}<option value="{{ s.vat }}">{{ s.name or '' }}</option>{% endfor %}</datalist>
 
@@ -329,6 +362,9 @@ select[data-k=country]:disabled{opacity:1}
     <div class="ge-foot-act">
       <span class="ge-note" id="side_note"></span>
       <a href="{{ url_for('invoices', view='classified') }}" class="btn btn-ghost btn-sm">«Χαρακτηρισμένα»</a>
+      <span class="ge-tpl-save" id="tpl_box"><input name="template_name" maxlength="80" placeholder="Όνομα προτύπου" aria-label="Όνομα προτύπου">
+        <button type="submit" class="btn btn-ghost btn-sm" id="tpl_btn" formaction="{{ url_for('expense_template_save') }}" formnovalidate
+                title="Η φόρμα ως πρότυπο (χωρίς ημ/νία και Α/Α)· κάθε πρότυπο θέλει δική του σειρά">📌 Ως πρότυπο</button></span>
       <button type="submit" id="submit_btn">💾 Αποθήκευση</button>
     </div>
   </div>
@@ -558,6 +594,7 @@ function onType() {
       .filter(c => VAT_RE.test(c.type) ? !income : c.category.startsWith(prefix)));
   });
   $('#submit_btn').textContent = income ? '📤 Αποστολή στο myDATA' : '💾 Αποθήκευση στα «Χαρακτηρισμένα»';
+  show($('#tpl_box'), !income);  // πρότυπα μόνο για έξοδα
   const pill = $('#side_pill'), sideNow = t ? r.side : '';
   if (pill.dataset.side !== sideNow) {
     pill.dataset.side = sideNow;
@@ -703,6 +740,10 @@ document.addEventListener('input', e => {
     const r = VAT_RATE[$('[data-k=vat_category]', line).value];
     if (r !== undefined) $('[data-k=vat_amount]', line).value = (n2(el.value) * r).toFixed(2);
     $$('select[data-tax]', line).forEach(s => taxAuto(s, line));
+    // Ένας χαρακτηρισμός Ε3 (π.χ. από πρότυπο): ακολουθεί την καθαρή αξία.
+    const cls = JSON.parse(line.dataset.cls || '[]');
+    if (cls.filter(c => !VAT_RE.test(c.type)).length === 1)
+      line.dataset.cls = JSON.stringify(cls.map(c => ({...c, amount: n2(el.value)})));
   }
   if (el.closest('.ge-tax') && el.dataset.k === 'base') taxAutoDoc(el.closest('.ge-tax'));
   if (el.closest('#cls-rows')) clsSum();
@@ -789,10 +830,24 @@ async function lookupParty(box, force) {
                      postal_code: d.postal_code, city: d.city});
       vatResult(box, (d.message || '✔ Έγκυρο ΑΦΜ') + ' · νέος συναλλασσόμενος, θα αποθηκευτεί με την εγγραφή'
         + (country === 'GR' ? ' (για ελληνικό ΑΦΜ τα στοιχεία είναι μόνο για ενημέρωση — δεν στέλνονται στο myDATA)' : ''), 'ok');
-    } else vatResult(box, d.message || 'Το ΑΦΜ δεν βρέθηκε στο VIES.', d.ok ? 'err' : 'info');
+    } else if (country === 'GR') afmResult(box, afm, d.ok ? 'Δεν υπάρχει στο VIES (π.χ. ιδιώτης)' : 'Το VIES δεν απάντησε');
+    else vatResult(box, d.message || 'Το ΑΦΜ δεν βρέθηκε στο VIES.', d.ok ? 'err' : 'info');
   } catch (e) {
-    vatResult(box, 'Σφάλμα επικοινωνίας με το VIES — δοκίμασε ξανά με το 🔎.', 'err');
+    if (country === 'GR') afmResult(box, afm, 'Σφάλμα επικοινωνίας με το VIES');
+    else vatResult(box, 'Σφάλμα επικοινωνίας με το VIES — δοκίμασε ξανά με το 🔎.', 'err');
   } finally { btn.classList.remove('is-busy'); }
+}
+// Αλγοριθμικός έλεγχος ελληνικού ΑΦΜ (ψηφίο ελέγχου): 9 ψηφία, Σ d·2^θέση των 8 πρώτων, mod 11 mod 10 = 9ο ψηφίο.
+function afmOk(afm) {
+  if (!/^\d{9}$/.test(afm) || /^0+$/.test(afm)) return false;
+  const d = afm.split('').reverse().map(Number);
+  let sum = 0;
+  for (let i = 1; i <= 8; i++) sum += d[i] << i;
+  return sum % 11 % 10 === d[0];
+}
+function afmResult(box, afm, why) {
+  if (afmOk(afm)) vatResult(box, `${why} — ✔ ο αλγοριθμικός έλεγχος του ΑΦΜ είναι σωστός. Συμπλήρωσε την επωνυμία· θα αποθηκευτεί με την εγγραφή.`, 'info');
+  else vatResult(box, `${why} — ✖ λάθος ΑΦΜ: δεν περνά τον αλγοριθμικό έλεγχο (ψηφίο ελέγχου).`, 'err');
 }
 document.addEventListener('change', e => {
   const box = e.target.closest('[data-party]');
@@ -914,10 +969,14 @@ $('#ge-form').addEventListener('submit', e => {
     payments: $$('#payments .ge-pay').map(rowData),
     taxes: lineTaxes() ? [] : $$('#taxes .ge-tax').map(rowData),
     lines: $$('#lines .ge-line').map(el => ({...rowData(el), cls: JSON.parse(el.dataset.cls || '[]')}))};
+  $('#ge-draft').value = JSON.stringify(d);
+  if (e.submitter?.id === 'tpl_btn') {  // πρότυπο: χωρίς ελέγχους ποσών/αποστολής
+    if (!$('[name=template_name]').value.trim()) { e.preventDefault(); $('[name=template_name]').focus(); }
+    return;
+  }
   const bad = d.lines.findIndex(l => !l.cls.length && type() !== '9.3');
   if (bad >= 0) { e.preventDefault(); alert(`Γραμμή ${bad + 1}: πρόσθεσε χαρακτηρισμούς γραμμής.`); return; }
   if (side() === 'income' && !confirm('Το παραστατικό θα σταλεί ΑΜΕΣΑ στο myDATA. Συνέχεια;')) { e.preventDefault(); return; }
-  $('#ge-draft').value = JSON.stringify(d);
 });
 
 // Τα σύνολα «σκάνε» όταν αλλάζει η τιμή τους.
@@ -933,7 +992,11 @@ buildCountries();
 if (DRAFT.invoice_type) { $('#family').value = fam(DRAFT.invoice_type); fillTypes(DRAFT.invoice_type); }
 fill($('#sec-general'), DRAFT);
 if (DRAFT.tax_level === 'line') $('input[name=tax_level][value=line]').checked = true;
-(DRAFT.payments || []).forEach(p => { addRow('tpl-pay', 'payments', p).querySelector('[data-k=amount]').dataset.touched = '1'; });
+// Μία πληρωμή (π.χ. από πρότυπο) ακολουθεί τη συνολική αξία· με περισσότερες, τα ποσά μένουν όπως δόθηκαν.
+(DRAFT.payments || []).forEach((p, _, all) => {
+  const amt = addRow('tpl-pay', 'payments', p).querySelector('[data-k=amount]');
+  if (all.length > 1) amt.dataset.touched = '1';
+});
 onType();
 ['issuer', 'counterpart'].forEach(k => { const box = $(`[data-party=${k}]`); if (DRAFT[k] && box.dataset.was === 'other') { fill(box, DRAFT[k]); filterCountries(box, k); foreign(box); } });
 (DRAFT.taxes || []).forEach(t => addRow('tpl-tax', 'taxes', t));
