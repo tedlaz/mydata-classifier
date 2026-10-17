@@ -19,6 +19,7 @@ import os
 import re as _re
 import sqlite3
 import zlib
+from compression import zstd
 from datetime import UTC, datetime
 
 import auth
@@ -29,14 +30,63 @@ os.makedirs(_DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(_DATA_DIR, "mydata.db")
 
 
+# Λεξικά zstd της βάσης (πίνακας zdicts, dict_id → λεξικό), φορτώνονται στο init_db. Εκπαιδεύονται από τα
+# XML της ίδιας της βάσης (ΑΦΜ/επωνυμίες επαναλαμβάνονται) — γι' αυτό ζουν στη βάση, όχι στο git/installer.
+_DICTS: dict[int, zstd.ZstdDict] = {}
+_ACTIVE: zstd.ZstdDict | None = None  # το νεότερο· None = νέα βάση με λίγα XML → zlib
+_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+_ZSTD_OPTS = {zstd.CompressionParameter.compression_level: 9, zstd.CompressionParameter.checksum_flag: 1}
+
+
 def _z(s: str) -> bytes:
-    """XML (raw_xml / cls_xml / mydata_archive.xml) → zlib BLOB (~5x μικρότερο)."""
-    return zlib.compress(s.encode())
+    """XML (raw_xml / cls_xml / mydata_archive.xml) → zstd BLOB με λεξικό (~15x μικρότερο), ή zlib (~4x)
+    όσο η βάση δεν έχει λεξικό."""
+    if _ACTIVE is None:
+        return zlib.compress(s.encode())
+    return zstd.compress(s.encode(), options=_ZSTD_OPTS, zstd_dict=_ACTIVE)
 
 
-# ponytail: κάθε BLOB θεωρείται συμπιεσμένο XML (δεν υπάρχει άλλη BLOB στήλη)· αν προστεθεί, ανά στήλη.
+# ponytail: κάθε BLOB θεωρείται συμπιεσμένο XML (εκτός zdicts, που διαβάζεται χωρίς row_factory)· αν προστεθεί άλλη, ανά στήλη.
 def _unz(v):
-    return zlib.decompress(v).decode() if isinstance(v, bytes) else v
+    if not isinstance(v, bytes):
+        return v
+    if v[:4] != _ZSTD_MAGIC:
+        return zlib.decompress(v).decode()
+    did = zstd.get_frame_info(v).dictionary_id
+    return zstd.decompress(v, zstd_dict=_DICTS[did] if did else None).decode()
+
+
+def _load_dicts() -> None:
+    global _ACTIVE
+    raw = sqlite3.connect(DB_PATH)
+    try:
+        rows = raw.execute("SELECT dict FROM zdicts ORDER BY rowid").fetchall()
+    finally:
+        raw.close()
+    _DICTS.clear()
+    _DICTS.update((d.dict_id, d) for d in (zstd.ZstdDict(r[0]) for r in rows))
+    _ACTIVE = zstd.ZstdDict(rows[-1][0]) if rows else None
+
+
+_XML_COLS = (("documents", "raw_xml"), ("documents", "cls_xml"), ("mydata_archive", "xml"))
+
+
+# ponytail: εκπαίδευση μία φορά (≥1000 XML)· νέο λεξικό (π.χ. αν αλλάξει πολύ το περιεχόμενο) = νέα εγγραφή
+# zdicts — ποτέ αλλαγή/διαγραφή παλιάς, τα BLOB της τη χρειάζονται.
+def _zstd_migrate(conn) -> int:
+    """Αν η βάση δεν έχει λεξικό και έχει αρκετά XML: εκπαίδευση από δείγμα 2000. Με λεξικό: ξανασυμπίεση
+    όσων BLOB είναι ακόμα zlib (όλα την πρώτη φορά· μετά, μόνο αν διακόπηκε). Επιστρέφει πόσα άλλαξαν."""
+    if _ACTIVE is None:
+        union = " UNION ALL ".join(f"SELECT {c} AS x FROM {t} WHERE typeof({c}) = 'blob'" for t, c in _XML_COLS)
+        sample = [r["x"].encode() for r in conn.execute(f"SELECT x FROM ({union}) ORDER BY random() LIMIT 2000")]
+        if len(sample) < 1000:
+            return 0
+        d = zstd.train_dict(sample, 112_640)
+        conn.execute("INSERT INTO zdicts (id, dict) VALUES (?, ?)", (d.dict_id, d.dict_content))
+        conn.commit()
+        _load_dicts()
+    return sum(conn.execute(f"UPDATE {t} SET {c} = z(unz({c})) WHERE typeof({c}) = 'blob' "
+                            f"AND substr({c}, 1, 4) <> ?", (_ZSTD_MAGIC,)).rowcount for t, c in _XML_COLS)
 
 
 def get_conn() -> sqlite3.Connection:
@@ -311,6 +361,9 @@ CREATE TABLE IF NOT EXISTS mydata_archive (
     PRIMARY KEY (company_id, kind, mark),
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
+
+-- Λεξικά συμπίεσης zstd των XML (id = dict_id μέσα σε κάθε BLOB). Μόνο προσθήκη, ποτέ αλλαγή/διαγραφή.
+CREATE TABLE IF NOT EXISTS zdicts (id INTEGER PRIMARY KEY, dict BLOB NOT NULL);
 """
 
 
@@ -402,6 +455,7 @@ def init_db() -> None:
     παλιότερη βάση (global suppliers, νέες στήλες documents)."""
     with get_conn() as conn:
         conn.executescript(_SCHEMA)
+        _load_dicts()  # και μετά από επαναφορά backup: τα λεξικά της νέας βάσης
 
         # Μετάβαση suppliers: από per-company (company_id) σε ΚΟΙΝΟ πίνακα ανά ΑΦΜ.
         sup_cols = {r["name"] for r in conn.execute("PRAGMA table_info(suppliers)")}
@@ -534,10 +588,11 @@ def init_db() -> None:
             "UNION ALL SELECT company_id, 'archive', kind, mark, invoice_mark, event_date, invoice_type, amount, xml "
             "FROM mydata_archive"
         )
-        # XML ως zlib BLOB (μία φορά· όσα είναι ακόμα text).
+        # XML ως BLOB (μία φορά· όσα είναι ακόμα text), μετά λεξικό zstd όταν μαζευτούν αρκετά.
         squeezed = sum(conn.execute(
             f"UPDATE {t} SET {c} = z({c}) WHERE typeof({c}) = 'text' AND {c} <> ''").rowcount
-            for t, c in (("documents", "raw_xml"), ("documents", "cls_xml"), ("mydata_archive", "xml")))
+            for t, c in _XML_COLS)
+        squeezed += _zstd_migrate(conn)
     if squeezed:
         vacuum()  # αλλιώς το αρχείο δεν μικραίνει
 

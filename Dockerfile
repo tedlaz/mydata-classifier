@@ -14,8 +14,8 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # ---------- Stage 2: runtime ----------
 FROM python:3.14-alpine
 
-# Μη-root χρήστης για ασφάλεια
-RUN adduser -D -H -u 10001 appuser
+# Μη-root χρήστης για ασφάλεια· η συμπίεση των XML (db.py) θέλει zstd στην Python
+RUN adduser -D -H -u 10001 appuser && python -c "import compression.zstd"
 
 WORKDIR /app
 
