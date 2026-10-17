@@ -5,7 +5,7 @@
   <h2>{{ label }}</h2>
   <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
 </div>
-<p class="muted small">{{ n }} {{ 'παραστατικά' if grouped else 'εγγραφές' }}{% if pages > 1 %} (σελίδα {{ page }} από {{ pages }}){% endif %} · {{ 'κλικ στο «Ιστορικό» για τις αλλαγές χαρακτηρισμού' if grouped else 'κλικ σε μια γραμμή για όλα τα στοιχεία' }}</p>
+<p class="muted small">{{ n }} {{ 'παραστατικά' if grouped or cat == 'cancelled' else 'εγγραφές' }}{% if pages > 1 %} (σελίδα {{ page }} από {{ pages }}){% endif %} · {{ 'κλικ στο «Ιστορικό» για τις αλλαγές χαρακτηρισμού' if grouped else 'κλικ σε ένα MARK για όλα τα στοιχεία' }}</p>
 {% if rows and grouped %}
 {# Χαρακτηρισμοί: μία γραμμή ανά παραστατικό· «Ιστορικό» = όλες οι υποβολές του, από την ισχύουσα προς την παλαιότερη. #}
 <div class="yr-scroll">
@@ -32,6 +32,46 @@
 </table>
 </div>
 {{ pager(request.endpoint, q, page, pages) }}
+{% elif rows and cat == 'cancelled' %}
+{# Δέντρο: ρίζα το παραστατικό που ακυρώνεται, παιδιά οι πράξεις ακύρωσης και οι χαρακτηρισμοί του. #}
+{% macro dmy(d) %}{{ '/'.join(d[:10].split('-')[::-1]) if d else '—' }}{% endmacro %}
+{% set kid_labels = {'cancel': 'πράξη ακύρωσης', 'expenses_cls': 'χαρακτηρισμός εξόδων', 'income_cls': 'χαρακτηρισμός εσόδων'} %}
+<ul class="hx-tree">
+  {% for t in rows %}
+  {% set r = t.root %}
+  {% set inv = url_for('reports_history_item', kind='invoice', mark=t.mark, back=here) %}
+  <li class="hx-node">
+    <details open>
+      <summary class="hx-root">
+        <span class="hx-date">{{ dmy(r.date if r else none) }}</span>
+        <span class="yr-docs-mark"><a href="{{ inv }}" data-docs="{{ inv }}">{{ t.mark }}</a>
+          <span class="pill yr-tag hx-tag-inv" title="Το παραστατικό ακυρώθηκε στο myDATA">ακυρωμένο</span></span>
+        {% if r %}
+        <span title="{{ type_names.get(r.invoice_type, '') }}">{{ r.invoice_type or '' }}</span>
+        <span class="yr-docs-cp">{% if r.issuer_vat %}<b>{{ names.get(r.issuer_vat) or '—' }}</b><span class="vat">{{ r.issuer_vat }}</span>{% endif %}</span>
+        <span class="yr-docs-cp">{% if r.counterpart_vat %}<b>{{ names.get(r.counterpart_vat) or '—' }}</b><span class="vat">{{ r.counterpart_vat }}</span>{% endif %}</span>
+        <span class="num">{{ r.amount|el_amount if r.amount is not none }}</span>
+        {% else %}
+        <span class="hx-missing muted small">Δεν έχει ανακτηθεί (εκδόθηκε εκτός διαστήματος) · κλικ στο MARK για λήψη από το myDATA</span>
+        {% endif %}
+      </summary>
+      <ul class="hx-kids">
+        {% for c in t.children %}
+        {% set it = url_for('reports_history_item', kind=c.kind, mark=c.mark, back=here) %}
+        <li class="hx-kid">
+          <span class="hx-branch" aria-hidden="true"></span>
+          <span class="hx-date">{{ dmy(c.date) }}</span>
+          <span><span class="pill yr-tag hx-tag-cxl">{{ kid_labels.get(c.kind, c.kind) }}</span> <a href="{{ it }}" data-docs="{{ it }}">{{ c.mark }}</a></span>
+          <span class="num muted" title="{{ 'Ποσό χαρακτηρισμού — δεν μετρά στο σύνολο' if c.kind != 'cancel' }}">{{ c.amount|el_amount if c.amount is not none and c.kind != 'cancel' }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+  </li>
+  {% endfor %}
+</ul>
+{% if total %}<p class="hx-tree-total"><b>Σύνολο</b>{% if pages > 1 %} <small class="muted">— όλων των σελίδων ({{ n }})</small>{% endif %} <b class="num">{{ total|el_amount }}</b></p>{% endif %}
+{{ pager(request.endpoint, q, page, pages) }}
 {% elif rows %}
 <div class="yr-scroll">
 <table class="yr-table yr-docs">
@@ -41,13 +81,11 @@
   <tbody>
     {% for r in rows %}
     {% set item = url_for('reports_history_item', kind=r.kind, mark=r.mark, back=here, dup=1 if cat == 'duplicate' else None) %}
-    {% set row_cls = 'is-foreign' if cat == 'movement' and r.foreign else 'hx-cxl' if r.kind == 'cancel' else 'hx-inv' if cat == 'cancelled' else '' %}
+    {% set row_cls = 'is-foreign' if cat == 'movement' and r.foreign else '' %}
     <tr{% if row_cls %} class="{{ row_cls }}"{% endif %}>
       <td>{{ '/'.join(r.date[:10].split('-')[::-1]) if r.date }}</td>
-      <td class="yr-docs-mark">{% if cat == 'movement' and r.foreign %}<span class="pill yr-tag yr-tag--foreign" title="Εκδότης εμείς, λήπτης άλλος">άλλου λήπτη</span> {% endif %}{% if r.kind == 'cancel' %}<span class="hx-branch" aria-hidden="true"></span>{% endif %}<a href="{{ item }}" data-docs="{{ item }}">{{ r.mark }}</a>
-        {%- if r.kind == 'cancel' %} <span class="pill yr-tag hx-tag-cxl" title="Πράξη ακύρωσης του σχετικού MARK">πράξη ακύρωσης</span>
-        {%- elif cat == 'cancelled' %} <span class="pill yr-tag hx-tag-inv" title="Το παραστατικό ακυρώθηκε στο myDATA">ακυρωμένο</span>
-        {%- elif cat == 'duplicate' %} <span class="pill yr-tag hx-tag-inv" title="Ίδιο UID — στα βιβλία μετρά το νεότερο MARK">διπλό του {{ r.dup_of }}</span>{% endif %}</td>
+      <td class="yr-docs-mark">{% if cat == 'movement' and r.foreign %}<span class="pill yr-tag yr-tag--foreign" title="Εκδότης εμείς, λήπτης άλλος">άλλου λήπτη</span> {% endif %}<a href="{{ item }}" data-docs="{{ item }}">{{ r.mark }}</a>
+        {%- if cat == 'duplicate' %} <span class="pill yr-tag hx-tag-inv" title="Ίδιο UID — στα βιβλία μετρά το νεότερο MARK">διπλό του {{ r.dup_of }}</span>{% endif %}</td>
       <td>{{ r.invoice_mark or '' }}{% if r.invoice_mark and r.ref_in_books %} <span class="pill yr-tag" title="Το παραστατικό είναι στα βιβλία">βιβλία</span>{% endif %}</td>
       <td><span title="{{ type_names.get(r.invoice_type, '') }}">{{ r.invoice_type or '' }}</span></td>
       <td class="yr-docs-cp">{% if r.issuer_vat %}<b>{{ names.get(r.issuer_vat) or '—' }}</b><span class="vat">{{ r.issuer_vat }}</span>{% endif %}</td>

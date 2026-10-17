@@ -534,6 +534,7 @@ def init_db() -> None:
 
 
 _CLS_KINDS = "('expenses_cls', 'income_cls')"
+_CLS_KIND_NAMES = ("expenses_cls", "income_cls")
 
 
 def _archive_upsert(conn, company_id: int, rows: list[dict], now: str) -> None:
@@ -602,9 +603,9 @@ def archive_sync(company_id: int | None, rows: list[dict]) -> None:
         )
 
 
-def archive_rows(company_id: int | None) -> list[dict]:
-    """Όλος ο κουβάς της εταιρείας (χωρίς xml), για την αναφορά «myData λοιπά». Ο χαρακτηρισμός δεν
-    έχει δική του ημερομηνία: παίρνει (date) του παραστατικού του, από το documents ή τον κουβά."""
+def archive_rows(company_id: int | None, mark: str | None = None) -> list[dict]:
+    """Όλος ο κουβάς της εταιρείας (χωρίς xml), για την αναφορά «myData λοιπά» — ή μόνο οι εγγραφές ενός MARK
+    (Αναζήτηση MARK). Ο χαρακτηρισμός δεν έχει δική του ημερομηνία: παίρνει (date) του παραστατικού του."""
     if not company_id:
         return []
     with get_conn() as conn:
@@ -628,7 +629,56 @@ def archive_rows(company_id: int | None) -> list[dict]:
             "LEFT JOIN documents d ON d.company_id = a.company_id AND d.mark = a.invoice_mark "
             "LEFT JOIN mydata_archive ai ON ai.company_id = a.company_id AND ai.kind = 'invoice' "
             "AND ai.mark = a.invoice_mark "
-            "WHERE a.company_id = ? ORDER BY date DESC, a.mark DESC", (company_id,))]
+            f"WHERE a.company_id = ?{' AND a.mark = ?' if mark else ''} ORDER BY date DESC, a.mark DESC",
+            (company_id, mark) if mark else (company_id,))]
+
+
+def mark_records(company_id: int | None, mark: str) -> list[dict]:
+    """Ό,τι έχουμε από το myDATA με αυτό το MARK (mydata_all: documents + κουβάς) — παραστατικό, χαρακτηρισμός
+    ή ακύρωση. Ο ενσωματωμένος χαρακτηρισμός έχει το MARK του παραστατικού: έρχεται και αυτός, μετά το παραστατικό.
+    {src, kind, mark, invoice_mark, event_date, invoice_type, amount, xml}."""
+    if not company_id:
+        return []
+    with get_conn() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM mydata_all WHERE company_id = ? AND mark = ?",
+                                              (company_id, mark))]
+        if not any(r["kind"] in _CLS_KIND_NAMES for r in rows):  # χαρακτηρισμός των βιβλίων χωρίς XML (ενσωματωμένος / απεσταλμένος)
+            rows += [{"src": "documents", "kind": "income_cls" if r["kind"] == "income" else "expenses_cls", "mark": mark,
+                      "invoice_mark": r["mark"], "event_date": None, "invoice_type": None, "amount": None, "xml": None}
+                     for r in conn.execute("SELECT mark, kind FROM documents WHERE company_id = ? AND classification_mark = ?",
+                                           (company_id, mark))]
+    return sorted(rows, key=lambda r: r["kind"] != "invoice")
+
+
+def cancellations(company_id: int | None, invoice_mark: str) -> list[dict]:
+    """Πράξεις ακύρωσης ενός παραστατικού (κουβάς): {mark, event_date}."""
+    if not company_id:
+        return []
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT mark, event_date FROM mydata_archive WHERE company_id = ? AND kind = 'cancel' AND invoice_mark = ?",
+            (company_id, invoice_mark))]
+
+
+def uid_marks(company_id: int | None, uid: str | None) -> list[str]:
+    """Όλα τα MARK (βιβλία + κουβάς) ενός UID, κατά αύξουσα σειρά — ισχύει το τελευταίο (myDATA API v1.0.9, σελ. 8)."""
+    if not (company_id and uid):
+        return []
+    with get_conn() as conn:
+        return sorted({r["mark"] for r in conn.execute(
+            "SELECT mark FROM documents WHERE company_id = ? AND uid = ? UNION SELECT mark FROM mydata_archive "
+            "WHERE company_id = ? AND kind = 'invoice' AND uid = ?", (company_id, uid, company_id, uid))}, key=_mark_no)
+
+
+def mark_refs(company_id: int | None, mark: str) -> list[str]:
+    """MARK παραστατικών που αναφέρουν το mark ως συσχετιζόμενο (correlatedInvoices / multipleConnectedMarks)."""
+    if not company_id:
+        return []
+    with get_conn() as conn:
+        return sorted({r["mark"] for r in conn.execute(
+            "SELECT mark FROM mydata_all WHERE company_id = ? AND kind = 'invoice' AND mark <> ? AND "
+            "(instr(unz(xml), 'correlatedInvoices>' || ? || '<') OR instr(unz(xml), 'multipleConnectedMarks>' || ? || '<'))",
+            (company_id, mark, mark, mark))}, key=_mark_no)
 
 
 def cls_history(company_id: int | None, invoice_mark: str) -> list[dict]:

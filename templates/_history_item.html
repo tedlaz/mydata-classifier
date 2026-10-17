@@ -3,6 +3,7 @@
 <div class="modal-head">
   <h2>{{ kind_labels.get(item.kind, item.kind) }} {{ item.mark }}</h2>
   <span>
+    <a class="btn-ghost btn-sm" href="{{ url_for('mark_lookup', m=item.mark, back=url_for('reports_history')) }}">🔎 Πλήρης ανάλυση</a>
     {% if back %}<button type="button" class="btn-ghost btn-sm" data-docs="{{ back }}">← Πίσω</button>{% endif %}
     <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
   </span>

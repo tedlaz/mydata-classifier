@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% from "_macros.html" import xml_nodes, cls_chips with context %}
+{% block title %}Αναζήτηση MARK{% endblock %}
+
+{% macro dmy(d) %}{{ '/'.join(d[:10].split('-')[::-1]) if d else '—' }}{% endmacro %}
+{% macro tone_pill(s) %}<span class="mk-pill" data-tone="{{ s.tone }}" title="{{ s.why }}">{{ s.label }}</span>{% endmacro %}
+{% macro party(vat) -%}
+  {% if vat %}<b>{{ names.get(vat) or '—' }}</b><span class="mk-vat">ΑΦΜ {{ vat }}</span>{% else %}<span class="muted">—</span>{% endif %}
+{%- endmacro %}
+{# Σύνοψη παραστατικού (στην ανάλυση και ως «Αφορά» για χαρακτηρισμό / ακύρωση). #}
+{% macro facts_grid(f) %}
+<dl class="mk-facts">
+  <div><dt>Ημ/νία έκδοσης</dt><dd>{{ dmy(f.issue_date) }}</dd></div>
+  <div><dt>Τύπος</dt><dd><b>{{ f.invoice_type or '—' }}</b> {{ type_names.get(f.invoice_type, '') }}</dd></div>
+  <div><dt>Σειρά / Α/Α</dt><dd>{{ f.series or '—' }} / {{ f.aa or '—' }}</dd></div>
+  <div><dt>Εκδότης</dt><dd class="mk-party">{{ party(f.issuer_vat) }}</dd></div>
+  <div><dt>Λήπτης</dt><dd class="mk-party">{{ party(f.counterpart_vat) }}</dd></div>
+  <div class="mk-money"><dt>Καθαρή · ΦΠΑ</dt><dd>{{ f.net|el_amount }} · {{ f.vat|el_amount }}</dd></div>
+  <div class="mk-money mk-total"><dt>Σύνολο</dt><dd>{{ f.gross|el_amount }} €</dd></div>
+  <div class="mk-wide"><dt>UID</dt><dd class="mk-mono">{{ f.uid or '—' }}</dd></div>
+</dl>
+{% endmacro %}
+
+{% block content %}
+<style>
+.mk-search{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;max-width:560px}
+.mk-search input{flex:1 1 260px;min-width:0;font:600 1.15rem var(--font-data);letter-spacing:.02em;padding:12px 14px;border-radius:12px}
+.mk-search button{padding:0 20px}
+.mk-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,360px);gap:16px;align-items:start}
+@media (max-width:980px){.mk-layout{grid-template-columns:minmax(0,1fr)}}
+.mk-main{display:grid;gap:16px;min-width:0}
+.mk-id{display:grid;gap:10px}
+.mk-id-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mk-kind{font-size:.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.mk-mark{font:800 clamp(1.4rem,3vw,1.9rem) var(--font-data);letter-spacing:.01em;overflow-wrap:anywhere}
+.mk-why{margin:0;color:var(--ink-2)}
+.mk-actions{display:flex;gap:8px;flex-wrap:wrap}
+.mk-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:.78rem;font-weight:700;
+  border:1px solid currentColor;background:color-mix(in srgb,currentColor 10%,transparent);white-space:nowrap}
+.mk-pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+[data-tone=ok]{color:var(--ok)} [data-tone=info]{color:var(--info)} [data-tone=warn]{color:var(--warn)}
+[data-tone=err]{color:var(--err)} [data-tone=muted]{color:var(--muted)}
+.mk-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px 18px;margin:0}
+.mk-facts > div{min-width:0}
+.mk-facts dt{font-size:.74rem;color:var(--muted);margin-bottom:2px}
+.mk-facts dd{margin:0;overflow-wrap:anywhere}
+.mk-party b{display:block}
+.mk-vat{font-size:.78rem;color:var(--muted);font-family:var(--font-data)}
+.mk-money dd{font-family:var(--font-data)}
+.mk-total dd{font:800 1.15rem var(--font-data)}
+.mk-wide{grid-column:1 / -1}
+.mk-mono{font-family:var(--font-data);font-size:.85rem}
+.mk-sub{margin:16px 0 8px;font-size:.82rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.mk-ref{border:1px solid var(--line-soft);border-radius:10px;padding:12px 14px;background:var(--surface-2,var(--surface))}
+.mk-ref-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.mk-cls-table{width:100%;border-collapse:collapse}
+.mk-cls-table th{text-align:left;font-size:.74rem;color:var(--muted);font-weight:600;padding:4px 8px 4px 0;width:110px;vertical-align:top}
+.mk-cls-table td{padding:4px 0}
+.mk-cls-table tr + tr th,.mk-cls-table tr + tr td{border-top:1px dashed var(--line-soft)}
+.mk-banner{padding:10px 12px;border-radius:10px;border:1px solid currentColor;background:color-mix(in srgb,currentColor 8%,transparent);margin-bottom:12px}
+.mk-banner b{color:inherit}
+/* Διασυνδέσεις: κατακόρυφο χρονολόγιο κατά MARK */
+.mk-rel{position:sticky;top:12px}
+.mk-tl{list-style:none;margin:0;padding:0 0 0 4px;position:relative}
+.mk-tl::before{content:"";position:absolute;left:10px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.mk-tl li{position:relative;padding:6px 0 10px 28px}
+.mk-dot{position:absolute;left:4px;top:11px;width:14px;height:14px;border-radius:50%;background:var(--surface);border:3px solid currentColor}
+.mk-tl li.is-here .mk-dot{background:currentColor;box-shadow:0 0 0 4px color-mix(in srgb,currentColor 25%,transparent)}
+.mk-tl a.mk-node{display:grid;gap:3px;text-decoration:none;color:inherit;padding:6px 8px;margin:-6px -8px;border-radius:8px}
+.mk-tl a.mk-node:hover,.mk-tl a.mk-node:focus-visible{background:var(--surface-3)}
+.mk-tl li.is-here a.mk-node{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.mk-rel-kind{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.mk-rel-mark{font:700 .98rem var(--font-data);color:var(--ink)}
+.mk-legend{font-size:.78rem;color:var(--muted);margin:10px 0 0}
+.mk-xml{margin-top:16px}
+.mk-xml summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mk-xml summary::-webkit-details-marker{display:none}
+.mk-xml summary h2::before{content:"▸ ";color:var(--accent)} .mk-xml[open] summary h2::before{content:"▾ "}
+.mk-empty{text-align:center;padding:28px 16px}
+.mk-empty p{margin:6px 0 14px;color:var(--ink-2)}
+</style>
+
+<div class="yr">
+  <section class="db-hero yr-hero">
+    <span class="db-blob b1"></span><span class="db-blob b2"></span><span class="db-blob b3"></span>
+    <div class="db-hero-in">
+      <div>
+        {% if back %}<a class="yr-hero-back" href="{{ back }}">← Επιστροφή</a>{% endif %}
+        <h1>Αναζήτηση MARK</h1>
+        <p class="db-hi">Οποιοδήποτε MARK — παραστατικό, χαρακτηρισμός ή ακύρωση: τι είναι, πού στέκεται και με τι συνδέεται</p>
+        <form class="mk-search" method="get" action="{{ url_for('mark_lookup') }}" role="search">
+          <input type="search" name="m" value="{{ m }}" inputmode="numeric" autocomplete="off" placeholder="π.χ. 400001910473429"
+                 aria-label="MARK" {% if not rec %}autofocus{% endif %}>
+          {% if back %}<input type="hidden" name="back" value="{{ back }}">{% endif %}
+          <button type="submit" class="btn">Αναζήτηση</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  {% if error %}
+  <div class="card card-danger" role="alert">{{ error }}</div>
+  {% endif %}
+
+  {% if m and not rec and not error %}
+  <div class="card mk-empty">
+    <h2>Το MARK {{ m }} δεν υπάρχει στα δεδομένα της εταιρείας</h2>
+    {% if live_none %}
+    <p>Ούτε το myDATA επέστρεψε εγγραφή με αυτό το MARK για την εταιρεία (στις δικές της διαβιβάσεις ή σε όσα τη λαμβάνουν).</p>
+    {% else %}
+    <p>Δεν έχει έρθει με καμία ανάκτηση. Μπορεί να είναι εκτός διαστήματος ανάκτησης — ή να μην αφορά την εταιρεία.</p>
+    <a class="btn" href="{{ url_for('mark_lookup', back=back, m=m, live=1) }}">🔎 Αναζήτηση στο myDATA</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if rec %}
+  <div class="mk-layout">
+    <div class="mk-main">
+      {# ---- Ταυτότητα ---- #}
+      <section class="card mk-id" aria-label="Ταυτότητα">
+        <div class="mk-id-top">
+          <span class="mk-kind">{{ kind_labels.get(kind, kind) }}</span>
+          {{ tone_pill(status) }}
+          {% if embedded %}<span class="pill yr-tag" title="Ο χαρακτηρισμός υποβλήθηκε μέσα στο ίδιο το παραστατικό">με ενσωματωμένο χαρακτηρισμό</span>{% endif %}
+        </div>
+        <div class="mk-mark">{{ m }}</div>
+        {% if status.why %}<p class="mk-why">{{ status.why }}</p>{% endif %}
+        <div class="mk-actions">
+          {% if doc %}<a class="btn btn-sm" href="{{ url_for('document', mark=inv_mark, back=request.full_path) }}">📄 Καρτέλα στα βιβλία</a>{% endif %}
+          {% if inv_mark and nodes|selectattr('rel', 'equalto', 'Χαρακτηρισμός')|list %}
+          <a class="btn btn-ghost btn-sm" href="#" data-hist="{{ url_for('cls_history', mark=inv_mark) }}">🕘 Ιστορικό χαρακτηρισμών</a>{% endif %}
+          {% if rec.xml or xml_is_invoice %}<a class="btn btn-ghost btn-sm" href="{{ url_for('mark_xml', m=m if rec.xml else inv_mark) }}">⬇ XML</a>{% endif %}
+        </div>
+      </section>
+
+      {# ---- Ανάλυση ανά περίπτωση ---- #}
+      {% if kind == 'invoice' %}
+      <section class="card">
+        <div class="card-head"><h2>Στοιχεία παραστατικού</h2></div>
+        {{ facts_grid(facts) }}
+        {% if payments %}
+        <h3 class="mk-sub">Πληρωμή</h3>
+        <div class="pill-list">{% for p in payments %}<span class="pill">{{ p.method }}{% if p.amount %} · {{ p.amount }} €{% endif %}</span>{% endfor %}</div>
+        {% endif %}
+        {% if doc %}
+        <h3 class="mk-sub">Χαρακτηρισμοί στα βιβλία</h3>
+        <div class="pill-list">{{ cls_chips(doc_cls, 'Χωρίς χαρακτηρισμό') }}</div>
+        {% endif %}
+      </section>
+      {% else %}
+      <section class="card">
+        {% if kind == 'cancel' %}
+        <div class="card-head"><h2>Ακύρωση</h2></div>
+        <p class="mk-why">Στις <b>{{ dmy(rec.event_date) }}</b> ακυρώθηκε το παραστατικό <a href="{{ url_for('mark_lookup', back=back, m=inv_mark) }}"><b>{{ inv_mark }}</b></a>. Ένα ακυρωμένο παραστατικό δεν μετρά σε κανένα βιβλίο ή δήλωση.</p>
+        {% else %}
+        <div class="card-head"><h2>{{ kind_labels.get(kind) }}</h2></div>
+        {% if cls.transaction_mode %}
+        <div class="mk-banner" data-tone="warn"><b>{{ 'Απόρριψη' if cls.transaction_mode == '1' else 'Απόκλιση' }}</b> — ο λήπτης {{ 'απέρριψε το παραστατικό' if cls.transaction_mode == '1' else 'δήλωσε απόκλιση στα ποσά' }}.</div>
+        {% endif %}
+        {% if cls.entries %}
+        <table class="mk-cls-table">
+          {% for ln in cls.lines %}
+          <tr><th scope="row">{{ 'Γραμμή ' ~ ln if ln is not none else 'Ανά παραστατικό' }}</th>
+            <td><div class="pill-list">{{ cls_chips(cls.entries|selectattr('line', 'equalto', ln)|list) }}</div></td></tr>
+          {% endfor %}
+        </table>
+        {% elif not cls.transaction_mode %}<p class="muted">Χωρίς εγγραφές χαρακτηρισμού.</p>{% endif %}
+        {% endif %}
+
+        <h3 class="mk-sub">Αφορά το παραστατικό</h3>
+        <div class="mk-ref">
+          <div class="mk-ref-head">
+            <a class="mk-rel-mark" href="{{ url_for('mark_lookup', back=back, m=inv_mark) }}">{{ inv_mark }}</a>
+            {% if inv_status %}{{ tone_pill(inv_status) }}{% endif %}
+          </div>
+          {% if inv_missing %}
+          <p class="muted">Το παραστατικό δεν έχει ανακτηθεί (εκδόθηκε εκτός διαστήματος ανάκτησης).</p>
+          <a class="btn btn-sm" href="{{ url_for('mark_lookup', back=back, m=inv_mark, live=1) }}">🔎 Λήψη από το myDATA</a>
+          {% else %}{{ facts_grid(facts) }}{% endif %}
+        </div>
+      </section>
+      {% endif %}
+    </div>
+
+    {# ---- Διασυνδέσεις ---- #}
+    <aside class="card mk-rel" aria-label="Διασυνδέσεις">
+      <div class="card-head"><h2>Διασυνδέσεις</h2><span class="muted small">{{ nodes|length }}</span></div>
+      <ol class="mk-tl">
+        {% for n in nodes %}
+        <li class="{{ 'is-here' if n.here }}" data-tone="{{ n.status.tone }}">
+          <span class="mk-dot" aria-hidden="true"></span>
+          <a class="mk-node" href="{{ url_for('mark_lookup', back=back, m=n.mark, live=1 if n.missing else None) }}" {% if n.here %}aria-current="page"{% endif %}>
+            <span class="mk-rel-kind">{{ n.rel }}{% if n.rel != kind_labels.get(n.kind) %} · {{ kind_labels.get(n.kind, n.kind) }}{% endif %}{% if n.here %} · εδώ{% endif %}</span>
+            <span class="mk-rel-mark">{{ n.mark }}</span>
+            <span>{{ tone_pill(n.status) }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ol>
+      <p class="mk-legend">Κατά σειρά MARK (χρονολογικά). Κλικ σε έναν κόμβο για την ανάλυσή του.</p>
+    </aside>
+  </div>
+
+  {# ---- Όλα τα στοιχεία: σε όλο το πλάτος, οι ενότητες δίπλα-δίπλα ---- #}
+  {% if xml_tree %}
+  <details class="mk-xml" {% if kind == 'invoice' %}open{% endif %}>
+    <summary><h2>Όλα τα στοιχεία XML{% if xml_is_invoice %} <small class="muted">— του παραστατικού {{ inv_mark }}</small>{% endif %}</h2></summary>
+    <div class="xml-tree">{{ xml_nodes(xml_tree) }}</div>
+  </details>
+  {% endif %}
+  {% endif %}
+
+  <dialog class="modal modal--wide" id="mk-hist" aria-label="Ιστορικό χαρακτηρισμών" closedby="any"></dialog>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  // «Ιστορικό χαρακτηρισμών»: το ίδιο modal με την καρτέλα παραστατικού (/history/cls/<mark>).
+  const dlg = document.getElementById('mk-hist');
+  document.addEventListener('click', async (e) => {
+    const a = e.target.closest('[data-hist]');
+    if (a) {
+      e.preventDefault();
+      dlg.innerHTML = '<p class="muted">Φόρτωση…</p>';
+      dlg.showModal();
+      const r = await fetch(a.dataset.hist);
+      dlg.innerHTML = await r.text();
+    } else if (e.target.closest('#mk-hist [data-close]')) {
+      dlg.close();
+    }
+  });
+})();
+</script>
+{% endblock %}

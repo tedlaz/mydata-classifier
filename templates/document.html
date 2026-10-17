@@ -297,7 +297,8 @@
   </table>
   </div>
   {% if classification_mark %}<p class="muted small">MARK χαρακτηρισμού <span class="mono">{{ classification_mark }}</span>{% if classification_mark == inv.mark %} (ενσωματωμένος στο παραστατικό){% endif %}</p>{% elif inv.cls_source %}<p class="muted small">Χαρακτηρισμός: {{ inv.cls_source }}</p>{% endif %}
-  {% if cls_history %}<p><button type="button" class="btn btn-ghost btn-sm" data-cls-history="{{ url_for('cls_history', mark=inv.mark) }}">🕘 Ιστορικό χαρακτηρισμών ({{ cls_history|length }})</button></p>{% endif %}
+  <p>{% if cls_history %}<button type="button" class="btn btn-ghost btn-sm" data-cls-history="{{ url_for('cls_history', mark=inv.mark) }}">🕘 Ιστορικό χαρακτηρισμών ({{ cls_history|length }})</button> {% endif %}
+    {%- if inv.mark and inv.mark.isdigit() %}<a class="btn btn-ghost btn-sm" href="{{ url_for('mark_lookup', m=inv.mark, back=request.full_path) }}">🔎 Πλήρης ανάλυση MARK</a>{% endif %}</p>
 </div>
 
 {# Φόροι & κρατήσεις σε επίπεδο παραστατικού (taxesTotals). Παλιά ανάκτηση χωρίς ανάλυση

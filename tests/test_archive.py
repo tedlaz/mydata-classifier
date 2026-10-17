@@ -156,7 +156,36 @@ assert "cat=cancel\"" not in page_html and docs_html.index("mark=3&") < docs_htm
 item = web.get("/reports/history/item?kind=expenses_cls&mark=12")
 assert item.status_code == 200 and "xml-tree" in item.get_data(as_text=True)
 assert web.get("/reports/history/docs?cat=nope").status_code == 400
-assert web.get("/reports/history/item?kind=invoice&mark=404").status_code == 404
+
+# Παραστατικό που δεν ανακτήθηκε (π.χ. ακυρωμένο εκτός διαστήματος): λήψη από το myDATA με το MARK του → κουβάς.
+class FakeClient:
+    def request_mark(self, mark):
+        return archive_records(page(inv(mark)), "RequestTransmittedDocs") if mark == "60" else []
+
+
+real_get_client, A.get_client = A.get_client, FakeClient
+assert web.get("/reports/history/item?kind=invoice&mark=404").status_code == 404  # ούτε στο myDATA
+db.archive_sync(cid, fetch(page(cancels="<cancelledInvoice><invoiceMark>60</invoiceMark><cancellationMark>61"
+                                       "</cancellationMark><cancellationDate>2026-04-25</cancellationDate></cancelledInvoice>")))
+h = web.get("/reports/history/docs?cat=cancelled").get_data(as_text=True)
+assert "Δεν έχει ανακτηθεί" in h and h.index("mark=60&") < h.index("mark=61&"), h  # ρίζα χωρίς XML, παιδί η ακύρωση
+item = web.get("/reports/history/item?kind=invoice&mark=60")
+assert item.status_code == 200 and "xml-tree" in item.get_data(as_text=True) and db.archive_item(cid, "invoice", "60")
+mydata.add(("invoice", "60"))
+h = web.get("/reports/history/docs?cat=cancelled").get_data(as_text=True)
+assert "Δεν έχει ανακτηθεί" not in h, h
+A.get_client = real_get_client
+check()
+# request_mark: mark = MARK−1 + maxMark, από τη σελίδα κρατά μόνο το ζητούμενο MARK — οποιουδήποτε είδους.
+from types import SimpleNamespace as NS  # noqa: E402
+
+calls: list = []
+c = MyDataClient("u", "k")
+c.session = NS(get=lambda url, params, timeout: calls.append(params) or NS(
+    status_code=200, content=page(inv(59) + inv(60) + inv(70), cls(71, 60)), text=""))
+assert [r["mark"] for r in c.request_mark("60")] == ["60"] and calls[0]["mark"] == "59" and calls[0]["maxMark"] == "60", calls
+assert [r["kind"] for r in c.request_mark("71")] == ["expenses_cls"]
+assert c.request_mark("65") == [] and len(calls) == 4  # δοκιμάζει και τα δύο endpoints
 
 
 # 9. Ιστορικό χαρακτηρισμών: από τον ισχύοντα προς τον παλαιότερο· κουμπί στην καρτέλα όταν υπάρχουν αλλαγές.
@@ -208,5 +237,15 @@ h = web.get("/history/cls/2").get_data(as_text=True)
 assert "Το βιβλίο δείχνει ακόμα τον χαρακτηρισμό" in h
 t = h[h.index("<thead>"):]
 assert t.index('<span class="mono">15</span>') < t.index('<span class="pill">ισχύει</span>') < t.index('<span class="mono">12</span>') < t.index("στο βιβλίο"), t
+check()
+
+# Χαρακτηρισμός ακυρωμένου παραστατικού (3, ακύρωση 11): στα «Ακυρωμένα» κάτω από αυτό, όχι στους ισχύοντες,
+# και χωρίς να αλλάζει το σύνολο.
+total_before = web.get("/reports/history/docs?cat=cancelled").get_data(as_text=True).split("hx-tree-total")[1][:300]
+db.archive_sync(cid, fetch(page(classifications=cls(50, 3))))
+assert "/history/cls/3" not in web.get("/reports/history/docs?cat=active_cls").get_data(as_text=True)
+h = web.get("/reports/history/docs?cat=cancelled").get_data(as_text=True)
+assert h.index("mark=3&") < h.index("mark=11&") < h.index("mark=50&"), h
+assert h.split("hx-tree-total")[1][:300] == total_before, h
 check()
 print("OK")

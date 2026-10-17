@@ -442,6 +442,20 @@ class MyDataClient:
             cancelled_marks |= self._parse_cancelled_invoices(root)
         return _unique(self_invoices), cls_map, cancelled_marks
 
+    def request_mark(self, mark: str, endpoints: tuple = ("RequestTransmittedDocs", "RequestDocs")) -> list[dict]:
+        """Ό,τι έχει το myDATA με αυτό το MARK (παραστατικό, χαρακτηρισμός ή ακύρωση — π.χ. εκτός διαστήματος
+        ανάκτησης) ως εγγραφές κουβά (archive_records). mark = MARK−1 και maxMark = MARK: μόνο αυτό το MARK
+        (myDATA API v1.0.9, σελ. 16) — μία σελίδα ανά endpoint, ως το πρώτο που το έχει."""
+        for endpoint in endpoints:
+            resp = self.session.get(self.base_url + endpoint, timeout=60,
+                                    params=self._params({"mark": str(int(mark) - 1), "maxMark": mark}))
+            if resp.status_code != 200:
+                raise MyDataError(f"{endpoint}: HTTP {resp.status_code}: {resp.text[:300]}")
+            recs = [r for r in archive_records(resp.content, endpoint) if r["mark"] == mark]
+            if recs:
+                return recs
+        return []
+
     def new_since(self, endpoint: str, mark: int) -> tuple[int, list[tuple[str, str]], set[str]]:
         """
         Ό,τι διαβιβάστηκε με MARK > mark (RequestDocs ή RequestTransmittedDocs) ΧΩΡΙΣ φίλτρο

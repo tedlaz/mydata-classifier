@@ -1985,8 +1985,17 @@ def _xml_tree(xml: str | None) -> list[dict]:
         label = XML_LABELS.get(tag, tag)
         if tag == "invoiceDetails" and kids.get("lineNumber"):  # «Γραμμή 1», «Γραμμή 2», …
             label = f"{label} {kids['lineNumber']}"
-        return {"tag": tag, "label": label, "value": value,
-                "children": [node(c, tag, kids) for c in el]}
+        children = [node(c, tag, kids) for c in el]
+        # Εκδότης/λήπτης χωρίς επωνυμία στο XML (συνήθως ελληνικό ΑΦΜ): από τους συναλλασσόμενους, ως hint στο ΑΦΜ.
+        if tag in ("issuer", "counterpart") and not kids.get("name") and (vat := kids.get("vatNumber")):
+            name = db.get_supplier_name(vat)
+            own = (get_active_company() or {}) if has_request_context() else {}
+            if not name and vat == str(own.get("AADE_VAT_NUMBER") or ""):  # η ίδια η εταιρεία
+                name = own.get("company_name")
+            for c in children:
+                if c["tag"] == "vatNumber" and name:
+                    c["hint"] = name
+        return {"tag": tag, "label": label, "value": value, "children": children}
 
     try:
         root = ET.fromstring(xml)
@@ -4109,7 +4118,9 @@ def _history_category(row: dict, own_vat: str, cancelled: set) -> str:
     kind = row["kind"]
     if kind == "cancel":  # μαζί με το παραστατικό που ακυρώνει
         return "cancelled"
-    if kind in ("expenses_cls", "income_cls"):
+    if kind in _CLS_KINDS and row.get("invoice_mark") in cancelled:  # χαρακτηρισμός ακυρωμένου: μαζί του, όχι «ισχύων»
+        return "cancelled"
+    if kind in _CLS_KINDS:
         # παραστατικό που δεν ανακτήθηκε: όλες οι υποβολές του (και απορρίψεις) μαζί με την ισχύουσα (Ιστορικό),
         # όχι χωρίς link στις άλλες κατηγορίες
         if not (row.get("ref_in_books") or row.get("ref_in_archive")):
@@ -4137,7 +4148,8 @@ def _history_rows(cid) -> tuple[list[dict], list[int]]:
     """(εγγραφές του κουβά με «cat», διαθέσιμα έτη) — φίλτρο έτους από το ?year=."""
     rows = db.archive_rows(cid)
     own_vat = str((get_active_company() or {}).get("AADE_VAT_NUMBER") or "").strip()
-    cancelled = {r["invoice_mark"] for r in rows if r["kind"] == "cancel"}
+    cancelled = ({r["invoice_mark"] for r in rows if r["kind"] == "cancel"}
+                 | {r["mark"] for r in rows if r["kind"] == "invoice" and r.get("has_cancelled_by")})
     for r in rows:
         r["cat"] = _history_category(r, own_vat, cancelled)
         r["foreign"] = r["kind"] == "invoice" and _history_foreign(r, own_vat)
@@ -4161,7 +4173,7 @@ def reports_history():
                      "n_docs": len({r["invoice_mark"] for r in rs}) if grouped
                      else len({r["invoice_mark"] or r["mark"] for r in rs}) if key == "cancelled" else None,
                      # ποσά χαρακτηρισμών διαδοχικών υποβολών δεν αθροίζονται
-                     "amount": 0 if grouped else sum(r["amount"] or 0 for r in rs),
+                     "amount": 0 if grouped else _history_total(rs),
                      "first": dates[0] if dates else None, "last": dates[-1] if dates else None})
     return render_template("reports_history.html", cats=cats, total=len(rows), years=years,
                            year=request.args.get("year", type=int))
@@ -4182,24 +4194,37 @@ def reports_history_docs():
             g_ = groups.setdefault(r["invoice_mark"], dict(r, n=0))
             g_["n"] += 1
         rows = list(groups.values())
-    elif cat == "cancelled":  # κάθε πράξη ακύρωσης αμέσως κάτω από το παραστατικό που ακυρώνει
-        invoices = {r["mark"] for r in rows if r["kind"] == "invoice"}
-        cancels: dict = {}
+    total = 0 if grouped else _history_total(rows)
+    if cat == "cancelled":  # δέντρο: ρίζα το παραστατικό που ακυρώνεται, παιδιά οι ακυρώσεις και οι χαρακτηρισμοί του
+        trees: dict = {}
         for r in rows:
-            if r["kind"] == "cancel" and r["invoice_mark"] in invoices:
-                cancels.setdefault(r["invoice_mark"], []).append(r)
-        rows = [x for r in rows if not (r["kind"] == "cancel" and r["invoice_mark"] in invoices)
-                for x in [r, *cancels.get(r["mark"], [])]]
+            key = r["mark"] if r["kind"] == "invoice" else r["invoice_mark"]
+            t = trees.setdefault(key, {"mark": key, "root": None, "children": []})
+            if r["kind"] == "invoice":
+                t["root"] = r
+            else:
+                t["children"].append(r)
+        for t in trees.values():
+            t["children"].sort(key=lambda c: (c["kind"] != "cancel", c["mark"]))
+            t["date"] = (t["root"] or t["children"][0])["date"]
+        rows = list(trees.values())
     page_rows, page, pages = paginate(rows, request.args.get("page"))
     vats = ("ref_vat",) if grouped else ("issuer_vat", "counterpart_vat")
-    names = {r[k]: db.get_supplier_name(r[k]) for r in page_rows for k in vats if r[k]}
+    flat = [r for t in page_rows for r in [t["root"], *t["children"]] if r] if cat == "cancelled" else page_rows
+    names = {r[k]: db.get_supplier_name(r[k]) for r in flat for k in vats if r[k]}
     q = {k: v for k, v in request.args.items() if k != "page"}
     return render_template("_history_docs.html", rows=page_rows, n=len(rows), page=page, pages=pages, q=q,
                            cat=cat, label=HISTORY_CATEGORIES[cat][0], names=names, grouped=grouped,
-                           total=0 if grouped else sum(r["amount"] or 0 for r in rows), type_names=INVOICE_TYPE_NAMES)
+                           total=total, type_names=INVOICE_TYPE_NAMES)
 
 
 _HISTORY_GROUPED = ("rejection", "expenses_cls", "income_cls", "active_cls")
+_CLS_KINDS = ("expenses_cls", "income_cls")
+
+
+def _history_total(rows: list[dict]) -> float:
+    """Σύνολο ποσών κατηγορίας· οι χαρακτηρισμοί (π.χ. ακυρωμένων) δεν αθροίζονται — το ποσό είναι του παραστατικού."""
+    return sum(r["amount"] or 0 for r in rows if r["kind"] not in _CLS_KINDS)
 
 
 def _local_dt(iso: str) -> str:
@@ -4258,9 +4283,19 @@ def cls_history(mark):
 def reports_history_item():
     """Τμήμα HTML για το modal: όλα τα στοιχεία μίας εγγραφής του κουβά, όπως τα έδωσε το myDATA."""
     cid = _active_company_id()
-    item = db.archive_item(cid, request.args.get("kind", ""), request.args.get("mark", ""))
+    kind, mark = request.args.get("kind", ""), request.args.get("mark", "")
+    item = db.archive_item(cid, kind, mark)
+    if not item and kind == "invoice" and mark.isdigit() and cid:
+        # Παραστατικό εκτός διαστήματος ανάκτησης (π.χ. παλιό που ακυρώθηκε τώρα): λήψη από το myDATA → κουβάς.
+        try:
+            recs = get_client().request_mark(mark)
+        except (MyDataError, requests.RequestException) as e:
+            return f"Το παραστατικό {mark} δεν έχει ανακτηθεί και η λήψη του από το myDATA απέτυχε: {_fetch_error(e)}", 502
+        if recs:
+            db.archive_sync(cid, recs)
+            item = db.archive_item(cid, kind, mark)
     if not item:
-        return "Η εγγραφή δεν βρέθηκε.", 404
+        return "Η εγγραφή δεν βρέθηκε (ούτε στο myDATA).", 404
     ref = item.get("invoice_mark")
     ref_url = None
     if ref and db.get_document(cid, ref):
@@ -4300,6 +4335,200 @@ def _xml_diff(nodes: list[dict], other: list[dict]) -> None:
 
 _HISTORY_KIND_LABELS = {"invoice": "Παραστατικό", "expenses_cls": "Χαρακτηρισμός εξόδων",
                         "income_cls": "Χαρακτηρισμός εσόδων", "cancel": "Ακύρωση"}
+
+
+# ------------------------------------------------------------------ #
+# ΑΝΑΖΗΤΗΣΗ MARK: ό,τι κι αν είναι (παραστατικό, χαρακτηρισμός, ακύρωση) — κατάσταση, ανάλυση, διασυνδέσεις.
+# Πηγή: db.mark_records (mydata_all = documents + κουβάς)· ό,τι λείπει, από το myDATA (request_mark).
+# ------------------------------------------------------------------ #
+_DOC_STATUS_WHY = {
+    "unclassified": "Αχαρακτήριστο — περιμένει χαρακτηρισμό",
+    "classified": "Χαρακτηρισμένο τοπικά — δεν έχει σταλεί ακόμα στο myDATA",
+    "sent": "Ο χαρακτηρισμός στάλθηκε — αναμένεται επιβεβαίωση από την επόμενη ανάκτηση",
+    "confirmed": "Ολοκληρωμένο — χαρακτηρισμένο στο myDATA",
+}
+
+
+def _invoice_facts(xml: str | None) -> dict:
+    """Βασικά στοιχεία παραστατικού από το XML του myDATA (χωρίς namespaces)."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring(xml or "")
+    except ET.ParseError:
+        return {}
+
+    def text(*path):
+        el = root
+        for name in path:
+            el = next((c for c in el if c.tag.split("}")[-1] == name), None)
+            if el is None:
+                return None
+        return (el.text or "").strip() or None
+
+    num = lambda *p: float(text(*p) or 0)  # noqa: E731
+    return {
+        "uid": text("uid"), "cancelled_by": text("cancelledByMark"),
+        "issue_date": text("invoiceHeader", "issueDate"), "invoice_type": text("invoiceHeader", "invoiceType"),
+        "series": text("invoiceHeader", "series"), "aa": text("invoiceHeader", "aa"),
+        "issuer_vat": text("issuer", "vatNumber"), "counterpart_vat": text("counterpart", "vatNumber"),
+        "net": num("invoiceSummary", "totalNetValue"), "vat": num("invoiceSummary", "totalVatAmount"),
+        "gross": num("invoiceSummary", "totalGrossValue"),
+        "correlated": sorted({(el.text or "").strip() for el in root.iter()
+                              if el.tag.split("}")[-1] in ("correlatedInvoices", "multipleConnectedMarks") and el.text},
+                             key=db._mark_no),
+    }
+
+
+def _mark_status(cid: int, rec: dict, own_vat: str) -> dict:
+    """Κατάσταση μίας εγγραφής του myDATA: {label, tone (ok/info/warn/err/muted), why}."""
+    kind, mark = rec["kind"], rec["mark"]
+    if kind == "cancel":
+        return {"label": "Πράξη ακύρωσης", "tone": "err",
+                "why": f"Ακυρώνει το παραστατικό {rec['invoice_mark']}"
+                       + (f" από {'/'.join(rec['event_date'][:10].split('-')[::-1])}" if rec.get("event_date") else "")}
+    if kind == "invoice" and rec["src"] == "documents":
+        doc = db.get_document(cid, mark) or {}
+        book = "εσόδων" if doc.get("kind") == "income" else "εξόδων"
+        why = ("Χαρακτηρισμένο" if doc.get("kind") == "income" and doc.get("status") == "classified"
+               else _DOC_STATUS_WHY.get(doc.get("status"), ""))
+        return {"label": f"Ενεργό στο βιβλίο {book}", "tone": "ok", "why": why}
+    if kind != "invoice":
+        doc = db.get_document(cid, rec["invoice_mark"])
+        if doc and doc.get("classification_mark") == mark:
+            return {"label": "Ισχύει — στα βιβλία", "tone": "ok",
+                    "why": "Ενσωματωμένος στο ίδιο το παραστατικό" if mark == rec["invoice_mark"]
+                    else "Ο τρέχων χαρακτηρισμός του παραστατικού στα βιβλία"}
+    row = next(iter(db.archive_rows(cid, mark)), None)
+    if not row:
+        return {"label": "Άγνωστο", "tone": "muted", "why": ""}
+    inv_mark = mark if kind == "invoice" else rec["invoice_mark"]
+    cancelled = {inv_mark} if db.cancellations(cid, inv_mark) else set()
+    if kind != "invoice" and (rec2 := next((r for r in db.mark_records(cid, inv_mark) if r["kind"] == "invoice"), None)):
+        if _invoice_facts(rec2["xml"]).get("cancelled_by"):
+            cancelled.add(inv_mark)
+    cat = _history_category(row, own_vat, cancelled)
+    if kind == "invoice":
+        return {
+            "cancelled": {"label": "Ακυρωμένο", "tone": "err", "why": "Ακυρώθηκε στο myDATA — δεν μετρά πουθενά"},
+            "duplicate": {"label": "Αντικαταστάθηκε", "tone": "warn",
+                          "why": f"Ίδιο UID με το MARK {row['dup_of']}: κατά τις προδιαγραφές του myDATA ισχύει η "
+                                 "τελευταία διαβίβαση και η προηγούμενη ακυρώνεται"},
+            "movement": {"label": "Παραστατικό διακίνησης", "tone": "info", "why": "Δελτίο αποστολής — δεν χαρακτηρίζεται, εκτός βιβλίων"},
+            "foreign": {"label": "Άλλου λήπτη", "tone": "info", "why": "Εκδότης εμείς, διαβιβάστηκε από τον λήπτη για δικό του έξοδο"},
+        }.get(cat, {"label": "Εκτός βιβλίων", "tone": "warn",
+                    "why": "Ήρθε από το myDATA αλλά δεν είναι στα βιβλία — π.χ. εκτός διαστήματος ανάκτησης"})
+    return {
+        "cancelled": {"label": "Χαρακτηρισμός ακυρωμένου", "tone": "err", "why": "Το παραστατικό του ακυρώθηκε"},
+        "rejection": {"label": "Απόρριψη / απόκλιση", "tone": "warn", "why": "Υποβολή με transactionMode"},
+        "active_cls": {"label": "Ισχύει — εκτός βιβλίων", "tone": "info",
+                       "why": "Τελευταίος χαρακτηρισμός παραστατικού που δεν είναι στα βιβλία"},
+    }.get(cat, {"label": "Αντικαταστάθηκε", "tone": "muted", "why": "Υπάρχει νεότερος χαρακτηρισμός του παραστατικού"})
+
+
+def _mark_node(cid: int, mark: str, rel: str, own_vat: str, current: str) -> dict:
+    """Κόμβος του γράφου διασυνδέσεων: {mark, kind, rel, status, here, missing}."""
+    rec = next(iter(db.mark_records(cid, mark)), None)
+    return {"mark": mark, "rel": rel, "here": mark == current, "missing": rec is None,
+            "kind": rec["kind"] if rec else "invoice",
+            "status": _mark_status(cid, rec, own_vat) if rec else
+            {"label": "Δεν έχει ανακτηθεί", "tone": "muted", "why": "Κλικ για λήψη από το myDATA"}}
+
+
+def _mark_analysis(cid: int, mark: str, recs: list[dict]) -> dict:
+    from mydata_client import cls_record
+
+    own_vat = str((get_active_company() or {}).get("AADE_VAT_NUMBER") or "").strip()
+    rec = recs[0]
+    kind = rec["kind"]
+    inv_mark = mark if kind == "invoice" else rec["invoice_mark"]
+    inv_rec = rec if kind == "invoice" else next(
+        (r for r in db.mark_records(cid, inv_mark) if r["kind"] == "invoice"), None)
+    facts = _invoice_facts(inv_rec["xml"]) if inv_rec else {}
+    doc = db.get_document(cid, inv_mark) if inv_mark else None
+    names = {v: (db.get_supplier_name(v) or ("Εμείς" if v == own_vat else None))
+             for v in (facts.get("issuer_vat"), facts.get("counterpart_vat")) if v}
+
+    cls = None
+    if kind in _CLS_KINDS:
+        if rec["xml"]:
+            cls = cls_record(rec["xml"])
+        else:  # χαρακτηρισμός των βιβλίων χωρίς XML: ό,τι κρατά το documents
+            cls = {"entries": json.loads((doc or {}).get("cls_json") or "[]"), "transaction_mode": None}
+        cls["lines"] = sorted({e.get("line") for e in cls["entries"]}, key=lambda ln: (ln is not None, ln or 0))
+
+    # Διασυνδέσεις: παραστατικό, χαρακτηρισμοί, ακυρώσεις, ίδιο UID, συσχετιζόμενα (και προς τις δύο κατευθύνσεις).
+    rels: dict = {}
+
+    def add(m, rel):
+        if m and m not in rels:
+            rels[m] = rel
+
+    add(inv_mark, "Παραστατικό")
+    for r in db.cls_history(cid, inv_mark) if inv_mark else []:
+        add(r["mark"], "Χαρακτηρισμός")
+    if doc and doc.get("classification_mark") and doc["classification_mark"] != inv_mark:
+        add(doc["classification_mark"], "Χαρακτηρισμός")
+    for c in db.cancellations(cid, inv_mark) if inv_mark else []:
+        add(c["mark"], "Ακύρωση")
+    add(facts.get("cancelled_by"), "Ακύρωση")
+    for m in db.uid_marks(cid, facts.get("uid")):
+        add(m, "Ίδιο UID")
+    for m in facts.get("correlated", []):
+        add(m, "Συσχετιζόμενο")
+    for m in db.mark_refs(cid, inv_mark) if inv_mark else []:
+        add(m, "Το αναφέρει")
+    add(mark, _HISTORY_KIND_LABELS.get(kind, kind))
+    nodes = sorted((_mark_node(cid, m, rel, own_vat, mark) for m, rel in rels.items()), key=lambda n: db._mark_no(n["mark"]))
+
+    xml = rec["xml"] or (inv_rec or {}).get("xml")
+    tree = _xml_tree(xml)
+    return {
+        "rec": rec, "kind": kind, "status": _mark_status(cid, rec, own_vat), "inv_mark": inv_mark,
+        "inv_status": _mark_status(cid, inv_rec, own_vat) if inv_rec and kind != "invoice" else None,
+        "inv_missing": bool(inv_mark) and inv_rec is None, "facts": facts, "names": names, "doc": doc,
+        "embedded": kind == "invoice" and any(r["kind"] in _CLS_KINDS for r in recs[1:]),
+        "cls": cls, "nodes": nodes, "xml_tree": tree, "xml_is_invoice": not rec["xml"] and bool(inv_rec),
+        "payments": _xml_payments(tree) if kind == "invoice" else [],
+        "doc_cls": json.loads(doc.get("cls_json") or "[]") if doc and kind == "invoice" else [],
+    }
+
+
+@app.route("/mark")
+def mark_lookup():
+    """Αναζήτηση MARK: τι είναι, πού στέκεται, με τι συνδέεται. ?live=1 → λήψη από το myDATA ό,τι λείπει."""
+    cid = _active_company_id()
+    m = (request.args.get("m") or "").strip()
+    # back: η οθόνη που κάλεσε την αναζήτηση — μένει ίδια σε όλη την πλοήγηση μέσα στη σελίδα (κόμβοι, νέα αναζήτηση).
+    back = _safe_back(request.args.get("back")) or None
+    ctx = {"m": m, "error": None, "live_none": False, "back": back}
+    if m and not m.isdigit():
+        ctx["error"] = "Το MARK είναι αριθμός (π.χ. 400001910473429)."
+    elif m and cid and request.args.get("live"):
+        try:
+            recs = get_client().request_mark(m)
+        except (MyDataError, requests.RequestException) as e:
+            ctx["error"] = f"Η λήψη από το myDATA απέτυχε: {_fetch_error(e)}"
+        else:
+            if recs:
+                db.archive_sync(cid, recs)
+                return redirect(url_for("mark_lookup", m=m, back=back))
+            ctx["live_none"] = True
+    if m and not ctx["error"] and cid and (recs := db.mark_records(cid, m)):
+        ctx.update(_mark_analysis(cid, m, recs))
+    return render_template("mark.html", **ctx, kind_labels=_HISTORY_KIND_LABELS, type_names=INVOICE_TYPE_NAMES,
+                           categories={**EXPENSE_CATEGORIES, **INCOME_CATEGORIES},
+                           types={**EXPENSE_TYPES, **INCOME_TYPES}, vat_types=VAT_TYPES)
+
+
+@app.route("/mark/<m>/xml")
+def mark_xml(m):
+    """Λήψη του XML μίας εγγραφής του myDATA (οποιουδήποτε είδους), όπως ήρθε."""
+    rec = next((r for r in db.mark_records(_active_company_id(), m) if r["xml"]), None)
+    if not rec:
+        abort(404)
+    return Response(rec["xml"], mimetype="application/xml",
+                    headers={"Content-Disposition": f'attachment; filename="{m}.xml"'})
 
 
 _QUARTER_NAMES = ("Α΄", "Β΄", "Γ΄", "Δ΄")
