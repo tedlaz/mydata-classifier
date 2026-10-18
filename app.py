@@ -5417,10 +5417,6 @@ def dashboard():
     due_monthly = [t for t in _recurring_pending(cid, today.strftime("%Y-%m")) if t["monthly_day"] <= today.day]
     todo(len(due_monthly), "🔁", "Προγραμματισμένες εγγραφές προς δημιουργία", ", ".join(t["name"] for t in due_monthly),
          url_for("recurring"), "accent")
-    if vat["days"] <= 15:
-        todo(f"{max(vat['days'], 0)}ημ", "🏛", f"Δήλωση ΦΠΑ {vat['label']}",
-             f"Προθεσμία {vat['due']}" + (f" · προς καταβολή {format_el_amount(vat['pay'])} €" if vat["pay"] else ""),
-             url_for("reports_vat", year=vat["year"], period=vat["period"]), "err" if vat["days"] <= 5 else "warn")
     # «Νέα από MARK» ενεργό: ανάκτηση όταν πέρασε το διάστημα ελέγχου της εταιρείας από την τελευταία.
     # ponytail: μετράει κάθε ανάκτηση (και διαστήματος), όχι μόνο «Νέα από MARK»
     ready = [k for k in ("income", "expense") if _mark_ready(cid, k)]
