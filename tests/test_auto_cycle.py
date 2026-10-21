@@ -1,5 +1,6 @@
 """Αυτόματος κύκλος: ανάκτηση → χαρακτηρισμός με πρόταση → αποστολή, σε άλλη εταιρεία από την ενεργή· log, διακοπή.
 Εκτέλεση: python -m tests.test_auto_cycle"""
+import base64
 import json
 import os
 import tempfile
@@ -267,6 +268,8 @@ A._run_cycle("δοκιμή")
 body = A.mydata_logs(None, A._CYCLE_DIR)[0]["body"]
 assert status("2006") == "classified" and sent == [], (status("2006"), sent)
 assert "⏸ Αναμένουν επιβεβαίωση (1)" in body and "2006" in body, body
+assert A._cycle_rec["totals"]["held"] == 1 and A._cycle_rec["companies"][0]["counts"]["held"] == 1, A._cycle_rec
+assert A._cycle_from_log(A.mydata_logs(None, A._CYCLE_DIR)[0])["companies"][0]["counts"]["held"] == 1
 db.set_review_vat(b, "111", False)
 assert db.review_vats(b) == set()
 print("OK review")
@@ -287,3 +290,49 @@ assert "⏸" not in c.get("/invoices?view=classified").get_data(as_text=True)
 A.auth.unlocked = orig_unlocked
 db.set_active_company_id(a)
 print("OK review list")
+
+# 13) Ειδοποίηση ntfy: μόνο με κανάλι και μόνο όταν ο κύκλος έκανε κάτι· χωρίς ονόματα εταιρειών.
+posts = []  # (url, headers, κείμενο)
+
+
+def fake_put(url, data, headers, **kw):
+    posts.append((url, headers, data.decode()))
+    return NS(ok=True)
+
+
+orig_put = A.requests.put
+A.requests.put = fake_put
+add_doc("2008")
+A._run_cycle("δοκιμή")  # χωρίς κανάλι → τίποτα
+assert posts == [], posts
+c.post("/auto-cycle/ntfy/new")
+topic = db.get_setting("ntfy_topic")
+assert topic.startswith("mydata-") and f"ntfy://ntfy.sh/{topic}?display=myDATA" in c.get("/auto-cycle").get_data(as_text=True)
+add_doc("2009")
+A._run_cycle("δοκιμή")
+url, headers, text = posts[0]
+assert base64.b64decode(headers["Title"][10:-2]).decode().startswith("myDATA · ") and headers["Tags"] == "white_check_mark", headers
+assert len(posts) == 1 and url == "https://ntfy.sh/" + topic, posts
+assert text == "1️⃣  1🏷️  1📤\n\n✋\n\n1️⃣  1❓", text  # μόνο Α/Α και «αριθμός+εικονίδιο», χωρίς ονόματα
+A._run_cycle("δοκιμή")  # τίποτα νέο → καμία ειδοποίηση
+assert len(posts) == 1, posts
+A._run_cycle("χειροκίνητα")  # «Έναρξη τώρα» → ειδοποίηση και χωρίς τίποτα νέο
+assert len(posts) == 2 and posts[1][2] == "—\n\n✋\n\n1️⃣  1❓", posts  # «—» = τίποτα έγινε
+
+# Επιβεβαίωση: το «απεσταλμένο» 2009 βρίσκεται χαρακτηρισμένο στην ανάκτηση του κύκλου → μετρά confirmed.
+A.get_client = lambda send="": NS(send_expenses_classification=send_cls, new_since=lambda *x: (
+    db.mark_confirmed(db.get_document(b, "2009")["id"]), new_since(*x))[1])
+tot = A._run_cycle("χειροκίνητα")
+assert tot["confirmed"] == 1 and A._cycle_rec["companies"][0]["counts"]["confirmed"] == 1, tot
+assert A.mydata_logs(None, A._CYCLE_DIR) and A._cycle_from_log(A.mydata_logs(None, A._CYCLE_DIR)[0])[
+    "companies"][0]["counts"]["confirmed"] == 1
+A.get_client = lambda send="": NS(new_since=new_since, send_expenses_classification=send_cls)
+
+assert A._cycle_text([{"counts": {}}] * 9 + [{"counts": {"new": 1}}, {"counts": {"new": 2}}]) == "🔟  1📥\n\n11.  2📥"
+# Σύνοψη: χωρίς μηδενικά· εταιρεία χωρίς τίποτα παραλείπεται (ο Α/Α μένει)· κάτω όσες θέλουν ενέργεια.
+assert A._cycle_text([{"counts": {"new": 2, "failed": 0}}, {"counts": {}}, {"counts": {"failed": 1, "no_rule": 3}},
+                      {"counts": {"held": 1}}]) == "1️⃣  2📥\n\n3️⃣  1❌\n\n✋\n\n3️⃣  3❓\n\n4️⃣  1⏸️"
+c.post("/auto-cycle/ntfy/off")
+assert A._ntfy("x") is False and len(posts) == 3
+A.requests.put = orig_put
+print("OK ntfy")

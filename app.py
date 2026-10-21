@@ -3,12 +3,14 @@ myDATA Expense Classifier - Flask UI
 Εκτέλεση:  python app.py  →  http://127.0.0.1:5000
 """
 
+import base64
 import calendar
 import glob
 import json
 import os
 import random
 import re
+import secrets
 import statistics
 import sys
 import textwrap
@@ -7264,7 +7266,7 @@ _cycle = {"running": False, "trigger": "", "company": "", "step": "", "done": 0,
 _cycle_buf: list[str] = []  # όλες οι γραμμές του τρέχοντος κύκλου (για το αρχείο .log)
 # Ο ίδιος κύκλος δομημένα (αρχείο .json δίπλα στο .log): κάρτα κύκλου → υποκάρτα ανά εταιρεία με τις γραμμές της.
 _cycle_rec: dict = {"lines": [], "companies": []}
-_COUNT_KEYS = ("new", "classified", "sent", "failed", "no_rule", "skipped")
+_COUNT_KEYS = ("new", "classified", "sent", "confirmed", "failed", "no_rule", "held", "skipped")
 
 
 class _CycleStopped(Exception):
@@ -7440,6 +7442,7 @@ def _cycle_company(c: dict, chosen: str, tot: dict) -> None:
     _cycle_set(step="Ανάκτηση από myDATA", done=0, total=0)
     _clog("① Ανάκτηση: Νέα παραστατικά εξόδων από MARK", "head")
     before = {r["mark"] for r in db.get_documents(cid, "expense")}
+    was_sent = {r["mark"] for r in db.get_documents(cid, "expense", ["sent"])}
     with _cycle_ctx(cid, {"scope": "expense", "action": "new", "date_from": today, "date_to": today}):
         sync_run()
         failed = any(cat == "error" for cat, _ in session.get("_flashes", []))
@@ -7450,6 +7453,10 @@ def _cycle_company(c: dict, chosen: str, tot: dict) -> None:
     new = [r["mark"] for r in db.get_documents(cid, "expense") if r["mark"] not in before]
     tot["new"] += len(new)
     _clog(f"  Νέα παραστατικά εξόδων: {len(new)}" + (f" ({', '.join(new)})" if new else ""))
+    # Επιβεβαιώσεις: όσα ήταν «απεσταλμένα» και η ανάκτηση τα βρήκε πλέον χαρακτηρισμένα στο myDATA
+    if confirmed := was_sent & {r["mark"] for r in db.get_documents(cid, "expense", ["confirmed"])}:
+        tot["confirmed"] += len(confirmed)
+        _clog(f"  Επιβεβαιώθηκαν στο myDATA: {len(confirmed)} ({', '.join(sorted(confirmed))})")
     _cycle_check()
 
     # 2) Χαρακτηρισμός όσων έχουν πρόταση (ένα-ένα: πρόοδος και διακοπή ανά παραστατικό)
@@ -7487,6 +7494,7 @@ def _cycle_company(c: dict, chosen: str, tot: dict) -> None:
     review = db.review_vats(cid)
     held = [i for i in cands if i.mark in classified and i.issuer_vat in review]
     if held:
+        tot["held"] += len(held)
         classified = [m for m in classified if m not in {i.mark for i in held}]
         _clog(f"⏸ Αναμένουν επιβεβαίωση ({len(held)}) — έμειναν στα «Χαρακτηρισμένα»: "
               + ", ".join(i.mark for i in held), "warn")
@@ -7607,8 +7615,12 @@ def _cycle_from_log(lg: dict) -> dict:
             co["level"] = next((k for k, v in _CYCLE_LEVELS.items() if m.group(1).startswith(v)), "")
         elif m := re.search(r"Νέα παραστατικά εξόδων: (\d+)", t):
             n["new"] += int(m.group(1))
+        elif m := re.search(r"Επιβεβαιώθηκαν στο myDATA: (\d+)", t):
+            n["confirmed"] += int(m.group(1))
         elif m := re.search(r"Χωρίς πρόταση — δεν χαρακτηρίστηκαν \((\d+)\)", t):
             n["no_rule"] += int(m.group(1))
+        elif m := re.search(r"⏸ Αναμένουν επιβεβαίωση \((\d+)\)", t):
+            n["held"] += int(m.group(1))
         elif "⏭ Παράλειψη" in t:
             n["skipped"] += 1
         elif line["k"] == "ok":
@@ -7619,6 +7631,9 @@ def _cycle_from_log(lg: dict) -> dict:
         text = "\n".join(ln["t"] for ln in co["lines"])
         co["status"] = ("stopped" if "⏹ Διακόπηκε" in text else "error" if co["counts"]["failed"]
                         else "skipped" if co["counts"]["skipped"] else "ok")
+    if rec["ended"]:  # όσα δεν είναι στον τίτλο: άθροισμα των εταιρειών
+        for key in ("confirmed", "held"):
+            totals[key] = sum(co["counts"][key] for co in rec["companies"])
     return rec
 
 
@@ -7630,6 +7645,49 @@ def _cycle_summary(tot: dict) -> str:
 def _cycle_cards() -> list[dict]:
     """Οι υποκάρτες εταιρειών του τρέχοντος κύκλου χωρίς τις γραμμές (για τη ζωντανή προβολή)."""
     return [{k: v for k, v in co.items() if k != "lines"} for co in _cycle_rec["companies"]]
+
+
+NTFY = "https://ntfy.sh"  # ponytail: σταθερός δημόσιος server· πεδίο ρύθμισης αν ζητηθεί self-hosted
+
+
+def _ntfy_topic() -> str:
+    return auth.dec(db.get_setting("ntfy_topic") or "")
+
+
+def _ntfy(text: str, urgent: bool = False, at: datetime | None = None) -> bool:
+    """Ειδοποίηση στο κινητό (εφαρμογή ntfy): «✅/⚠️ myDATA · ώρα» + σύνοψη. Μόνο ουδέτερο περιεχόμενο: όποιος μάθει
+    το κανάλι το διαβάζει. Αποτυχία δεν σταματά ποτέ τον κύκλο."""
+    topic = _ntfy_topic()
+    if not topic:
+        return False
+    try:
+        title = f"myDATA · {at or datetime.now(ATHENS):%H:%M}"  # RFC 2047: τα headers δεν παίρνουν σωστά το «·»
+        return requests.put(f"{NTFY}/{topic}", data=text.encode(), timeout=10, headers={
+            "Title": f"=?UTF-8?B?{base64.b64encode(title.encode()).decode()}?=",
+            "Priority": "high" if urgent else "default",
+            "Tags": "warning" if urgent else "white_check_mark"}).ok  # το ntfy δείχνει το tag ως ⚠️/✅ πριν τον τίτλο
+    except requests.RequestException:
+        app.logger.warning("ntfy: αποτυχία αποστολής")
+        return False
+
+
+# Σύνοψη κύκλου για την ειδοποίηση: γραμμή ανά εταιρεία (μόνο Α/Α), «αριθμός+εικονίδιο» ανά δουλειά, χωρίς μηδενικά.
+# Κάτω από τη γραμμή: όσες θέλουν ενέργεια από τον χρήστη. Υπόμνημα στη Βοήθεια (#notify).
+_NTFY_DONE = (("new", "📥", "Νέα παραστατικά (ανάκτηση)"), ("classified", "🏷️", "Χαρακτηρίστηκαν"),
+              ("sent", "📤", "Στάλθηκαν στο myDATA"), ("confirmed", "✅", "Επιβεβαιώθηκαν από το myDATA"),
+              ("failed", "❌", "Λάθη"))
+_NTFY_TODO = (("no_rule", "❓", "Χωρίς πρόταση χαρακτηρισμού"), ("held", "⏸️", "Αναμένουν επιβεβαίωση πριν την αποστολή"))
+
+
+def _cycle_text(companies: list[dict]) -> str:
+    def num(i):  # Α/Α ως emoji 1️⃣…🔟· μετά δεν υπάρχουν, άρα «11.»
+        return f"{i}️⃣" if i < 10 else "🔟" if i == 10 else f"{i}."
+
+    def lines(icons):
+        return [f"{num(i)}  " + "  ".join(f"{co['counts'][k]}{em}" for k, em, _ in icons if co["counts"].get(k))
+                for i, co in enumerate(companies, 1) if any(co["counts"].get(k) for k, *_ in icons)]
+    done, todo = lines(_NTFY_DONE), lines(_NTFY_TODO)
+    return "\n\n".join((done or ["—"]) + (["✋"] + todo if todo else []))  # κενή γραμμή ανάμεσα σε όλες
 
 
 def _run_cycle(trigger: str) -> dict:
@@ -7699,6 +7757,10 @@ def _run_cycle(trigger: str) -> dict:
     _clog(f"{'⏹ Τέλος (διακόπηκε)' if stopped else '■ Τέλος'} κύκλου σε {secs:.0f}s · {summary}", "sep")
     _cycle_rec.update(ended=datetime.now(ATHENS).isoformat(), secs=round(secs), stopped=stopped, totals=dict(tot))
     _cycle_write(started, title(("διακόπηκε · " if stopped else "") + summary))
+    # «Έναρξη τώρα»: πάντα ειδοποίηση· προγραμματισμένος χωρίς τίποτα: όχι (για να μην έρχεται κάθε ώρα)
+    if _cycle_rec["companies"] and (trigger == "χειροκίνητα"
+                                    or any(tot[k] for k in ("new", "sent", "failed", "held"))):
+        _ntfy(_cycle_text(_cycle_rec["companies"]), urgent=bool(tot["failed"]), at=started)
     app.logger.info("auto cycle (%s): %s", trigger, summary)
     _cycle_stop.clear()
     _cycle_set(running=False, company="", step="", done=0, total=0,
@@ -7753,7 +7815,10 @@ def auto_cycle():
                       level=sel.get(c["id"], "")) for c in load_companies()]
     return render_template("auto_cycle.html", on=on, minutes=minutes, ids=sel, companies=companies,
                            levels=_CYCLE_LEVELS, rank=_LEVEL_RANK,
-                           history=_cycle_history(), running_started=_cycle["started"] if _cycle["running"] else None)
+                           history=_cycle_history(), running_started=_cycle["started"] if _cycle["running"] else None,
+                           ntfy_topic=(t := _ntfy_topic()), ntfy_done=_NTFY_DONE, ntfy_todo=_NTFY_TODO,
+                           # ntfy://: μόνο αυτό ανοίγει την Android app και κάνει μόνιμη εγγραφή (το https:// όχι)
+                           ntfy_url=f"ntfy://{NTFY.split('://')[1]}/{t}?display=myDATA" if t else None)
 
 
 @app.route("/auto-cycle/status")
@@ -7804,6 +7869,25 @@ def auto_cycle_toggle():
         _cycle_stop.set()
     _cycle_wake.clear()
     return {"ok": True, "on": on}
+
+
+@app.route("/auto-cycle/ntfy/<action>", methods=["POST"])
+def auto_cycle_ntfy(action):
+    """Ειδοποιήσεις στο κινητό: new = νέο τυχαίο κανάλι (το παλιό παύει να λαμβάνει), off = απενεργοποίηση, test."""
+    if action == "new":
+        db.set_setting("ntfy_topic", auth.enc("mydata-" + secrets.token_urlsafe(16)))
+        flash("✔ Νέο κανάλι ειδοποιήσεων: σκάναρε το QR με την κάμερα του κινητού.", "ok")
+    elif action == "off":
+        db.set_setting("ntfy_topic", "")
+        flash("✔ Οι ειδοποιήσεις στο κινητό απενεργοποιήθηκαν.", "ok")
+    elif action == "test":
+        ok = _ntfy(_cycle_text([  # δείγμα με όλες τις περιπτώσεις, και την κάτω ενότητα «θέλουν ενέργεια»
+            {"counts": {"new": 12, "classified": 9, "sent": 8, "confirmed": 5, "no_rule": 3, "held": 1}},
+            {"counts": {"new": 4, "failed": 1}},
+            {"counts": {"new": 125, "classified": 110, "sent": 110, "confirmed": 96, "no_rule": 15}}]), urgent=True)
+        flash("✔ Στάλθηκε δοκιμαστική ειδοποίηση." if ok
+              else "Δεν στάλθηκε η ειδοποίηση (έλεγξε τη σύνδεση στο internet).", "ok" if ok else "error")
+    return redirect(url_for("auto_cycle"))
 
 
 @app.route("/auto-cycle/settings", methods=["POST"])

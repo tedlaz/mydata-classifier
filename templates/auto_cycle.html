@@ -4,8 +4,8 @@
 {# Ιστορικό: κάρτα ανά κύκλο → υποκάρτα ανά εταιρεία. data-k: κλειδί για να μένουν ανοιχτές μετά την ανανέωση. #}
 {% set st_icons = {'ok': '✓', 'error': '✗', 'stopped': '⏹', 'skipped': '⏭', 'running': '●'} %}
 {% set lvl_names = {'fetch': 'Μόνο ανάκτηση', 'classify': '+ Χαρακτηρισμός', 'send': '+ Αποστολή'} %}
-{% set chip_defs = [('new', 'νέα', '#06b6d4'), ('classified', 'χαρακτηρίστηκαν', '#8b5cf6'), ('sent', 'στάλθηκαν', '#10b981'),
-                    ('failed', 'αποτυχίες', '#ef4444'), ('no_rule', 'χωρίς πρόταση', '#f59e0b'), ('skipped', 'παραλείφθηκαν', '#94a3b8')] %}
+{% set chip_defs = [('new', 'νέα', '#06b6d4'), ('classified', 'χαρακτηρίστηκαν', '#8b5cf6'), ('sent', 'στάλθηκαν', '#10b981'), ('confirmed', 'επιβεβαιώθηκαν', '#059669'),
+                    ('failed', 'αποτυχίες', '#ef4444'), ('no_rule', 'χωρίς πρόταση', '#f59e0b'), ('held', 'αναμένουν επιβεβαίωση', '#334155'), ('skipped', 'παραλείφθηκαν', '#94a3b8')] %}
 {% macro chips(counts) -%}
 <span class="chips">
   {%- for k, label, color in chip_defs if (counts or {}).get(k) %}<span class="chip" style="--k:{{ color }}"><b>{{ counts[k] }}</b> {{ label }}</span>{% else %}<span class="chip chip--none">καμία αλλαγή</span>{% endfor -%}
@@ -193,6 +193,16 @@
 @media (max-width:560px){ .cy > summary .chips{order:5;width:100%} .co > summary .chips{order:5;width:100%} }
 .acx-set summary,.acx-hist > details > summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px;font-weight:700}
 .acx-set form{display:grid;gap:16px;margin-top:8px}
+.acx-ntfy code{word-break:break-all}
+/* QR πάντα σε λευκό φόντο (και σε σκούρο θέμα), για να σκανάρεται. */
+.acx-ntfy-qr svg{display:block;background:#fff;border-radius:8px;max-width:220px;height:auto}
+.acx-ntfy-row{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:center}
+.acx-ntfy-legend{border-collapse:collapse;font-size:.85rem}
+.acx-ntfy-legend td{padding:3px 10px 3px 0;vertical-align:top}
+.acx-ntfy-legend td:first-child{white-space:nowrap;text-align:center}
+.acx-ntfy-legend tr.is-sep td{padding-top:10px}
+.acx-ntfy-act{display:flex;flex-wrap:wrap;gap:8px}
+.acx-ntfy-act form{margin:0}
 /* Grid: ίσα πλακίδια, όσα χωράνε ανά σειρά (1 στο κινητό). */
 .acx-sched{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))}
 /* Εταιρείες: μία γραμμή η καθεμία, στήλες στοιχισμένες σε όλες τις γραμμές (subgrid). */
@@ -341,6 +351,42 @@
         έχουν πρόταση συναλλασσόμενου → (αν επιτρέπεται) αποστολή τους στο myDATA. Όσα δεν έχουν πρόταση δεν αγγίζονται·
         καταγράφονται στο log.
         Τρέχει μόνο όσο η εφαρμογή είναι ανοιχτή και ξεκλείδωτη.</p>
+      <details class="acx-ntfy">
+        <summary>📱 Ειδοποιήσεις στο κινητό {{ '· ενεργές' if ntfy_url }}</summary>
+        {% if ntfy_url %}
+        <p class="muted small">Σκάναρε το QR με την <b>κάμερα</b> του κινητού (με εγκατεστημένο το ntfy): ανοίγει το ntfy και
+          γίνεται μόνιμη εγγραφή στο κανάλι. Στο τέλος κάθε κύκλου με νέα, αποστολές ή αποτυχίες έρχεται μόνο η σύνοψη
+          σε αριθμούς — χωρίς ονόματα, ΑΦΜ ή ποσά.</p>
+        <div class="acx-ntfy-row">
+          <div class="acx-ntfy-qr" id="ntfy-qr" data-url="{{ ntfy_url }}"></div>
+          <table class="acx-ntfy-legend" aria-label="Τι σημαίνουν τα εικονίδια της ειδοποίησης">
+            <tr><td>✅ / ⚠️</td><td>Στον τίτλο: όλα καλά / υπήρξαν λάθη</td></tr>
+            <tr><td>1️⃣ 2️⃣ …</td><td>Α/Α εταιρείας (σειρά στον κύκλο)</td></tr>
+            {% for _, em, label in ntfy_done %}<tr><td>{{ em }}</td><td>{{ label }}</td></tr>{% endfor %}
+            <tr class="is-sep"><td>✋</td><td><b>Θέλουν δική σου ενέργεια:</b></td></tr>
+            {% for _, em, label in ntfy_todo %}<tr><td>{{ em }}</td><td>{{ label }}</td></tr>{% endfor %}
+          </table>
+        </div>
+        <p class="muted small">Χωρίς QR: στο ntfy πάτα <b>+</b>, γράψε το κανάλι <code>{{ ntfy_topic }}</code>
+          <button type="button" class="btn-ghost" onclick="navigator.clipboard.writeText(this.dataset.t)" data-t="{{ ntfy_topic }}">Αντιγραφή</button>
+          και πάτα «Subscribe».</p>
+        <div class="acx-ntfy-act">
+          <form method="post" action="{{ url_for('auto_cycle_ntfy', action='test') }}"><button type="submit">Δοκιμή</button></form>
+          <form method="post" action="{{ url_for('auto_cycle_ntfy', action='new') }}"
+                onsubmit="return confirm('Νέο κανάλι; Το κινητό πρέπει να σκανάρει ξανά το QR.')"><button type="submit" class="btn-ghost">Νέο κανάλι</button></form>
+          <form method="post" action="{{ url_for('auto_cycle_ntfy', action='off') }}"><button type="submit" class="btn-ghost">Απενεργοποίηση</button></form>
+        </div>
+        <script src="{{ url_for('static', filename='vendor/qrcode.min.js') }}"></script>
+        <script>
+          (() => { const el = document.getElementById('ntfy-qr'), qr = qrcode(0, 'M');
+                   qr.addData(el.dataset.url); qr.make(); el.innerHTML = qr.createSvgTag({cellSize: 5, margin: 4}); })();
+        </script>
+        {% else %}
+        <p class="muted small">Ειδοποίηση στο κινητό στο τέλος κάθε κύκλου, μέσω της δωρεάν εφαρμογής <b>ntfy</b>
+          (Android / iPhone, χωρίς λογαριασμό). Εγκατέστησέ την και πάτα «Ενεργοποίηση» για να εμφανιστεί το QR. <a href="{{ url_for('help_page') }}#notify">Οδηγίες</a></p>
+        <form method="post" action="{{ url_for('auto_cycle_ntfy', action='new') }}"><button type="submit">Ενεργοποίηση</button></form>
+        {% endif %}
+      </details>
     </section>
 
     <section class="card acx-hist">
