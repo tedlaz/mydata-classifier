@@ -67,6 +67,9 @@
       <label title="Οι γραμμές αθροίζονται ανά κατηγορία ΦΠΑ και χαρακτηρίζονται μαζί">
         <input type="radio" name="post_mode" value="1" {{ 'checked' if post_mode }}> Συγκεντρωτικά</label>
     </fieldset>
+    <label title="Για προμηθευτές με διάφορα είδη: ελέγχεις τον χαρακτηρισμό και τον στέλνεις εσύ από τα «Χαρακτηρισμένα»">
+      <input type="checkbox" name="review" value="1" {{ 'checked' if review }}>
+      ⏸ Επιβεβαίωση πριν την αποστολή (ο αυτόματος κύκλος χαρακτηρίζει αλλά δεν στέλνει)</label>
   </div>
   <div id="rule-rows">
     {% for r in rows %}{{ rule_row(r) }}{% endfor %}

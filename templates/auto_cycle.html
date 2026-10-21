@@ -209,6 +209,11 @@
 .acx-min{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.85rem}
 .acx-min input{width:6.5em}
 .acx-co-head{display:grid;gap:2px}
+.acx-note{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 14px;border-radius:12px;font-size:.88rem;
+  background:var(--err-soft);border:1px solid var(--err-line);color:var(--ink)}
+.acx-note.is-info{background:var(--ok-soft);border-color:var(--ok-line)}
+.acx-note ul{margin:0;padding-left:18px}
+.acx-note button{padding:6px 12px;font-size:.82rem}
 .acx-co-row{padding:8px 14px;min-height:60px;border:1px solid var(--line);
   border-left:5px solid var(--lv);border-radius:12px;background:var(--surface-2);transition:border-color .3s}
 .acx-co-row[data-level="off"]{--lv:var(--line)} .acx-co-row[data-level="fetch"]{--lv:#22d3ee}
@@ -297,7 +302,9 @@
     <section class="card acx-set">
       <details {{ 'open' if not ids }}>
         <summary>⚙ Ρυθμίσεις</summary>
-        <form method="post" action="{{ url_for('auto_cycle_settings') }}">
+        {#- autocomplete=off: ο browser να μην ξαναβάζει παλιές τιμές στα select σε ανανέωση / «πίσω» #}
+        <form method="post" action="{{ url_for('auto_cycle_settings') }}" autocomplete="off">
+          <div class="acx-note" id="acx-set-note" hidden></div>
           <div class="acx-sched">
             <label class="acx-field"><input type="checkbox" name="on" value="1" {{ 'checked' if on }}>
               <span><b>Χρονοπρογραμματισμός ενεργός</b><small>Ο κύκλος ξεκινά μόνος του κάθε τόσο</small></span></label>
@@ -429,6 +436,46 @@
     } catch (e) { /* επόμενη αλλαγή ξαναδοκιμάζει */ }
   }
 
+  // Ρυθμίσεις: όταν αλλάξουν οι επιλογές ή οι άδειες κάποιας εταιρείας (π.χ. στις Εταιρείες, σε άλλη καρτέλα),
+  // ξαναφέρνουμε το κομμάτι από τον server. Αν ο χρήστης έχει αλλαγές που δεν αποθήκευσε, δεν τις πατάμε: ειδοποίηση.
+  let setSig = null, dirty = false, pendingNotes = [];
+  const note = (html, info) => {
+    const el = $('acx-set-note'); if (!el) return;
+    el.innerHTML = html; el.hidden = !html; el.classList.toggle('is-info', !!info);
+  };
+  const notesHtml = list => '<div><b>Οι επιλογές ενημερώθηκαν:</b><ul>' + list.map(m =>
+    `<li>${m.replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'})[c])}</li>`).join('') + '</ul></div>';
+  async function refreshSettings() {
+    try {
+      const html = await (await fetch(location.pathname, {cache: 'no-store'})).text();
+      const fresh = new DOMParser().parseFromString(html, 'text/html').querySelector('.acx-set');
+      const old = document.querySelector('.acx-set');
+      if (!fresh || !old) return;
+      fresh.querySelector('details').open = old.querySelector('details').open;
+      old.replaceWith(fresh); dirty = false;
+      if (pendingNotes.length) { note(notesHtml(pendingNotes)); pendingNotes = []; }
+      else note('✔ Οι ρυθμίσεις ενημερώθηκαν με τις τρέχουσες άδειες και επιλογές.', true);
+    } catch (e) { setSig = null; /* ξαναδοκιμάζει στο επόμενο poll */ }
+  }
+  document.addEventListener('change', e => {
+    if (!e.target.closest('.acx-set form')) return;
+    dirty = true;
+    if (e.target.matches('.acx-co-row select')) e.target.closest('.acx-co-row').dataset.level = e.target.value || 'off';
+  });
+  document.addEventListener('click', e => {
+    if (e.target.closest('#acx-set-reload')) { e.preventDefault(); refreshSettings(); }
+  });
+  function settingsChanged(d) {
+    pendingNotes.push(...(d.notes || []));
+    if (setSig === null && pendingNotes.length) { note(notesHtml(pendingNotes)); pendingNotes = []; }
+    if (setSig !== null && d.settings_sig !== setSig) {
+      if (!dirty) refreshSettings();
+      else note((pendingNotes.length ? notesHtml(pendingNotes) : '<span>⚠ Οι άδειες ή οι επιλογές κάποιας εταιρείας άλλαξαν.</span>')
+        + '<span>Έχεις αλλαγές που δεν αποθηκεύτηκαν.</span><button type="button" id="acx-set-reload" class="btn-ghost">Φόρτωση τρεχουσών (χάνονται οι αλλαγές)</button>');
+    }
+    setSig = d.settings_sig;
+  }
+
   function stats(sum) {
     if (!sum) return;
     document.querySelectorAll('.acx-stat').forEach(el => {
@@ -480,7 +527,8 @@
     $('acx-stop').disabled = d.phase !== 'running';
     $('acx-toggle').dataset.on = d.on ? '1' : '0';
     $('acx-toggle').textContent = d.on ? '⏸ Παύση αυτόματου κύκλου' : '⏵ Συνέχιση αυτόματου κύκλου';
-    document.querySelector('.acx-set input[name=on]').checked = d.on;
+    if (!dirty) document.querySelector('.acx-set input[name=on]').checked = d.on;
+    settingsChanged(d);
     nextAt = d.next_run ? new Date(d.next_run).getTime() - (new Date(d.now).getTime() - Date.now()) : null;
     stats(d.summary);
     if (wasRun === false && run) boom();
@@ -544,8 +592,6 @@
 
   const post = url => fetch(url, {method: 'POST'}).then(poll);
   $('acx-start').addEventListener('click', () => { $('acx-start').disabled = true; boom(); post(`{{ url_for('auto_cycle_start') }}`); });
-  document.querySelectorAll('.acx-co-row select').forEach(sel =>
-    sel.addEventListener('change', () => { sel.closest('.acx-co-row').dataset.level = sel.value || 'off'; }));
   $('acx-toggle').addEventListener('click', () => {
     const on = $('acx-toggle').dataset.on === '1', run = s && (s.phase === 'running' || s.phase === 'stopping');
     if (on && !confirm('Παύση του αυτόματου κύκλου; Δεν θα ξεκινά άλλος κύκλος μέχρι τη «Συνέχιση».'

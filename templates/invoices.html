@@ -15,7 +15,7 @@
 {%- endmacro %}
 {% block title %}Βιβλίο εξόδων{% endblock %}
 {% block content %}
-{% set q = dict(view=view, sort=sort, dir=dir, f_mark=filters.mark, f_date=filters.date, f_issuer=filters.issuer, f_type=filters.type) %}
+{% set q = dict(view=view, sort=sort, dir=dir, f_mark=filters.mark, f_date=filters.date, f_issuer=filters.issuer, f_type=filters.type, review='1' if review_only else none) %}
 {% call ledger_hero('invoices', q, '📥 Βιβλίο εξόδων',
     [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️'), ('sent', 'Απεσταλμένα', '🚀'), ('confirmed', 'Ολοκληρωμένα', '✅')],
     'confirmed', period, 'out') %}
@@ -26,6 +26,11 @@
 
   {% if view == 'classified' %}
     <p class="muted">Χαρακτηρισμένα <strong>τοπικά</strong> (δεν έχουν σταλεί ακόμη στο myDATA). Επίλεξε και πάτα «Αποστολή επιλεγμένων στο myDATA».</p>
+    {% if review_count %}
+    <p class="muted">⏸ <strong>{{ review_count }}</strong> αναμένουν επιβεβαίωση (προμηθευτές που ο αυτόματος κύκλος δεν στέλνει) —
+      {% if review_only %}<a href="{{ url_for('invoices', **dict(q, review=none)) }}">εμφάνιση όλων</a>
+      {% else %}<a href="{{ url_for('invoices', **dict(q, review='1')) }}">μόνο αυτά</a>{% endif %}</p>
+    {% endif %}
   {% elif view == 'sent' %}
     <p class="muted">Στάλθηκαν στο myDATA και αναμένουν επιβεβαίωση (έως ~8 ώρες). Η επιβεβαίωση γίνεται αυτόματα με την επόμενη <a href="{{ url_for('sync') }}">Ανάκτηση</a>.</p>
   {% elif view == 'confirmed' %}
@@ -83,6 +88,9 @@
               {% endif %}
               {% if view == 'classified' and inv.check_errors %}
               <span class="pill" title="Το myDATA θα το απέρριπτε: {{ inv.check_errors|join(' · ') }}">⚠ θέλει διόρθωση</span>
+              {% endif %}
+              {% if view == 'classified' and inv.issuer_vat in review %}
+              <span class="pill" title="Ο αυτόματος κύκλος δεν το στέλνει: έλεγξε τον χαρακτηρισμό και στείλ' το εσύ">⏸ αναμένει επιβεβαίωση</span>
               {% endif %}
               {% if view == 'classified' and inv.prev_cls is not none %}
               <span class="pill" title="Πριν: {{ inv.prev_cls|map(attribute='type')|select|join(' · ') or '—' }} — η «Ακύρωση τελευταίου χαρακτηρισμού» επιστρέφει σε αυτόν">↺ αλλαγή απεσταλμένου</span>

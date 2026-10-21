@@ -144,16 +144,19 @@ db.set_setting("auto_cycle_companies", json.dumps({b: "send"}))
 A._run_cycle("δοκιμή")
 body = A.mydata_logs(None, A._CYCLE_DIR)[0]["body"]
 assert status("2005") == "classified" and sent == [], (status("2005"), sent)
-assert "δεν το επιτρέπουν" in body and "Αποστολή: εκτός ενεργειών" in body, body
+assert "άλλαξαν οι άδειες" in body and "Αποστολή: εκτός ενεργειών" in body, body
+assert A._cycle_settings()[2] == {b: "classify"}  # η ρύθμιση κατέβηκε μόνιμα
 db.unclassify(b, ["2005"])
 
 # 6γ) Χωρίς άδεια χαρακτηρισμού → μόνο ανάκτηση (η αποστολή χαρακτηρισμών θέλει και αυτήν).
 set_flags(b, allow_send=True, allow_classify=False)
+db.set_setting("auto_cycle_companies", json.dumps({b: "send"}))
 A._run_cycle("δοκιμή")
 assert status("2005") == "unclassified" and sent == []
 
 # 6δ) Άδειες που αφαιρούνται ΣΤΗ ΜΕΣΗ του κύκλου (εδώ: κατά την ανάκτηση) → δεν στέλνεται τίποτα.
 set_flags(b, allow_send=True, allow_classify=True)
+db.set_setting("auto_cycle_companies", json.dumps({b: "send"}))
 A.get_client = lambda send="": NS(new_since=lambda *x: (set_flags(b, allow_send=False), new_since(*x))[1],
                                   send_expenses_classification=send_cls)
 A._run_cycle("δοκιμή")
@@ -218,3 +221,69 @@ for cy in A._cycle_history(100):
         assert [ln["t"] for ln in o["lines"]] == [ln["t"] for ln in n["lines"]], (o["lines"], n["lines"])
     assert (old["stopped"], old["totals"], old["trigger"]) == (cy["stopped"], cy["totals"], cy["trigger"])
 print("OK legacy")
+
+# 9) Αλλαγή αδειών από τις Εταιρείες → οι επιλογές του κύκλου κατεβαίνουν αμέσως (ποτέ δεν ανεβαίνουν), με μήνυμα.
+A.get_client = lambda send="": NS(new_since=new_since, send_expenses_classification=send_cls)
+set_flags(b, allow_send=True, allow_classify=True)
+db.set_setting("auto_cycle_companies", json.dumps({b: "send", a: "classify", 999: "fetch"}))
+orig_unlocked, A.auth.unlocked = A.auth.unlocked, lambda: True
+with c.session_transaction() as sess:
+    sess.pop("_flashes", None)
+set_flags(b, allow_send=False)  # (η Β δεν έχει κλειδιά ΑΑΔΕ, οπότε το tag θα αρνιόταν· η άδεια αλλάζει απευθείας)
+c.post("/companies/toggle/999/allow_send")  # οποιοδήποτε POST των Εταιρειών ενεργοποιεί την ενημέρωση
+with c.session_transaction() as sess:
+    msgs = [m for _, m in sess.get("_flashes", [])]
+assert A._cycle_settings()[2] == {b: "classify", a: "classify"}, A._cycle_settings()  # η 999 (διαγραμμένη) έφυγε
+assert any("Κύκλος ΑΕ" in m and "άλλαξαν οι άδειες" in m for m in msgs), msgs
+set_flags(b, allow_send=True)
+c.post("/companies/toggle/999/allow_send")  # ξανανοίγει: η επιλογή ΔΕΝ ανεβαίνει μόνη της
+assert A._cycle_settings()[2][b] == "classify"
+A.auth.unlocked = orig_unlocked
+print("OK sync")
+
+# 10) Η σελίδα μαθαίνει την αλλαγή από το /auto-cycle/status: μήνυμα + νέα υπογραφή ρυθμίσεων (→ ξαναφορτώνει τα select).
+A.auth.unlocked = lambda: True
+set_flags(b, allow_send=True)
+db.set_setting("auto_cycle_companies", json.dumps({b: "send"}))
+st1 = c.get("/auto-cycle/status").get_json()
+assert st1["notes"] == [] and st1["settings_sig"] == c.get("/auto-cycle/status").get_json()["settings_sig"]
+set_flags(b, allow_send=False)  # π.χ. σε άλλη καρτέλα
+st2 = c.get("/auto-cycle/status").get_json()
+assert st2["settings_sig"] != st1["settings_sig"] and any("άλλαξαν οι άδειες" in n for n in st2["notes"]), st2["notes"]
+assert A._cycle_settings()[2] == {b: "classify"}
+page = c.get("/auto-cycle").get_data(as_text=True)
+assert 'autocomplete="off"' in page and f'name="level_{b}"' in page
+A.auth.unlocked = orig_unlocked
+print("OK live settings")
+
+# 11) «Επιβεβαίωση πριν την αποστολή»: ο κύκλος χαρακτηρίζει αλλά δεν στέλνει παραστατικά του προμηθευτή.
+set_flags(b, allow_send=True, allow_classify=True)
+A.get_client = lambda send="": NS(new_since=new_since, send_expenses_classification=send_cls)
+db.set_setting("auto_cycle_companies", json.dumps({b: "send"}))
+db.set_review_vat(b, "111", True)
+add_doc("2006")
+sent.clear()
+A._run_cycle("δοκιμή")
+body = A.mydata_logs(None, A._CYCLE_DIR)[0]["body"]
+assert status("2006") == "classified" and sent == [], (status("2006"), sent)
+assert "⏸ Αναμένουν επιβεβαίωση (1)" in body and "2006" in body, body
+db.set_review_vat(b, "111", False)
+assert db.review_vats(b) == set()
+print("OK review")
+
+# 12) Λίστα «Χαρακτηρισμένα»: σήμανση ⏸ και φίλτρο «μόνο αυτά».
+db.set_review_vat(b, "111", True)
+add_doc("2007")
+db.save_local_classification(b, "2007", [{"line_number": 1, "classification_type": "E3_102_001",
+                                          "classification_category": "category2_1", "amount": 50.0}])
+db.set_active_company_id(b)
+A.auth.unlocked = lambda: True
+page = c.get("/invoices?view=classified").get_data(as_text=True)
+assert "⏸ αναμένει επιβεβαίωση" in page and "μόνο αυτά" in page, page
+page = c.get("/invoices?view=classified&review=1").get_data(as_text=True)
+assert "εμφάνιση όλων" in page and "2006" in page, page
+db.set_review_vat(b, "111", False)
+assert "⏸" not in c.get("/invoices?view=classified").get_data(as_text=True)
+A.auth.unlocked = orig_unlocked
+db.set_active_company_id(a)
+print("OK review list")

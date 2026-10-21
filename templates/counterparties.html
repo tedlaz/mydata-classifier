@@ -185,6 +185,7 @@
                       title="Χαρακτηρισμός της τελευταίας ολοκληρωμένης εγγραφής: MARK {{ d.mark }} ({{ d.issue_date }})">💡 Αντιγραφή από την τελευταία</button>
             </form>
           {% else %}—{% endif %}
+          {% if s.vat in review %}<span class="pill" title="Ο αυτόματος κύκλος χαρακτηρίζει αλλά δεν στέλνει">⏸ επιβεβαίωση</span>{% endif %}
         </td>
         <td data-label="">
           <div class="actions">

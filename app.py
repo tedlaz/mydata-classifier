@@ -1767,6 +1767,12 @@ def invoices():
 
     counts = {v: len(buckets[v]) for v in _EXPENSE_VIEWS}
     items, sort, direction, filters = _book_list(buckets.get(view, []), request.args, view)
+    # «⏸ Αναμένουν επιβεβαίωση»: χαρακτηρισμένα προμηθευτών που ο αυτόματος κύκλος δεν στέλνει.
+    review = db.review_vats(cid)
+    review_count = sum(1 for i in buckets["classified"] if i.issuer_vat in review)
+    review_only = view == "classified" and request.args.get("review") == "1"
+    if review_only:
+        items = [i for i in items if i.issuer_vat in review]
     total = len(items)
     page_items, page, total_pages = paginate(items, request.args.get("page"))
     if view == "classified":
@@ -1799,6 +1805,9 @@ def invoices():
         period=_period_nav(_month_strip(cid, ("expense",)), filters["date"], view, cid, "expense"),
         per_page=PER_PAGE,
         filters=filters,
+        review=review,
+        review_count=review_count,
+        review_only=review_only,
     )
 
 
@@ -6768,6 +6777,7 @@ def suppliers():
         total_pages=total_pages,
         patterns=patterns,
         rules=rules,
+        review=db.review_vats(cid),
         vat_label=_vat_group_label,
     )
 
@@ -6835,6 +6845,7 @@ def supplier_rules(vat):
             patterns[db.DEFAULT_RULE] = next(iter(patterns.values()))
         db.replace_rule_patterns(cid, vat, patterns)
         db.set_rule_post_mode(cid, vat, request.form.get("post_mode") == "1")
+        db.set_review_vat(cid, vat, request.form.get("review") == "1")
         flash(f"✔ Αποθηκεύτηκαν οι προτάσεις του {vat}." if patterns else f"✔ Διαγράφηκαν οι προτάσεις του {vat}.", "ok")
         return redirect(back)
 
@@ -6847,6 +6858,7 @@ def supplier_rules(vat):
         rows=rows or [{"vat_category": db.DEFAULT_RULE, "category": "", "type": "", "vat_type": "VAT_361"}],
         back=back,
         post_mode=db.get_rule_post_mode(cid, vat),
+        review=vat in db.review_vats(cid),
         default_rule=db.DEFAULT_RULE,
         vat_rates=VAT_CATEGORY_RATES,
         categories=EXPENSE_CATEGORIES,
@@ -7296,6 +7308,42 @@ def _cycle_settings() -> tuple[bool, int, dict[int, str]]:
     return db.get_setting("auto_cycle_on") == "1", minutes, sel
 
 
+def _cycle_sync_levels() -> list[str]:
+    """Ευθυγραμμίζει τις αποθηκευμένες επιλογές του κύκλου με τις ΤΩΡΙΝΕΣ άδειες των εταιρειών: ό,τι δεν επιτρέπεται
+    πια κατεβαίνει στο επιτρεπόμενο, εταιρείες που διαγράφηκαν φεύγουν. Ποτέ αναβάθμιση (άνοιγμα άδειας ≠ συναίνεση
+    για αυτόματη αποστολή). Επιστρέφει μηνύματα για ό,τι άλλαξε."""
+    sel = _cycle_settings()[2]
+    by_id = {c["id"]: c for c in load_companies()}
+    new, msgs = {}, []
+    for cid, level in sel.items():
+        if cid not in by_id:
+            msgs.append(f"Αυτόματος κύκλος: η εταιρεία με id {cid} δεν υπάρχει πια — αφαιρέθηκε από τον κύκλο.")
+            continue
+        new[cid] = _cycle_effective(level, by_id[cid])
+        if new[cid] != level:
+            msgs.append(f"Αυτόματος κύκλος — {by_id[cid]['company_name']}: «{_CYCLE_LEVELS[level]}» → "
+                        f"«{_CYCLE_LEVELS[new[cid]]}», γιατί άλλαξαν οι άδειες της εταιρείας.")
+    if new != sel:
+        db.set_setting("auto_cycle_companies", json.dumps(new))
+    return msgs
+
+
+_COMPANY_EDITS = {"companies_add", "companies_update", "companies_toggle", "companies_delete",
+                  "companies_import", "companies_import_share"}
+
+
+@app.after_request
+def _cycle_after_company_edit(response):
+    """Μετά από κάθε αλλαγή εταιρειών (άδειες, κλείδωμα, εισαγωγή, διαγραφή): ενημέρωση των επιλογών του κύκλου."""
+    if request.method == "POST" and request.endpoint in _COMPANY_EDITS and auth.unlocked():
+        try:
+            for msg in _cycle_sync_levels():
+                flash(msg, "error")
+        except Exception:  # noqa: BLE001 — δεν χαλάει ποτέ την ενέργεια· ο κύκλος ελέγχει ούτως ή άλλως ανά βήμα
+            app.logger.exception("auto cycle sync")
+    return response
+
+
 def _cycle_due() -> datetime:
     """Πότε τρέχει ο επόμενος προγραμματισμένος κύκλος (μετρά από την έναρξη του προηγούμενου)."""
     last = db.get_setting("auto_cycle_last")
@@ -7434,7 +7482,14 @@ def _cycle_company(c: dict, chosen: str, tot: dict) -> None:
         tot["classified"] += len(classified)
         _cycle_set(done=len(cands))
 
-    # 3) Αποστολή μόνο όσων χαρακτηρίστηκαν τώρα (όχι όσα άφησε ο χρήστης χαρακτηρισμένα)
+    # 3) Αποστολή μόνο όσων χαρακτηρίστηκαν τώρα (όχι όσα άφησε ο χρήστης χαρακτηρισμένα),
+    # εκτός από προμηθευτές με «Επιβεβαίωση πριν την αποστολή» — αυτά μένουν για τον χρήστη.
+    review = db.review_vats(cid)
+    held = [i for i in cands if i.mark in classified and i.issuer_vat in review]
+    if held:
+        classified = [m for m in classified if m not in {i.mark for i in held}]
+        _clog(f"⏸ Αναμένουν επιβεβαίωση ({len(held)}) — έμειναν στα «Χαρακτηρισμένα»: "
+              + ", ".join(i.mark for i in held), "warn")
     if classified and not _cycle_level(cid, chosen, "send"):
         _clog(f"⏭ Αποστολή: εκτός ενεργειών της εταιρείας — {len(classified)} έμειναν στα «Χαρακτηρισμένα».", "warn")
     elif classified:
@@ -7579,6 +7634,7 @@ def _cycle_cards() -> list[dict]:
 
 def _run_cycle(trigger: str) -> dict:
     """Ένας πλήρης κύκλος σε όλες τις επιλεγμένες εταιρείες. Επιστρέφει τα σύνολα."""
+    synced = _cycle_sync_levels()  # γράφονται στο log μόλις ξεκινήσει (παρακάτω)
     _, minutes, sel = _cycle_settings()
     ids = list(sel)
     started = datetime.now(ATHENS)
@@ -7597,11 +7653,10 @@ def _run_cycle(trigger: str) -> dict:
                             + (f" · {end}" if end else " · σε εξέλιξη"))
     _clog(f"▶ Έναρξη κύκλου ({trigger}) · διάστημα {minutes}′ · εταιρείες: "
           + (", ".join(c["company_name"] for c in comps) or "καμία"), "sep")
+    for msg in synced:
+        _clog("⚠ " + msg, "warn")
     if not comps:
         _clog("⚠ Καμία εταιρεία στον κύκλο — επίλεξε εταιρείες στις Ρυθμίσεις.", "warn")
-    for i in ids:
-        if i not in by_id:
-            _clog(f"⏭ Η εταιρεία με id {i} δεν υπάρχει πια — παραλείπεται.", "warn")
     stopped = False
     for n, c in enumerate(comps, 1):
         if _cycle_stop.is_set():
@@ -7691,6 +7746,8 @@ def _cycle_phase() -> str:
 
 @app.route("/auto-cycle")
 def auto_cycle():
+    for msg in _cycle_sync_levels():  # π.χ. μετά από επαναφορά αντιγράφου ή άλλη αλλαγή εκτός σελίδας Εταιρειών
+        flash(msg, "error")
     on, minutes, sel = _cycle_settings()
     companies = [dict(c, ready=_mark_ready(c["id"], "expense"), max_level=_cycle_allowed(c),
                       level=sel.get(c["id"], "")) for c in load_companies()]
@@ -7706,12 +7763,17 @@ def auto_cycle_status():
         since = int(request.args.get("since") or 0)
     except ValueError:
         since = 0
-    on, minutes, _ = _cycle_settings()
+    notes = _cycle_sync_levels() if auth.unlocked() else []  # άδειες που άλλαξαν αλλού (άλλη καρτέλα, επαναφορά…)
+    on, minutes, sel = _cycle_settings()
     with _cycle_lock:
         state = {k: v for k, v in _cycle.items() if k != "lines"}
         lines = [ln for ln in _cycle["lines"] if ln["n"] > since]  # νέος κύκλος = νέο started → η σελίδα καθαρίζει
     phase = _cycle_phase()
-    return {**state, "phase": phase, "on": on, "minutes": minutes, "lines": lines,
+    # Υπογραφή των ρυθμίσεων: αν αλλάξει (επιλογή ή άδειες εταιρείας), η σελίδα ξαναφέρνει τις Ρυθμίσεις.
+    settings_sig = json.dumps([minutes, on] + [[c["id"], c["company_name"], sel.get(c["id"], ""), _cycle_allowed(c)]
+                                               for c in load_companies()], ensure_ascii=False)
+    return {**state, "phase": phase, "on": on, "minutes": minutes, "lines": lines, "notes": notes,
+            "settings_sig": settings_sig,
             "next_run": _cycle_due().isoformat() if on and phase == "idle" else None,
             "now": datetime.now(ATHENS).isoformat()}
 

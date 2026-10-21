@@ -1149,6 +1149,20 @@ def set_rule_post_mode(company_id: int | None, vat: str | None, post_mode: int) 
         )
 
 
+def review_vats(company_id: int | None) -> set[str]:
+    """ΑΦΜ της εταιρείας με «Επιβεβαίωση πριν την αποστολή»: ο αυτόματος κύκλος τα χαρακτηρίζει
+    αλλά δεν τα στέλνει. Ρύθμιση (όχι στήλη του supplier_rules, που ξαναγράφεται με DELETE)."""
+    return set(json.loads(get_setting(f"review_vats_{company_id}") or "[]")) if company_id else set()
+
+
+def set_review_vat(company_id: int | None, vat: str | None, on: bool) -> None:
+    if not company_id or not vat:
+        return
+    vats = review_vats(company_id)
+    vats = vats | {vat} if on else vats - {vat}
+    set_setting(f"review_vats_{company_id}", json.dumps(sorted(vats)))
+
+
 def load_all_rule_patterns(company_id: int | None, vat: str) -> dict:
     """{vat_category: rule} του συναλλασσόμενου, μαζί με τη βασική ('*')."""
     return _load_all_rules(company_id, vat).get(vat, {})
