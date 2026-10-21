@@ -60,7 +60,7 @@
   color-scheme:dark;
 }
 
-/* Παλέτες πάνω στο light/dark: tokyo, nord, neon, art → dark· paper, solar, neonl, artl → light. */
+/* Παλέτες πάνω στο light/dark: tokyo, nord, neon, art, ted → dark· paper, solar, neonl, artl → light. */
 :root[data-palette="tokyo"]{
   --bg:#1a1b26; --surface:#24283b; --surface-2:#1f2335; --surface-3:#292e42;
   --ink:#c0caf5; --ink-2:#a9b1d6; --muted:#737aa2;
@@ -195,6 +195,27 @@
   --shadow:0 0 0 1px rgba(16,16,20,.05);
   --shadow-hi:0 0 0 1px rgba(16,16,20,.08),0 12px 28px -16px rgba(16,16,20,.3);
 }
+/* ted (tedlaz.github.io/weblinks): τερματικό — μαύρο, πράσινο #00dd00, κίτρινο #f1db0a, mono τίτλοι με glow. */
+:root[data-palette="ted"]{
+  --bg:#070604; --surface:#0a0e0a; --surface-2:#060805; --surface-3:#0f180f;
+  --ink:#c8f5c8; --ink-2:#9fb59f; --muted:#6f8a6f;
+  --line:#123a12; --line-soft:#0c240c;
+  --accent:#00dd00; --accent-deep:#5cff5c; --accent-soft:#0b250b; --accent-glow:#00a000;
+  --accent-grad:linear-gradient(135deg,#00dd00 0%,#00a000 100%);
+  --on-accent:#041004;
+  --ok:#00dd00; --ok-soft:#0b250b; --ok-line:#125212;
+  --warn:#f1db0a; --warn-soft:#2a2605; --warn-line:#6b6100;
+  --err:#ff5555; --err-soft:#331010; --err-line:#7a2020;
+  --info:#f1db0a; --info-soft:#2a2605; --info-line:#6b6100;
+  --side:#000000; --side-2:#0b250b; --side-ink:#9fb59f;
+  --hero-mid:#0a140a; --hero-end:#000000; --hero-fade:40%;
+  --hero-glow:#00dd00; --hero-ink:#9fb59f; --hero-ink-2:#c8f5c8;
+  --hero-accent:#f1db0a; --hero-tile:#0f180f;
+  --shadow:0 0 0 1px rgba(0,221,0,.18);
+  --shadow-hi:0 0 0 1px rgba(0,221,0,.45),0 0 18px rgba(0,221,0,.18);
+  scrollbar-color:#00a000 transparent;
+}
+[data-palette="ted"] h1{color:#f1db0a;font-family:var(--font-data);text-shadow:0 0 14px rgba(241,219,10,.35)}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;font-family:var(--font-ui);background:var(--bg);color:var(--ink);
@@ -272,6 +293,7 @@ summary.nav-group:hover{color:var(--side-ink-hi)}
 [data-palette="neonl"] .theme-name::after{content:"Neon Light"}
 [data-palette="art"] .theme-name::after{content:"ArtCraft"}
 [data-palette="artl"] .theme-name::after{content:"ArtCraft Light"}
+[data-palette="ted"] .theme-name::after{content:"ted"}
 .theme-menu{position:fixed;inset:auto auto 64px 12px;margin:0;padding:6px;min-width:200px;display:none;flex-direction:column;gap:2px;
   background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-hi)}
 .theme-menu:popover-open{display:flex}

@@ -10,7 +10,7 @@
 <script>
 // Πριν το πρώτο paint: θέμα + εικονίδιο εναλλαγής, για να μην «αναβοσβήνει».
 (function(){var r=document.documentElement,t;try{t=localStorage.getItem('theme')}catch(e){}
-var b={tokyo:'dark',nord:'dark',neon:'dark',paper:'light',solar:'light',neonl:'light',art:'dark',artl:'light'}[t];if(b){r.dataset.palette=t;t=b}
+var b={tokyo:'dark',nord:'dark',neon:'dark',paper:'light',solar:'light',neonl:'light',art:'dark',artl:'light',ted:'dark'}[t];if(b){r.dataset.palette=t;t=b}
 if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
 try{if(localStorage.getItem('navMini'))r.dataset.navMini=''}catch(e){}})();
 // Ίδια σελίδα (φίλτρο, σελιδοποίηση, καρτέλα του ίδιου βιβλίου π.χ. /invoices ⇄ /invoices/sync):
@@ -119,6 +119,8 @@ addEventListener('pageswap',function(e){var v=e.viewTransition;if(v&&document.qu
     <div class="sidebar-foot">
       <a class="nav-link {{ 'is-active' if ep == 'companies' }}" href="{{ url_for('companies') }}" title="Εταιρείες"
          {% if ep == 'companies' %}aria-current="page"{% endif %}>{{ icon('building') }}Εταιρείες</a>
+      <a class="nav-link {{ 'is-active' if ep == 'auto_cycle' }}" href="{{ url_for('auto_cycle') }}" title="Αυτόματος κύκλος"
+         {% if ep == 'auto_cycle' %}aria-current="page"{% endif %}>{{ icon('sync') }}Αυτόματος κύκλος</a>
       <div id="theme-menu" class="theme-menu" popover>
         {% for key, name, bg, side, ac in [
              ('light', 'Φωτεινό', '#f4f6fb', '#10142a', '#4a55e8'),
@@ -130,7 +132,8 @@ addEventListener('pageswap',function(e){var v=e.viewTransition;if(v&&document.qu
              ('tokyo', 'Tokyo Night', '#1a1b26', '#16161e', '#7aa2f7'),
              ('nord', 'Nord', '#2e3440', '#272c36', '#88c0d0'),
              ('neon', 'Neon', '#07060d', '#050409', '#00f0ff'),
-             ('art', 'ArtCraft', '#121316', '#060607', '#74aaff')] %}
+             ('art', 'ArtCraft', '#121316', '#060607', '#74aaff'),
+             ('ted', 'ted', '#070604', '#000000', '#00dd00')] %}
         <button type="button" data-theme-pick="{{ key }}" aria-pressed="false"
                 style="--sw-bg:{{ bg }};--sw-side:{{ side }};--sw-ac:{{ ac }}"><i class="theme-sw"></i>{{ name }}</button>
         {% endfor %}

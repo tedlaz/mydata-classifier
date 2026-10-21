@@ -17,7 +17,9 @@ import sqlite3
 import threading
 import time
 import tomllib
+import traceback
 import unicodedata
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from urllib.parse import parse_qsl, quote, urlparse
 from zoneinfo import ZoneInfo
@@ -346,7 +348,8 @@ def get_active_index() -> int:
     companies = load_companies()
     if not companies:
         return 0
-    active_id = db.get_active_company_id()
+    # Ο αυτόματος κύκλος δουλεύει σε δική του εταιρεία (g.auto_cid) χωρίς να αλλάζει την ενεργή του χρήστη.
+    active_id = (has_request_context() and g.get("auto_cid")) or db.get_active_company_id()
     for i, c in enumerate(companies):
         if c["id"] == active_id:
             return i
@@ -586,14 +589,28 @@ def enrich_counterpart_names(invoices):
     return enrich_names(invoices, "counterpart_vat", "counterpart_name")
 
 
+def _get_only(request):
+    def guarded(method, url, *args, **kwargs):
+        if str(method).upper() != "GET":
+            raise PermissionError(f"Αυτόματος κύκλος: μπλοκαρίστηκε {method} {urlparse(url).path} — "
+                                  "επιτρέπεται μόνο ανάγνωση από το myDATA.")
+        return request(method, url, *args, **kwargs)
+    return guarded
+
+
 def get_client(send: str = "") -> MyDataClient:
     """Client της ενεργής εταιρείας, ένας ανά request: οι ίδιες κλήσεις (π.χ. RequestTransmittedDocs για
     έσοδα, έξοδα και «Νέα από MARK») γίνονται μία φορά (cache στο MyDataClient._pages). Κάθε απάντηση
     του myDATA γράφεται στο log της τρέχουσας ενέργειας. send=<ενέργεια>: client αποστολής (βλ. _make_client)."""
     key = "mydata_client" + (f"_{send}" if send else "")
+    cycle_ro = has_request_context() and g.get("auto_cid") and g.get("auto_level") != "send"
+    if cycle_ro and send:
+        raise PermissionError(f"Αυτόματος κύκλος: η ενέργεια «{send}» δεν επιτρέπεται σε αυτό το βήμα.")
     if has_request_context() and key in g:
         return g.get(key)
     client = _make_client(send=send) if send else _make_client()
+    if cycle_ro:  # αυτόματος κύκλος εκτός βήματος αποστολής: ο client κάνει μόνο GET (καμία εγγραφή στο myDATA)
+        client.session.request = _get_only(client.session.request)
     via = "κλειδιά λογιστή" if client.entity_vat else "κλειδιά εταιρείας"  # entity_vat μόνο στον client του λογιστή
     client.session.hooks["response"].append(lambda resp, *a, **k: _log_mydata(resp, via=via))
     client.session.hooks["response"].append(_archive_mydata)
@@ -685,13 +702,15 @@ def _write_mydata_log(response):
     return response
 
 
-def mydata_logs(cid) -> list[dict]:
-    """Τα αποθηκευμένα logs της εταιρείας, νεότερο πρώτα: {title, body, failed}."""
-    out, d = [], _log_dir(cid)
+def mydata_logs(cid, d: str | None = None) -> list[dict]:
+    """Τα αποθηκευμένα logs της εταιρείας (ή του φακέλου d), νεότερο πρώτα: {name, title, body, failed}."""
+    out, d = [], d or _log_dir(cid)
     for name in sorted(os.listdir(d), reverse=True) if os.path.isdir(d) else []:
+        if not name.endswith(".log"):  # π.χ. τα .json του αυτόματου κύκλου
+            continue
         with open(os.path.join(d, name), encoding="utf-8") as f:
             title, _, body = f.read().partition("\n")
-        out.append({"title": title, "body": body.strip(), "failed": "✗" in body})
+        out.append({"name": name, "title": title, "body": body.strip(), "failed": "✗" in body})
     return out
 
 
@@ -7211,6 +7230,547 @@ def _check_update():
 
 if getattr(sys, "frozen", False):
     threading.Thread(target=_check_update, daemon=True).start()
+
+
+# ------------------------------------------------------------------ #
+# ΑΥΤΟΜΑΤΟΣ ΚΥΚΛΟΣ: κάθε auto_cycle_minutes, για τις επιλεγμένες εταιρείες μία-μία: «Νέα παραστατικά από MARK»
+# (έξοδα) → χαρακτηρισμός όσων έχουν πρόταση συναλλασσόμενου → αποστολή τους στο myDATA. Όσα δεν έχουν πρόταση
+# δεν αγγίζονται, μόνο καταγράφονται. Καλούνται τα ίδια views με τα κουμπιά (sync_run, bulk_classify, send) σε
+# ψεύτικο request με g.auto_cid: ίδιοι έλεγχοι, και η ενεργή εταιρεία του χρήστη δεν αλλάζει.
+# Τρέχει μόνο με ξεκλείδωτη εφαρμογή (τα κλειδιά myDATA αποκρυπτογραφούνται μόνο μετά το login).
+# Ένα log ανά κύκλο στο <data>/mydata_logs/auto_cycle· η κατάσταση (σελίδα /auto-cycle) ζει στη μνήμη.
+# ponytail: ένα νήμα, ένας κύκλος κάθε φορά· χωρίς lock απέναντι σε ταυτόχρονη χειροκίνητη ενέργεια του
+# χρήστη στην ίδια εταιρεία — lock ανά εταιρεία αν φανεί πρόβλημα.
+# ------------------------------------------------------------------ #
+_CYCLE_DIR = os.path.join(_LOG_DIR, "auto_cycle")
+CYCLE_LOG_KEEP = 200  # προεπιλογή· η ρύθμιση keep_cycle_logs υπερισχύει
+_CYCLE_LIVE = 400  # γραμμές log του τρέχοντος κύκλου στη μνήμη (για τη ζωντανή προβολή)
+_cycle_lock = threading.Lock()
+_cycle_wake, _cycle_stop = threading.Event(), threading.Event()
+_cycle = {"running": False, "trigger": "", "company": "", "step": "", "done": 0, "total": 0,
+          "index": 0, "count": 0, "level": "fetch", "cidx": 0, "companies": [], "started": None, "summary": None, "lines": [], "seq": 0}
+_cycle_buf: list[str] = []  # όλες οι γραμμές του τρέχοντος κύκλου (για το αρχείο .log)
+# Ο ίδιος κύκλος δομημένα (αρχείο .json δίπλα στο .log): κάρτα κύκλου → υποκάρτα ανά εταιρεία με τις γραμμές της.
+_cycle_rec: dict = {"lines": [], "companies": []}
+_COUNT_KEYS = ("new", "classified", "sent", "failed", "no_rule", "skipped")
+
+
+class _CycleStopped(Exception):
+    pass
+
+
+# Τι κάνει ο κύκλος ανά εταιρεία. Προεπιλογή και ό,τι άγνωστο/χαλασμένο = «fetch» (μόνο ανάγνωση).
+_CYCLE_LEVELS = {"fetch": "Μόνο ανάκτηση", "classify": "Ανάκτηση + χαρακτηρισμός (τοπικά)",
+                 "send": "Ανάκτηση + χαρακτηρισμός + αποστολή"}
+_LEVEL_RANK = {"fetch": 0, "classify": 1, "send": 2}
+
+
+def _cycle_allowed(c: dict | None) -> str:
+    """Ανώτατο επίπεδο που επιτρέπουν οι άδειες της εταιρείας (ίδιες σημαίες με τα κουμπιά: _GATED, send)."""
+    if not c or not c.get("allow_classify"):
+        return "fetch"
+    return "send" if c.get("allow_send") else "classify"
+
+
+def _cycle_effective(chosen: str, c: dict | None) -> str:
+    return min(chosen if chosen in _LEVEL_RANK else "fetch", _cycle_allowed(c), key=_LEVEL_RANK.get)
+
+
+def _fresh_company(cid: int) -> dict | None:
+    """Η εταιρεία όπως είναι ΤΩΡΑ στη βάση (οι άδειες μπορεί να άλλαξαν στη μέση του κύκλου)."""
+    return next((c for c in load_companies() if c["id"] == cid), None)
+
+
+def _cycle_settings() -> tuple[bool, int, dict[int, str]]:
+    """(χρονοπρογραμματισμός ενεργός, λεπτά, {id εταιρείας: επίπεδο})."""
+    try:
+        minutes = max(5, int(db.get_setting("auto_cycle_minutes") or 60))
+    except ValueError:
+        minutes = 60
+    try:
+        raw = json.loads(db.get_setting("auto_cycle_companies") or "{}")
+        raw = dict.fromkeys(raw, "fetch") if isinstance(raw, list) else raw
+        sel = {int(k): v if v in _LEVEL_RANK else "fetch" for k, v in raw.items()}
+    except (ValueError, TypeError, AttributeError):
+        sel = {}
+    return db.get_setting("auto_cycle_on") == "1", minutes, sel
+
+
+def _cycle_due() -> datetime:
+    """Πότε τρέχει ο επόμενος προγραμματισμένος κύκλος (μετρά από την έναρξη του προηγούμενου)."""
+    last = db.get_setting("auto_cycle_last")
+    now = datetime.now(ATHENS)
+    return datetime.fromisoformat(last) + timedelta(minutes=_cycle_settings()[1]) if last else now
+
+
+def _cycle_set(**kw) -> None:
+    with _cycle_lock:
+        _cycle.update(kw)
+
+
+def _clog(text: str, kind: str = "msg") -> None:
+    """Γραμμή log του κύκλου (με ώρα) στο αρχείο, στη δομημένη εγγραφή (στην κάρτα της τρέχουσας εταιρείας, ή του
+    κύκλου) και στη ζωντανή προβολή. kind: msg | call | ok | warn | err | head | sep (sep: μόνο στο .log — στις
+    κάρτες τα λέει ήδη η κεφαλίδα)."""
+    for i, part in enumerate(str(text).split("\n")):
+        line = f"{datetime.now(ATHENS):%H:%M:%S}  {part}" if i == 0 else f"          {part}"
+        _cycle_buf.append(line)
+        if kind == "sep":
+            continue
+        cidx = _cycle["cidx"]
+        (_cycle_rec["companies"][cidx - 1]["lines"] if cidx else _cycle_rec["lines"]).append({"t": line, "k": kind})
+        with _cycle_lock:
+            _cycle["seq"] += 1
+            _cycle["lines"].append({"n": _cycle["seq"], "t": line, "k": kind, "c": cidx})
+            del _cycle["lines"][:-_CYCLE_LIVE]
+
+
+def _cycle_check() -> None:
+    if _cycle_stop.is_set():
+        raise _CycleStopped
+
+
+@contextmanager
+def _cycle_ctx(cid: int, data: dict | None = None, level: str = "fetch"):
+    """Ψεύτικο POST request στην εταιρεία cid: ό,τι μίλησε με το myDATA και ό,τι μήνυμα (flash) έβγαλε το view
+    γράφονται στο log του κύκλου· ό,τι ανακτήθηκε πάει και στον κουβά (όπως στο _write_mydata_archive).
+    level: τι επιτρέπεται μέσα στο request — κάτω από «send» ο client του myDATA κάνει ΜΟΝΟ GET (get_client)."""
+    with app.test_request_context(method="POST", data=data or {}):
+        g.auto_cid, g.auto_level = cid, level
+        try:
+            yield
+        finally:
+            for call in g.pop("mydata_log", []):
+                _clog("  ↔ " + call.partition("  ")[2], "err" if " ✗ " in call else "call")  # χωρίς τη 2η ώρα του _log_line
+            _write_mydata_archive(None)
+            for cat, msg in session.pop("_flashes", []):
+                text = msg.striptags() if isinstance(msg, Markup) else str(msg)
+                _clog(("  ✗ " if cat == "error" else "  • ") + text, "err" if cat == "error" else "msg")
+
+
+def _keep_errors() -> None:
+    session["_flashes"] = [f for f in session.get("_flashes", []) if f[0] == "error"]
+
+
+def _cls_text(entries: list[dict]) -> str:
+    """Σύνοψη τοπικού χαρακτηρισμού: «category2_1/E3_102_001 100.00 · VAT_361 100.00»."""
+    return " · ".join(
+        f"{e['classification_category'] + '/' if e['classification_category'] else ''}{e['classification_type']} "
+        f"{e['amount'] or 0:.2f}" for e in entries)
+
+
+def _doc_text(inv) -> str:
+    return (f"{inv.mark} · {(inv.issue_date or '—')[:10]} · {' '.join(filter(None, (inv.issuer_vat or '—', inv.issuer_name)))} · "
+            f"{inv.invoice_type or '—'} · {inv.total_gross or 0:.2f} €")
+
+
+def _cycle_level(cid: int, chosen: str, need: str) -> str | None:
+    """Επίπεδο για το επόμενο βήμα, με τις άδειες της εταιρείας όπως είναι ΤΩΡΑ· None αν δεν φτάνει για το need."""
+    level = _cycle_effective(chosen, _fresh_company(cid))
+    return level if _LEVEL_RANK[level] >= _LEVEL_RANK[need] else None
+
+
+def _cycle_company(c: dict, chosen: str, tot: dict) -> None:
+    """Ένας γύρος για μία εταιρεία. Σφάλμα ανάκτησης → η εταιρεία σταματά εδώ (τίποτα δεν χαρακτηρίζεται).
+    Κάνει μόνο ό,τι επιτρέπουν ΚΑΙ η επιλογή του κύκλου (chosen) ΚΑΙ οι άδειες της εταιρείας, που ξαναδιαβάζονται
+    πριν από κάθε βήμα. Επιπλέον, ο client του myDATA μπλοκάρει κάθε μη-GET κλήση εκτός από το βήμα αποστολής."""
+    cid = c["id"]
+    today = datetime.now(ATHENS).date().isoformat()
+    eff = _cycle_effective(chosen, c)
+    _cycle_set(level=eff)
+    _cycle_rec["companies"][-1]["level"] = eff
+    _clog(f"  Ενέργειες: {_CYCLE_LEVELS[eff]}" + (
+        f" — επιλέχθηκε «{_CYCLE_LEVELS.get(chosen, chosen)}» αλλά οι άδειες της εταιρείας δεν το επιτρέπουν"
+        if eff != chosen else ""), "warn" if eff != chosen else "msg")
+    if not _mark_ready(cid, "expense"):
+        _clog("⏭ Παράλειψη: δεν έχει γίνει η αρχική ανάκτηση «Νέα παραστατικά από MARK» των εξόδων "
+              "(γίνεται μία φορά χειροκίνητα από την Ανάκτηση).", "warn")
+        tot["skipped"] += 1
+        return
+
+    # 1) Ανάκτηση
+    _cycle_set(step="Ανάκτηση από myDATA", done=0, total=0)
+    _clog("① Ανάκτηση: Νέα παραστατικά εξόδων από MARK", "head")
+    before = {r["mark"] for r in db.get_documents(cid, "expense")}
+    with _cycle_ctx(cid, {"scope": "expense", "action": "new", "date_from": today, "date_to": today}):
+        sync_run()
+        failed = any(cat == "error" for cat, _ in session.get("_flashes", []))
+    if failed:
+        _clog("✗ Η ανάκτηση απέτυχε — η εταιρεία παραλείπεται σε αυτόν τον κύκλο.", "err")
+        tot["failed"] += 1
+        return
+    new = [r["mark"] for r in db.get_documents(cid, "expense") if r["mark"] not in before]
+    tot["new"] += len(new)
+    _clog(f"  Νέα παραστατικά εξόδων: {len(new)}" + (f" ({', '.join(new)})" if new else ""))
+    _cycle_check()
+
+    # 2) Χαρακτηρισμός όσων έχουν πρόταση (ένα-ένα: πρόοδος και διακοπή ανά παραστατικό)
+    with _cycle_ctx(cid):
+        cands = _auto_classify_candidates(cid)
+        names = db.load_names()
+        no_rule = [_row_to_invoice(r, names) for r in db.get_documents(cid, "expense", ["unclassified"])
+                   if r["mark"] not in {i.mark for i in cands}]
+    classified = []
+    if not _cycle_level(cid, chosen, "classify"):
+        _clog(f"⏭ Χαρακτηρισμός: εκτός ενεργειών της εταιρείας — {len(cands)} αχαρακτήριστα με πρόταση "
+              "περιμένουν χειροκίνητο χαρακτηρισμό.", "warn")
+    else:
+        _clog(f"② Χαρακτηρισμός με πρόταση συναλλασσόμενου: {len(cands)} αχαρακτήριστα με πρόταση", "head")
+        for k, inv in enumerate(cands, 1):
+            _cycle_check()
+            _cycle_set(step="Χαρακτηρισμός", done=k - 1, total=len(cands))
+            if not (level := _cycle_level(cid, chosen, "classify")):
+                raise PermissionError("οι άδειες χαρακτηρισμού της εταιρείας άλλαξαν στη μέση του κύκλου")
+            with _cycle_ctx(cid, {"marks": [inv.mark], "action": "rules"}, level):
+                bulk_classify()
+                _keep_errors()  # το «Χαρακτηρίστηκαν τοπικά… Στείλ' τα…» δεν ισχύει εδώ· μένουν μόνο οι αιτίες αποτυχίας
+                row = db.get_document(cid, inv.mark)
+            if row and row["status"] == "classified":
+                classified.append(inv.mark)
+                _clog(f"  ✓ {_doc_text(inv)} → {_cls_text(db.get_local_classification(row['id']))}", "ok")
+            else:
+                tot["failed"] += 1
+                _clog(f"  ✗ {_doc_text(inv)} → δεν χαρακτηρίστηκε (βλ. αιτία παραπάνω)", "err")
+        tot["classified"] += len(classified)
+        _cycle_set(done=len(cands))
+
+    # 3) Αποστολή μόνο όσων χαρακτηρίστηκαν τώρα (όχι όσα άφησε ο χρήστης χαρακτηρισμένα)
+    if classified and not _cycle_level(cid, chosen, "send"):
+        _clog(f"⏭ Αποστολή: εκτός ενεργειών της εταιρείας — {len(classified)} έμειναν στα «Χαρακτηρισμένα».", "warn")
+    elif classified:
+        _clog(f"③ Αποστολή στο myDATA: {len(classified)} παραστατικά", "head")
+        for k, mark in enumerate(classified, 1):
+            _cycle_check()
+            _cycle_set(step="Αποστολή στο myDATA", done=k - 1, total=len(classified))
+            if not _cycle_level(cid, chosen, "send"):
+                raise PermissionError("οι άδειες αποστολής της εταιρείας άλλαξαν στη μέση του κύκλου")
+            with _cycle_ctx(cid, {"marks": [mark]}, "send"):
+                send()
+                _keep_errors()  # το γενικό «Στάλθηκαν…» αντικαθίσταται από τη γραμμή ✓
+            row = db.get_document(cid, mark)
+            if row and row["status"] == "sent":
+                tot["sent"] += 1
+                _clog(f"  ✓ {mark} στάλθηκε · MARK χαρακτηρισμού {row.get('classification_mark') or '—'}", "ok")
+            else:
+                tot["failed"] += 1
+                _clog(f"  ✗ {mark} δεν στάλθηκε — παραμένει στα «Χαρακτηρισμένα»", "err")
+        _cycle_set(done=len(classified))
+
+    # 4) Χωρίς πρόταση: δεν αγγίζονται, μόνο αναφέρονται.
+    tot["no_rule"] += len(no_rule)
+    if no_rule:
+        _clog(f"⚠ Χωρίς πρόταση — δεν χαρακτηρίστηκαν ({len(no_rule)}):", "warn")
+        for inv in sorted(no_rule, key=lambda i: i.issue_date or ""):
+            _clog(f"    {_doc_text(inv)}" + (" · τύπος 1.5: μόνο χειροκίνητα" if inv.invoice_type == "1.5" else ""), "warn")
+
+
+def _cycle_write(started: datetime, title: str) -> None:
+    """Γράφει (ξανά) τα αρχεία του κύκλου: .log (κείμενο, για λήψη) και .json (κάρτες της σελίδας)· καλείται μετά
+    από κάθε εταιρεία, ώστε να μη χαθεί τίποτα σε crash."""
+    try:
+        os.makedirs(_CYCLE_DIR, exist_ok=True)
+        base = os.path.join(_CYCLE_DIR, f"{started:%Y%m%d-%H%M%S-%f}")
+        with open(base + ".log", "w", encoding="utf-8") as f:
+            f.write(title + "\n" + "\n".join(_cycle_buf) + "\n")
+        with open(base + ".json", "w", encoding="utf-8") as f:
+            json.dump(_cycle_rec, f, ensure_ascii=False)
+        try:
+            keep = max(1, int(db.get_setting("keep_cycle_logs") or CYCLE_LOG_KEEP))
+        except ValueError:
+            keep = CYCLE_LOG_KEEP
+        for old in sorted(n for n in os.listdir(_CYCLE_DIR) if n.endswith(".log"))[:-keep]:
+            for ext in (".log", ".json"):
+                if os.path.exists(path := os.path.join(_CYCLE_DIR, old[:-4] + ext)):
+                    os.remove(path)
+    except OSError:
+        app.logger.exception("auto cycle log")  # το log δεν σταματά ποτέ τον κύκλο
+
+
+def _cycle_history(limit: int = 30) -> list[dict]:
+    """Οι τελευταίοι κύκλοι για τη σελίδα, νεότερος πρώτα: η δομημένη εγγραφή (.json) + name για τη λήψη του .log.
+    Κύκλοι χωρίς .json (παλαιότερη έκδοση) ανασυνθέτονται από το κείμενο του .log (_cycle_from_log)."""
+    out = []
+    for lg in mydata_logs(None, _CYCLE_DIR)[:limit]:
+        try:
+            with open(os.path.join(_CYCLE_DIR, lg["name"][:-4] + ".json"), encoding="utf-8") as f:
+                out.append(dict(json.load(f), name=lg["name"]))
+        except (OSError, ValueError):
+            out.append(dict(_cycle_from_log(lg), name=lg["name"]))
+    return out
+
+
+_LOG_CO = re.compile(r"^\d\d:\d\d:\d\d  ━━ \d+/\d+ · (.+?) · ΑΦΜ (\S+) · (prod|dev)")
+_LOG_TOTALS = {"νέα": "new", "χαρακτηρίστηκαν": "classified", "στάλθηκαν": "sent", "αποτυχίες": "failed",
+               "χωρίς πρόταση": "no_rule", "παραλείφθηκαν": "skipped"}
+
+
+def _log_kind(t: str) -> str:
+    """Το είδος μιας γραμμής .log (για τα χρώματα), όπως θα το είχε δώσει το _clog."""
+    if "↔" in t:
+        return "err" if " ✗ " in t else "call"
+    body = t[10:].lstrip()
+    if body.startswith("✗"):
+        return "err"
+    if body.startswith("✓"):
+        return "ok"
+    if body[:1] in ("⚠", "⏭", "⏹") or body[:1].isdigit() and "€" in body:  # «χωρίς πρόταση» παραστατικά
+        return "warn"
+    return "head" if body[:1] in ("①", "②", "③") else "msg"
+
+
+def _cycle_from_log(lg: dict) -> dict:
+    """Κύκλος από .log χωρίς .json (πριν από τις κάρτες): ίδια δομή με το _cycle_rec, ώστε να φαίνεται με
+    κάρτα ανά εταιρεία. Τα σύνολα του κύκλου από τον τίτλο· της εταιρείας μετρημένα από τις γραμμές της.
+    ponytail: στηρίζεται στη μορφή των γραμμών του _clog· άγνωστες γραμμές απλώς μένουν «msg»."""
+    title, name = lg["title"], lg["name"]
+    totals = {key: int(m.group(1)) for label, key in _LOG_TOTALS.items()
+              if (m := re.search(rf"{label} (\d+)", title))}
+    rec = {"started": f"{name[:4]}-{name[4:6]}-{name[6:8]}T{name[9:11]}:{name[11:13]}:{name[13:15]}",
+           "trigger": (m.group(1) if (m := re.search(r"\((.*?)\)", title)) else ""), "lines": [], "companies": [],
+           "stopped": "διακόπηκε" in title, "ended": "σε εξέλιξη" not in title, "totals": totals,
+           "secs": int(m.group(1)) if (m := re.search(r"Τέλος.*? κύκλου σε (\d+)s", lg["body"])) else 0}
+    co = None
+    for t in lg["body"].split("\n"):
+        if m := _LOG_CO.match(t):
+            co = {"name": m.group(1), "vat": "" if m.group(2) == "—" else m.group(2), "env": m.group(3),
+                  "level": "", "secs": 0, "lines": [], "counts": dict.fromkeys(_COUNT_KEYS, 0)}
+            rec["companies"].append(co)
+            continue
+        if (m := re.match(r"^\d\d:\d\d:\d\d    \((\d+(?:\.\d+)?)s\)$", t)) and co:
+            co["secs"] = float(m.group(1))
+            continue
+        if "▶ Έναρξη κύκλου" in t or "■ Τέλος" in t or "⏹ Τέλος" in t or not t.strip():
+            continue
+        line = {"t": t, "k": _log_kind(t)}
+        if not co:
+            rec["lines"].append(line)
+            continue
+        co["lines"].append(line)
+        n = co["counts"]
+        if m := re.search(r"Ενέργειες: (.+?)(?: —|$)", t):
+            # startswith: και τα παλιά logs με «… αποστολή στο myDATA»
+            co["level"] = next((k for k, v in _CYCLE_LEVELS.items() if m.group(1).startswith(v)), "")
+        elif m := re.search(r"Νέα παραστατικά εξόδων: (\d+)", t):
+            n["new"] += int(m.group(1))
+        elif m := re.search(r"Χωρίς πρόταση — δεν χαρακτηρίστηκαν \((\d+)\)", t):
+            n["no_rule"] += int(m.group(1))
+        elif "⏭ Παράλειψη" in t:
+            n["skipped"] += 1
+        elif line["k"] == "ok":
+            n["sent" if "στάλθηκε" in t else "classified"] += 1
+        elif line["k"] == "err" and "↔" not in t and not t.startswith("          "):
+            n["failed"] += 1
+    for co in rec["companies"]:
+        text = "\n".join(ln["t"] for ln in co["lines"])
+        co["status"] = ("stopped" if "⏹ Διακόπηκε" in text else "error" if co["counts"]["failed"]
+                        else "skipped" if co["counts"]["skipped"] else "ok")
+    return rec
+
+
+def _cycle_summary(tot: dict) -> str:
+    return (f"νέα {tot['new']} · χαρακτηρίστηκαν {tot['classified']} · στάλθηκαν {tot['sent']} · "
+            f"αποτυχίες {tot['failed']} · χωρίς πρόταση {tot['no_rule']} · παραλείφθηκαν {tot['skipped']}")
+
+
+def _cycle_cards() -> list[dict]:
+    """Οι υποκάρτες εταιρειών του τρέχοντος κύκλου χωρίς τις γραμμές (για τη ζωντανή προβολή)."""
+    return [{k: v for k, v in co.items() if k != "lines"} for co in _cycle_rec["companies"]]
+
+
+def _run_cycle(trigger: str) -> dict:
+    """Ένας πλήρης κύκλος σε όλες τις επιλεγμένες εταιρείες. Επιστρέφει τα σύνολα."""
+    _, minutes, sel = _cycle_settings()
+    ids = list(sel)
+    started = datetime.now(ATHENS)
+    db.set_setting("auto_cycle_last", started.isoformat())
+    _cycle_stop.clear()
+    _cycle_buf.clear()
+    _cycle_rec.clear()
+    _cycle_rec.update(started=started.isoformat(), trigger=trigger, minutes=minutes, lines=[], companies=[],
+                      ended=None, secs=0, stopped=False, totals={})
+    _cycle_set(running=True, trigger=trigger, company="", step="Έναρξη", done=0, total=0,
+               started=started.isoformat(), lines=[], cidx=0, companies=[])
+    tot = dict.fromkeys(_COUNT_KEYS, 0)
+    by_id = {c["id"]: c for c in load_companies()}
+    comps = [by_id[i] for i in ids if i in by_id]
+    title = lambda end="": (f"{started:%d/%m/%Y %H:%M:%S} · Αυτόματος κύκλος ({trigger}) · {len(comps)} εταιρείες"  # noqa: E731
+                            + (f" · {end}" if end else " · σε εξέλιξη"))
+    _clog(f"▶ Έναρξη κύκλου ({trigger}) · διάστημα {minutes}′ · εταιρείες: "
+          + (", ".join(c["company_name"] for c in comps) or "καμία"), "sep")
+    if not comps:
+        _clog("⚠ Καμία εταιρεία στον κύκλο — επίλεξε εταιρείες στις Ρυθμίσεις.", "warn")
+    for i in ids:
+        if i not in by_id:
+            _clog(f"⏭ Η εταιρεία με id {i} δεν υπάρχει πια — παραλείπεται.", "warn")
+    stopped = False
+    for n, c in enumerate(comps, 1):
+        if _cycle_stop.is_set():
+            stopped = True
+            _clog("⏹ Διακόπηκε από τον χρήστη. Δεν εκτελέστηκαν: "
+                  + ", ".join(x["company_name"] for x in comps[n - 1:]), "warn")
+            break
+        rec = {"name": c["company_name"], "vat": c.get("AADE_VAT_NUMBER") or "",
+               "env": "dev" if c.get("MYDATA_ENV") == "dev" else "prod", "chosen": sel[c["id"]],
+               "level": _cycle_effective(sel[c["id"]], c), "status": "running", "secs": 0,
+               "counts": dict.fromkeys(_COUNT_KEYS, 0), "lines": []}
+        _cycle_rec["companies"].append(rec)
+        _clog(f"━━ {n}/{len(comps)} · {c['company_name']} · ΑΦΜ {rec['vat'] or '—'} · {rec['env']}", "sep")
+        _cycle_set(company=c["company_name"], step="", done=0, total=0, index=n, count=len(comps), cidx=n,
+                   companies=_cycle_cards())
+        t0, before, error = time.monotonic(), dict(tot), False
+        try:
+            _cycle_company(c, sel[c["id"]], tot)
+        except _CycleStopped:
+            stopped = True
+            rest = ", ".join(x["company_name"] for x in comps[n:])
+            _clog("⏹ Διακόπηκε από τον χρήστη στη μέση της εταιρείας (μετά την τρέχουσα κλήση). Ό,τι έγινε ως εδώ "
+                  "ισχύει· τα υπόλοιπα γίνονται στον επόμενο κύκλο." + (f" Δεν εκτελέστηκαν: {rest}" if rest else ""),
+                  "warn")
+        except Exception:  # noqa: BLE001 — μία εταιρεία δεν σταματά τον κύκλο
+            tot["failed"] += 1
+            error = True
+            _clog("✗ Απρόσμενο σφάλμα — συνέχεια στην επόμενη εταιρεία:\n" + traceback.format_exc().rstrip(), "err")
+        rec["secs"] = round(time.monotonic() - t0, 1)
+        rec["counts"] = {k: tot[k] - before[k] for k in _COUNT_KEYS}
+        rec["status"] = ("stopped" if stopped else "error" if error or rec["counts"]["failed"]
+                         else "skipped" if rec["counts"]["skipped"] else "ok")
+        _clog(f"  ({rec['secs']:.1f}s)", "sep")
+        _cycle_set(cidx=0, companies=_cycle_cards())
+        _cycle_write(started, title())
+        if stopped:
+            break
+    secs = (datetime.now(ATHENS) - started).total_seconds()
+    summary = _cycle_summary(tot)
+    _clog(f"{'⏹ Τέλος (διακόπηκε)' if stopped else '■ Τέλος'} κύκλου σε {secs:.0f}s · {summary}", "sep")
+    _cycle_rec.update(ended=datetime.now(ATHENS).isoformat(), secs=round(secs), stopped=stopped, totals=dict(tot))
+    _cycle_write(started, title(("διακόπηκε · " if stopped else "") + summary))
+    app.logger.info("auto cycle (%s): %s", trigger, summary)
+    _cycle_stop.clear()
+    _cycle_set(running=False, company="", step="", done=0, total=0,
+               summary={"at": f"{started:%d/%m/%Y %H:%M}", "text": summary, "stopped": stopped, **tot})
+    return tot
+
+
+def _auto_cycle_loop() -> None:
+    while True:
+        try:  # ξύπνημα ακριβώς στη λήξη της αντίστροφης μέτρησης (αλλιώς κάθε 30″ για αλλαγές ρυθμίσεων)
+            wait = min(30.0, max(0.5, (_cycle_due() - datetime.now(ATHENS)).total_seconds()))
+        except Exception:  # noqa: BLE001 — π.χ. βάση που δεν έχει αρχικοποιηθεί ακόμα
+            wait = 30.0
+        manual = _cycle_wake.wait(timeout=wait)
+        _cycle_wake.clear()
+        try:
+            on = _cycle_settings()[0]
+            if (manual or (on and datetime.now(ATHENS) >= _cycle_due())) and auth.unlocked():
+                _run_cycle("χειροκίνητα" if manual else "προγραμματισμένα")
+        except Exception:  # noqa: BLE001 — το νήμα δεν πεθαίνει ποτέ
+            app.logger.exception("auto cycle")
+            _cycle_set(running=False)
+
+
+_cycle_thread: threading.Thread | None = None
+
+
+@app.before_request
+def _start_auto_cycle():
+    """Το νήμα ξεκινά στο πρώτο request (όχι στο import: εκεί θα έτρεχε παράλληλα με imports άλλων modules)."""
+    global _cycle_thread
+    if _cycle_thread is None and not app.testing and not os.getenv("MYDATA_NO_AUTO_CYCLE"):
+        with _cycle_lock:
+            if _cycle_thread is None:
+                _cycle_thread = threading.Thread(target=_auto_cycle_loop, daemon=True, name="auto-cycle")
+                _cycle_thread.start()
+
+
+def _cycle_phase() -> str:
+    on = _cycle_settings()[0]
+    if _cycle["running"]:
+        return "stopping" if _cycle_stop.is_set() else "running"
+    return "locked" if not auth.unlocked() else "idle" if on else "disabled"
+
+
+@app.route("/auto-cycle")
+def auto_cycle():
+    on, minutes, sel = _cycle_settings()
+    companies = [dict(c, ready=_mark_ready(c["id"], "expense"), max_level=_cycle_allowed(c),
+                      level=sel.get(c["id"], "")) for c in load_companies()]
+    return render_template("auto_cycle.html", on=on, minutes=minutes, ids=sel, companies=companies,
+                           levels=_CYCLE_LEVELS, rank=_LEVEL_RANK,
+                           history=_cycle_history(), running_started=_cycle["started"] if _cycle["running"] else None)
+
+
+@app.route("/auto-cycle/status")
+def auto_cycle_status():
+    """Ζωντανή κατάσταση για τη σελίδα· since = τελευταίος αριθμός γραμμής που έχει ήδη η σελίδα."""
+    try:
+        since = int(request.args.get("since") or 0)
+    except ValueError:
+        since = 0
+    on, minutes, _ = _cycle_settings()
+    with _cycle_lock:
+        state = {k: v for k, v in _cycle.items() if k != "lines"}
+        lines = [ln for ln in _cycle["lines"] if ln["n"] > since]  # νέος κύκλος = νέο started → η σελίδα καθαρίζει
+    phase = _cycle_phase()
+    return {**state, "phase": phase, "on": on, "minutes": minutes, "lines": lines,
+            "next_run": _cycle_due().isoformat() if on and phase == "idle" else None,
+            "now": datetime.now(ATHENS).isoformat()}
+
+
+@app.route("/auto-cycle/start", methods=["POST"])
+def auto_cycle_start():
+    if not _cycle["running"]:
+        _cycle_wake.set()
+    return {"ok": True}
+
+
+@app.route("/auto-cycle/stop", methods=["POST"])
+def auto_cycle_stop():
+    if _cycle["running"]:
+        _cycle_stop.set()
+    return {"ok": True}
+
+
+@app.route("/auto-cycle/toggle", methods=["POST"])
+def auto_cycle_toggle():
+    """Παύση / συνέχιση του χρονοπρογραμματισμού. Η παύση διακόπτει και τον κύκλο που τρέχει.
+    Η συνέχιση μετρά το διάστημα από τώρα (όχι κύκλος αμέσως επειδή «χρωστάει» από την παύση)."""
+    on = not _cycle_settings()[0]
+    db.set_setting("auto_cycle_on", "1" if on else "0")
+    if on:
+        db.set_setting("auto_cycle_last", datetime.now(ATHENS).isoformat())
+    elif _cycle["running"]:
+        _cycle_stop.set()
+    _cycle_wake.clear()
+    return {"ok": True, "on": on}
+
+
+@app.route("/auto-cycle/settings", methods=["POST"])
+def auto_cycle_settings():
+    minutes = request.form.get("minutes", "").strip()
+    if not (minutes.isdigit() and 5 <= int(minutes) <= 1440):
+        flash("Το διάστημα του κύκλου πρέπει να είναι από 5 έως 1440 λεπτά.", "error")
+        return redirect(url_for("auto_cycle"))
+    sel = {}
+    for c in load_companies():  # level_<id>: "" = εκτός κύκλου· ποτέ πάνω από ό,τι επιτρέπουν οι άδειές της
+        chosen = request.form.get(f"level_{c['id']}", "")
+        if chosen not in _LEVEL_RANK:
+            continue
+        sel[c["id"]] = _cycle_effective(chosen, c)
+        if sel[c["id"]] != chosen:
+            flash(f"{c['company_name']}: οι άδειες της εταιρείας επιτρέπουν μόνο «{_CYCLE_LEVELS[sel[c['id']]]}».", "error")
+    db.set_setting("auto_cycle_minutes", minutes)
+    db.set_setting("auto_cycle_on", "1" if request.form.get("on") else "0")
+    db.set_setting("auto_cycle_companies", json.dumps(sel))
+    flash("✔ Αποθηκεύτηκαν οι ρυθμίσεις του αυτόματου κύκλου" + (" (ισχύουν από τον επόμενο κύκλο)."
+                                                               if _cycle["running"] else "."), "ok")
+    return redirect(url_for("auto_cycle"))
+
+
+@app.route("/auto-cycle/log/<name>")
+def auto_cycle_log(name):
+    if not re.fullmatch(r"\d{8}-\d{6}-\d{6}\.log", name) or not os.path.isfile(os.path.join(_CYCLE_DIR, name)):
+        abort(404)
+    return send_file(os.path.join(_CYCLE_DIR, name), as_attachment=True, download_name=f"auto-cycle-{name}")
 
 
 @app.context_processor

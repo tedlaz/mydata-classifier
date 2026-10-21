@@ -1,0 +1,561 @@
+{% extends "base.html" %}
+{% block title %}Αυτόματος κύκλος{% endblock %}
+{% block content %}
+{# Ιστορικό: κάρτα ανά κύκλο → υποκάρτα ανά εταιρεία. data-k: κλειδί για να μένουν ανοιχτές μετά την ανανέωση. #}
+{% set st_icons = {'ok': '✓', 'error': '✗', 'stopped': '⏹', 'skipped': '⏭', 'running': '●'} %}
+{% set lvl_names = {'fetch': 'Μόνο ανάκτηση', 'classify': '+ Χαρακτηρισμός', 'send': '+ Αποστολή'} %}
+{% set chip_defs = [('new', 'νέα', '#06b6d4'), ('classified', 'χαρακτηρίστηκαν', '#8b5cf6'), ('sent', 'στάλθηκαν', '#10b981'),
+                    ('failed', 'αποτυχίες', '#ef4444'), ('no_rule', 'χωρίς πρόταση', '#f59e0b'), ('skipped', 'παραλείφθηκαν', '#94a3b8')] %}
+{% macro chips(counts) -%}
+<span class="chips">
+  {%- for k, label, color in chip_defs if (counts or {}).get(k) %}<span class="chip" style="--k:{{ color }}"><b>{{ counts[k] }}</b> {{ label }}</span>{% else %}<span class="chip chip--none">καμία αλλαγή</span>{% endfor -%}
+</span>
+{%- endmacro %}
+{% macro company_card(co, key) -%}
+<details class="co" data-k="{{ key }}" data-st="{{ co.status }}" {{ 'open' if co.status in ('error', 'running') }}>
+  <summary>
+    <span class="st-ic">{{ st_icons.get(co.status, '?') }}</span>
+    <span class="co-nm"><b>{{ co.name }}</b>
+      <small>ΑΦΜ {{ co.vat or '—' }} · {{ co.env }}{% if co.level %} <span class="lvl" data-l="{{ co.level }}">{{ lvl_names.get(co.level, co.level) }}</span>{% endif %}</small></span>
+    {{ chips(co.counts) }}
+    <span class="co-dur">{{ co.secs }}″</span>
+  </summary>
+  <pre class="lines">{% for ln in co.lines %}<span class="k-{{ ln.k }}">{{ ln.t }}</span>{% endfor %}</pre>
+</details>
+{%- endmacro %}
+<style>
+/* ── Αυτόματος κύκλος: σκούρο «hero» (όπως .sy-hero) σε όλα τα θέματα, έντονα χρώματα, κινούμενο ρολόι. ── */
+.acx{--c1:#22d3ee;--c2:#818cf8;--c3:#c084fc;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--dim:#64748b;
+  --ring:var(--c1);--ring2:var(--c2);--glow:rgba(34,211,238,.45)}
+.acx[data-p="running"]{--ring:#34d399;--ring2:#22d3ee;--glow:rgba(52,211,153,.5)}
+.acx[data-p="stopping"]{--ring:#f87171;--ring2:#fb923c;--glow:rgba(248,113,113,.5)}
+.acx[data-p="locked"],.acx[data-p="disabled"]{--ring:#64748b;--ring2:#94a3b8;--glow:rgba(100,116,139,.25)}
+.acx.is-hot{--ring:#fbbf24;--ring2:#f87171;--glow:rgba(251,191,36,.6)}
+
+.acx-hero{position:relative;overflow:hidden;isolation:isolate;border-radius:24px;color:#fff;margin-bottom:14px;
+  padding:clamp(16px,3vw,28px);box-shadow:var(--shadow-hi);
+  background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,#1e1b4b,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%)}
+.acx-hero::before{content:"";position:absolute;inset:-40%;z-index:-1;opacity:.5;
+  background:conic-gradient(from 0deg,transparent 0 70%,var(--glow) 80%,transparent 90%);animation:acx-sweep 9s linear infinite}
+.acx[data-p="running"] .acx-hero::before{animation-duration:3s;opacity:.7}
+.acx-blob{position:absolute;z-index:-1;border-radius:50%;filter:blur(60px);opacity:.45;pointer-events:none;animation:acx-float 14s ease-in-out infinite}
+.acx-blob.b1{width:340px;height:340px;background:var(--ring);top:-160px;right:-80px;transition:background 1s}
+.acx-blob.b2{width:260px;height:260px;background:var(--c3);bottom:-150px;left:20%;opacity:.3;animation-delay:-7s}
+@keyframes acx-sweep{to{transform:rotate(1turn)}}
+@keyframes acx-float{50%{transform:translate(30px,-20px) scale(1.12)}}
+
+.acx-top{display:grid;gap:clamp(16px,3vw,32px);grid-template-columns:minmax(0,1fr);align-items:center;justify-items:center}
+@media (min-width:861px){.acx-top{grid-template-columns:auto minmax(0,1fr);justify-items:stretch}}
+
+/* Ρολόι */
+.acx-clock{position:relative;width:clamp(230px,72vw,320px);aspect-ratio:1;display:grid;place-items:center}
+.acx-clock svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.acx-track{fill:none;stroke:rgba(255,255,255,.08);stroke-width:12}
+.acx-arc{fill:none;stroke:url(#acx-grad);stroke-width:12;stroke-linecap:round;transform:rotate(-90deg);transform-origin:50% 50%;
+  transition:stroke-dashoffset 1s linear;filter:drop-shadow(0 0 10px var(--glow))}
+.acx-orbit{fill:none;stroke:var(--ring2);stroke-width:2;stroke-dasharray:2 10;opacity:.55;transform-origin:50% 50%;animation:acx-sweep 40s linear infinite}
+.acx[data-p="running"] .acx-orbit{animation-duration:4s;opacity:.9}
+.acx-tick{stroke:rgba(255,255,255,.14);stroke-width:2;stroke-linecap:round;transition:stroke .3s}
+.acx-tick.on{stroke:var(--ring);filter:drop-shadow(0 0 3px var(--glow))}
+.acx-tick.big{stroke-width:3}
+.acx-face{position:relative;text-align:center;display:grid;gap:4px;justify-items:center}
+.acx-label{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--hero-ink);font-weight:700}
+.acx-digits{display:flex;font-family:var(--font-data);font-weight:700;font-size:clamp(2.6rem,12vw,3.9rem);line-height:1;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em;text-shadow:0 0 24px var(--glow);transition:color .4s}
+.acx-digits span{display:inline-block;min-width:.6em;text-align:center}
+.acx-digits span.sep{min-width:.35em;opacity:.6;animation:acx-blink 1s steps(1) infinite}
+.acx-digits span.flip{animation:acx-flip .45s cubic-bezier(.2,.9,.3,1.3)}
+@keyframes acx-flip{from{transform:translateY(-45%) scale(.8);opacity:0;filter:blur(3px)}}
+@keyframes acx-blink{50%{opacity:.15}}
+.acx-sub{font-size:.8rem;color:var(--hero-ink-2);min-height:1.2em}
+.acx.is-hot .acx-digits{color:#fde68a;animation:acx-pulse 1s ease-in-out infinite}
+.acx.is-hot .acx-clock{animation:acx-shake 1s ease-in-out infinite}
+@keyframes acx-pulse{50%{transform:scale(1.08);text-shadow:0 0 40px var(--glow)}}
+@keyframes acx-shake{25%{transform:rotate(-1deg)}75%{transform:rotate(1deg)}}
+.acx-clock.boom::after{content:"";position:absolute;inset:8%;border-radius:50%;border:3px solid var(--ring);animation:acx-boom 1.1s ease-out forwards}
+@keyframes acx-boom{from{transform:scale(.9);opacity:1}to{transform:scale(1.6);opacity:0}}
+
+/* Δεξιά πλευρά */
+.acx-side{display:grid;gap:14px;width:100%;min-width:0}
+.acx-phase{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.acx-pill{display:inline-flex;align-items:center;gap:8px;padding:7px 16px;border-radius:999px;font-weight:800;font-size:.95rem;
+  color:#0b1020;background:linear-gradient(135deg,var(--ring),var(--ring2));box-shadow:0 0 22px -4px var(--glow);transition:background 1s}
+.acx-pill i{width:9px;height:9px;border-radius:50%;background:#0b1020}
+.acx[data-p="running"] .acx-pill i,.acx[data-p="stopping"] .acx-pill i{animation:acx-blink .8s infinite}
+.acx-net{font-size:.75rem;color:var(--hero-ink)} .acx-net.is-off{color:#fca5a5;font-weight:700}
+.acx-where{font-size:clamp(1.2rem,3.5vw,1.6rem);font-weight:800;letter-spacing:-.01em;overflow-wrap:anywhere;min-height:1.3em}
+.acx-where small{display:block;font-size:.8rem;font-weight:600;color:var(--hero-ink)}
+
+.acx-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;counter-reset:s;margin:0;padding:0}
+.acx-steps li{list-style:none;position:relative;padding:10px 10px 10px 40px;border-radius:12px;font-size:.82rem;font-weight:700;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:var(--hero-ink);transition:all .4s;overflow-wrap:anywhere}
+.acx-steps li::before{counter-increment:s;content:counter(s);position:absolute;left:10px;top:50%;translate:0 -50%;width:22px;height:22px;
+  border-radius:50%;display:grid;place-items:center;font-size:.75rem;background:rgba(255,255,255,.1)}
+.acx-steps li.done{color:#d1fae5;border-color:rgba(52,211,153,.4)}
+.acx-steps li.done::before{content:"✓";background:#34d399;color:#05261a}
+.acx-steps li.now{color:#fff;background:linear-gradient(135deg,color-mix(in oklab,var(--ring) 35%,transparent),color-mix(in oklab,var(--ring2) 25%,transparent));
+  border-color:var(--ring);box-shadow:0 0 18px -6px var(--glow)}
+.acx-steps li.now::before{background:var(--ring);color:#0b1020;animation:acx-pulse 1.2s ease-in-out infinite}
+.acx-steps li.off{opacity:.35;text-decoration:line-through;border-style:dashed}
+.acx-steps li.off::before{content:"🔒";background:none}
+.acx-steps li small{display:block;font-weight:600;opacity:.85;font-family:var(--font-data)}
+
+.acx-bar{height:12px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.acx-bar i{display:block;height:100%;width:0;border-radius:inherit;transition:width .8s cubic-bezier(.2,.8,.2,1);
+  background:repeating-linear-gradient(-45deg,rgba(255,255,255,.22) 0 10px,transparent 10px 20px),linear-gradient(90deg,var(--ring),var(--ring2));
+  background-size:28px 28px,100% 100%;animation:acx-stripes .8s linear infinite;box-shadow:0 0 14px var(--glow)}
+@keyframes acx-stripes{to{background-position:28px 0,0 0}}
+.acx-barmeta{display:flex;justify-content:space-between;font-size:.75rem;color:var(--hero-ink);font-family:var(--font-data);margin-top:4px}
+
+.acx-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.acx-btns button{min-height:52px;font-size:1.02rem;font-weight:800;width:100%;border-radius:14px;border:0}
+.acx-go{background:linear-gradient(135deg,#34d399,#22d3ee);color:#05261a;box-shadow:0 10px 26px -10px rgba(52,211,153,.8)}
+.acx-go:not(:disabled):hover{filter:brightness(1.08);transform:translateY(-1px)}
+.acx-halt{background:linear-gradient(135deg,#f87171,#fb923c);color:#2a0a0a;box-shadow:0 10px 26px -10px rgba(248,113,113,.8)}
+.acx-pause{grid-column:1 / -1;min-height:46px!important;font-size:.92rem!important;background:rgba(255,255,255,.06);
+  color:#fde68a;border:1px solid rgba(251,191,36,.45)!important;box-shadow:none}
+.acx-pause:hover{background:rgba(251,191,36,.14)}
+.acx-pause[data-on="0"]{color:#6ee7b7;border-color:rgba(52,211,153,.5)!important;background:rgba(52,211,153,.1);
+  animation:acx-breathe 2.4s ease-in-out infinite}
+@keyframes acx-breathe{50%{box-shadow:0 0 22px -4px rgba(52,211,153,.6)}}
+.acx-btns button:disabled{background:rgba(255,255,255,.08);color:rgba(255,255,255,.35);box-shadow:none;cursor:not-allowed}
+
+/* Μετρητές τελευταίου κύκλου */
+.acx-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:clamp(14px,2.5vw,22px)}
+@media (min-width:861px){.acx-stats{grid-template-columns:repeat(6,minmax(0,1fr))}}
+.acx-stat{position:relative;overflow:hidden;padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);border-top:3px solid var(--k)}
+.acx-stat b{display:block;font-family:var(--font-data);font-size:1.6rem;line-height:1.1;color:var(--k);font-variant-numeric:tabular-nums}
+.acx-stat span{font-size:.72rem;color:var(--hero-ink);font-weight:600}
+.acx-stat.bump b{animation:acx-flip .5s cubic-bezier(.2,.9,.3,1.3)}
+.acx-stats-at{grid-column:1 / -1;font-size:.75rem;color:var(--hero-ink)}
+
+/* Mini μπάρα όταν το ρολόι φύγει από την οθόνη. Πάντα fixed (εκτός ροής): αν έπιανε χώρο, η εμφάνισή της θα
+   μετακινούσε τη σελίδα → το ρολόι ξανά ορατό → κρύβεται → τρεμόπαιγμα στο scroll. */
+.acx-mini{position:fixed;top:calc(var(--topbar-h) + 10px);right:16px;z-index:40;width:min(360px,calc(100vw - 32px));
+  display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:999px;color:#fff;font-weight:700;font-size:.85rem;
+  background:linear-gradient(135deg,var(--hero-mid),var(--hero-end));border:1px solid var(--ring);box-shadow:0 8px 22px -10px var(--glow);
+  transition:opacity .3s,transform .3s}
+.acx-mini[hidden]{display:flex;opacity:0;transform:translateY(-10px);pointer-events:none}
+.acx-mini i{width:10px;height:10px;border-radius:50%;background:var(--ring);box-shadow:0 0 10px var(--ring);flex:none}
+.acx-mini b{font-family:var(--font-data);font-size:1rem;margin-left:auto}
+.acx-mini span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Κάτω μέρος: log, ρυθμίσεις, ιστορικό */
+.acx-grid{display:grid;gap:14px;grid-template-columns:minmax(0,1fr)}
+/* Γραμμές λεπτομερειών (μέσα σε υποκάρτα εταιρείας). */
+.lines{margin:0;max-height:55vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--font-data);
+  font-size:.73rem;line-height:1.55;background:#0b1020;color:#cbd5e1;border-radius:0 0 12px 12px;padding:10px 12px}
+.lines span{display:block}
+.lines span.new{animation:acx-in .35s ease-out}
+@keyframes acx-in{from{opacity:0;transform:translateX(-6px)}}
+.lines .k-err{color:#fca5a5} .lines .k-ok{color:#6ee7b7} .lines .k-warn{color:#fcd34d}
+.lines .k-head{font-weight:700;color:#a5b4fc;margin-top:4px} .lines .k-call{color:#64748b}
+.lines--gen{border-radius:10px;margin-bottom:8px}
+
+/* Κάρτα κύκλου → υποκάρτες εταιρειών */
+.cy{border:1px solid var(--line);border-left:5px solid var(--st);border-radius:14px;background:var(--surface);margin-top:10px;overflow:hidden}
+.cy > summary,.co > summary{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-height:48px}
+.cy > summary::-webkit-details-marker,.co > summary::-webkit-details-marker{display:none}
+.cy > summary{padding:10px 14px}
+.cy > summary::after,.co > summary::after{content:"▸";margin-left:auto;color:var(--muted);transition:transform .2s}
+.cy[open] > summary::after,.co[open] > summary::after{transform:rotate(90deg)}
+.cy[open] > summary{border-bottom:1px solid var(--line-soft);background:var(--surface-2)}
+.cy-body{padding:10px 12px 12px;display:grid;gap:8px}
+.st-ic{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:.8rem;font-weight:800;
+  background:var(--st);color:#fff}
+.cy-main{display:grid;min-width:0}
+.cy-main b{font-family:var(--font-data);font-size:.92rem}
+.cy-main small{color:var(--muted);font-size:.76rem}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:999px;font-size:.72rem;font-weight:700;
+  background:color-mix(in oklab,var(--k) 16%,transparent);color:color-mix(in oklab,var(--k) 75%,var(--ink));
+  border:1px solid color-mix(in oklab,var(--k) 35%,transparent)}
+.chip b{font-family:var(--font-data)}
+.chip--none{--k:var(--muted)}
+[data-st="ok"]{--st:#10b981} [data-st="error"]{--st:#ef4444} [data-st="stopped"]{--st:#f59e0b}
+[data-st="skipped"]{--st:#94a3b8} [data-st="running"]{--st:#06b6d4}
+[data-st="running"] > summary .st-ic{animation:acx-pulse 1.2s ease-in-out infinite}
+.cy-cos{display:flex;flex-wrap:wrap;gap:4px 6px;width:100%;order:6}
+.cy-co{display:inline-flex;align-items:center;gap:5px;padding:2px 9px 2px 3px;border-radius:999px;font-size:.74rem;font-weight:600;
+  background:var(--surface-2);border:1px solid var(--line);max-width:100%;overflow-wrap:anywhere}
+.cy-co i{flex:none;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:.62rem;
+  font-weight:800;color:#fff;background:var(--st)}
+.co{border:1px solid var(--line);border-left:4px solid var(--st);border-radius:12px;background:var(--surface);overflow:hidden}
+.co > summary{padding:8px 12px}
+.co-nm{display:grid;min-width:0;flex:1 1 160px}
+.co-nm b{overflow-wrap:anywhere;font-size:.9rem}
+.co-nm small{color:var(--muted);font-size:.72rem;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:center}
+.lvl{padding:1px 7px;border-radius:6px;font-weight:700;color:#fff;background:var(--lv)}
+.lvl[data-l="fetch"]{--lv:#0891b2} .lvl[data-l="classify"]{--lv:#7c3aed} .lvl[data-l="send"]{--lv:#059669}
+.co-dur{font-family:var(--font-data);font-size:.72rem;color:var(--muted)}
+.cy-foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+@media (max-width:560px){ .cy > summary .chips{order:5;width:100%} .co > summary .chips{order:5;width:100%} }
+.acx-set summary,.acx-hist > details > summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px;font-weight:700}
+.acx-set form{display:grid;gap:16px;margin-top:8px}
+/* Grid: ίσα πλακίδια, όσα χωράνε ανά σειρά (1 στο κινητό). */
+.acx-sched{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))}
+/* Εταιρείες: μία γραμμή η καθεμία, στήλες στοιχισμένες σε όλες τις γραμμές (subgrid). */
+.acx-co{display:grid;gap:6px 16px;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(240px,1.2fr)}
+.acx-co-th,.acx-co-row{grid-column:1 / -1;display:grid;grid-template-columns:subgrid;align-items:center}
+.acx-co-th{padding:0 14px 0 18px;font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.acx-field{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:10px 14px;
+  border:1px solid var(--line);border-radius:12px;background:var(--surface-2);cursor:pointer}
+.acx-field,.acx-field *{text-transform:none;letter-spacing:normal}
+.acx-field > span:first-child,.acx-field > input + span{display:grid;flex:1}
+.acx-field input[type=checkbox]{width:20px;height:20px;flex:none;order:2}
+.acx-field b{font-size:.9rem}
+.acx-field small{color:var(--muted);font-size:.75rem}
+.acx-min{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.85rem}
+.acx-min input{width:6.5em}
+.acx-co-head{display:grid;gap:2px}
+.acx-co-row{padding:8px 14px;min-height:60px;border:1px solid var(--line);
+  border-left:5px solid var(--lv);border-radius:12px;background:var(--surface-2);transition:border-color .3s}
+.acx-co-row[data-level="off"]{--lv:var(--line)} .acx-co-row[data-level="fetch"]{--lv:#22d3ee}
+.acx-co-row[data-level="classify"]{--lv:#a78bfa} .acx-co-row[data-level="send"]{--lv:#34d399}
+.acx-co-name{font-size:.95rem;overflow-wrap:anywhere}
+.acx-co-st{color:var(--ok);font-size:.78rem;font-weight:600}
+.acx-co-st.is-warn{color:var(--err)}
+.acx-co-row select{min-height:44px;width:100%}
+@media (max-width:760px){  /* κινητό: όνομα + κατάσταση πάνω, επιλογή από κάτω */
+  .acx-co{grid-template-columns:minmax(0,1fr)}
+  .acx-co-th{display:none}
+  .acx-co-row{grid-template-columns:minmax(0,1fr);gap:4px}
+}
+.acx-hist > details > summary{font-weight:700}
+
+@media (max-width:560px){
+  .acx-steps li{padding:34px 4px 8px;text-align:center;font-size:.74rem;overflow-wrap:normal}
+  .acx-steps li::before{left:50%;top:8px;translate:-50% 0}
+  .acx-stat{padding:8px}
+  .acx-stat span{font-size:.64rem}
+  .acx-btns button{font-size:.95rem}
+  .acx-co-row select{font-size:.86rem;padding-left:10px}
+}
+@media (prefers-reduced-motion:reduce){
+  .acx *,.acx *::before,.acx *::after{animation:none!important;transition:none!important}
+}
+</style>
+
+<div class="acx" id="acx" data-p="idle">
+  <div class="acx-mini" id="acx-mini" hidden aria-hidden="true"><i></i><span id="acx-mini-t">…</span><b id="acx-mini-c">--:--</b></div>
+
+  <header class="acx-hero">
+    <i class="acx-blob b1"></i><i class="acx-blob b2"></i>
+    <div class="acx-top">
+      <div class="acx-clock" id="acx-clock" role="timer" aria-live="off">
+        <svg viewBox="0 0 220 220" aria-hidden="true">
+          <defs><linearGradient id="acx-grad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="var(--ring)"/><stop offset="1" stop-color="var(--ring2)"/></linearGradient></defs>
+          <circle class="acx-orbit" cx="110" cy="110" r="106"/>
+          <g id="acx-ticks"></g>
+          <circle class="acx-track" cx="110" cy="110" r="84"/>
+          <circle class="acx-arc" id="acx-arc" cx="110" cy="110" r="84"/>
+        </svg>
+        <div class="acx-face">
+          <span class="acx-label" id="acx-label">Επόμενος κύκλος</span>
+          <span class="acx-digits" id="acx-digits"></span>
+          <span class="acx-sub" id="acx-sub"></span>
+        </div>
+      </div>
+
+      <div class="acx-side" aria-live="polite">
+        <div class="acx-phase">
+          <span class="acx-pill"><i></i><span id="acx-phase">…</span></span>
+          <span class="acx-net" id="acx-net"></span>
+        </div>
+        <div class="acx-where" id="acx-where"></div>
+        <ol class="acx-steps" id="acx-steps">
+          <li data-s="Ανάκτηση">Ανάκτηση<small></small></li>
+          <li data-s="Χαρακτηρισμός">Χαρακτηρισμός<small></small></li>
+          <li data-s="Αποστολή">Αποστολή<small></small></li>
+        </ol>
+        <div>
+          <div class="acx-bar"><i id="acx-bar"></i></div>
+          <div class="acx-barmeta"><span id="acx-bar-l">Συνολική πρόοδος</span><span id="acx-bar-r">0%</span></div>
+        </div>
+        <div class="acx-btns">
+          <button type="button" class="acx-go" id="acx-start">▶ Έναρξη τώρα</button>
+          <button type="button" class="acx-halt" id="acx-stop" disabled>⏹ Διακοπή</button>
+          <button type="button" class="acx-pause" id="acx-toggle" data-on="{{ '1' if on else '0' }}">
+            {{ '⏸ Παύση αυτόματου κύκλου' if on else '⏵ Συνέχιση αυτόματου κύκλου' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="acx-stats" id="acx-stats">
+      {% for key, label, color in [('new', 'νέα', '#22d3ee'), ('classified', 'χαρακτηρίστηκαν', '#a78bfa'),
+                                   ('sent', 'στάλθηκαν', '#34d399'), ('failed', 'αποτυχίες', '#f87171'),
+                                   ('no_rule', 'χωρίς πρόταση', '#fbbf24'), ('skipped', 'παραλείφθηκαν', '#94a3b8')] %}
+      <div class="acx-stat" data-k="{{ key }}" style="--k:{{ color }}"><b>–</b><span>{{ label }}</span></div>
+      {% endfor %}
+      <div class="acx-stats-at" id="acx-stats-at">Δεν έχει τρέξει ακόμα κύκλος από την εκκίνηση της εφαρμογής.</div>
+    </div>
+  </header>
+
+  <div class="acx-grid">
+    <section class="card acx-set">
+      <details {{ 'open' if not ids }}>
+        <summary>⚙ Ρυθμίσεις</summary>
+        <form method="post" action="{{ url_for('auto_cycle_settings') }}">
+          <div class="acx-sched">
+            <label class="acx-field"><input type="checkbox" name="on" value="1" {{ 'checked' if on }}>
+              <span><b>Χρονοπρογραμματισμός ενεργός</b><small>Ο κύκλος ξεκινά μόνος του κάθε τόσο</small></span></label>
+            <label class="acx-field"><span><b>Διάστημα κύκλου</b><small>5 – 1440 λεπτά</small></span>
+              <span class="acx-min"><input type="number" name="minutes" min="5" max="1440" value="{{ minutes }}" inputmode="numeric" required> λεπτά</span></label>
+          </div>
+          <div class="acx-co-head">
+            <b>Εταιρείες — τι κάνει ο κύκλος σε καθεμία</b>
+            <small class="muted">Επιτρέπονται μόνο όσα ενεργοποιούν οι άδειες της εταιρείας (Εταιρείες). Οι άδειες
+              ξαναελέγχονται πριν από κάθε βήμα· κάτω από «αποστολή» ο κύκλος δεν μπορεί να γράψει τίποτα στο myDATA.</small>
+          </div>
+          <div class="acx-co">
+            {% if companies %}<div class="acx-co-th" aria-hidden="true"><span>Εταιρεία</span><span>Κατάσταση</span><span>Ενέργειες κύκλου</span></div>{% endif %}
+            {% for c in companies %}
+            <div class="acx-co-row" data-level="{{ c.level or 'off' }}">
+              <b class="acx-co-name">{{ c.company_name }}</b>
+              <small class="acx-co-st {{ 'is-warn' if not c.ready }}">{{ '⚠ χωρίς αρχική ανάκτηση — παραλείπεται' if not c.ready else '✓ έτοιμη' }}</small>
+              <select name="level_{{ c.id }}" aria-label="Ενέργειες κύκλου για {{ c.company_name }}">
+                <option value="" {{ 'selected' if not c.level }}>— Εκτός κύκλου</option>
+                {% for key, label in levels.items() %}
+                <option value="{{ key }}" {{ 'selected' if c.level == key }} {{ 'disabled' if rank[key] > rank[c.max_level] }}>
+                  {{ label }}{{ ' (δεν επιτρέπεται)' if rank[key] > rank[c.max_level] }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            {% else %}
+            <p class="muted">Δεν υπάρχουν εταιρείες.</p>
+            {% endfor %}
+          </div>
+          <div><button type="submit">Αποθήκευση</button></div>
+        </form>
+      </details>
+      <p class="muted small">Για κάθε εταιρεία του κύκλου: νέα παραστατικά εξόδων → (αν επιτρέπεται) χαρακτηρισμός όσων
+        έχουν πρόταση συναλλασσόμενου → (αν επιτρέπεται) αποστολή τους στο myDATA. Όσα δεν έχουν πρόταση δεν αγγίζονται·
+        καταγράφονται στο log.
+        Τρέχει μόνο όσο η εφαρμογή είναι ανοιχτή και ξεκλείδωτη.</p>
+    </section>
+
+    <section class="card acx-hist">
+      <details open>
+        <summary>📜 Ιστορικό κύκλων</summary>
+        {% for cy in history %}
+        {% set unfinished = not cy.ended %}
+        {% set st = 'stopped' if cy.stopped else 'error' if (cy.totals.failed or cy.companies|selectattr('status', 'equalto', 'error')|list) else 'running' if unfinished else 'ok' %}
+        <details class="cy" data-k="{{ cy.name }}" data-st="{{ st }}" {{ 'open' if cy.started == running_started }}>
+          <summary>
+            <span class="st-ic">{{ st_icons[st] }}</span>
+            <span class="cy-main"><b>{{ cy.started[8:10] }}/{{ cy.started[5:7] }}/{{ cy.started[:4] }} {{ cy.started[11:16] }}</b>
+              <small>{{ cy.trigger }} · {{ cy.companies|length }} εταιρ. ·
+                {{ ('● σε εξέλιξη' if cy.started == running_started else '⚠ δεν ολοκληρώθηκε') if unfinished else (cy.secs ~ '″') }}{{ ' · ⏹ διακόπηκε' if cy.stopped }}</small></span>
+            {{ chips(cy.totals) }}
+            {% if cy.companies %}<span class="cy-cos">{% for co in cy.companies %}<span class="cy-co" data-st="{{ co.status }}"><i>{{ st_icons.get(co.status, '?') }}</i>{{ co.name }}</span>{% endfor %}</span>{% endif %}
+          </summary>
+          <div class="cy-body">
+            {% if cy.lines %}<pre class="lines lines--gen">{% for ln in cy.lines %}<span class="k-{{ ln.k }}">{{ ln.t }}</span>{% endfor %}</pre>{% endif %}
+            {% for co in cy.companies %}{{ company_card(co, cy.name ~ "#" ~ loop.index) }}{% endfor %}
+            <div class="cy-foot"><small class="muted">Κάθε κάρτα εταιρείας ανοίγει με τις λεπτομέρειες.</small>
+              <a class="btn btn-ghost" href="{{ url_for('auto_cycle_log', name=cy.name) }}">⬇ Λήψη .log</a></div>
+          </div>
+        </details>
+        {% else %}
+        <p class="muted">Δεν έχει τρέξει ακόμα κανένας κύκλος.</p>
+        {% endfor %}
+      </details>
+    </section>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const PH = {idle: 'Αναμονή', running: 'Σε εξέλιξη', stopping: 'Διακοπή…', disabled: 'Σε παύση', locked: 'Κλειδωμένη'};
+  const STEPS = ['Ανάκτηση', 'Χαρακτηρισμός', 'Αποστολή'];
+  const root = $('acx'), base = document.title, R = 84, C = 2 * Math.PI * R;
+  let histSig = null;
+  let s = null, since = 0, nextAt = null, okAt = 0, timer = null, wasRun = null, lastStats = {};
+
+  // 60 γραμμές γύρω από το ρολόι (δευτερόλεπτα).
+  const ticks = [];
+  for (let i = 0; i < 60; i++) {
+    const a = (i / 60) * 2 * Math.PI - Math.PI / 2, big = i % 5 === 0, r1 = big ? 93 : 95, r2 = 100;
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', 110 + r1 * Math.cos(a)); l.setAttribute('y1', 110 + r1 * Math.sin(a));
+    l.setAttribute('x2', 110 + r2 * Math.cos(a)); l.setAttribute('y2', 110 + r2 * Math.sin(a));
+    l.setAttribute('class', 'acx-tick' + (big ? ' big' : ''));
+    $('acx-ticks').appendChild(l); ticks.push(l);
+  }
+  const arc = $('acx-arc');
+  arc.style.strokeDasharray = C;
+  const setArc = f => arc.style.strokeDashoffset = C * (1 - Math.max(0, Math.min(1, f)));
+  const setTicks = n => ticks.forEach((t, i) => t.classList.toggle('on', i < n));
+
+  // Ψηφία με «flip» μόνο σε όσα άλλαξαν.
+  let shown = '';
+  function digits(str) {
+    if (str === shown) return;
+    const el = $('acx-digits');
+    if (str.length !== shown.length) el.textContent = '';
+    [...str].forEach((ch, i) => {
+      let sp = el.children[i];
+      if (!sp) { sp = document.createElement('span'); el.appendChild(sp); }
+      if (sp.textContent !== ch) {
+        sp.textContent = ch; sp.className = ch === ':' ? 'sep' : '';
+        if (ch !== ':' && shown) { void sp.offsetWidth; sp.classList.add('flip'); }
+      }
+    });
+    shown = str;
+  }
+  const pad = n => String(n).padStart(2, '0');
+  const clock = secs => {
+    secs = Math.max(0, Math.floor(secs));
+    const h = Math.floor(secs / 3600), m = Math.floor(secs % 3600 / 60), x = secs % 60;
+    return h ? `${h}:${pad(m)}:${pad(x)}` : `${pad(m)}:${pad(x)}`;
+  };
+
+  async function refreshHist() {
+    try {
+      const html = await (await fetch(location.pathname, {cache: 'no-store'})).text();
+      const fresh = new DOMParser().parseFromString(html, 'text/html').querySelector('.acx-hist');
+      const old = document.querySelector('.acx-hist');
+      if (!fresh || !old) return;
+      const state = new Map([...old.querySelectorAll('details[data-k]')].map(el => [el.dataset.k, el.open]));
+      fresh.querySelectorAll('details[data-k]').forEach(el => {
+        const was = state.get(el.dataset.k);
+        // κύκλος σε εξέλιξη / εταιρεία με σφάλμα: όπως τα ανοίγει ο server· αλλιώς όπως τα είχε ο χρήστης
+        if (was !== undefined && !(el.open && el.dataset.st !== 'ok')) el.open = was;
+      });
+      old.replaceWith(fresh);
+    } catch (e) { /* επόμενη αλλαγή ξαναδοκιμάζει */ }
+  }
+
+  function stats(sum) {
+    if (!sum) return;
+    document.querySelectorAll('.acx-stat').forEach(el => {
+      const k = el.dataset.k, v = sum[k] ?? 0;
+      if (lastStats[k] !== v) {
+        el.querySelector('b').textContent = v;
+        if (k in lastStats) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+      }
+      lastStats[k] = v;
+    });
+    $('acx-stats-at').textContent = `Τελευταίος κύκλος: ${sum.at}${sum.stopped ? ' · ⏹ διακόπηκε' : ''}`;
+  }
+
+  function render(d) {
+    s = d;
+    if (d.lines.length) since = d.lines[d.lines.length - 1].n;  // οι γραμμές δεν χρειάζονται εδώ· μόνο νέες στο επόμενο poll
+    const run = d.phase === 'running' || d.phase === 'stopping';
+    // Τελείωσε εταιρεία ή άλλαξε ο κύκλος → ανανέωση του ιστορικού (χωρίς reload).
+    const sig = [d.started, run, ...(d.companies || []).map(c => c.status)].join('|');
+    if (histSig !== null && sig !== histSig) refreshHist();
+    histSig = sig;
+    root.dataset.p = d.phase;
+    $('acx-phase').textContent = PH[d.phase] || d.phase;
+    $('acx-where').innerHTML = '';
+    if (run && d.company) {
+      $('acx-where').textContent = d.company;
+      const sm = document.createElement('small'); sm.textContent = `Εταιρεία ${d.index} από ${d.count}`;
+      $('acx-where').appendChild(sm);
+    } else {
+      $('acx-where').textContent = {idle: 'Όλα ήσυχα — περιμένω τον επόμενο κύκλο', locked: '🔒 Συνδέσου για να τρέξει ο κύκλος',
+        disabled: '⏸ Ο αυτόματος κύκλος είναι σε παύση', stopping: ''}[d.phase] || (run ? 'Προετοιμασία…' : '');
+    }
+    const cur = run ? STEPS.findIndex(x => (d.step || '').startsWith(x)) : -1;
+    const maxStep = run ? ({fetch: 0, classify: 1, send: 2}[d.level] ?? 2) : 2;
+    [...$('acx-steps').children].forEach((li, i) => {
+      li.classList.toggle('now', i === cur); li.classList.toggle('done', cur > i);
+      li.classList.toggle('off', i > maxStep);  // εκτός ενεργειών της εταιρείας
+      li.querySelector('small').textContent = i === cur && d.total ? `${Math.min(d.done + 1, d.total)}/${d.total}` : '';
+    });
+    // Συνολική πρόοδος: εταιρείες + βήμα + παραστατικά του βήματος.
+    let f = 0;
+    if (run && d.count) {
+      const inStep = d.total ? d.done / d.total : 0;
+      f = ((d.index || 1) - 1 + (Math.max(cur, 0) + inStep) / 3) / d.count;
+    }
+    $('acx-bar').style.width = (run ? Math.max(3, f * 100) : 0) + '%';
+    $('acx-bar-r').textContent = run ? Math.round(f * 100) + '%' : '—';
+    $('acx-start').disabled = run || d.phase === 'locked';
+    $('acx-stop').disabled = d.phase !== 'running';
+    $('acx-toggle').dataset.on = d.on ? '1' : '0';
+    $('acx-toggle').textContent = d.on ? '⏸ Παύση αυτόματου κύκλου' : '⏵ Συνέχιση αυτόματου κύκλου';
+    document.querySelector('.acx-set input[name=on]').checked = d.on;
+    nextAt = d.next_run ? new Date(d.next_run).getTime() - (new Date(d.now).getTime() - Date.now()) : null;
+    stats(d.summary);
+    if (wasRun === false && run) boom();
+    wasRun = run;
+    tick();
+  }
+
+  function boom() {
+    const c = $('acx-clock'); c.classList.remove('boom'); void c.offsetWidth; c.classList.add('boom');
+  }
+
+  // Κάθε δευτερόλεπτο: ρολόι, γραμμές, mini μπάρα, τίτλος καρτέλας.
+  function tick() {
+    if (!s) return;
+    const run = s.phase === 'running' || s.phase === 'stopping';
+    let label, txt, sub = '', hot = false;
+    if (run) {
+      const el = (Date.now() - new Date(s.started).getTime()) / 1000;
+      label = s.phase === 'stopping' ? 'Σταματά…' : 'Σε εξέλιξη'; txt = clock(el);
+      sub = s.step || 'Έναρξη';
+      setArc(parseFloat($('acx-bar').style.width) / 100 || 0); setTicks(Math.floor(el) % 60 + 1);
+    } else if (nextAt) {
+      const left = (nextAt - Date.now()) / 1000, total = (s.minutes || 60) * 60;
+      label = 'Επόμενος κύκλος'; txt = clock(Math.ceil(left));
+      hot = left <= 10;
+      sub = left <= 0 ? '🚀 Ξεκινά…' : `στις ${new Date(nextAt).toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit'})}`;
+      setArc(left / total); setTicks(Math.ceil(Math.max(0, left)) % 60 || (left > 0 ? 60 : 0));
+    } else {
+      label = PH[s.phase] || ''; txt = '--:--'; setArc(0); setTicks(0);
+      sub = s.phase === 'disabled' ? '«Συνέχιση» ή «Έναρξη τώρα» για έναν κύκλο' : s.phase === 'locked' ? 'Η εφαρμογή είναι κλειδωμένη' : '';
+    }
+    root.classList.toggle('is-hot', hot);
+    $('acx-label').textContent = label; digits(txt); $('acx-sub').textContent = sub;
+    $('acx-mini-t').textContent = run ? `${s.index}/${s.count} · ${s.step || '…'}` : (PH[s.phase] || '');
+    $('acx-mini-c').textContent = txt;
+    document.title = (run ? `▶ ${txt} · ${s.step || ''}` : nextAt ? `⏳ ${txt}` : PH[s.phase]) + ` · ${base}`;
+    if (okAt) {
+      const ago = Math.round((Date.now() - okAt) / 1000);
+      $('acx-net').textContent = ago > 10 ? `⚠ χωρίς σύνδεση · ${ago}″` : '● ζωντανά';
+      $('acx-net').classList.toggle('is-off', ago > 10);
+    }
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch(`{{ url_for('auto_cycle_status') }}?since=${since}`, {cache: 'no-store'});
+      if (!r.ok || !(r.headers.get('content-type') || '').includes('json')) throw new Error(r.status);
+      okAt = Date.now(); render(await r.json());
+    } catch (e) { tick(); /* η ένδειξη «χωρίς σύνδεση» βγαίνει από το tick */ }
+  }
+
+  // Polling μόνο όταν φαίνεται η καρτέλα (μπαταρία/δεδομένα στο κινητό).
+  const startPoll = () => { if (!timer) { poll(); timer = setInterval(poll, 2000); } };
+  const stopPoll = () => { clearInterval(timer); timer = null; };
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' ? startPoll() : stopPoll());
+  setInterval(tick, 1000);
+  startPoll();
+
+  // Mini μπάρα όταν το ρολόι κυλήσει εκτός οθόνης.
+  new IntersectionObserver(([e]) => { $('acx-mini').hidden = e.isIntersecting; }).observe($('acx-clock'));
+
+  const post = url => fetch(url, {method: 'POST'}).then(poll);
+  $('acx-start').addEventListener('click', () => { $('acx-start').disabled = true; boom(); post(`{{ url_for('auto_cycle_start') }}`); });
+  document.querySelectorAll('.acx-co-row select').forEach(sel =>
+    sel.addEventListener('change', () => { sel.closest('.acx-co-row').dataset.level = sel.value || 'off'; }));
+  $('acx-toggle').addEventListener('click', () => {
+    const on = $('acx-toggle').dataset.on === '1', run = s && (s.phase === 'running' || s.phase === 'stopping');
+    if (on && !confirm('Παύση του αυτόματου κύκλου; Δεν θα ξεκινά άλλος κύκλος μέχρι τη «Συνέχιση».'
+                       + (run ? ' Ο κύκλος που τρέχει σταματά μετά την τρέχουσα κλήση στο myDATA.' : ''))) return;
+    post(`{{ url_for('auto_cycle_toggle') }}`);
+  });
+  $('acx-stop').addEventListener('click', () => {
+    if (confirm('Διακοπή του κύκλου; Σταματά μετά την τρέχουσα κλήση στο myDATA· ό,τι έγινε ως εδώ ισχύει.'))
+      post(`{{ url_for('auto_cycle_stop') }}`);
+  });
+})();
+</script>
+{% endblock %}
