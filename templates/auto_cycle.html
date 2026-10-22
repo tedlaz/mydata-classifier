@@ -120,15 +120,6 @@
 @keyframes acx-breathe{50%{box-shadow:0 0 22px -4px rgba(52,211,153,.6)}}
 .acx-btns button:disabled{background:rgba(255,255,255,.08);color:rgba(255,255,255,.35);box-shadow:none;cursor:not-allowed}
 
-/* Μετρητές τελευταίου κύκλου */
-.acx-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:clamp(14px,2.5vw,22px)}
-@media (min-width:861px){.acx-stats{grid-template-columns:repeat(6,minmax(0,1fr))}}
-.acx-stat{position:relative;overflow:hidden;padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.1);border-top:3px solid var(--k)}
-.acx-stat b{display:block;font-family:var(--font-data);font-size:1.6rem;line-height:1.1;color:var(--k);font-variant-numeric:tabular-nums}
-.acx-stat span{font-size:.72rem;color:var(--hero-ink);font-weight:600}
-.acx-stat.bump b{animation:acx-flip .5s cubic-bezier(.2,.9,.3,1.3)}
-.acx-stats-at{grid-column:1 / -1;font-size:.75rem;color:var(--hero-ink)}
 
 /* Mini μπάρα όταν το ρολόι φύγει από την οθόνη. Πάντα fixed (εκτός ροής): αν έπιανε χώρο, η εμφάνισή της θα
    μετακινούσε τη σελίδα → το ρολόι ξανά ορατό → κρύβεται → τρεμόπαιγμα στο scroll. */
@@ -242,8 +233,6 @@
 @media (max-width:560px){
   .acx-steps li{padding:34px 4px 8px;text-align:center;font-size:.74rem;overflow-wrap:normal}
   .acx-steps li::before{left:50%;top:8px;translate:-50% 0}
-  .acx-stat{padding:8px}
-  .acx-stat span{font-size:.64rem}
   .acx-btns button{font-size:.95rem}
   .acx-co-row select{font-size:.86rem;padding-left:10px}
 }
@@ -296,15 +285,6 @@
             {{ '⏸ Παύση αυτόματου κύκλου' if on else '⏵ Συνέχιση αυτόματου κύκλου' }}</button>
         </div>
       </div>
-    </div>
-
-    <div class="acx-stats" id="acx-stats">
-      {% for key, label, color in [('new', 'νέα', '#22d3ee'), ('classified', 'χαρακτηρίστηκαν', '#a78bfa'),
-                                   ('sent', 'στάλθηκαν', '#34d399'), ('failed', 'αποτυχίες', '#f87171'),
-                                   ('no_rule', 'χωρίς πρόταση', '#fbbf24'), ('skipped', 'παραλείφθηκαν', '#94a3b8')] %}
-      <div class="acx-stat" data-k="{{ key }}" style="--k:{{ color }}"><b>–</b><span>{{ label }}</span></div>
-      {% endfor %}
-      <div class="acx-stats-at" id="acx-stats-at">Δεν έχει τρέξει ακόμα κύκλος από την εκκίνηση της εφαρμογής.</div>
     </div>
   </header>
 
@@ -426,7 +406,7 @@
   const STEPS = ['Ανάκτηση', 'Χαρακτηρισμός', 'Αποστολή'];
   const root = $('acx'), base = document.title, R = 84, C = 2 * Math.PI * R;
   let histSig = null;
-  let s = null, since = 0, nextAt = null, okAt = 0, timer = null, wasRun = null, lastStats = {};
+  let s = null, since = 0, nextAt = null, okAt = 0, timer = null, wasRun = null;
 
   // 60 γραμμές γύρω από το ρολόι (δευτερόλεπτα).
   const ticks = [];
@@ -522,18 +502,6 @@
     setSig = d.settings_sig;
   }
 
-  function stats(sum) {
-    if (!sum) return;
-    document.querySelectorAll('.acx-stat').forEach(el => {
-      const k = el.dataset.k, v = sum[k] ?? 0;
-      if (lastStats[k] !== v) {
-        el.querySelector('b').textContent = v;
-        if (k in lastStats) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
-      }
-      lastStats[k] = v;
-    });
-    $('acx-stats-at').textContent = `Τελευταίος κύκλος: ${sum.at}${sum.stopped ? ' · ⏹ διακόπηκε' : ''}`;
-  }
 
   function render(d) {
     s = d;
@@ -576,7 +544,6 @@
     if (!dirty) document.querySelector('.acx-set input[name=on]').checked = d.on;
     settingsChanged(d);
     nextAt = d.next_run ? new Date(d.next_run).getTime() - (new Date(d.now).getTime() - Date.now()) : null;
-    stats(d.summary);
     if (wasRun === false && run) boom();
     wasRun = run;
     tick();

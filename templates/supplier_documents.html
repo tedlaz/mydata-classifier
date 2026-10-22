@@ -42,7 +42,7 @@
     <tbody>
       {% for kind, status, inv in docs %}
       <tr class="{{ 'is-credit' if inv.invoice_type in credit_types }}" data-href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}" tabindex="0">
-        <td data-label="Ημ/νία" class="doc-date">{{ inv.issue_date or '—' }}</td>
+        <td data-label="Ημ/νία" class="doc-date">{{ inv.issue_date|el_date or '—' }}</td>
         <td data-label="MARK" class="mark">{{ inv.mark }}</td>
         <td data-label="Βιβλίο" class="sd-kind">{{ '🛒 Έσοδο' if kind == 'income' else '🚚 Έξοδο' }}</td>
         <td data-label="Τύπος">{{ type_badge(inv) }}</td>

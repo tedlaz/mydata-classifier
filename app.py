@@ -270,6 +270,14 @@ def format_el_amount(value) -> str:
     return f"{amount:,.2f}".translate(str.maketrans({",": ".", ".": ","}))
 
 
+@app.template_filter("el_date")
+def format_el_date(value) -> str:
+    """ISO ημερομηνία (yyyy-mm-dd) σε ελληνική μορφή dd/mm/yyyy· ό,τι άλλο μένει ως έχει."""
+    y, _, rest = str(value or "").partition("-")
+    m, _, d = rest.partition("-")
+    return f"{d[:2]}/{m}/{y}" if len(y) == 4 and m and d else str(value or "")
+
+
 # Cache τελευταίας αναζήτησης (απλή λύση για single-user εργαλείο)
 
 # ------------------------------------------------------------------ #
