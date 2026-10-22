@@ -1037,6 +1037,32 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .rule-row{grid-template-columns:minmax(0,1.2fr) minmax(0,2.2fr) minmax(0,2.2fr) minmax(0,1.8fr) auto;margin-bottom:10px}
 .rule-row + .rule-row .cls-field label{display:none}
 @media (max-width:980px){ .rule-row{grid-template-columns:1fr} .rule-row + .rule-row .cls-field label{display:block} }
+/* Συναλλασσόμενοι (κατάλογος & καρτέλα): κεφαλίδα hero + avatar */
+.cp-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(14px,2.2vw,22px);color:#fff;margin-bottom:14px;
+  background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,#1d4f7a,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
+.cp-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;animation:cp-float 13s ease-in-out infinite;pointer-events:none}
+.cp-blob.b1{width:300px;height:300px;background:color-mix(in oklab,#35b8ff,var(--hero-glow) var(--hero-fade));top:-140px;right:-40px}
+.cp-blob.b2{width:220px;height:220px;background:color-mix(in oklab,#1fbf8a,var(--hero-glow) var(--hero-fade));bottom:-140px;left:30%;opacity:.3;animation-delay:-6s}
+@keyframes cp-float{50%{transform:translate(26px,-18px) scale(1.1)}}
+@keyframes cp-rise{from{opacity:0;transform:translateY(16px)}}
+.cp-top{position:relative;display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end}
+.cp-hero h1{margin:0 0 4px;font-size:clamp(1.7rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.02em;color:#fff}
+.cp-hero p{margin:0;color:var(--hero-ink-2);font-size:.92rem;max-width:560px}
+.cp-hero .btn-row{margin:0;display:flex;flex-wrap:wrap;gap:8px}
+.cp-hero .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
+.cp-hero .btn-ghost:hover{background:rgba(255,255,255,.16)}
+.cp-hero .pill{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);color:#fff}
+.cp-av{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:.85rem;font-style:normal;
+  background:linear-gradient(135deg,hsl(var(--h) var(--s) 58%),hsl(calc(var(--h) + 25) var(--s) 45%));transition:transform .3s var(--ease)}
+/* Ρόλος: πελάτης πράσινο, προμηθευτής μπλε, και τα δύο μωβ, χωρίς παραστατικά γκρι */
+.role-income{--h:150;--s:60%}
+.role-expense{--h:210;--s:70%}
+.role-both{--h:270;--s:60%}
+.role-none{--h:220;--s:8%}
+.pill--role{background:hsl(var(--h) var(--s) 50% / .14);border-color:hsl(var(--h) var(--s) 50% / .4);
+  color:color-mix(in oklab,hsl(var(--h) var(--s) 42%),var(--ink) 25%);font-weight:600}
+.cp-hero .pill--role{background:hsl(var(--h) var(--s) 55% / .35);border-color:hsl(var(--h) var(--s) 70% / .5);color:#fff}
+@media (prefers-reduced-motion:reduce){ .cp-hero *{animation:none!important} }
 
 /* =====================================================================
    Ετήσια σύνοψη (Αναφορές → ανά μήνα)

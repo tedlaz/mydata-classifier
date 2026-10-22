@@ -48,6 +48,18 @@
 {%- if editable and inv.issuer_vat %}<button type="button" class="name-edit" title="Διόρθωση επωνυμίας" aria-label="Διόρθωση επωνυμίας">✎</button>{% endif %}
 {%- endmacro %}
 
+{# Συναλλασσόμενος: avatar με αρχικά, χρώμα ανά ρόλο (income = πελάτης, expense = προμηθευτής, both, '' = χωρίς παραστατικά). #}
+{% set _roles = {'income': 'Πελάτης', 'expense': 'Προμηθευτής', 'both': 'Πελάτης & Προμηθευτής'} %}
+{% macro cp_avatar(name, role) -%}
+<i class="cp-av role-{{ role or 'none' }}" title="{{ _roles.get(role, 'Χωρίς παραστατικά') }}" aria-hidden="true">
+  {%- for w in (name|cpname or '?').split()[:2] %}{{ w[0]|upper }}{% endfor -%}
+</i>
+{%- endmacro %}
+{% macro role_pill(role) -%}
+{% if role %}<span class="pill pill--role role-{{ role }}" title="{{ _roles[role] }}" aria-label="{{ _roles[role] }}">
+  {{- {'income': '🛒', 'expense': '🚚', 'both': '🔁'}[role] }}</span>{% endif %}
+{%- endmacro %}
+
 {% macro type_badge(inv) -%}
   {% set is_credit = inv.invoice_type in credit_types %}
   <span class="type-badge {{ 'is-credit' if is_credit else 'is-debit' }}"

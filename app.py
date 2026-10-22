@@ -6388,6 +6388,7 @@ def parameters():
         safety_backups=db.list_safety_backups(),
         keep_safety=db.keep_safety(),
         keep_logs=_log_keep(),
+        keep_cycle=_cycle_keep(),
         backup_info=_backup_info(),
         tax_scales=_tax_scales(),
         tax_custom=bool(db.get_setting("tax_scales")),
@@ -6759,10 +6760,25 @@ def suppliers():
     """Κατάλογος συναλλασσόμενων (πελάτες & προμηθευτές), με σελιδοποίηση."""
     all_suppliers = db.list_suppliers(_active_company_id() or 0)  # μόνο της ενεργής εταιρείας
     q = request.args.get("q", "").strip()
-    items = _filter_suppliers(all_suppliers, q)
-    page_items, page, total_pages = paginate(items, request.args.get("page"))
     cid = _active_company_id()
-    patterns, rules = db.load_rule_patterns(cid), load_rules()
+    patterns, rules, stats, review = db.load_rule_patterns(cid), load_rules(), db.counterparty_stats(cid), db.review_vats(cid)
+    found = _filter_suppliers(all_suppliers, q)
+    # Φίλτρα badges: ρόλος (income/expense/both/none), πρόταση (1/0), επιβεβαίωση (1/0).
+    f = {k: request.args.get(k, "") for k in ("role", "rule", "review")}
+    items = [s for s in found
+             if (not f["role"] or stats.get(s["vat"], {}).get("role", "none") == f["role"])
+             and (not f["rule"] or (s["vat"] in patterns or s["vat"] in rules) == (f["rule"] == "1"))
+             and (not f["review"] or (s["vat"] in review) == (f["review"] == "1"))]
+    sort = request.args.get("sort") if request.args.get("sort") in ("vat", "name", "docs") else "name"
+    sort_dir = "desc" if request.args.get("dir") == "desc" else "asc"
+    if sort == "vat":
+        items.sort(key=lambda s: s["vat"], reverse=sort_dir == "desc")
+    elif sort == "docs":
+        items.sort(key=lambda s: (stats.get(s["vat"], {}).get("docs", 0), s["vat"]), reverse=sort_dir == "desc")
+    else:
+        items.sort(key=lambda s: (_fold(s["name"] or ""), s["vat"]), reverse=sort_dir == "desc")
+        items.sort(key=lambda s: not s["name"])  # χωρίς επωνυμία πάντα στο τέλος (σταθερή ταξινόμηση)
+    page_items, page, total_pages = paginate(items, request.args.get("page"))
     # Χωρίς πρόταση: η πιο πρόσφατη ολοκληρωμένη εγγραφή εξόδου με χαρακτηρισμό (για αντιγραφή).
     latest = _latest_patterns(cid, {s["vat"] for s in all_suppliers} - set(patterns) - set(rules))
     return render_template(
@@ -6770,16 +6786,18 @@ def suppliers():
         latest={vat: d for vat, (d, _) in latest.items()},
         suppliers=page_items,
         suppliers_total=len(all_suppliers),
-        with_rule=sum(1 for s in all_suppliers if s["vat"] in patterns or s["vat"] in rules),
-        shown_with_rule=sum(1 for s in items if s["vat"] in patterns or s["vat"] in rules),
-        with_docs=db.vats_with_documents(),
+        # Η μαζική διαγραφή προτάσεων φιλτράρει μόνο με την αναζήτηση (q), όχι με τα badges.
+        shown_with_rule=sum(1 for s in found if s["vat"] in patterns or s["vat"] in rules),
         filtered_total=len(items),
         q=q,
+        params=dict(q=q or None, sort=sort, dir=sort_dir, **{k: v or None for k, v in f.items()}),
+        has_filter=bool(q or any(f.values())),
         page=page,
         total_pages=total_pages,
         patterns=patterns,
         rules=rules,
-        review=db.review_vats(cid),
+        review=review,
+        stats=stats,
         vat_label=_vat_group_label,
     )
 
@@ -6853,10 +6871,15 @@ def supplier_rules(vat):
 
     pats = db.load_all_rule_patterns(cid, vat)
     rows = [dict(p, vat_category=vc) for vc, p in sorted(pats.items(), key=lambda kv: (kv[0] != db.DEFAULT_RULE, kv[0]))]
+    latest = _latest_patterns(cid, {vat}).get(vat)
     return render_template(
         "supplier_rules.html",
         vat=vat,
-        name=db.get_supplier_name(vat),
+        supplier=db.get_supplier(vat) or {"vat": vat, "name": None},
+        has_rules=bool(pats) or vat in load_rules(),
+        has_docs=vat in db.vats_with_documents(),
+        role=db.counterparty_stats(cid).get(vat, {}).get("role", ""),
+        latest=latest[0] if latest else None,
         rows=rows or [{"vat_category": db.DEFAULT_RULE, "category": "", "type": "", "vat_type": "VAT_361"}],
         back=back,
         post_mode=db.get_rule_post_mode(cid, vat),
@@ -7151,9 +7174,10 @@ def backup_safety_delete():
 
 @app.route("/parameters/backup", methods=["POST"])
 def parameters_backup():
-    # Μία από τις δύο φόρμες της καρτέλας: αντίγραφα πριν από επαναφορά ή logs myDATA.
-    logs = "keep_mydata_logs" in request.form
-    key, top = ("keep_mydata_logs", 500) if logs else ("keep_safety_backups", 50)
+    # Μία από τις φόρμες της καρτέλας: αντίγραφα πριν από επαναφορά, logs myDATA ή logs κύκλων.
+    key, top = next(((k, t) for k, t in (("keep_mydata_logs", 500), ("keep_cycle_logs", 500))
+                     if k in request.form), ("keep_safety_backups", 50))
+    logs = key != "keep_safety_backups"
     try:
         n = int(request.form.get(key, ""))
     except ValueError:
@@ -7257,7 +7281,14 @@ if getattr(sys, "frozen", False):
 # χρήστη στην ίδια εταιρεία — lock ανά εταιρεία αν φανεί πρόβλημα.
 # ------------------------------------------------------------------ #
 _CYCLE_DIR = os.path.join(_LOG_DIR, "auto_cycle")
-CYCLE_LOG_KEEP = 200  # προεπιλογή· η ρύθμιση keep_cycle_logs υπερισχύει
+CYCLE_LOG_KEEP = 20  # προεπιλογή· η ρύθμιση keep_cycle_logs (Παράμετροι → Αντίγραφα ασφαλείας) υπερισχύει
+
+
+def _cycle_keep() -> int:
+    try:
+        return max(1, int(db.get_setting("keep_cycle_logs") or CYCLE_LOG_KEEP))
+    except ValueError:
+        return CYCLE_LOG_KEEP
 _CYCLE_LIVE = 400  # γραμμές log του τρέχοντος κύκλου στη μνήμη (για τη ζωντανή προβολή)
 _cycle_lock = threading.Lock()
 _cycle_wake, _cycle_stop = threading.Event(), threading.Event()
@@ -7537,11 +7568,7 @@ def _cycle_write(started: datetime, title: str) -> None:
             f.write(title + "\n" + "\n".join(_cycle_buf) + "\n")
         with open(base + ".json", "w", encoding="utf-8") as f:
             json.dump(_cycle_rec, f, ensure_ascii=False)
-        try:
-            keep = max(1, int(db.get_setting("keep_cycle_logs") or CYCLE_LOG_KEEP))
-        except ValueError:
-            keep = CYCLE_LOG_KEEP
-        for old in sorted(n for n in os.listdir(_CYCLE_DIR) if n.endswith(".log"))[:-keep]:
+        for old in sorted(n for n in os.listdir(_CYCLE_DIR) if n.endswith(".log"))[:-_cycle_keep()]:
             for ext in (".log", ".json"):
                 if os.path.exists(path := os.path.join(_CYCLE_DIR, old[:-4] + ext)):
                     os.remove(path)

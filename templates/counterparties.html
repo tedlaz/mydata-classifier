@@ -1,109 +1,97 @@
 {% extends "base.html" %}
-{% from "_macros.html" import pager, issuer_name with context %}
+{% from "_macros.html" import pager, sort_link, issuer_name, cp_avatar, role_pill with context %}
 {% block title %}Συναλλασσόμενοι{% endblock %}
 {% block content %}
-{% set pct = (with_rule * 100 / suppliers_total)|round|int if suppliers_total else 0 %}
 <style>
-.cp-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(14px,2.2vw,22px);color:#fff;margin-bottom:14px;
-  background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,#1d4f7a,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
-.cp-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;animation:cp-float 13s ease-in-out infinite;pointer-events:none}
-.cp-blob.b1{width:300px;height:300px;background:color-mix(in oklab,#35b8ff,var(--hero-glow) var(--hero-fade));top:-140px;right:-40px}
-.cp-blob.b2{width:220px;height:220px;background:color-mix(in oklab,#1fbf8a,var(--hero-glow) var(--hero-fade));bottom:-140px;left:30%;opacity:.3;animation-delay:-6s}
-@keyframes cp-float{50%{transform:translate(26px,-18px) scale(1.1)}}
-@keyframes cp-rise{from{opacity:0;transform:translateY(16px)}}
-.cp-top{position:relative;display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end}
-.cp-hero h1{margin:0 0 4px;font-size:clamp(1.7rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.02em;color:#fff}
-.cp-hero p{margin:0;color:var(--hero-ink-2);font-size:.92rem;max-width:560px}
-.cp-hero .btn-row{margin:0;display:flex;flex-wrap:wrap;gap:8px}
-.cp-hero .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
-.cp-hero .btn-ghost:hover{background:rgba(255,255,255,.16)}
-.cp-mid{position:relative;display:grid;grid-template-columns:1fr auto;gap:14px;margin-top:22px}
-.cp-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.cp-tile{position:relative;padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);overflow:hidden;
-  animation:cp-rise .55s var(--ease) both;animation-delay:calc(var(--i) * 80ms + 120ms)}
-.cp-tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c)}
-.cp-tile b{display:block;font:800 1.9rem/1.1 var(--font-data)}
-.cp-tile span{font-size:.8rem;color:var(--hero-ink-2)}
-.cp-tile .e{position:absolute;right:12px;top:10px;font-size:1.3rem}
-.cp-ring{display:flex;align-items:center;gap:14px;padding:12px 18px;border-radius:14px;background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.12);animation:cp-rise .55s var(--ease) .45s both}
-.cp-ring div{position:relative;width:78px;height:78px;flex:none}
-.cp-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
-.cp-ring circle{fill:none;stroke-width:8}
-.cp-ring .bg{stroke:rgba(255,255,255,.12)}
-.cp-ring .fg{stroke:url(#cp-grad);stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:calc(100 - var(--p));animation:cp-fill 1.6s var(--ease) .5s both}
-@keyframes cp-fill{from{stroke-dashoffset:100}}
-.cp-ring div b{position:absolute;inset:0;display:grid;place-items:center;font:800 1rem var(--font-data)}
-.cp-ring small{font-size:.8rem;color:var(--hero-ink-2);line-height:1.3}
-.cp-search{position:relative;display:flex;gap:8px;margin-top:18px;animation:cp-rise .55s var(--ease) .55s both}
-.cp-search input{flex:1;padding:12px 16px 12px 42px;border-radius:12px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:.95rem}
+/* Συμπαγής κεφαλίδα: τίτλος + ενέργειες σε μία γραμμή, από κάτω αναζήτηση & φίλτρα */
+.cp-hero{padding:12px 16px;border-radius:16px}
+.cp-hero .cp-top{align-items:center;gap:10px}
+.cp-hero h1{margin:0;font-size:clamp(1.15rem,2.4vw,1.5rem);display:flex;align-items:center;gap:8px}
+.cp-hero h1 .count{font-size:.8rem;background:rgba(255,255,255,.14);color:#fff}
+.cp-hero .btn-row button{padding:7px 12px;font-size:.85rem}
+.cp-search{position:relative;display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;animation:cp-rise .55s var(--ease) .2s both}
+.cp-search select{flex:0 1 auto;width:auto;min-width:0;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:.85rem}
+.cp-search select option{color:var(--ink);background:var(--surface)}
+.cp-search button,.cp-search .btn{padding:8px 14px;font-size:.85rem}
+@media (max-width:640px){
+  .cp-hero .btn-row .lbl{display:none}  /* μόνο εικονίδιο + πλήθος· το κείμενο στο title */
+  .cp-hero .btn-row{flex-direction:row;flex-wrap:nowrap}
+  .cp-hero .btn-row :is(form,button){width:auto}
+  .cp-search select{flex:1 1 calc(33% - 8px)}
+  .cp-search button[type=submit]{display:none}  /* τα φίλτρα εφαρμόζονται αμέσως (JS) */
+}
+.cp-search input{flex:1 1 240px;padding:9px 14px 9px 38px;border-radius:10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:.95rem}
 .cp-search input::placeholder{color:var(--hero-ink)}
 .cp-search input:focus{background:rgba(255,255,255,.16);border-color:var(--hero-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--hero-accent) 25%,transparent)}
-.cp-search::before{content:"🔎";position:absolute;left:14px;top:50%;transform:translateY(-50%);opacity:.8;pointer-events:none}
+.cp-search::before{content:"🔎";position:absolute;left:12px;top:19px;transform:translateY(-50%);opacity:.8;pointer-events:none}
 /* Πίνακας */
 .cp-who{display:flex;align-items:center;gap:12px}
 .cp-who .issuer{flex:1;min-width:0}
-.cp-who .name-input{min-width:min(460px,70vw)}
-.cp-av{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:.85rem;font-style:normal;
-  background:linear-gradient(135deg,hsl(var(--h) 70% 58%),hsl(calc(var(--h) + 40) 65% 45%));transition:transform .3s var(--ease)}
+/* Badges σε σταθερές θέσεις: κάθε είδος στην ίδια στήλη σε όλες τις γραμμές, κι όταν λείπει κάποιο */
+.cp-slots{flex:none;display:grid;grid-template-columns:38px 64px;gap:6px;align-items:center}
+.cp-slots--flags{grid-template-columns:38px 38px;min-height:38px}  /* ύψος avatar: ίδια ευθεία με τα badges ρόλου */
+.cp-slots > *{grid-row:1;justify-content:center;text-align:center;padding-inline:0}
+.cp-slots .pill--role,.cp-slots .cp-rule{grid-column:1}
+.cp-slots .cp-docs,.cp-slots .cp-review{grid-column:2}
 .ledger tbody tr:hover .cp-av{transform:scale(1.08) rotate(-6deg)}
-.cp-card .rule-list li{padding:3px 0}
-.cp-card .actions{flex-wrap:nowrap}
 .cp-card{transition:opacity .2s}
 .cp-card.is-loading{opacity:.55;pointer-events:none}
 .cp-search .btn[hidden]{display:none}
-@media (max-width:760px){ .cp-mid{grid-template-columns:1fr} .cp-tiles{grid-template-columns:repeat(2,minmax(0,1fr))} }
-@media (prefers-reduced-motion:reduce){ .cp-hero *{animation:none!important} }
+/* Μικρό πλάτος (κάρτες): 1η γραμμή ΑΦΜ, 2η avatar + επωνυμία, 3η όλα τα badges + Διαχείριση· χωρίς ετικέτες.
+   Το κελί επωνυμίας «διαλύεται» (display:contents) ώστε avatar/όνομα/badges να μπουν σε χωριστές γραμμές. */
+@container (max-width:1000px){
+  .cp-card .ledger tbody tr{display:grid;grid-template-columns:38px auto auto 1fr auto;gap:6px 10px;align-items:center;padding:10px 14px}
+  .cp-card .ledger tbody td{display:block;padding:0;border:0}
+  .cp-card .ledger tbody td::before{display:none}
+  .cp-card .ledger tbody td.cp-name,.cp-card .cp-who{display:contents}
+  .cp-card td.mark{grid-area:1/1/2/-1}
+  .cp-card .cp-av{grid-area:2/1}
+  .cp-card .cp-who .issuer{grid-area:2/2/3/-1;text-align:left}
+  .cp-card td.cp-name > small{grid-area:3/2/4/-1}
+  .cp-card .cp-who .cp-slots{grid-area:4/1/5/3}
+  .cp-card td.cp-flags{grid-area:4/3}
+  .cp-card td.cp-act{grid-area:4/5}
+}
 </style>
 
 <header class="cp-hero">
   <i class="cp-blob b1"></i><i class="cp-blob b2"></i>
-  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-    <defs><linearGradient id="cp-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#35b8ff"/><stop offset="1" stop-color="#4fd1a0"/></linearGradient></defs>
-  </svg>
   <div class="cp-top">
-    <div>
-      <h1>👥 Συναλλασσόμενοι</h1>
-      <p>Πελάτες και προμηθευτές της ενεργής εταιρείας: επωνυμία ανά ΑΦΜ και πρόταση χαρακτηρισμού.</p>
-    </div>
+    <h1>👥 Συναλλασσόμενοι <span class="count">{{ suppliers_total }}</span></h1>
     <div class="btn-row">
       {% if latest %}
       <form method="post" action="{{ url_for('suppliers_rules_from_latest') }}" class="inline-form">
         <input type="hidden" name="q" value="{{ q }}">
         <button type="submit" class="btn-ghost" title="Όσοι δεν έχουν πρόταση παίρνουν τον χαρακτηρισμό της τελευταίας ολοκληρωμένης εγγραφής τους"
-                data-confirm="Θα οριστούν προτάσεις χαρακτηρισμού για {{ latest|length }} συναλλασσόμενους από την τελευταία ολοκληρωμένη εγγραφή τους. Συνέχεια;">💡 Αντιγραφή χαρακτηρισμών ({{ latest|length }})</button>
+                data-confirm="Θα οριστούν προτάσεις χαρακτηρισμού για {{ latest|length }} συναλλασσόμενους από την τελευταία ολοκληρωμένη εγγραφή τους. Συνέχεια;">💡<span class="lbl"> Αντιγραφή χαρακτηρισμών</span> ({{ latest|length }})</button>
       </form>
       {% endif %}
       {% if shown_with_rule %}
       <form method="post" action="{{ url_for('suppliers_rules_delete') }}" class="inline-form">
         <input type="hidden" name="q" value="{{ q }}">
         <button type="submit" class="btn-ghost" title="Σβήνει τις προτάσεις χαρακτηρισμού{{ ' όσων φαίνονται με την αναζήτηση' if q }} — μετά ξαναγίνονται από την τελευταία εγγραφή"
-                data-confirm="Θα διαγραφούν οι προτάσεις χαρακτηρισμού {{ shown_with_rule }} συναλλασσόμενων{{ ' (αναζήτηση «' ~ q ~ '»)' if q }} της ενεργής εταιρείας. Μετά μπορείς να τις ξαναπάρεις από την τελευταία εγγραφή με «Αντιγραφή χαρακτηρισμών». Συνέχεια;">🧹 Διαγραφή προτάσεων ({{ shown_with_rule }})</button>
+                data-confirm="Θα διαγραφούν οι προτάσεις χαρακτηρισμού {{ shown_with_rule }} συναλλασσόμενων{{ ' (αναζήτηση «' ~ q ~ '»)' if q }} της ενεργής εταιρείας. Μετά μπορείς να τις ξαναπάρεις από την τελευταία εγγραφή με «Αντιγραφή χαρακτηρισμών». Συνέχεια;">🧹<span class="lbl"> Διαγραφή προτάσεων</span> ({{ shown_with_rule }})</button>
       </form>
       {% endif %}
-      <button type="button" commandfor="sup-dialog" command="show-modal">+ Προσθήκη / Εισαγωγή–Εξαγωγή</button>
-    </div>
-  </div>
-
-  <div class="cp-mid">
-    <div class="cp-tiles">
-      {% for n, lbl, e, c in [(suppliers_total, 'Συναλλασσόμενοι', '👥', '#35b8ff'), (with_rule, 'Με πρόταση', '💡', '#4fd1a0'),
-                              (suppliers_total - with_rule, 'Χωρίς πρόταση', '❔', '#f2c265'), (latest|length, 'Έτοιμοι για αντιγραφή', '📋', '#bba2ff')] %}
-      <div class="cp-tile" style="--i:{{ loop.index0 }};--c:{{ c }}"><span class="e" aria-hidden="true">{{ e }}</span><b data-count="{{ n }}">{{ n }}</b><span>{{ lbl }}</span></div>
-      {% endfor %}
-    </div>
-    <div class="cp-ring" title="{{ with_rule }} από {{ suppliers_total }} έχουν πρόταση χαρακτηρισμού">
-      <div><svg viewBox="0 0 40 40"><circle class="bg" cx="20" cy="20" r="15.9" pathLength="100"/>
-        <circle class="fg" cx="20" cy="20" r="15.9" pathLength="100" style="--p:{{ pct }}"/></svg><b>{{ pct }}%</b></div>
-      <small><b>{{ with_rule }}</b> από {{ suppliers_total }}<br>με πρόταση</small>
+      <button type="button" commandfor="sup-dialog" command="show-modal" title="Προσθήκη / Εισαγωγή–Εξαγωγή">+<span class="lbl"> Προσθήκη / Εισαγωγή–Εξαγωγή</span></button>
     </div>
   </div>
 
   {% if suppliers_total %}
   <form method="get" action="{{ url_for('suppliers') }}" class="cp-search" role="search">
     <input type="search" name="q" value="{{ q }}" placeholder="Αναζήτηση με ΑΦΜ ή επωνυμία…" aria-label="Αναζήτηση με ΑΦΜ ή επωνυμία">
+    <input type="hidden" name="sort" value="{{ params.sort }}">
+    <input type="hidden" name="dir" value="{{ params.dir }}">
+    {% for name, label, opts in [
+         ('role', 'Ρόλος', [('', 'Όλοι οι ρόλοι'), ('income', '🛒 Πελάτες'), ('expense', '🚚 Προμηθευτές'), ('both', '🔁 Και τα δύο'), ('none', 'Χωρίς παραστατικά')]),
+         ('rule', 'Πρόταση', [('', 'Με/χωρίς πρόταση'), ('1', '💡 Με πρόταση'), ('0', 'Χωρίς πρόταση')]),
+         ('review', 'Επιβεβαίωση', [('', 'Με/χωρίς επιβεβαίωση'), ('1', '⏸ Με επιβεβαίωση'), ('0', 'Χωρίς επιβεβαίωση')])] %}
+    <select name="{{ name }}" aria-label="{{ label }}">
+      {% for v, l in opts %}<option value="{{ v }}" {{ 'selected' if (params[name] or '') == v }}>{{ l }}</option>{% endfor %}
+    </select>
+    {% endfor %}
     <button type="submit">Φίλτρο</button>
-    <a class="btn btn-ghost" href="{{ url_for('suppliers') }}" data-cp-clear {{ 'hidden' if not q }}>Καθαρισμός</a>
+    <a class="btn btn-ghost" href="{{ url_for('suppliers') }}" data-cp-clear {{ 'hidden' if not has_filter }}>Καθαρισμός</a>
   </form>
   {% endif %}
 </header>
@@ -117,7 +105,7 @@
   <p class="muted prose">
     Οι <strong>επωνυμίες</strong> (ΑΦΜ → επωνυμία) είναι κοινές για <strong>όλες τις εταιρείες</strong>· οι
     <strong>προτάσεις χαρακτηρισμού</strong> είναι ανά εταιρεία. Οι επωνυμίες συμπληρώνονται αυτόματα από τις
-    αναζητήσεις· διόρθωση γίνεται και απευθείας στον πίνακα (✎).
+    αναζητήσεις· διόρθωση γίνεται και από τη «Διαχείριση» κάθε συναλλασσόμενου (✎).
   </p>
 
   <form method="post" action="{{ url_for('suppliers_save') }}" class="panel grid grid-supplier">
@@ -147,67 +135,44 @@
 </dialog>
 
 <div class="card cp-card">
-  <h2>Κατάλογος <span class="count">{{ filtered_total if q else suppliers_total }}</span></h2>
-  {% if q %}<p class="muted result-info">{{ filtered_total }} αποτελέσματα για «{{ q }}» (από {{ suppliers_total }})</p>{% endif %}
+  <h2>Κατάλογος <span class="count">{{ filtered_total if has_filter else suppliers_total }}</span></h2>
+  {% if has_filter %}<p class="muted result-info">{{ filtered_total }} αποτελέσματα{{ ' για «' ~ q ~ '»' if q }} (από {{ suppliers_total }})</p>{% endif %}
   {% if suppliers %}
   <div class="table-wrap">
   <table class="ledger">
     <thead>
-      <tr><th>ΑΦΜ</th><th>Επωνυμία</th><th>Πρόταση χαρακτηρισμού (ενεργής εταιρείας)</th><th></th></tr>
+      <tr><th>{{ sort_link('suppliers', params, 'vat', 'ΑΦΜ') }}</th><th><div class="cp-who"><span class="issuer">{{ sort_link('suppliers', params, 'name', 'Επωνυμία') }}</span>
+        <span class="cp-slots"><span class="cp-docs">{{ sort_link('suppliers', params, 'docs', 'Παρ.') }}</span></span></div></th><th></th><th></th></tr>
     </thead>
     <tbody>
       {% for s in suppliers %}
       <tr>
         <td data-label="ΑΦΜ" class="mark">{{ s.vat }}</td>
-        <td data-label="Επωνυμία"><div class="cp-who">
-          <i class="cp-av" style="--h:{{ (s.vat[-3:]|int(0) * 7) % 360 }}" aria-hidden="true">
-            {%- for w in (s.name|cpname or '?').split()[:2] %}{{ w[0]|upper }}{% endfor -%}
-          </i>
-          <span class="issuer" data-vat="{{ s.vat }}">{{ issuer_name({'issuer_name': s.name, 'issuer_vat': s.vat}) }}</span>
+        <td data-label="Επωνυμία" class="cp-name"><div class="cp-who">
+          {% set st = stats.get(s.vat, {}) %}
+          {{ cp_avatar(s.name, st.role) }}
+          <span class="issuer" data-vat="{{ s.vat }}">{{ issuer_name({'issuer_name': s.name, 'issuer_vat': s.vat}, editable=false) }}</span>
+          <span class="cp-slots">
+            {{ role_pill(st.role) }}
+            {% if st.docs %}<span class="pill cp-docs" title="Παραστατικά στην ενεργή εταιρεία">📄 {{ st.docs }}</span>{% endif %}
+          </span>
         </div>
         {% if s.country and s.country != 'GR' %}
         <small class="muted">{{ s.country }} · {{ [s.street, ((s.postal_code or '') ~ ' ' ~ (s.city or ''))|trim]|select|join(', ') }}</small>
         {% endif %}</td>
-        <td data-label="Πρόταση" class="series">
+        <td data-label="Πρόταση" class="series cp-flags">
           {% set pats = patterns.get(s.vat, {}) %}
-          {% if pats %}
-            {# Προτάσεις ανά κατηγορία ΦΠΑ γραμμής (μαθαίνονται από κάθε χαρακτηρισμό). #}
-            <ul class="rule-list">
-              {% for cat, p in pats|dictsort %}
-              <li><span class="pill">{{ vat_label(cat) }}</span> {{ p.category }} / {{ p.type }}{% if p.vat_type %} / {{ p.vat_type }}{% endif %}</li>
-              {% endfor %}
-            </ul>
-          {% elif rules.get(s.vat) %}{% set r = rules[s.vat] %}{{ r.category or "" }} / {{ r.type }}{% if r.vat_type %} / {{ r.vat_type }}{% endif %}
-          {% elif latest.get(s.vat) %}{% set d = latest[s.vat] %}
-            <form method="post" action="{{ url_for('document_as_rule', mark=d.mark) }}" class="inline-form">
-              <input type="hidden" name="next" value="{{ request.full_path }}">
-              <button type="submit" class="btn-ghost btn-sm"
-                      title="Χαρακτηρισμός της τελευταίας ολοκληρωμένης εγγραφής: MARK {{ d.mark }} ({{ d.issue_date }})">💡 Αντιγραφή από την τελευταία</button>
-            </form>
-          {% else %}—{% endif %}
-          {% if s.vat in review %}<span class="pill" title="Ο αυτόματος κύκλος χαρακτηρίζει αλλά δεν στέλνει">⏸ επιβεβαίωση</span>{% endif %}
+          <span class="cp-slots cp-slots--flags">
+          {% if pats or rules.get(s.vat) %}
+            <span class="pill cp-rule" title="{% for cat, p in pats|dictsort %}{{ vat_label(cat) }}: {{ p.category }} / {{ p.type }}{% if p.vat_type %} / {{ p.vat_type }}{% endif %}&#10;{% else %}{% set r = rules[s.vat] %}{{ r.category or '' }} / {{ r.type }}{% if r.vat_type %} / {{ r.vat_type }}{% endif %}{% endfor %}" aria-label="Έχει πρόταση">💡</span>
+          {% else %}<span class="muted cp-rule">—</span>{% endif %}
+          {% if s.vat in review %}<span class="pill cp-review" title="Επιβεβαίωση πριν την αποστολή: ο αυτόματος κύκλος χαρακτηρίζει αλλά δεν στέλνει" aria-label="Επιβεβαίωση πριν την αποστολή">⏸</span>{% endif %}
+          </span>
         </td>
-        <td data-label="">
+        <td data-label="" class="cp-act">
           <div class="actions">
             <a class="btn btn-ghost" href="{{ url_for('supplier_rules', vat=s.vat, back=request.full_path) }}"
-               title="Αλλαγή προτάσεων χαρακτηρισμού (ανά κατηγορία ΦΠΑ)">Προτάσεις</a>
-            {% if patterns.get(s.vat) or rules.get(s.vat) %}
-            <form method="post" action="{{ url_for('suppliers_rules_delete') }}" class="inline-form">
-              <input type="hidden" name="vat" value="{{ s.vat }}">
-              <input type="hidden" name="back" value="{{ request.full_path }}">
-              <button type="submit" class="btn-ghost" title="Σβήνει τις προτάσεις — μετά ξαναγίνονται από την τελευταία εγγραφή"
-                      aria-label="Διαγραφή προτάσεων {{ s.vat }}"
-                      data-confirm="Θα διαγραφούν οι προτάσεις χαρακτηρισμού του {{ s.vat }}. Μετά μπορείς να τις ξαναπάρεις από την τελευταία εγγραφή. Συνέχεια;">🧹</button>
-            </form>
-            {% endif %}
-            {% if s.vat in with_docs %}
-            <span title="Έχει κινήσεις (παραστατικά) — δεν διαγράφεται"><button type="button" class="btn-danger" disabled>Διαγραφή</button></span>
-            {% else %}
-            <form method="post" action="{{ url_for('suppliers_delete', vat=s.vat) }}" class="inline-form">
-              <input type="hidden" name="back" value="{{ request.full_path }}">
-              <button type="submit" class="btn-danger" data-confirm="Διαγραφή του συναλλασσόμενου {{ s.vat }};">Διαγραφή</button>
-            </form>
-            {% endif %}
+               title="Καρτέλα συναλλασσόμενου: προτάσεις, αντιγραφή, διαγραφή">⚙ Διαχείριση</a>
           </div>
         </td>
       </tr>
@@ -215,9 +180,9 @@
     </tbody>
   </table>
   </div>
-  {{ pager('suppliers', {'q': q} if q else {}, page, total_pages) }}
-  {% elif q %}
-  <div class="empty"><b>Κανένα αποτέλεσμα</b>για «{{ q }}». <a href="{{ url_for('suppliers') }}">Καθαρισμός φίλτρου</a></div>
+  {{ pager('suppliers', params, page, total_pages) }}
+  {% elif has_filter %}
+  <div class="empty"><b>Κανένα αποτέλεσμα</b>με τα τρέχοντα φίλτρα. <a href="{{ url_for('suppliers') }}" data-cp-clear>Καθαρισμός φίλτρων</a></div>
   {% else %}
   <div class="empty"><b>Δεν υπάρχουν συναλλασσόμενοι ακόμη</b>Πρόσθεσε έναν ή κάνε εισαγωγή από αρχείο (κουμπί πάνω δεξιά).</div>
   {% endif %}
@@ -227,28 +192,20 @@
 
 {% block scripts %}
 <script>
-// Μετρητές που «ανεβαίνουν».
-(function(){
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches || 'samePage' in document.documentElement.dataset) return;
-  document.querySelectorAll('.cp-hero [data-count]').forEach(function(el){
-    var to = +el.dataset.count, t0 = null;
-    if (!to) return;
-    el.textContent = '0';
-    requestAnimationFrame(function step(t){
-      t0 = t0 || t;
-      var k = Math.min((t - t0) / 900, 1);
-      el.textContent = Math.round(to * (1 - Math.pow(1 - k, 3)));
-      if (k < 1) requestAnimationFrame(step);
-    });
-  });
-})();
-
 // Αναζήτηση & σελιδοποίηση με AJAX: αλλάζει μόνο η κάρτα του καταλόγου, η κεφαλίδα μένει ως έχει.
 (function(){
   var form = document.querySelector('.cp-search');
   if (!form) return;
   var input = form.q, clear = form.querySelector('[data-cp-clear]'), timer, ctrl;
+  var FIELDS = ['q', 'sort', 'dir', 'role', 'rule', 'review'];
 
+  // Η φόρμα (αναζήτηση, φίλτρα badges, ταξινόμηση) ακολουθεί τις παραμέτρους του URL.
+  function syncForm(url) {
+    var p = new URL(url, location.href).searchParams;
+    FIELDS.forEach(function(k){ form[k].value = p.get(k) || (k === 'sort' ? 'name' : k === 'dir' ? 'asc' : ''); });
+    clear.hidden = !['q', 'role', 'rule', 'review'].some(function(k){ return p.get(k); });
+    document.querySelectorAll('input[type=hidden][name=q]').forEach(function(h){ if (h.form !== form) h.value = form.q.value; });
+  }
   function load(url, push) {
     var card = document.querySelector('.cp-card');
     if (ctrl) ctrl.abort();
@@ -257,36 +214,33 @@
     fetch(url, {signal: ctrl.signal}).then(function(r){ return r.text(); }).then(function(html){
       var doc = new DOMParser().parseFromString(html, 'text/html');
       card.replaceWith(doc.querySelector('.cp-card'));
-      var q = new URL(url, location.href).searchParams.get('q') || '';
-      clear.hidden = !q;
-      document.querySelectorAll('input[type=hidden][name=q]').forEach(function(h){ h.value = q; });
+      syncForm(url);
       if (push) history.pushState(null, '', url);
     }).catch(function(e){
       if (e.name !== 'AbortError') location.href = url;  // αποτυχία: κανονική πλοήγηση
     });
   }
   function searchUrl() {
-    var v = input.value.trim();
-    return form.action + (v ? '?q=' + encodeURIComponent(v) : '');
+    var p = new URLSearchParams();
+    FIELDS.forEach(function(k){ var v = form[k].value.trim(); if (v) p.set(k, v); });
+    return form.action + (p.toString() ? '?' + p : '');
   }
 
   form.addEventListener('submit', function(e){ e.preventDefault(); clearTimeout(timer); load(searchUrl(), true); });
+  form.addEventListener('change', function(e){ if (e.target.tagName === 'SELECT') load(searchUrl(), true); });
   input.addEventListener('input', function(){
     clearTimeout(timer);
     timer = setTimeout(function(){ load(searchUrl(), true); }, 300);
   });
-  clear.addEventListener('click', function(e){ e.preventDefault(); input.value = ''; load(form.action, true); input.focus(); });
   document.addEventListener('click', function(e){
-    var a = e.target.closest('.cp-card .pager a');
+    var a = e.target.closest('[data-cp-clear], .cp-card .pager a, .cp-card thead a');
     if (!a || e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.preventDefault();
     load(a.href, true);
-    document.querySelector('.cp-card').scrollIntoView({behavior: 'smooth', block: 'start'});
+    if (a.matches('[data-cp-clear]')) input.focus();
+    else if (a.closest('.pager')) document.querySelector('.cp-card').scrollIntoView({behavior: 'smooth', block: 'start'});
   });
-  addEventListener('popstate', function(){
-    input.value = new URL(location.href).searchParams.get('q') || '';
-    load(location.href, false);
-  });
+  addEventListener('popstate', function(){ load(location.href, false); });
 })();
 </script>
 {% endblock %}

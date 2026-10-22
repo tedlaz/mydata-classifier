@@ -1276,6 +1276,20 @@ def upsert_supplier(vat: str, name: str | None) -> None:
         )
 
 
+def counterparty_stats(company_id: int | None) -> dict[str, dict]:
+    """{vat: {"role": "income" | "expense" | "both", "docs": n}}: πελάτης / προμηθευτής / και τα δύο
+    και πλήθος παραστατικών, από τα παραστατικά της εταιρείας."""
+    out: dict[str, dict] = {}
+    with get_conn() as conn:
+        for vat, kind, n in conn.execute("SELECT counterparty_vat, kind, COUNT(*) FROM documents "
+                                         "WHERE company_id = ? AND counterparty_vat IS NOT NULL "
+                                         "GROUP BY counterparty_vat, kind", (company_id,)):
+            s = out.setdefault(vat, {"role": kind, "docs": 0})
+            s["role"] = "both" if s["role"] != kind else kind
+            s["docs"] += n
+    return out
+
+
 def vats_with_documents() -> set[str]:
     """ΑΦΜ με παραστατικά σε οποιαδήποτε εταιρεία (ο κατάλογος συναλλασσόμενων είναι κοινός)."""
     with get_conn() as conn:

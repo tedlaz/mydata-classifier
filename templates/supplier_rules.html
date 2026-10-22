@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import issuer_name, cp_avatar, role_pill with context %}
 {% block title %}Προτάσεις {{ vat }}{% endblock %}
 
 {# Μία πρόταση: κατηγορία ΦΠΑ γραμμής → κατηγορία εξόδου + τύπος Ε3 + χαρακτηρισμός ΦΠΑ. #}
@@ -44,44 +45,110 @@
 {%- endmacro %}
 
 {% block content %}
-<a class="back" href="{{ back }}">← Πίσω στους συναλλασσόμενους</a>
-<div class="page-head">
-  <div>
-    <h1>Προτάσεις χαρακτηρισμού</h1>
-    <p class="page-sub">{{ name|cpname or "Χωρίς επωνυμία" }} · ΑΦΜ <span class="mono">{{ vat }}</span> · ενεργή εταιρεία</p>
-  </div>
-</div>
+{% set s = supplier %}
+<style>
+.sr-who{display:flex;align-items:center;gap:14px;min-width:0}
+.sr-who .cp-av{width:56px;height:56px;border-radius:16px;font-size:1.2rem}
+.sr-who h1 .name-edit{color:#fff;opacity:.7}
+.sr-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.sr-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:14px}
+.sr-grid .card{margin:0}
+.sr-grid h2,.sr-rules h2{margin:0 0 4px;font-size:1rem}
+.sr-grid .muted{margin:0 0 12px;font-size:.84rem}
+.sr-check{display:flex;gap:10px;align-items:flex-start;text-transform:none;letter-spacing:0;font-weight:600;cursor:pointer}
+.sr-check input{margin-top:3px}
+.sr-check small{display:block;font-weight:400;color:var(--muted)}
+.sr-rules .muted{font-size:.84rem}
+.sr-save{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:8px;padding:12px 0 4px;
+  background:linear-gradient(transparent,var(--surface) 35%)}
+@media (max-width:760px){ .sr-grid{grid-template-columns:1fr} }
+</style>
 
-<form method="post" class="card" id="rules-form">
+<a class="back" href="{{ back }}">← Πίσω στους συναλλασσόμενους</a>
+
+<header class="cp-hero">
+  <i class="cp-blob b1"></i><i class="cp-blob b2"></i>
+  <div class="cp-top">
+    <div class="sr-who">
+      {{ cp_avatar(s.name, role) }}
+      <div>
+        <h1 class="issuer" data-vat="{{ vat }}">{{ issuer_name({'issuer_name': s.name, 'issuer_vat': vat}, empty='Χωρίς επωνυμία') }}</h1>
+        <p>ΑΦΜ <span class="mono">{{ vat }}</span>{% if s.country and s.country != 'GR' %} · {{ s.country }} ·
+          {{ [s.street, ((s.postal_code or '') ~ ' ' ~ (s.city or ''))|trim]|select|join(', ') }}{% endif %}</p>
+        <div class="sr-meta">
+          <span class="pill">{{ '💡 Με πρόταση' if has_rules else '❔ Χωρίς πρόταση' }}</span>
+          {% if review %}<span class="pill">⏸ Επιβεβαίωση πριν την αποστολή</span>{% endif %}
+          {{ role_pill(role) if role else '<span class="pill">📄 Χωρίς κινήσεις</span>'|safe }}
+        </div>
+      </div>
+    </div>
+    <div class="btn-row">
+      {% if latest %}
+      <form method="post" action="{{ url_for('document_as_rule', mark=latest.mark) }}" class="inline-form">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <button type="submit" class="btn-ghost" title="Χαρακτηρισμός της τελευταίας ολοκληρωμένης εγγραφής: MARK {{ latest.mark }} ({{ latest.issue_date }})"
+                {% if has_rules %}data-confirm="Οι τρέχουσες προτάσεις θα αντικατασταθούν από τον χαρακτηρισμό του MARK {{ latest.mark }} ({{ latest.issue_date }}). Συνέχεια;"{% endif %}>💡 Αντιγραφή από την τελευταία</button>
+      </form>
+      {% endif %}
+      {% if has_rules %}
+      <form method="post" action="{{ url_for('suppliers_rules_delete') }}" class="inline-form">
+        <input type="hidden" name="vat" value="{{ vat }}">
+        <input type="hidden" name="back" value="{{ request.full_path }}">
+        <button type="submit" class="btn-ghost" title="Μετά ξαναγίνονται από την τελευταία εγγραφή"
+                data-confirm="Θα διαγραφούν οι προτάσεις χαρακτηρισμού του {{ vat }}. Μετά μπορείς να τις ξαναπάρεις από την τελευταία εγγραφή. Συνέχεια;">🧹 Σβήσιμο προτάσεων</button>
+      </form>
+      {% endif %}
+      {% if has_docs %}
+      <span title="Έχει κινήσεις (παραστατικά) — δεν διαγράφεται"><button type="button" class="btn-danger" disabled>🗑 Διαγραφή</button></span>
+      {% else %}
+      <form method="post" action="{{ url_for('suppliers_delete', vat=vat) }}" class="inline-form">
+        <input type="hidden" name="back" value="{{ back }}">
+        <button type="submit" class="btn-danger" data-confirm="Διαγραφή του συναλλασσόμενου {{ vat }};">🗑 Διαγραφή</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</header>
+
+<form method="post" id="rules-form">
   <input type="hidden" name="back" value="{{ back }}">
-  <p class="muted prose">
-    Κάθε γραμμή παραστατικού του προμηθευτή προσυμπληρώνεται με την πρόταση της <strong>κατηγορίας ΦΠΑ</strong> της
-    (π.χ. 24% → έξοδα με ΦΠΑ, 0% → χωρίς δικαίωμα έκπτωσης). Η <strong>βασική</strong> ισχύει για όσες κατηγορίες ΦΠΑ
-    δεν έχουν δική τους γραμμή· αν λείπει, βασική γίνεται η πρώτη. Χωρίς καμία γραμμή, οι προτάσεις διαγράφονται.
-  </p>
-  <div class="btn-row">
-    <fieldset class="seg" title="Τρόπος χαρακτηρισμού (και στον μαζικό χαρακτηρισμό με την πρόταση)">
-      <legend class="sr-only">Τρόπος χαρακτηρισμού</legend>
-      <label title="Κάθε γραμμή του παραστατικού χαρακτηρίζεται χωριστά">
-        <input type="radio" name="post_mode" value="0" {{ 'checked' if not post_mode }}> Ανά γραμμή</label>
-      <label title="Οι γραμμές αθροίζονται ανά κατηγορία ΦΠΑ και χαρακτηρίζονται μαζί">
-        <input type="radio" name="post_mode" value="1" {{ 'checked' if post_mode }}> Συγκεντρωτικά</label>
-    </fieldset>
-    <label title="Για προμηθευτές με διάφορα είδη: ελέγχεις τον χαρακτηρισμό και τον στέλνεις εσύ από τα «Χαρακτηρισμένα»">
-      <input type="checkbox" name="review" value="1" {{ 'checked' if review }}>
-      ⏸ Επιβεβαίωση πριν την αποστολή (ο αυτόματος κύκλος χαρακτηρίζει αλλά δεν στέλνει)</label>
+  <div class="sr-grid">
+    <section class="card">
+      <h2>Τρόπος χαρακτηρισμού</h2>
+      <p class="muted">Ισχύει και στον μαζικό χαρακτηρισμό με την πρόταση.</p>
+      <fieldset class="seg">
+        <legend class="sr-only">Τρόπος χαρακτηρισμού</legend>
+        <label title="Κάθε γραμμή του παραστατικού χαρακτηρίζεται χωριστά">
+          <input type="radio" name="post_mode" value="0" {{ 'checked' if not post_mode }}> Ανά γραμμή</label>
+        <label title="Οι γραμμές αθροίζονται ανά κατηγορία ΦΠΑ και χαρακτηρίζονται μαζί">
+          <input type="radio" name="post_mode" value="1" {{ 'checked' if post_mode }}> Συγκεντρωτικά</label>
+      </fieldset>
+    </section>
+    <section class="card">
+      <h2>Αυτόματος κύκλος</h2>
+      <p class="muted">Για προμηθευτές με διάφορα είδη.</p>
+      <label class="sr-check">
+        <input type="checkbox" name="review" value="1" {{ 'checked' if review }}>
+        <span>⏸ Επιβεβαίωση πριν την αποστολή
+          <small>Χαρακτηρίζει αλλά δεν στέλνει· τον στέλνεις εσύ από τα «Χαρακτηρισμένα».</small></span>
+      </label>
+    </section>
   </div>
-  <div id="rule-rows">
-    {% for r in rows %}{{ rule_row(r) }}{% endfor %}
-  </div>
-  <template id="rule-tpl">{{ rule_row({'vat_category': '1', 'category': '', 'type': '', 'vat_type': 'VAT_361'}) }}</template>
-  <div class="btn-row">
+
+  <section class="card sr-rules">
+    <h2>Προτάσεις ανά κατηγορία ΦΠΑ</h2>
+    <p class="muted">Κάθε γραμμή παραστατικού παίρνει την πρόταση της κατηγορίας ΦΠΑ της. Η <strong>βασική</strong> ισχύει
+      για όσες δεν έχουν δική τους γραμμή (αν λείπει, γίνεται η πρώτη). Χωρίς γραμμές, οι προτάσεις διαγράφονται.</p>
+    <div id="rule-rows">
+      {% for r in rows %}{{ rule_row(r) }}{% endfor %}
+    </div>
+    <template id="rule-tpl">{{ rule_row({'vat_category': '1', 'category': '', 'type': '', 'vat_type': 'VAT_361'}) }}</template>
     <button type="button" class="btn-ghost btn-sm" id="rule-add">+ Γραμμή</button>
-  </div>
-  <div class="btn-row">
-    <a class="btn btn-ghost" href="{{ back }}">Άκυρο</a>
-    <button type="submit">💾 Αποθήκευση προτάσεων</button>
-  </div>
+    <div class="sr-save">
+      <a class="btn btn-ghost" href="{{ back }}">Άκυρο</a>
+      <button type="submit">💾 Αποθήκευση</button>
+    </div>
+  </section>
 </form>
 {% endblock %}
 

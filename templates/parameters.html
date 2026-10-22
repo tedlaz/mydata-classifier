@@ -348,6 +348,19 @@
     </div>
     <p class="muted small">Logs των ενεργειών με το myDATA ανά εταιρεία (Ανάκτηση → «Ιστορικό συνδέσεων»).</p>
   </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Ιστορικό αυτόματου κύκλου</h2>
+      <form method="post" action="{{ url_for('parameters_backup') }}" class="bk-keep">
+        <label for="keep-cycle">Κρατούνται</label>
+        <input id="keep-cycle" type="number" name="keep_cycle_logs" min="1" max="500" value="{{ keep_cycle }}" required>
+        <span class="muted small">τελευταία</span>
+        <button type="submit" class="btn-ghost btn-sm">Αποθήκευση</button>
+      </form>
+    </div>
+    <p class="muted small">Logs των εκτελέσεων του αυτόματου κύκλου (σελίδα «Αυτόματος κύκλος»).</p>
+  </div>
 </section>
 
 <section class="pm-panel" id="pm-combinations" role="tabpanel" aria-labelledby="pm-tab-combinations" {{ 'hidden' if active_tab != 'combinations' }}>
