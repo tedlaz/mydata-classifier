@@ -35,6 +35,7 @@
 .cp-slots .cp-docs,.cp-slots .cp-review{grid-column:2}
 .ledger tbody tr:hover .cp-av{transform:scale(1.08) rotate(-6deg)}
 .cp-card{transition:opacity .2s}
+.cp-card tbody tr[data-href]{cursor:pointer}
 .cp-card.is-loading{opacity:.55;pointer-events:none}
 .cp-search .btn[hidden]{display:none}
 /* Μικρό πλάτος (κάρτες): 1η γραμμή ΑΦΜ, 2η avatar + επωνυμία, 3η όλα τα badges + Διαχείριση· χωρίς ετικέτες.
@@ -146,7 +147,7 @@
     </thead>
     <tbody>
       {% for s in suppliers %}
-      <tr>
+      <tr data-href="{{ url_for('supplier_documents', vat=s.vat, back=request.full_path) }}" tabindex="0" title="Παραστατικά του συναλλασσόμενου">
         <td data-label="ΑΦΜ" class="mark">{{ s.vat }}</td>
         <td data-label="Επωνυμία" class="cp-name"><div class="cp-who">
           {% set st = stats.get(s.vat, {}) %}
@@ -242,5 +243,15 @@
   });
   addEventListener('popstate', function(){ load(location.href, false); });
 })();
+
+// Κλικ / Enter στη γραμμή = παραστατικά του συναλλασσόμενου (όχι στα κουμπιά ή σε επιλογή κειμένου).
+function cpOpenRow(e) {
+  var tr = e.target.closest('.cp-card tbody tr[data-href]');
+  if (!tr || e.target.closest('a,button,input,select') || String(getSelection())) return;
+  if (e.type === 'keydown' && (e.key !== 'Enter' || e.target !== tr)) return;
+  if (e.ctrlKey || e.metaKey) window.open(tr.dataset.href, '_blank'); else location.href = tr.dataset.href;
+}
+document.addEventListener('click', cpOpenRow);
+document.addEventListener('keydown', cpOpenRow);
 </script>
 {% endblock %}

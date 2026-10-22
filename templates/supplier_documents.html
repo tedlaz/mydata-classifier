@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "_macros.html" import type_badge, cp_avatar, role_pill, pager with context %}
+{% block title %}Παραστατικά {{ vat }}{% endblock %}
+{% set status_names = {'unclassified': 'Αχαρακτήριστο', 'classified': 'Προς αποστολή', 'sent': 'Απεσταλμένο', 'confirmed': 'Επιβεβαιωμένο'} %}
+{% block content %}
+{% set s = supplier %}
+<style>
+.cp-hero{padding:12px 16px;border-radius:16px}
+.cp-hero .cp-top{align-items:center;gap:10px}
+.sd-who{display:flex;align-items:center;gap:12px;min-width:0}
+.cp-hero h1{margin:0;font-size:clamp(1.1rem,2.4vw,1.4rem)}
+.cp-hero p{margin:2px 0 0;font-size:.85rem}
+.sd-kind{font-weight:600}
+</style>
+
+<a class="back" href="{{ back }}">← Πίσω στους συναλλασσόμενους</a>
+
+<header class="cp-hero">
+  <i class="cp-blob b1"></i><i class="cp-blob b2"></i>
+  <div class="cp-top">
+    <div class="sd-who">
+      {{ cp_avatar(s.name, stats.role) }}
+      <div>
+        <h1>{{ s.name|cpname or 'Χωρίς επωνυμία' }}</h1>
+        <p>ΑΦΜ <span class="mono">{{ vat }}</span> {{ role_pill(stats.role) }} <span class="pill">📄 {{ stats.docs or 0 }}</span></p>
+      </div>
+    </div>
+    <div class="btn-row">
+      <a class="btn btn-ghost" href="{{ url_for('supplier_rules', vat=vat, back=request.full_path) }}">⚙ Διαχείριση</a>
+    </div>
+  </div>
+</header>
+
+<div class="card ledger-card">
+  <h2>Παραστατικά <span class="count">{{ stats.docs or 0 }}</span></h2>
+  {% if docs %}
+  <div class="table-wrap">
+  <table class="ledger">
+    <thead>
+      <tr><th>Ημ/νία ▼</th><th>MARK</th><th>Βιβλίο</th><th>Τύπος</th><th>Σειρά/ΑΑ</th><th class="num">Σύνολο</th><th>Κατάσταση</th></tr>
+    </thead>
+    <tbody>
+      {% for kind, status, inv in docs %}
+      <tr class="{{ 'is-credit' if inv.invoice_type in credit_types }}" data-href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}" tabindex="0">
+        <td data-label="Ημ/νία" class="doc-date">{{ inv.issue_date or '—' }}</td>
+        <td data-label="MARK" class="mark">{{ inv.mark }}</td>
+        <td data-label="Βιβλίο" class="sd-kind">{{ '🛒 Έσοδο' if kind == 'income' else '🚚 Έξοδο' }}</td>
+        <td data-label="Τύπος">{{ type_badge(inv) }}</td>
+        <td data-label="Σειρά/ΑΑ">{{ [inv.series, inv.aa]|select|join(' / ') or '—' }}</td>
+        <td data-label="Σύνολο" class="num">{{ inv.total_gross|el_amount }} €</td>
+        <td data-label="Κατάσταση"><span class="pill">{{ status_names.get(status, status) }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {{ pager('supplier_documents', {'vat': vat, 'back': back}, page, total_pages) }}
+  {% else %}
+  <div class="empty"><b>Δεν υπάρχουν παραστατικά</b>για τον συναλλασσόμενο στην ενεργή εταιρεία.</div>
+  {% endif %}
+</div>
+{% endblock %}

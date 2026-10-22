@@ -6892,6 +6892,31 @@ def supplier_rules(vat):
     )
 
 
+@app.route("/suppliers/<vat>/documents")
+def supplier_documents(vat):
+    """Παραστατικά (έσοδα & έξοδα) του συναλλασσόμενου στην ενεργή εταιρεία, νεότερο πρώτο."""
+    cid = _active_company_id()
+    names = db.load_names()
+    docs = [(r["kind"], r["status"], _row_to_invoice(r, names))
+            for kind in ("income", "expense") for r in (db.get_documents(cid, kind) if cid else [])
+            if r["counterparty_vat"] == vat]
+    docs.sort(key=lambda d: (d[2].issue_date or "", db._mark_no(d[2].mark)), reverse=True)
+    page_items, page, total_pages = paginate(docs, request.args.get("page"))
+    back = _safe_back(request.args.get("back")) or url_for("suppliers")
+    return render_template(
+        "supplier_documents.html",
+        vat=vat,
+        supplier=db.get_supplier(vat) or {"vat": vat, "name": None},
+        stats=db.counterparty_stats(cid).get(vat, {}),
+        docs=page_items,
+        page=page,
+        total_pages=total_pages,
+        back=back,
+        type_names=INVOICE_TYPE_NAMES,
+        credit_types=CREDIT_INVOICE_TYPES,
+    )
+
+
 @app.route("/suppliers/save", methods=["POST"])
 def suppliers_save():
     vat = request.form.get("vat", "").strip()
