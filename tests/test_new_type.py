@@ -55,8 +55,7 @@ assert "u14" in [i.mark for i in A._auto_classify_split(cid)[1]]
 cl.post("/suppliers/111/rules/approve-type", data={"invoice_type": "1.4"})
 assert "u14" in [i.mark for i in A._auto_classify_split(cid)[0]]
 
-# 5) Ειδοποίηση κύκλου: ο νέος μετρητής στο ntfy και στο parse του log.
-assert "🆕" in A._cycle_text([{"counts": {"new_type": 2}}])
+# 5) Ο νέος μετρητής στο parse του log.
 rec = A._cycle_from_log({"name": "20261101-120000-000000.log", "title": "x",
                          "body": "12:00:00  ━━ 1/1 · Α · ΑΦΜ 123 · prod\n"
                                  "12:00:01  🆕 Νέος τύπος παραστατικού — δεν χαρακτηρίστηκαν (3):"})

@@ -291,7 +291,7 @@ A.auth.unlocked = orig_unlocked
 db.set_active_company_id(a)
 print("OK review list")
 
-# 13) Ειδοποίηση ntfy: μόνο με κανάλι και μόνο όταν ο κύκλος έκανε κάτι· χωρίς ονόματα εταιρειών.
+# 13) Ειδοποίηση ntfy: μόνο με κανάλι και μόνο όταν ο κύκλος έκανε κάτι· χαρακτηρισμένα, αποστολές, χωρίς πρόταση.
 posts = []  # (url, headers, κείμενο)
 
 
@@ -313,11 +313,12 @@ A._run_cycle("δοκιμή")
 url, headers, text = posts[0]
 assert base64.b64decode(headers["Title"][10:-2]).decode().startswith("myDATA · ") and headers["Tags"] == "white_check_mark", headers
 assert len(posts) == 1 and url == "https://ntfy.sh/" + topic, posts
-assert text == "1️⃣  1🏷️  1📤\n\n✋\n\n1️⃣  1❓", text  # μόνο Α/Α και «αριθμός+εικονίδιο», χωρίς ονόματα
+assert text == ("Κύκλος ΑΕ\n🟢 2009·2026-01-12·111·62.00€ → category2_1/E3_102_001 50.00 · VAT_361 50.00"
+                "\n🔵 2009 → MARK χαρακτηρισμού 9002009\n🟠 2002·2026-01-10·999·124.00€ Χωρίς πρόταση"), text
 A._run_cycle("δοκιμή")  # τίποτα νέο → καμία ειδοποίηση
 assert len(posts) == 1, posts
 A._run_cycle("χειροκίνητα")  # «Έναρξη τώρα» → ειδοποίηση και χωρίς τίποτα νέο
-assert len(posts) == 2 and posts[1][2] == "—\n\n✋\n\n1️⃣  1❓", posts  # «—» = τίποτα έγινε
+assert len(posts) == 2 and posts[1][2] == "Κύκλος ΑΕ\n🟠 2002·2026-01-10·999·124.00€ Χωρίς πρόταση", posts
 
 # Επιβεβαίωση: το «απεσταλμένο» 2009 βρίσκεται χαρακτηρισμένο στην ανάκτηση του κύκλου → μετρά confirmed.
 A.get_client = lambda send="": NS(send_expenses_classification=send_cls, new_since=lambda *x: (
@@ -328,10 +329,19 @@ assert A.mydata_logs(None, A._CYCLE_DIR) and A._cycle_from_log(A.mydata_logs(Non
     "companies"][0]["counts"]["confirmed"] == 1
 A.get_client = lambda send="": NS(new_since=new_since, send_expenses_classification=send_cls)
 
-assert A._cycle_text([{"counts": {}}] * 9 + [{"counts": {"new": 1}}, {"counts": {"new": 2}}]) == "🔟  1📥\n\n11.  2📥"
-# Σύνοψη: χωρίς μηδενικά· εταιρεία χωρίς τίποτα παραλείπεται (ο Α/Α μένει)· κάτω όσες θέλουν ενέργεια.
-assert A._cycle_text([{"counts": {"new": 2, "failed": 0}}, {"counts": {}}, {"counts": {"failed": 1, "no_rule": 3}},
-                      {"counts": {"held": 1}}]) == "1️⃣  2📥\n\n3️⃣  1❌\n\n✋\n\n3️⃣  3❓\n\n4️⃣  1⏸️"
+# Επωνυμία αντί για ΑΦΜ όταν υπάρχει· νέος τύπος / αποτυχίες δεν εμφανίζονται· «—» χωρίς τίποτα.
+assert A._cycle_text([{"name": "Χ", "lines": [
+    {"k": "ok", "t": "12:00:00    ✓ 1 · 2026-10-30 · 094 ΤΡΑΠΕΖΑ ΠΕΙΡΑΙΩΣ · 1.1 · 1.40 € → category2_5/E3_586 1.40"},
+    {"k": "warn", "t": "            1 · 2026-10-30 · 094 Α · 1.4 · 1.40 € · τύπος 1.4 (γνωστοί: 1.1) — πρόσθεσε πρόταση"},
+    {"k": "err", "t": "12:00:00    ✗ 2 · 2026-10-30 · 094 Α · 1.1 · 1.40 € → δεν χαρακτηρίστηκε"}]},
+    {"name": "Ψ", "lines": []}]) == "Χ\n🟢 1·2026-10-30·ΤΡΑΠΕΖΑ ΠΕΙΡΑΙΩΣ·1.40€ → category2_5/E3_586 1.40"
+assert A._cycle_text([]) == "—"
+# Πάνω από NTFY_MAX: συνοπτικά (πλήθη ανά εταιρεία), ποτέ συνημμένο· αν ούτε αυτό χωράει, «… και άλλες N».
+big = [dict(co, name=f"{co['name']} #{i}") for i in range(1, 9) for co in A._ntfy_sample()]
+assert "ΣΑΜΑΡΑΣ ΟΕ #1\n🟢 3 χαρακτηρίστηκαν · 🔵 3 στάλθηκαν · 🟠 1 χωρίς πρόταση\n\nTED-NICK OE #1\n🟠 2 χωρίς" \
+    in A._cycle_text(big)
+huge = A._cycle_text(big * 50)
+assert len(huge.encode()) <= A.NTFY_MAX and huge.endswith(" εταιρείες") and "… και άλλες" in huge
 c.post("/auto-cycle/ntfy/off")
 assert A._ntfy("x") is False and len(posts) == 3
 A.requests.put = orig_put

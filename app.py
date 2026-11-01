@@ -8050,23 +8050,86 @@ def _ntfy(text: str, urgent: bool = False, at: datetime | None = None) -> bool:
         return False
 
 
-# Σύνοψη κύκλου για την ειδοποίηση: γραμμή ανά εταιρεία (μόνο Α/Α), «αριθμός+εικονίδιο» ανά δουλειά, χωρίς μηδενικά.
-# Κάτω από τη γραμμή: όσες θέλουν ενέργεια από τον χρήστη. Υπόμνημα στη Βοήθεια (#notify).
-_NTFY_DONE = (("new", "📥", "Νέα παραστατικά (ανάκτηση)"), ("classified", "🏷️", "Χαρακτηρίστηκαν"),
-              ("sent", "📤", "Στάλθηκαν στο myDATA"), ("confirmed", "✅", "Επιβεβαιώθηκαν από το myDATA"),
-              ("failed", "❌", "Λάθη"))
-_NTFY_TODO = (("no_rule", "❓", "Χωρίς πρόταση χαρακτηρισμού"), ("new_type", "🆕", "Νέος τύπος παραστατικού — χρειάζεται πρόταση"), ("held", "⏸️", "Αναμένουν επιβεβαίωση πριν την αποστολή"))
+# Σύνοψη κύκλου για την ειδοποίηση, από τις γραμμές log κάθε εταιρείας: μόνο χαρακτηρισμένα, αποστολές (MARK
+# χαρακτηρισμού) και χωρίς πρόταση. Οι γραμμές είναι του _doc_text: «mark · ημ/νία · ΑΦΜ επωνυμία · τύπος · ποσό €».
+_NTFY_DOC = r"(\S+) · (\S+) · (\S+)(?: (.+?))? · \S+ · (-?[\d.]+) €"
+_NTFY_CLS = re.compile(rf"✓ {_NTFY_DOC} → (.+)")
+_NTFY_SENT = re.compile(r"✓ (\S+) στάλθηκε · (MARK χαρακτηρισμού \S+)")
+_NTFY_NORULE = re.compile(rf"{_NTFY_DOC}(?: · τύπος 1\.5: μόνο χειροκίνητα)?")
+NTFY_MAX = 4000  # το ntfy.sh κάνει συνημμένο ό,τι ξεπερνά τα 4096 bytes· πάνω από αυτό → συνοπτικά
+
+
+def _ntfy_sample() -> list[dict]:
+    """Δείγμα για το κουμπί «Δοκιμή», στη μορφή γραμμών του _clog: όλα τα είδη γραμμών, και όσα δεν εμφανίζονται
+    (νέος τύπος, αποτυχία, εταιρεία μόνο με λάθη)."""
+    def ok(mark, date, who, typ, amount, cls):
+        return {"k": "ok", "t": f"12:00:00    ✓ {mark} · {date} · {who} · {typ} · {amount:.2f} € → {cls}"}
+
+    def sent(mark, cmark):
+        return {"k": "ok", "t": f"12:00:01    ✓ {mark} στάλθηκε · MARK χαρακτηρισμού {cmark}"}
+
+    def no_rule(mark, date, who, typ, amount):
+        return {"k": "warn", "t": f"              {mark} · {date} · {who} · {typ} · {amount:.2f} €"
+                + (" · τύπος 1.5: μόνο χειροκίνητα" if typ == "1.5" else "")}
+
+    return [
+        {"name": "ΣΑΜΑΡΑΣ ΟΕ", "lines": [
+            ok("400015880044676", "2026-10-30", "094014249 ΤΡΑΠΕΖΑ ΠΕΙΡΑΙΩΣ", "1.1", 1.40, "category2_5/E3_586 1.40"),
+            ok("400015880051233", "2026-10-30", "094019245 ΔΕΗ ΑΕ", "1.1", 186.00,
+               "category2_2/E3_585_008 150.00 · VAT_361 36.00"),
+            ok("400015880062871", "2026-10-31", "800588965 ΚΑΥΣΙΜΑ ΒΟΡΕΙΟΥ ΑΕ", "2.1", 62.00,
+               "category2_4/E3_585_014 50.00 · VAT_364 12.00"),
+            sent("400015880044676", "400015880489171"),
+            sent("400015880051233", "400015880489172"),
+            sent("400015880062871", "400015880489173"),
+            no_rule("400015880070012", "2026-10-31", "998877665 ΧΑΡΤΟΠΩΛΕΙΟ ΤΟ ΜΟΛΥΒΙ", "1.1", 23.56)]},
+        {"name": "TED-NICK OE", "lines": [
+            no_rule("400015851271000", "2026-10-29", "094012345 ΑΣΦΑΛΙΣΤΙΚΗ ΕΤΑΙΡΕΙΑ ΕΥΡΟΙΝΣ ΑΕ", "1.1", 104.27),
+            no_rule("400015851280044", "2026-10-30", "123456789", "1.5", 1240.00),  # χωρίς επωνυμία → ΑΦΜ
+            {"k": "warn", "t": "                400015851290001 · 2026-10-30 · 094000001 ΑΒΓ ΑΕ · 1.4 · 50.00 € · "
+                               "τύπος 1.4 (γνωστοί: 1.1) — πρόσθεσε πρόταση στους Συναλλασσόμενους"}]},
+        {"name": "ΚΑΦΕ ΑΘΗΝΑ ΙΚΕ", "lines": [  # χαρακτηρίστηκε, δεν στάλθηκε (αναμένει επιβεβαίωση)· μία αποτυχία
+            ok("400015899000101", "2026-11-01", "099888777 ΓΑΛΑΚΤΟΚΟΜΙΚΑ ΑΕ", "1.1", 312.50,
+               "category2_1/E3_102_001 288.25 · VAT_361 24.25"),
+            {"k": "err", "t": "12:00:02    ✗ 400015899000102 · 2026-11-01 · 099888777 ΓΑΛΑΚΤΟΚΟΜΙΚΑ ΑΕ · 1.1 · "
+                              "80.00 € → δεν χαρακτηρίστηκε (βλ. αιτία παραπάνω)"}]},
+        {"name": "ΜΟΝΟ ΛΑΘΗ ΑΕ", "lines": [{"k": "err", "t": "12:00:03  ✗ Η ανάκτηση απέτυχε — η εταιρεία παραλείπεται."}]},
+    ]
+
+
+_NTFY_KINDS = (("🟢", "χαρακτηρίστηκαν"), ("🔵", "στάλθηκαν"), ("🟠", "χωρίς πρόταση"))
 
 
 def _cycle_text(companies: list[dict]) -> str:
-    def num(i):  # Α/Α ως emoji 1️⃣…🔟· μετά δεν υπάρχουν, άρα «11.»
-        return f"{i}️⃣" if i < 10 else "🔟" if i == 10 else f"{i}."
+    """Αναλυτικά (γραμμή ανά παραστατικό) αν χωράει στο NTFY_MAX, αλλιώς συνοπτικά (πλήθη ανά εταιρεία) — ποτέ
+    συνημμένο. Αν δεν χωράει ούτε η σύνοψη, οι τελευταίες εταιρείες γίνονται «… και άλλες N»."""
+    def doc(m):
+        return f"{m[1]}·{m[2]}·{m[4] or m[3]}·{m[5]}€"
 
-    def lines(icons):
-        return [f"{num(i)}  " + "  ".join(f"{co['counts'][k]}{em}" for k, em, _ in icons if co["counts"].get(k))
-                for i, co in enumerate(companies, 1) if any(co["counts"].get(k) for k, *_ in icons)]
-    done, todo = lines(_NTFY_DONE), lines(_NTFY_TODO)
-    return "\n\n".join((done or ["—"]) + (["✋"] + todo if todo else []))  # κενή γραμμή ανάμεσα σε όλες
+    out = []
+    for co in companies:
+        rows = []
+        for ln in co.get("lines", []):
+            t = ln["t"][10:].strip()
+            if m := _NTFY_SENT.fullmatch(t):
+                rows.append(f"🔵 {m[1]} → {m[2]}")
+            elif m := _NTFY_CLS.fullmatch(t):
+                rows.append(f"🟢 {doc(m)} → {m[6]}")
+            elif ln["k"] == "warn" and (m := _NTFY_NORULE.fullmatch(t)):
+                rows.append(f"🟠 {doc(m)} Χωρίς πρόταση")
+        if rows:  # ponytail: το ntfy δεν έχει χρώμα κειμένου· η κουκκίδα δείχνει το είδος της γραμμής
+            out.append((co["name"], rows))
+    text = "\n\n".join("\n".join([name] + rows) for name, rows in out) or "—"
+    if len(text.encode()) <= NTFY_MAX:
+        return text
+    blocks = [name + "\n" + " · ".join(f"{em} {n} {label}" for em, label in _NTFY_KINDS
+                                      if (n := sum(r.startswith(em) for r in rows)))
+              for name, rows in out]
+    for k in range(len(blocks), 0, -1):
+        text = "\n\n".join(blocks[:k] + ([f"… και άλλες {len(blocks) - k} εταιρείες"] if k < len(blocks) else []))
+        if len(text.encode()) <= NTFY_MAX:
+            return text
+    return text
 
 
 def _run_cycle(trigger: str) -> dict:
@@ -8195,7 +8258,7 @@ def auto_cycle():
     return render_template("auto_cycle.html", on=on, minutes=minutes, ids=sel, companies=companies,
                            levels=_CYCLE_LEVELS, rank=_LEVEL_RANK,
                            history=_cycle_history(), running_started=_cycle["started"] if _cycle["running"] else None,
-                           ntfy_topic=(t := _ntfy_topic()), ntfy_done=_NTFY_DONE, ntfy_todo=_NTFY_TODO,
+                           ntfy_topic=(t := _ntfy_topic()),
                            # ntfy://: μόνο αυτό ανοίγει την Android app και κάνει μόνιμη εγγραφή (το https:// όχι)
                            ntfy_url=f"ntfy://{NTFY.split('://')[1]}/{t}?display=myDATA" if t else None)
 
@@ -8259,11 +8322,11 @@ def auto_cycle_ntfy(action):
     elif action == "off":
         db.set_setting("ntfy_topic", "")
         flash("✔ Οι ειδοποιήσεις στο κινητό απενεργοποιήθηκαν.", "ok")
-    elif action == "test":
-        ok = _ntfy(_cycle_text([  # δείγμα με όλες τις περιπτώσεις, και την κάτω ενότητα «θέλουν ενέργεια»
-            {"counts": {"new": 12, "classified": 9, "sent": 8, "confirmed": 5, "no_rule": 3, "new_type": 1, "held": 1}},
-            {"counts": {"new": 4, "failed": 1}},
-            {"counts": {"new": 125, "classified": 110, "sent": 110, "confirmed": 96, "no_rule": 15}}]), urgent=True)
+    elif action in ("test", "test_big"):
+        # test_big: ~9 KB αναλυτικά → δεν χωράει, άρα στέλνεται η συνοπτική μορφή
+        sample = (_ntfy_sample() if action == "test" else
+                  [dict(co, name=f"{co['name']} #{i}") for i in range(1, 9) for co in _ntfy_sample()])
+        ok = _ntfy(_cycle_text(sample), urgent=True)
         flash("✔ Στάλθηκε δοκιμαστική ειδοποίηση." if ok
               else "Δεν στάλθηκε η ειδοποίηση (έλεγξε τη σύνδεση στο internet).", "ok" if ok else "error")
     return redirect(url_for("auto_cycle"))
