@@ -57,3 +57,11 @@ assert co()["allow_send"] and co()["allow_cancel"]
 c.post("/companies/toggle/0/allow_send")
 assert not co()["allow_send"] and not co()["allow_cancel"]
 print("OK cancel needs send")
+
+# Badges του chip στο πλαϊνό μενού: και τα 5 εμφανίζονται, clickable, και το back γυρνά στη σελίδα.
+h = c.get("/companies").get_data(as_text=True)
+for f in ("use_accountant", "allow_send", "allow_classify", "allow_new"):
+    assert f'data-co-toggle="/companies/toggle/0/{f}"' in h, f
+assert 'aria-label="Ακυρώσεις &amp; απορρίψεις"' in h  # αχνό/disabled όσο δεν υπάρχει αποστολή
+r = c.post("/companies/toggle/0/allow_new", data={"back": "/parameters"})
+assert r.headers["Location"].endswith("/parameters")

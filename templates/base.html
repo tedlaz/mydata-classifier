@@ -71,25 +71,30 @@ addEventListener('pageswap',function(e){var v=e.viewTransition;if(v&&document.qu
     </a>
     {# Ενεργή εταιρεία: πάνω πάνω στο μενού, για να φαίνεται πάντα σε ποια δουλεύεις. #}
       {% if active_company %}
+      {% set co_switch = switch_companies|default([])|length > 1 %}
       <a class="who who--top {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('companies') }}" data-co-edit
-         title="{{ active_company.company_name }}">
+         {% if co_switch %}aria-haspopup="true" aria-controls="co-switch" title="Ενεργή εταιρεία: {{ active_company.company_name }} — αλλαγή"
+         {% else %}title="{{ active_company.company_name }}"{% endif %}>
         {%- set w = active_company.company_name.split() %}
         <span class="who-ini" aria-hidden="true">{{ ((w[0][:1] ~ w[1][:1]) if w|length > 1 else (w[0][:2] if w else ''))|upper }}</span>
         {{ active_company.company_name }}
         {# Περιβάλλον + badges (μόνο σύμβολα, εξήγηση στο title) σε μία γραμμή. #}
         <small>{{ active_company.MYDATA_ENV or 'prod' }}
-          {%- if active_company.use_accountant %}<span class="who-badge" style="--b:#f08c3a" title="Κλήσεις με τα credentials του λογιστή" aria-label="Λογιστής">👤</span>{% endif %}
           {%- if active_company.locked %}<span class="who-badge" style="--b:#f5c542" title="Κλειδωμένη από τον λογιστή — μόνο αναφορές" aria-label="Κλειδωμένη">🔐</span>{% endif %}
-          {#- Άδειες: χρωματιστό = επιτρέπεται, αχνό = όχι. #}
+          {#- Άδειες: χρωματιστό = ON, αχνό = OFF· κλικ = διακόπτης (POST /companies/toggle, όπως οι κάρτες του companies.html). #}
           {%- for flag, ic, label, color in [
+                ('use_accountant', '👤', 'Λογιστής', '#f08c3a'),
+                ('allow_send', '📤', 'Αποστολή στο myDATA', '#8b5cf6'),
                 ('allow_classify', '🏷️', 'Χαρακτηρισμοί', '#1fbf8a'),
                 ('allow_new', '➕', 'Νέα εγγραφή', '#22b8cf'),
-                ('allow_send', '📤', 'Αποστολή στο myDATA', '#8b5cf6'),
                 ('allow_cancel', '⚠', 'Ακυρώσεις & απορρίψεις', '#c6322a')] %}
           {%- set on = active_company[flag] %}
-          <span class="who-badge {{ 'who-badge--off' if not on }}" style="--b:{{ color }}"
-                title="{{ label }}: {{ 'επιτρέπεται' if on else 'δεν επιτρέπεται' }}"
-                aria-label="{{ label }}: {{ 'επιτρέπεται' if on else 'δεν επιτρέπεται' }}">{{ ic }}</span>
+          {%- set off_why = ' (κλειδωμένη)' if active_company.locked and flag != 'use_accountant'
+                else (' · θέλει ενεργή την Αποστολή' if flag == 'allow_cancel' and not active_company.allow_send else '') %}
+          <span class="who-badge {{ 'who-badge--off' if not on }}" style="--b:{{ color }}" role="button"
+                {% if off_why %}aria-disabled="true"{% else %}tabindex="0" data-co-toggle="{{ url_for('companies_toggle', idx=active_index, flag=flag) }}"{% endif %}
+                title="{{ label }}: {{ 'ON' if on else 'OFF' }}{{ off_why or ' — κλικ για αλλαγή' }}"
+                aria-label="{{ label }}" aria-pressed="{{ 'true' if on else 'false' }}">{{ ic }}</span>
           {%- endfor %}
         </small>
       </a>
@@ -147,8 +152,10 @@ addEventListener('pageswap',function(e){var v=e.viewTransition;if(v&&document.qu
       <button type="button" class="menu-btn" data-nav-toggle aria-label="Μενού" aria-controls="sidebar">{{ icon('menu') }}</button>
       <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark">my</span><b>myDATA <span class="app-ver" role="link" tabindex="0" title="Η εφαρμογή στο GitHub" onclick="event.preventDefault();event.stopPropagation();window.open('https://github.com/tedlaz/mydata-classifier','_blank','noopener')" onkeydown="if(event.key==='Enter')this.click()">v{{ app_version }}</span></b></a>
       {% if active_company %}
+      {% set co_switch = switch_companies|default([])|length > 1 %}
       <a class="who who--bar {{ 'is-dev' if active_company.MYDATA_ENV == 'dev' }}" href="{{ url_for('companies') }}" data-co-edit
-         title="Παράμετροι εταιρείας">{{ active_company.company_name }}<small>{{ active_company.MYDATA_ENV or 'prod' }}</small></a>
+         {% if co_switch %}aria-haspopup="true" aria-controls="co-switch" title="Ενεργή εταιρεία: {{ active_company.company_name }} — αλλαγή"
+         {% else %}title="Παράμετροι εταιρείας"{% endif %}>{{ active_company.company_name }}<small>{{ active_company.MYDATA_ENV or 'prod' }}</small></a>
       {% endif %}
     </header>
     <main>
@@ -174,6 +181,7 @@ addEventListener('pageswap',function(e){var v=e.viewTransition;if(v&&document.qu
 <dialog id="co-edit-active" class="modal" aria-labelledby="co-edit-active-t" closedby="any">
   <form method="post" action="{{ url_for('companies_update', idx=active_index) }}">
     <input type="hidden" name="back" value="{{ request.full_path }}">
+    <input type="hidden" name="company_id" value="{{ active_company.id }}">
     <div class="modal-head">
       <h2 id="co-edit-active-t">✎ {{ active_company.company_name }}</h2>
       <button type="button" class="btn-ghost btn-sm" commandfor="co-edit-active" command="close" aria-label="Κλείσιμο">✕</button>
@@ -185,12 +193,63 @@ addEventListener('pageswap',function(e){var v=e.viewTransition;if(v&&document.qu
     </div>
   </form>
 </dialog>
+{# Εναλλαγή εταιρείας: ένα popover για τα δύο chips (πλαϊνό μενού + μπάρα κινητού). Η ενεργή εταιρεία είναι κοινή για όλες
+   τις καρτέλες. Το companies.html το αντικαθιστά μαζί με τα chips (SWAP) — κράτα το id. #}
+{% if switch_companies|default([])|length > 1 %}
+<div id="co-switch" class="theme-menu co-switch" popover aria-label="Αλλαγή ενεργής εταιρείας">
+  <p class="co-switch-note">Αλλαγή ενεργής εταιρείας · ισχύει σε όλες τις καρτέλες</p>
+  {% for c in switch_companies %}
+    {% set lbl %}{{ c.name }}<small>{{ 'dev' if c.dev else 'prod' }}{% if c.locked %} <span aria-label="κλειδωμένη" title="Κλειδωμένη από τον λογιστή">🔐</span>{% endif %}</small>{% endset %}
+    {% if c.id == active_company.id %}
+    <button type="button" aria-current="true" aria-pressed="true" disabled class="{{ 'is-dev' if c.dev }}">✔ {{ lbl }}</button>
+    {% else %}
+    <form method="post" action="{{ url_for('companies_select', idx=c.idx) }}">
+      <input type="hidden" name="company_id" value="{{ c.id }}">
+      <input type="hidden" name="back" value="{{ request.path }}">
+      <button type="submit" class="{{ 'is-dev' if c.dev }}">{{ lbl }}</button>
+    </form>
+    {% endif %}
+  {% endfor %}
+  <hr>
+  <button type="button" data-co-edit>⚙ Παράμετροι «{{ active_company.company_name }}»</button>
+  <a href="{{ url_for('companies') }}">Διαχείριση εταιρειών…</a>
+</div>
+{% endif %}
 <script>
-// Delegation: τα [data-co-edit] και ο διάλογος αντικαθίστανται όταν αλλάζει εταιρεία με ajax (companies.html).
+// Delegation: τα [data-co-edit], ο διάλογος και το #co-switch αντικαθίστανται όταν αλλάζει εταιρεία με ajax (companies.html).
+// Chip (.who) με 2+ εταιρείες → λίστα εναλλαγής· αλλιώς (και «Παράμετροι» μέσα στη λίστα) → διάλογος παραμέτρων.
+// Badges άδειας μέσα στο chip: διακόπτες (POST), όχι άνοιγμα του chip. Γυρνάμε στην ίδια σελίδα (back).
+function coToggle(e){
+  var t = e.target.closest('[data-co-toggle]');
+  if (!t) return false;
+  e.preventDefault(); e.stopPropagation();
+  var f = document.createElement('form'), b = document.createElement('input');
+  f.method = 'post'; f.action = t.dataset.coToggle;
+  b.type = 'hidden'; b.name = 'back'; b.value = location.pathname + location.search;
+  f.appendChild(b); document.body.appendChild(f); f.submit();
+  return true;
+}
+document.addEventListener('keydown', function(e){ if (e.key === 'Enter' || e.key === ' ') coToggle(e); });
 document.addEventListener('click', function(e){
-  var a = e.target.closest('[data-co-edit]'), d = document.getElementById('co-edit-active');
-  if (a && d) { e.preventDefault(); d.showModal(); }
+  if (coToggle(e)) return;
+  var a = e.target.closest('[data-co-edit]'), d = document.getElementById('co-edit-active'), p = document.getElementById('co-switch');
+  if (!a) return;
+  e.preventDefault();
+  if (p && a.classList.contains('who')) {
+    // Το κλικ στο chip κλείνει πρώτα το ανοιχτό popover (light dismiss)· να μην το ξανανοίξει αμέσως.
+    if (Date.now() - (p._closed || 0) < 300) return;
+    p.showPopover();
+    var r = a.getBoundingClientRect();
+    p.style.top = Math.min(r.bottom + 6, innerHeight - p.offsetHeight - 8) + 'px';
+    p.style.left = Math.max(8, Math.min(r.left, innerWidth - p.offsetWidth - 8)) + 'px';
+    return;
+  }
+  if (p) p.hidePopover();
+  if (d) d.showModal();
 });
+document.addEventListener('toggle', function(e){
+  if (e.target.id === 'co-switch' && e.newState === 'closed') e.target._closed = Date.now();
+}, true);
 </script>
 {% endif %}
 {% block scripts %}{% endblock %}

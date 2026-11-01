@@ -276,6 +276,7 @@
       <span class="co-on"><span class="co-pb"><b>ON</b></span></span>
       {% else %}
       <form method="post" action="{{ url_for('companies_select', idx=idx) }}">
+        <input type="hidden" name="company_id" value="{{ c.id }}">
         <button type="submit" class="co-pb-btn" title="Ενεργοποίηση"><span class="co-pb"><b>OFF</b></span></button>
       </form>
       {% endif %}
@@ -297,6 +298,7 @@
 
   <dialog id="co-edit-{{ idx }}" class="modal" aria-labelledby="co-edit-{{ idx }}-t" closedby="any">
     <form method="post" action="{{ url_for('companies_update', idx=idx) }}">
+      <input type="hidden" name="company_id" value="{{ c.id }}">
       <div class="modal-head">
         <h2 id="co-edit-{{ idx }}-t">✎ {{ c.company_name }}</h2>
         <button type="button" class="btn-ghost btn-sm" commandfor="co-edit-{{ idx }}" command="close" aria-label="Κλείσιμο">✕</button>
@@ -444,7 +446,7 @@
   });
   // Tags-διακόπτες με ajax (η ενεργοποίηση πάει κανονικά στον Πίνακα ελέγχου): ίδιο POST, και από τη σελίδα που επιστρέφει αλλάζουν μόνο τα κομμάτια
   // που εξαρτώνται από την ενεργή εταιρεία — χωρίς reload/αναβόσβημα. Αποτυχία → κανονική πλοήγηση.
-  var SWAP = ['meta[name=active-company]', '.sidebar .who--top', '.sidebar .nav', '.topbar .who--bar', '#co-edit-active', '.co-grid'];
+  var SWAP = ['meta[name=active-company]', '.sidebar .who--top', '.sidebar .nav', '.topbar .who--bar', '#co-edit-active', '#co-switch', '.co-grid'];  // #co-switch: base.html
   document.addEventListener('submit', function(e){
     var f = e.target;
     if (!f.action || !/\/companies\/toggle\//.test(f.action)) return;

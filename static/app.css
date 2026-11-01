@@ -273,6 +273,9 @@ summary.nav-group:hover{color:var(--side-ink-hi)}
   background:var(--b,#f5c542);color:#fff;font-family:var(--font-ui);
   box-shadow:0 0 0 2px color-mix(in srgb,var(--b,#f5c542) 35%,transparent)}
 .who-badge:first-of-type{margin-left:auto}
+.who-badge[data-co-toggle]{cursor:pointer;transition:transform .1s}
+.who-badge[data-co-toggle]:hover,.who-badge[data-co-toggle]:focus-visible{transform:scale(1.15);opacity:1;outline:none}
+.who-badge[aria-disabled]{cursor:not-allowed}
 .who-badge--off{background:transparent;color:var(--side-ink-hi);box-shadow:0 0 0 1px rgba(255,255,255,.25);filter:grayscale(1);opacity:.45}
 .who small{display:flex;align-items:center;gap:6px;color:var(--side-ink);font-weight:500;font-family:var(--font-data);font-size:.72rem;margin-top:3px}
 .who small::before{content:"";width:7px;height:7px;border-radius:50%;background:#4fd1a0;box-shadow:0 0 0 3px rgba(79,209,160,.2)}
@@ -308,6 +311,18 @@ summary.nav-group:hover{color:var(--side-ink-hi)}
 .theme-menu button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:700}
 .theme-sw{flex:none;width:28px;height:18px;border-radius:5px;border:1px solid rgba(127,127,127,.35);
   background:linear-gradient(90deg,var(--sw-side) 0 30%,var(--sw-bg) 30% 70%,var(--sw-ac) 70%)}
+/* Εναλλαγή εταιρείας (base.html #co-switch): στυλ του theme-menu, θέση κάτω από το chip που το άνοιξε (top/left από JS). */
+.theme-menu.co-switch{position-anchor:none;position-area:none;margin:0;min-width:240px;max-width:min(360px,calc(100vw - 16px));
+  max-height:min(70vh,520px);overflow-y:auto}
+.co-switch form{display:contents}
+.co-switch button,.co-switch a{text-align:left}
+.co-switch button small{margin-left:auto;padding-left:10px;font-family:var(--font-data);font-size:.72rem;color:var(--muted);white-space:nowrap}
+.co-switch button.is-dev small{color:#c58a12}
+.co-switch button[disabled]{opacity:1;cursor:default}
+.co-switch a{display:block;padding:8px 10px;border-radius:8px;color:var(--ink);font-size:.86rem;text-decoration:none}
+.co-switch a:hover{background:var(--surface-3)}
+.co-switch hr{width:100%;margin:4px 0;border:0;border-top:1px solid var(--line)}
+.co-switch-note{margin:2px 10px 6px;font-size:.72rem;color:var(--muted)}
 
 /* Μαζεμένο μενού (desktop): μόνο εικονίδια, το κείμενο στο title. */
 .sidebar .brand-mark{cursor:pointer}

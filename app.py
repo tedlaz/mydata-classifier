@@ -6587,8 +6587,7 @@ def companies_add():
 @app.route("/companies/update/<int:idx>", methods=["POST"])
 def companies_update(idx):
     comps = load_companies()
-    if not (0 <= idx < len(comps)):
-        flash("Η εταιρεία δεν βρέθηκε.", "error")
+    if not _company_at(comps, idx):
         return redirect(url_for("companies"))
     name = request.form.get("company_name", "").strip()
     user_id = request.form.get("aade_user_id", "").strip()
@@ -6626,7 +6625,7 @@ def companies_update(idx):
     db.update_company(comps[idx]["id"], data)
     flash(f"✔ Ενημερώθηκε η εταιρεία «{name}».", "ok")
     back = request.form.get("back", "")  # modal ενεργής εταιρείας (base.html) → πίσω στη σελίδα του
-    return redirect(back if back.startswith("/") and not back.startswith(("//", "/\\")) else url_for("companies"))
+    return redirect(_safe_back(back) or url_for("companies"))
 
 
 _TOGGLES = {"MYDATA_ENV", "use_accountant", "allow_send", "allow_classify", "allow_new", "allow_cancel"}
@@ -6655,7 +6654,7 @@ def companies_toggle(idx, flag):
     else:
         db.update_company(c["id"], c)
         flash(f"✔ Ενημερώθηκε η εταιρεία «{c['company_name']}».", "ok")
-    return redirect(url_for("companies"))
+    return redirect(_safe_back(request.form.get("back", "")) or url_for("companies"))  # back: badges του chip (base.html)
 
 
 @app.route("/companies/delete/<int:idx>", methods=["POST"])
@@ -6687,12 +6686,47 @@ def companies_delete(idx):
 @app.route("/companies/select/<int:idx>", methods=["POST"])
 def companies_select(idx):
     comps = load_companies()
-    if not (0 <= idx < len(comps)):
-        flash("Η εταιρεία δεν βρέθηκε.", "error")
+    c = _company_at(comps, idx)
+    if not c:
         return redirect(url_for("companies"))
-    db.set_active_company_id(comps[idx]["id"])
-    flash(f"✔ Ενεργή εταιρεία: «{comps[idx].get('company_name', '')}».", "ok")
-    return redirect(url_for("dashboard"))
+    old = get_active_company() or {}
+    db.set_active_company_id(c["id"])
+    back = request.form.get("back")
+    target = _switch_back(back, c)
+    app.logger.info("active company %s -> %s (back=%s)", old.get("id"), c["id"], back)
+    msg = f"✔ Ενεργή εταιρεία: «{c.get('company_name', '')}»."
+    if back and not target:
+        msg += " Η σελίδα που είχες ανοιχτή δεν ισχύει για αυτή την εταιρεία — μεταφέρθηκες στον Πίνακα ελέγχου."
+    flash(msg, "ok")
+    return redirect(target or url_for("dashboard"))
+
+
+def _company_at(comps: list, idx: int) -> dict | None:
+    """Εταιρεία στη θέση idx της λίστας. Αν η φόρμα στέλνει company_id (διακόπτης, παράμετροι), πρέπει να ταιριάζει:
+    παλιά καρτέλα μετά από διαγραφή έχει μετατοπισμένες θέσεις → αλλιώς θα άλλαζε/ενεργοποιούσε άλλη εταιρεία."""
+    cid = request.form.get("company_id")
+    if not (0 <= idx < len(comps)) or (cid and cid != str(comps[idx]["id"])):
+        flash("Η λίστα εταιρειών άλλαξε (π.χ. σε άλλη καρτέλα) — η ενέργεια δεν εκτελέστηκε. Δοκίμασε ξανά.", "error")
+        return None
+    return comps[idx]
+
+
+def _switch_back(value: str | None, company: dict) -> str:
+    """Επιστροφή μετά την αλλαγή εταιρείας: ίδια διαδρομή (χωρίς query), μόνο αν η σελίδα δεν ανήκει στην παλιά εταιρεία.
+    Διαδρομή με παραμέτρους (/document/<mark>, /suppliers/<vat>/…), άγνωστη ή μόνο-POST, οι «Εταιρείες» και σελίδες
+    που η νέα εταιρεία έχει απενεργοποιημένες → κενό (= Πίνακας ελέγχου). Το query φεύγει: κρατά ids της παλιάς (?edit=)."""
+    path = urlparse(_safe_back(value)).path
+    if not path:
+        return ""
+    try:
+        endpoint, args = app.url_map.bind("localhost").match(path, method="GET")
+    except Exception:  # noqa: BLE001 — NotFound, MethodNotAllowed, RequestRedirect
+        return ""
+    if args or endpoint.startswith("companies"):
+        return ""
+    if any(endpoint in eps and not company.get(flag) for flag, (eps, _) in _GATED.items()):
+        return ""
+    return path
 
 
 @app.route("/supplier_lookup/<vat>")
@@ -7985,7 +8019,11 @@ def inject_company():
     if request.endpoint in _PUBLIC:
         return {}  # login/setup: κλειδωμένη, τα κλειδιά των εταιρειών δεν αποκρυπτογραφούνται
     idx, comps = get_active_index(), load_companies()
-    return {"active_company": comps[idx] if comps else None, "active_index": idx, "self_types": SELF_EXPENSE_TYPES, "update": _update}
+    # Λίστα εναλλαγής εταιρείας (base.html #co-switch): αλφαβητικά όπως στις «Εταιρείες», με τη θέση για τη διαδρομή. Χωρίς credentials.
+    switch = sorted(({"idx": i, "id": c["id"], "name": c.get("company_name") or "", "dev": c.get("MYDATA_ENV") == "dev",
+                      "locked": bool(c.get("locked"))} for i, c in enumerate(comps)), key=lambda c: _fold(c["name"]))
+    return {"active_company": comps[idx] if comps else None, "active_index": idx, "switch_companies": switch,
+            "self_types": SELF_EXPENSE_TYPES, "update": _update}
 
 
 if __name__ == "__main__":
