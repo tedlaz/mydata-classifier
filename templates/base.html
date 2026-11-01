@@ -89,8 +89,9 @@ addEventListener('pageswap',function(e){var v=e.viewTransition;if(v&&document.qu
                 ('allow_new', '➕', 'Νέα εγγραφή', '#22b8cf'),
                 ('allow_cancel', '⚠', 'Ακυρώσεις & απορρίψεις', '#c6322a')] %}
           {%- set on = active_company[flag] %}
-          {%- set off_why = ' (κλειδωμένη)' if active_company.locked and flag != 'use_accountant'
-                else (' · θέλει ενεργή την Αποστολή' if flag == 'allow_cancel' and not active_company.allow_send else '') %}
+          {%- set off_why = ' · μόνο με υποχρεωτικό λογιστή' if flag == 'use_accountant' and not active_company.accountant_required
+                else (' (κλειδωμένη)' if active_company.locked and flag != 'use_accountant'
+                else (' · θέλει ενεργή την Αποστολή' if flag == 'allow_cancel' and not active_company.allow_send else '')) %}
           <span class="who-badge {{ 'who-badge--off' if not on }}" style="--b:{{ color }}" role="button"
                 {% if off_why %}aria-disabled="true"{% else %}tabindex="0" data-co-toggle="{{ url_for('companies_toggle', idx=active_index, flag=flag) }}"{% endif %}
                 title="{{ label }}: {{ 'ON' if on else 'OFF' }}{{ off_why or ' — κλικ για αλλαγή' }}"

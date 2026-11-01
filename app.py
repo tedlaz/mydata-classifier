@@ -6548,14 +6548,13 @@ def companies_add():
     sub_key = request.form.get("aade_subscription_key", "").strip()
     vat = request.form.get("aade_vat_number", "").strip()
     env = request.form.get("mydata_env", "prod")
-    use_acc = bool(request.form.get("use_accountant"))
     acc_req = bool(request.form.get("accountant_required"))
     if _sole_without_birth_year():
         return redirect(url_for("companies"))
-    if not name or (not (use_acc or acc_req) and not (user_id and sub_key)):
+    if not name or (not acc_req and not (user_id and sub_key)):
         flash(
             "Επωνυμία υποχρεωτική. User ID/Subscription Key απαιτούνται εκτός αν "
-            "χρησιμοποιούνται credentials λογιστή.",
+            "είναι υποχρεωτικός ο λογιστής.",
             "error",
         )
         return redirect(url_for("companies"))
@@ -6565,7 +6564,6 @@ def companies_add():
         "AADE_SUBSCRIPTION_KEY": sub_key,
         "AADE_VAT_NUMBER": vat,
         "MYDATA_ENV": env,
-        "use_accountant": use_acc,
         "accountant_required": acc_req,
         "allow_cancel": bool(request.form.get("allow_cancel")),
         "allow_send": bool(request.form.get("allow_send")),
@@ -6596,11 +6594,11 @@ def companies_update(idx):
     if _sole_without_birth_year():
         return redirect(url_for("companies"))
     if not name or (
-        not (request.form.get("use_accountant") or request.form.get("accountant_required")) and not (user_id and sub_key)
+        not request.form.get("accountant_required") and not (user_id and sub_key)
     ):
         flash(
             "Επωνυμία υποχρεωτική. User ID/Subscription Key απαιτούνται εκτός αν "
-            "χρησιμοποιούνται credentials λογιστή.",
+            "είναι υποχρεωτικός ο λογιστής.",
             "error",
         )
         return redirect(url_for("companies"))
@@ -6610,7 +6608,6 @@ def companies_update(idx):
         "AADE_SUBSCRIPTION_KEY": sub_key,
         "AADE_VAT_NUMBER": request.form.get("aade_vat_number", "").strip(),
         "MYDATA_ENV": request.form.get("mydata_env", "prod"),
-        "use_accountant": bool(request.form.get("use_accountant")),
         "accountant_required": bool(request.form.get("accountant_required")),
         "allow_cancel": bool(request.form.get("allow_cancel")),
         "allow_send": bool(request.form.get("allow_send")),
@@ -6643,7 +6640,9 @@ def companies_toggle(idx, flag):
     coupled = c["accountant_required"] and flag in ("use_accountant", "allow_send")
     if coupled:  # υποχρεωτικός λογιστής: λογιστής και αποστολή ανοίγουν/κλείνουν μαζί
         c["use_accountant"] = c["allow_send"] = c[flag]
-    if c["locked"] and (flag.startswith("allow_") or coupled):
+    if flag == "use_accountant" and not c["accountant_required"]:
+        flash("Η «Χρήση credentials λογιστή» ενεργοποιείται μόνο με «Υποχρεωτικός λογιστής για αποστολές».", "error")
+    elif c["locked"] and (flag.startswith("allow_") or coupled):
         flash("🔐 Κλειδωμένη εταιρεία — οι άδειες δεν αλλάζουν.", "error")
     elif flag == "allow_cancel" and c["allow_cancel"] and not c["allow_send"]:
         flash("Οι ακυρώσεις/απορρίψεις θέλουν ενεργή την «Αποστολή στο myDATA» — ενεργοποίησέ την πρώτα.", "error")

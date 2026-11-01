@@ -8,7 +8,7 @@ A.app.testing = True
 import db
 db.init_db()
 c = A.app.test_client()
-c.post("/companies/add", data={"company_name": "X", "use_accountant": "1", "entity_type": "legal"})
+c.post("/companies/add", data={"company_name": "X", "accountant_required": "1", "entity_type": "legal"})
 cid = db.list_companies()[0]["id"]; db.set_active_company_id(cid)
 def doc(kind, mark, date, lines, cls):
     net = sum(l["net_value"] for l in lines); vat = sum(l["vat_amount"] for l in lines)

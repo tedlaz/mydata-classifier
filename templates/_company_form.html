@@ -16,9 +16,9 @@
   </div>
 </div>
 <label class="co-switch co-switch--acc">
-  <input type="checkbox" name="use_accountant" value="1" {{ 'checked' if c.use_accountant }}>
+  <input type="checkbox" name="use_accountant" value="1" {{ 'checked' if c.use_accountant }} disabled>
   <span class="co-knob"></span>
-  <span><b>👤 Χρήση credentials λογιστή</b><small>Οι αποστολές γίνονται με το κλειδί του λογιστή και το ΑΦΜ της εταιρείας ως <code>entityVatNumber</code>. Τα User ID / Key της εταιρείας είναι τότε προαιρετικά (η λήψη γίνεται με αυτά, αν υπάρχουν).</small></span>
+  <span><b>👤 Χρήση credentials λογιστή</b><small>Οι αποστολές γίνονται με το κλειδί του λογιστή και το ΑΦΜ της εταιρείας ως <code>entityVatNumber</code>. Ενεργοποιείται μόνο με «🧾 Υποχρεωτικός λογιστής για αποστολές» (Βασικά στοιχεία) και ακολουθεί την «Αποστολή».</small></span>
 </label>
 {% if c.locked %}<p class="co-warn">🔐 Κλειδωμένη από τον λογιστή — μόνο αναφορές. Οι άδειες δεν αλλάζουν.</p>{% endif %}
 <label class="co-switch co-switch--acc">

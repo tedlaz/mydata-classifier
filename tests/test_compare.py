@@ -10,7 +10,7 @@ import db  # noqa: E402
 
 db.init_db()
 c = A.app.test_client()
-c.post("/companies/add", data={"company_name": "Εμπορική", "use_accountant": "1", "entity_type": "legal"})
+c.post("/companies/add", data={"company_name": "Εμπορική", "accountant_required": "1", "entity_type": "legal"})
 cid = db.list_companies()[0]["id"]
 db.set_active_company_id(cid)
 y = A.datetime.now(A.ATHENS).year

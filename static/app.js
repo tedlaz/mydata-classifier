@@ -37,13 +37,13 @@
   });
 
   // ---- Εταιρεία: υποχρεωτικός λογιστής → η «Χρήση credentials λογιστή» ακολουθεί την «Αποστολή»·
-  //      ακυρώσεις/απορρίψεις μόνο με «Αποστολή» (ίδιους κανόνες κρατά και ο server) ----
+  //      χωρίς υποχρεωτικό λογιστή μένει κλειστή· ακυρώσεις/απορρίψεις μόνο με «Αποστολή» (ίδιους κανόνες κρατά και ο server) ----
   function syncAcc(form) {
     const req = form.querySelector('[name=accountant_required]'), acc = form.querySelector('[name=use_accountant]'),
       send = form.querySelector('[name=allow_send]'), cancel = form.querySelector('[name=allow_cancel]');
     if (!req || !acc || !send || !cancel) return;
-    if (req.checked) acc.checked = send.checked;
-    acc.disabled = req.checked;
+    acc.checked = req.checked && send.checked;  // μόνο με υποχρεωτικό λογιστή, μαζί με την αποστολή
+    acc.disabled = true;
     if (!send.checked) cancel.checked = false;
     cancel.disabled = !send.checked;
   }

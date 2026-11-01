@@ -33,7 +33,7 @@ assert t["prepay"] == 3025.0 and t["prepay_rate"] == 55 and t["sole"]
 
 # Εταιρεία: ατομική χωρίς έτος γέννησης απορρίπτεται· με έτος αποθηκεύεται.
 c = A.app.test_client()
-form = {"company_name": "Ατομική", "use_accountant": "1", "entity_type": "sole"}
+form = {"company_name": "Ατομική", "accountant_required": "1", "entity_type": "sole"}
 assert b"flash error" in c.post("/companies/add", data=form, follow_redirects=True).data and not db.list_companies()
 c.post("/companies/add", data=dict(form, birth_year="1998"))
 co = db.list_companies()[0]

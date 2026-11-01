@@ -104,7 +104,7 @@ for use_acc, req, keys, acc_ok, acts in itertools.product(
     if keys == "full":
         cl = A._make_client()
         assert user(cl) == "u" and not cl.entity_vat and "entityVatNumber" not in cl._params(), case
-    elif (use_acc or req) and acc_ok:
+    elif req and acc_ok:
         cl = A._make_client()
         assert user(cl) == "acc" and cl.entity_vat == "123456789", case
     else:

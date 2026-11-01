@@ -23,10 +23,15 @@ c.post("/companies/toggle/0/locked")  # άγνωστο flag → τίποτα
 assert not co()["locked"]
 assert b"companies/toggle/0/allow_new" in c.get("/companies").data
 
-# Χωρίς credentials: δεν κλείνει ο λογιστής.
-db.update_company(cid, co() | {"AADE_USER_ID": "", "use_accountant": True})
+# Χωρίς υποχρεωτικό λογιστή: η «Χρήση credentials λογιστή» δεν ανοίγει (ούτε από τη βάση, ούτε από τη φόρμα).
 c.post("/companies/toggle/0/use_accountant")
-assert co()["use_accountant"]
+assert not co()["use_accountant"]
+db.update_company(cid, co() | {"use_accountant": True, "allow_send": True})
+assert not co()["use_accountant"]
+c.post("/companies/update/0", data={"company_name": "Δοκιμή ΑΕ", "aade_user_id": "u", "use_accountant": "1",
+                                    "allow_send": "1", "entity_type": "legal"})
+assert not co()["use_accountant"]
+assert 'title="Λογιστής: OFF · μόνο με υποχρεωτικό λογιστή"' in c.get("/companies").get_data(as_text=True)
 
 # Κλειδωμένη: οι άδειες δεν ανοίγουν.
 db.lock_company(cid)
@@ -60,7 +65,7 @@ print("OK cancel needs send")
 
 # Badges του chip στο πλαϊνό μενού: και τα 5 εμφανίζονται, clickable, και το back γυρνά στη σελίδα.
 h = c.get("/companies").get_data(as_text=True)
-for f in ("use_accountant", "allow_send", "allow_classify", "allow_new"):
+for f in ("allow_send", "allow_classify", "allow_new"):
     assert f'data-co-toggle="/companies/toggle/0/{f}"' in h, f
 assert 'aria-label="Ακυρώσεις &amp; απορρίψεις"' in h  # αχνό/disabled όσο δεν υπάρχει αποστολή
 r = c.post("/companies/toggle/0/allow_new", data={"back": "/parameters"})

@@ -517,6 +517,8 @@ def init_db() -> None:
             if col not in comp_cols:
                 conn.execute(f"ALTER TABLE companies ADD COLUMN {col} INTEGER DEFAULT 0")
         conn.execute("UPDATE companies SET allow_cancel = 0 WHERE allow_cancel AND NOT allow_send")  # ακυρώσεις μόνο με αποστολή
+        # λογιστής μόνο αν είναι υποχρεωτικός: όσες τον χρησιμοποιούσαν γίνονται «υποχρεωτικός» (ίδια συμπεριφορά)
+        conn.execute("UPDATE companies SET accountant_required = 1 WHERE use_accountant AND NOT accountant_required")
         if "vat_period" not in comp_cols:
             conn.execute("ALTER TABLE companies ADD COLUMN vat_period TEXT DEFAULT 'm'")
         if "entity_type" not in comp_cols:
@@ -864,8 +866,8 @@ def list_companies() -> list[dict]:
 
 
 def _use_accountant(data: dict) -> int:
-    """Υποχρεωτικός λογιστής: «Χρήση credentials λογιστή» και «Αποστολή στο myDATA» ανοίγουν/κλείνουν μαζί."""
-    return 1 if data.get("allow_send" if data.get("accountant_required") else "use_accountant") else 0
+    """«Χρήση credentials λογιστή» μόνο με υποχρεωτικό λογιστή, και τότε ανοίγει/κλείνει μαζί με την «Αποστολή»."""
+    return 1 if data.get("accountant_required") and data.get("allow_send") else 0
 
 
 def add_company(data: dict) -> int | None:
