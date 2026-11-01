@@ -54,4 +54,31 @@
   <div class="empty"><b>Τίποτα για αυτόματο χαρακτηρισμό.</b> <a href="{{ url_for('invoices') }}">Στο βιβλίο εξόδων</a></div>
   {% endif %}
 </div>
+
+{% if new_type %}
+<div class="card">
+  <h2>🆕 Νέος τύπος παραστατικού — χρειάζεται πρόταση</h2>
+  <p class="muted">Πρώτο παραστατικό αυτού του τύπου από τον συναλλασσόμενο: οι προτάσεις του είναι για άλλους τύπους,
+    γι' αυτό <strong>δεν χαρακτηρίζονται αυτόματα</strong>. Πρόσθεσε πρόταση για τον τύπο (ή ενέκρινε τις υπάρχουσες)
+    στη σελίδα του συναλλασσόμενου, ή χαρακτήρισέ το με το χέρι.</p>
+  <div class="table-wrap">
+  <table class="ledger">
+    <thead><tr><th>MARK</th><th>Ημ/νία</th><th>Εκδότης / ΑΦΜ</th><th>Τύπος</th><th>Γνωστοί τύποι</th><th class="num">Σύνολο</th><th></th></tr></thead>
+    <tbody>
+      {% for inv in new_type %}
+      <tr>
+        <td data-label="MARK"><span class="mark"><a href="{{ url_for('classify', mark=inv.mark) }}">{{ inv.mark }}</a></span></td>
+        <td data-label="Ημ/νία" class="doc-date">{{ inv.issue_date or "—" }}</td>
+        <td data-label="Εκδότης">{{ issuer_name(inv) }} <span class="vat">{{ inv.issuer_vat or "" }}</span></td>
+        <td data-label="Τύπος">{{ type_badge(inv) }}</td>
+        <td data-label="Γνωστοί τύποι">{{ inv.known_types|join(', ') }}</td>
+        <td data-label="Σύνολο" class="num"><strong>{{ "%.2f"|format(inv.total_gross or 0) }} €</strong></td>
+        <td><a class="btn btn-ghost btn-sm" href="{{ url_for('supplier_rules', vat=inv.issuer_vat, back=request.full_path) }}">💡 Προτάσεις</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

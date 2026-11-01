@@ -2,18 +2,42 @@
 {% from "_macros.html" import issuer_name, cp_avatar, role_pill with context %}
 {% block title %}Προτάσεις {{ vat }}{% endblock %}
 
-{# Μία πρόταση: κατηγορία ΦΠΑ γραμμής → κατηγορία εξόδου + τύπος Ε3 + χαρακτηρισμός ΦΠΑ. #}
-{% macro rule_row(r) -%}
-<div class="cls-row rule-row">
+{# Μία πρόταση: (τύπος παραστατικού, κατηγορία ΦΠΑ γραμμής[:εξαίρεση]) → κατηγορία εξόδου + τύπος Ε3 +
+   χαρακτηρισμός ΦΠΑ. base = η υποχρεωτική «Όλα τα υπόλοιπα»: κλειδωμένο κλειδί, δεν διαγράφεται. #}
+{% macro rule_row(r, base=false) -%}
+<div class="cls-row rule-row{{ ' rule-base' if base }}">
+  {% if base %}
+  <div class="cls-field rule-key">
+    <label>Ισχύει για</label>
+    <input type="hidden" name="itype" value=""><input type="hidden" name="vat_category" value="{{ default_rule }}">
+    <strong>Όλα τα υπόλοιπα</strong>
+    <small class="muted">ό,τι δεν καλύπτουν οι γραμμές από κάτω</small>
+  </div>
+  {% else %}
   <div class="cls-field">
-    <label>Κατηγορία ΦΠΑ γραμμής</label>
-    <select name="vat_category">
-      <option value="{{ default_rule }}" {{ 'selected' if r.vat_category == default_rule }}>Βασική (όλες οι άλλες)</option>
-      {% for code, rate in vat_rates.items() %}
-        <option value="{{ code }}" {{ 'selected' if r.vat_category == code }}>{{ code }} · {{ rate }}</option>
+    <label>Τύπος παραστατικού</label>
+    <select name="itype">
+      <option value="">Όλοι οι τύποι</option>
+      {% for t in doc_types + ([r.itype] if r.itype and r.itype not in doc_types else []) %}
+        <option value="{{ t }}" {{ 'selected' if r.itype == t }} title="{{ type_names.get(t, '') }}">{{ t }} · {{ type_names.get(t, '')|truncate(28, true, '…') }}</option>
       {% endfor %}
     </select>
   </div>
+  <div class="cls-field">
+    <label>Κατηγορία ΦΠΑ γραμμής</label>
+    <select name="vat_category">
+      <option value="{{ default_rule }}" {{ 'selected' if r.vat_category == default_rule }}>Όλα τα υπόλοιπα του τύπου</option>
+      {% for code, rate in vat_rates.items() %}
+        <option value="{{ code }}" {{ 'selected' if r.vat_category == code }}>{{ rate }}{{ ' (κάθε εξαίρεση)' if code == '7' }}</option>
+      {% endfor %}
+      <optgroup label="0% με κατηγορία εξαίρεσης (✓ = υπάρχει στα παραστατικά του)">
+        {% for code in seen_exemptions + (exemptions.keys()|reject('in', seen_exemptions)|list) %}
+          <option value="7:{{ code }}" {{ 'selected' if r.vat_category == '7:' ~ code }}>0% · {{ code }} {{ exemptions[code] }}{{ ' ✓' if code in seen_exemptions }}</option>
+        {% endfor %}
+      </optgroup>
+    </select>
+  </div>
+  {% endif %}
   <div class="cls-field">
     <label>Κατηγορία εξόδου</label>
     <select name="category">
@@ -40,7 +64,7 @@
       {% endfor %}
     </select>
   </div>
-  <button type="button" class="btn-x rule-del" title="Αφαίρεση γραμμής" aria-label="Αφαίρεση">✕</button>
+  {% if not base %}<button type="button" class="btn-x rule-del" title="Αφαίρεση γραμμής" aria-label="Αφαίρεση">✕</button>{% endif %}
 </div>
 {%- endmacro %}
 
@@ -62,6 +86,17 @@
 .sr-save{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:8px;padding:12px 0 4px;
   background:linear-gradient(transparent,var(--surface) 35%)}
 @media (max-width:760px){ .sr-grid{grid-template-columns:1fr} }
+@media (min-width:981px){
+  .rule-row{grid-template-columns:minmax(0,1.3fr) minmax(0,1.5fr) minmax(0,2fr) minmax(0,2fr) minmax(0,1.6fr) 38px}
+  .rule-base{grid-template-columns:minmax(0,2.8fr) minmax(0,2fr) minmax(0,2fr) minmax(0,1.6fr) 38px}
+}
+.rule-base{border-color:var(--accent)}
+.rule-key strong{display:block;margin-top:9px}
+.rule-key small{display:block;font-size:.76rem}
+.sr-cov{width:100%;font-size:.84rem}
+.sr-cov td,.sr-cov th{padding:6px 8px;text-align:left;vertical-align:top}
+.sr-cov .num{text-align:right}
+.sr-cov .warn{color:var(--warn);font-weight:600}
 </style>
 
 <a class="back" href="{{ back }}">← Πίσω στους συναλλασσόμενους</a>
@@ -110,7 +145,7 @@
   </div>
 </header>
 
-<form method="post" id="rules-form">
+<form method="post" id="rules-form" data-limits="{{ limits|tojson|forceescape }}">
   <input type="hidden" name="back" value="{{ back }}">
   <div class="sr-grid">
     <section class="card">
@@ -136,20 +171,60 @@
   </div>
 
   <section class="card sr-rules">
-    <h2>Προτάσεις ανά κατηγορία ΦΠΑ</h2>
-    <p class="muted">Κάθε γραμμή παραστατικού παίρνει την πρόταση της κατηγορίας ΦΠΑ της. Η <strong>βασική</strong> ισχύει
-      για όσες δεν έχουν δική τους γραμμή (αν λείπει, γίνεται η πρώτη). Χωρίς γραμμές, οι προτάσεις διαγράφονται.</p>
+    <h2>Προτάσεις χαρακτηρισμού</h2>
+    <p class="muted">Κάθε γραμμή παραστατικού παίρνει την <strong>πιο ειδική</strong> πρόταση που ταιριάζει:
+      τύπος + κατηγορία ΦΠΑ (+ εξαίρεση στο 0%) → «Όλα τα υπόλοιπα του τύπου» → κατηγορία ΦΠΑ σε όλους τους τύπους →
+      <strong>Όλα τα υπόλοιπα</strong>. Στο 0% η εξαίρεση είναι αυτή που έβαλε ο εκδότης· το «0% (κάθε εξαίρεση)» καλύπτει
+      όσες δεν έχουν δική τους γραμμή. Στο 0% και στο «χωρίς ΦΠΑ» δεν υποβάλλεται χαρακτηρισμός ΦΠΑ.</p>
+    {% if limits.any.combos %}<p class="muted">🔒 Εμφανίζονται μόνο οι συνδυασμοί κατηγορίας / τύπου Ε3 / χαρακτηρισμού ΦΠΑ που
+      επιτρέπει η ΑΑΔΕ για τον τύπο της γραμμής{% if doc_types %}· στο «Όλοι οι τύποι», όσοι ισχύουν σε όλους τους τύπους του
+      ({{ doc_types|join(', ') }}) που δεν έχουν δικό τους «Όλα τα υπόλοιπα του τύπου»{% endif %}.</p>{% endif %}
     <div id="rule-rows">
+      {{ rule_row(base, true) }}
       {% for r in rows %}{{ rule_row(r) }}{% endfor %}
     </div>
-    <template id="rule-tpl">{{ rule_row({'vat_category': '1', 'category': '', 'type': '', 'vat_type': 'VAT_361'}) }}</template>
+    <template id="rule-tpl">{{ rule_row({'itype': '', 'vat_category': '1', 'category': '', 'type': '', 'vat_type': 'VAT_361'}) }}</template>
     <button type="button" class="btn-ghost btn-sm" id="rule-add">+ Γραμμή</button>
     <div class="sr-save">
       <a class="btn btn-ghost" href="{{ back }}">Άκυρο</a>
       <button type="submit">💾 Αποθήκευση</button>
     </div>
   </section>
+
+  {% if coverage %}
+  <section class="card sr-rules">
+    <h2>Πώς θα χαρακτηριστούν τα παραστατικά του</h2>
+    <p class="muted">Από τα παραστατικά εξόδων του, με τις <strong>αποθηκευμένες</strong> προτάσεις (ενημερώνεται μετά την αποθήκευση).</p>
+    {% for t in new_types %}
+    <div class="note note--warn">
+      🆕 <strong>Νέος τύπος {{ t }}</strong> ({{ type_names.get(t, '') }}): οι προτάσεις του είναι από τους τύπους
+      {{ known_types|join(', ') }}, γι' αυτό τα {{ t }} <strong>δεν χαρακτηρίζονται αυτόματα</strong>. Πρόσθεσε γραμμή
+      «{{ t }} · …» με τη σωστή πρόταση, ή
+      <button type="submit" form="approve-{{ t|replace('.', '-') }}" class="btn-ghost btn-sm">✓ Ίδιες προτάσεις και για τον τύπο {{ t }}</button>
+    </div>
+    {% endfor %}
+    <div class="table-wrap"><table class="sr-cov">
+      <thead><tr><th>Τύπος</th><th>ΦΠΑ γραμμής</th><th class="num">Γραμμές</th><th>Πρόταση που εφαρμόζεται</th><th>Χαρακτηρισμός</th></tr></thead>
+      <tbody>
+      {% for c in coverage %}
+        <tr>
+          <td title="{{ type_names.get(c.type, '') }}">{{ c.type }}</td>
+          <td>{{ vat_rates.get(c.vc, c.vc or '—') }}{% if c.ex %} · εξαίρεση {{ c.ex }} <small class="muted">{{ exemptions.get(c.ex, '') }}</small>{% endif %}</td>
+          <td class="num">{{ c.lines }}</td>
+          <td>{{ c.label }}</td>
+          <td>{% if c.type in new_types %}<span class="warn">🆕 νέος τύπος — δεν χαρακτηρίζεται αυτόματα</span>{% elif c.problem %}<span class="warn">⚠ {{ c.problem }}</span>{% else %}{{ c.rule.category }} / {{ c.rule.type }}{% if c.rule.vat_type and c.vc not in ('7', '8') %} · {{ c.rule.vat_type }}{% endif %}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+  {% endif %}
 </form>
+{% for t in new_types %}
+<form method="post" id="approve-{{ t|replace('.', '-') }}" action="{{ url_for('supplier_rules_approve_type', vat=vat) }}" hidden>
+  <input type="hidden" name="invoice_type" value="{{ t }}"><input type="hidden" name="back" value="{{ back }}">
+</form>
+{% endfor %}
 {% endblock %}
 
 {% block scripts %}
@@ -157,15 +232,72 @@
 const rows = document.getElementById('rule-rows');
 document.getElementById('rule-add').addEventListener('click', () => {
   rows.appendChild(document.getElementById('rule-tpl').content.cloneNode(true));
+  filterRow(rows.lastElementChild, true);
   rows.lastElementChild.querySelector('[name=category]').focus();
 });
 rows.addEventListener('click', e => {
-  if (e.target.closest('.rule-del')) e.target.closest('.rule-row').remove();
+  if (e.target.closest('.rule-del')) { e.target.closest('.rule-row').remove(); filterAll(false); }
 });
-// 2.5 (χωρίς δικαίωμα έκπτωσης ΦΠΑ) → χωρίς χαρακτηρισμό ΦΠΑ, όπως στη φόρμα χαρακτηρισμού.
+// Φίλτρα ΑΑΔΕ (ίδιοι κανόνες με _row_limits/_rule_vat_ok στο app.py). LIMITS.types = όρια ανά τύπο
+// παραστατικού του συναλλασσόμενου {combos: {category2_x: [E3]}, vat: [VAT_xxx]}, LIMITS.any = ένωση όλων.
+const LIMITS = JSON.parse(document.getElementById('rules-form').dataset.limits);
+const VAT_ORDER = [...document.querySelector('[name=vat_type]').options].map(o => o.value);
+const g = (row, n) => row.querySelector('[name=' + n + ']');
+const nkeys = o => Object.keys(o).length;
+function merge(lims, union) {
+  const op = union ? (a, b) => new Set([...a, ...b]) : (a, b) => new Set([...a].filter(x => b.has(x)));
+  const restricted = lims.map(l => l.combos).filter(nkeys);
+  const combos = {};
+  if (restricted.length) {
+    restricted.map(c => new Set(Object.keys(c))).reduce(op).forEach(c => {
+      const es = restricted.map(r => new Set(r[c] || [])).reduce(op);
+      if (es.size) combos[c] = [...es];
+    });
+  }
+  const vat = lims.length ? lims.map(l => new Set(l.vat)).reduce(op) : new Set();
+  return {combos, vat: VAT_ORDER.filter(v => vat.has(v))};
+}
+// «Όλοι οι τύποι»: τομή των τύπων χωρίς δική τους «Όλα τα υπόλοιπα του τύπου»· κενή → ένωση.
+function rowLimits(itype) {
+  if (itype) return LIMITS.types[itype] || LIMITS.any;
+  const typed = new Set([...rows.querySelectorAll('.rule-row')]
+    .filter(r => g(r, 'itype').value && g(r, 'vat_category').value === '*' && (g(r, 'category').value || g(r, 'type').value))
+    .map(r => g(r, 'itype').value));
+  const pool = Object.entries(LIMITS.types).filter(([t]) => !typed.has(t)).map(([, l]) => l);
+  if (!pool.length) return LIMITS.any;
+  const out = merge(pool, false);
+  return (pool.some(l => nkeys(l.combos)) && !nkeys(out.combos)) || !out.vat.length ? merge(pool, true) : out;
+}
+function vatOk(vc, cat, vt, lim) {
+  if (cat === 'category2_5' || cat === 'category2_9' || vc === '7' || vc === '8') return vt === '';
+  if (vt === '' && vc === '*') return true;  // «χωρίς» = αυτόματα VAT_361 όπου υπάρχει ΦΠΑ
+  if (!lim.vat.includes(vt)) return false;
+  if (cat === 'category2_7') return vt !== 'VAT_361' && vt !== 'VAT_363';
+  return vt !== 'VAT_362';
+}
+// Κρύβει τις μη επιτρεπτές επιλογές· clear: όποια επιλεγμένη έγινε άκυρη → πρώτη έγκυρη.
+// Χωρίς clear (αρχική φόρτωση) η αποθηκευμένη τιμή μένει ορατή· τη σημαδεύει η αποθήκευση.
+function hide(sel, ok, clear) {
+  const cur = sel.value;
+  [...sel.options].forEach(o => { o.hidden = o.disabled = !ok(o.value) && (clear || o.value !== cur); });
+  if (clear && !ok(cur)) sel.value = ([...sel.options].find(o => ok(o.value)) || {value: ''}).value;
+}
+function filterRow(row, clear) {
+  const lim = rowLimits(g(row, 'itype').value);
+  const filter = nkeys(lim.combos) > 0;
+  if (filter) hide(g(row, 'category'), v => !v || v in lim.combos, clear);
+  const cat = g(row, 'category').value, allowed = lim.combos[cat] || [];
+  if (filter) hide(g(row, 'type'), v => !v || (!!cat && allowed.includes(v)), clear);
+  const vc = g(row, 'vat_category').value.split(':')[0];
+  hide(g(row, 'vat_type'), v => vatOk(vc, cat, v, lim), clear);
+}
+// Τα όρια του «Όλοι οι τύποι» εξαρτώνται από τις γραμμές «τύπος · Όλα τα υπόλοιπα του τύπου»:
+// μετά από αλλαγή, οι υπόλοιπες γραμμές ξαναφιλτράρονται (χωρίς να αλλάξουν τιμή).
+const filterAll = clear => rows.querySelectorAll('.rule-row').forEach(r => filterRow(r, clear));
+filterAll(false);
 rows.addEventListener('change', e => {
-  if (e.target.name === 'category' && e.target.value === 'category2_5')
-    e.target.closest('.rule-row').querySelector('[name=vat_type]').value = '';
+  filterRow(e.target.closest('.rule-row'), true);
+  filterAll(false);
 });
 </script>
 {% endblock %}

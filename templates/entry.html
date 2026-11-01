@@ -422,7 +422,7 @@ select[data-k=country]:disabled{opacity:1}
         <div><label>Καθαρή αξία *</label><input type="number" step="0.01" min="0" data-k="net" required placeholder="0,00"></div>
         <div class="ge-vat"><label>Συντ. ΦΠΑ *</label><select data-k="vat_category" required>{{ opts(opt.vat, 'name') }}</select></div>
         <div class="ge-vat"><label>Ποσό ΦΠΑ</label><input type="number" step="0.01" min="0" data-k="vat_amount" value="0.00"></div>
-        <div class="ge-exempt ge-wide" hidden><label>Κατηγορία εξαίρεσης ΦΠΑ *</label><select data-k="vat_exemption">{{ opts(opt.exemption, 'name') }}</select></div>
+        <div class="ge-exempt ge-wide" hidden><label>Κατηγορία εξαίρεσης ΦΠΑ *</label><select data-k="vat_exemption">{{ opts(opt.exemption) }}</select></div>
         <div class="ge-rec"><label>Κατηγορία γραμμής</label><select data-k="rec_type">{{ opts(opt.rec_type, 'name', 'Κανονική γραμμή') }}</select></div>
         <div class="ge-unit"><label>Μονάδα μέτρησης</label><select data-k="unit">{{ opts(opt.unit, 'name') }}</select></div>
         <div class="ge-qty"><label>Ποσότητα</label><input type="number" step="any" min="0" data-k="quantity"></div>

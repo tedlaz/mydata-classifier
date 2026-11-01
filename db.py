@@ -90,8 +90,19 @@ def _zstd_migrate(conn) -> int:
                             f"AND substr({c}, 1, 4) <> ?", (_ZSTD_MAGIC,)).rowcount for t, c in _XML_COLS)
 
 
+class _Conn(sqlite3.Connection):
+    """«with get_conn() as conn»: commit/rollback ΚΑΙ κλείσιμο στο τέλος. Το sqlite3 μόνο κάνει commit·
+    η σύνδεση έμενε ανοιχτή ως τον GC (ResourceWarning σε τυχαίο σημείο, π.χ. μέσα σε import)."""
+
+    def __exit__(self, *exc):
+        try:
+            return super().__exit__(*exc)
+        finally:
+            self.close()
+
+
 def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, factory=_Conn)
     conn.create_function("z", 1, lambda s: _z(s) if isinstance(s, str) else s, deterministic=True)
     conn.create_function("unz", 1, _unz, deterministic=True)
     # Τα συμπιεσμένα XML διαβάζονται πάντα ως str: οι αναγνώστες δεν ξέρουν τη συμπίεση.
@@ -252,7 +263,9 @@ CREATE TABLE IF NOT EXISTS suppliers (
 -- Προτάσεις χαρακτηρισμού ΑΝΑ ΕΤΑΙΡΕΙΑ, συναλλασσόμενο ΚΑΙ κατηγορία ΦΠΑ γραμμής: ένα
 -- παραστατικό μπορεί να έχει π.χ. γραμμές 24% (έξοδα με ΦΠΑ) και 0% (χωρίς δικαίωμα έκπτωσης)·
 -- στο επόμενο παραστατικό κάθε γραμμή παίρνει την πρόταση της κατηγορίας ΦΠΑ της.
--- vat_category '*' = βασική πρόταση του συναλλασσόμενου (όταν δεν ταιριάζει κατηγορία ΦΠΑ).
+-- vat_category = κλειδί πρότασης «[τύπος|]κατηγορία ΦΠΑ[:εξαίρεση]»: '1' (24%), '7:16' (0% με εξαίρεση 16),
+-- '2.1|1' (τύπος 2.1, 24%), '2.1|*' (βασική του τύπου 2.1)· '*' = βασική του συναλλασσόμενου.
+-- Η αναζήτηση γίνεται από το πιο ειδικό στο πιο γενικό (app._rule_keys).
 CREATE TABLE IF NOT EXISTS supplier_rules (
     company_id     INTEGER NOT NULL,
     vat            TEXT NOT NULL,
@@ -1165,6 +1178,44 @@ def set_review_vat(company_id: int | None, vat: str | None, on: bool) -> None:
     set_setting(f"review_vats_{company_id}", json.dumps(sorted(vats)))
 
 
+def approved_rule_types(company_id: int | None) -> dict[str, set]:
+    """{vat: {τύποι}}: τύποι παραστατικών που ο χρήστης ενέκρινε να χαρακτηρίζονται αυτόματα με τις
+    γενικές προτάσεις του συναλλασσόμενου, χωρίς να τους έχει χαρακτηρίσει ποτέ (βλ. app._known_types)."""
+    raw = json.loads(get_setting(f"rule_types_{company_id}") or "{}") if company_id else {}
+    return {v: set(ts) for v, ts in raw.items()}
+
+
+def approve_rule_type(company_id: int | None, vat: str | None, invoice_type: str) -> None:
+    if not company_id or not vat or not invoice_type:
+        return
+    cur = approved_rule_types(company_id)
+    cur.setdefault(vat, set()).add(invoice_type)
+    set_setting(f"rule_types_{company_id}", json.dumps({v: sorted(ts) for v, ts in cur.items()}))
+
+
+def classified_expense_types(company_id: int | None, exclude_mark: str | None = None) -> dict[str, set]:
+    """{vat: {τύποι}}: τύποι παραστατικών εξόδων που έχουν ήδη χαρακτηριστεί (τοπικά ή στο myDATA)."""
+    out: dict[str, set] = {}
+    if not company_id:
+        return out
+    with get_conn() as conn:
+        for vat, t in conn.execute("SELECT DISTINCT counterparty_vat, invoice_type FROM documents WHERE company_id = ? "
+                                   "AND kind = 'expense' AND status != 'unclassified' AND counterparty_vat IS NOT NULL "
+                                   "AND invoice_type IS NOT NULL AND mark != ?", (company_id, exclude_mark or "")):
+            out.setdefault(vat, set()).add(t)
+    return out
+
+
+def unclassified_expense_types(company_id: int | None) -> list[tuple[str, str, int]]:
+    """[(vat, τύπος, πλήθος)] των αχαρακτήριστων εξόδων (φθηνό: χωρίς γραμμές/XML)."""
+    if not company_id:
+        return []
+    with get_conn() as conn:
+        return [tuple(r) for r in conn.execute(
+            "SELECT counterparty_vat, invoice_type, COUNT(*) FROM documents WHERE company_id = ? AND kind = 'expense' "
+            "AND status = 'unclassified' AND counterparty_vat IS NOT NULL GROUP BY 1, 2", (company_id,))]
+
+
 def load_all_rule_patterns(company_id: int | None, vat: str) -> dict:
     """{vat_category: rule} του συναλλασσόμενου, μαζί με τη βασική ('*')."""
     return _load_all_rules(company_id, vat).get(vat, {})
@@ -1290,6 +1341,16 @@ def counterparty_stats(company_id: int | None) -> dict[str, dict]:
             s["role"] = "both" if s["role"] != kind else kind
             s["docs"] += n
     return out
+
+
+def counterparty_expense_docs(company_id: int, vat: str) -> list[dict]:
+    """Παραστατικά εξόδων του συναλλασσόμενου στην εταιρεία (τύπος, γραμμές, XML), για τις
+    προτάσεις χαρακτηρισμού του: ποιοι τύποι / κατηγορίες ΦΠΑ / εξαιρέσεις εμφανίζονται."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT mark, invoice_type, lines_json, raw_xml FROM documents WHERE company_id = ? "
+                            "AND counterparty_vat = ? AND kind = 'expense' AND invoice_type IS NOT NULL",
+                            (company_id, vat)).fetchall()
+    return [dict(r) for r in rows]
 
 
 def vats_with_documents() -> set[str]:

@@ -245,6 +245,8 @@ class InvoiceLine:
     )  # [{"type","category","amount"}]
     # Φόροι/κρατήσεις της γραμμής (παρακράτηση, τέλη, λοιποί φόροι, χαρτόσημο, κρατήσεις).
     taxes: list[dict] = field(default_factory=list)  # [{"type","category","amount"}]
+    # Κατηγορία εξαίρεσης ΦΠΑ του εκδότη (γραμμές 0%, vatCategory 7)· "" αν δεν υπάρχει.
+    vat_exemption: str = ""
 
 
 @dataclass

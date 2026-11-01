@@ -5,7 +5,7 @@
 {% set st_icons = {'ok': '✓', 'error': '✗', 'stopped': '⏹', 'skipped': '⏭', 'running': '●'} %}
 {% set lvl_names = {'fetch': 'Μόνο ανάκτηση', 'classify': '+ Χαρακτηρισμός', 'send': '+ Αποστολή'} %}
 {% set chip_defs = [('new', 'νέα', '#06b6d4'), ('classified', 'χαρακτηρίστηκαν', '#8b5cf6'), ('sent', 'στάλθηκαν', '#10b981'), ('confirmed', 'επιβεβαιώθηκαν', '#059669'),
-                    ('failed', 'αποτυχίες', '#ef4444'), ('no_rule', 'χωρίς πρόταση', '#f59e0b'), ('held', 'αναμένουν επιβεβαίωση', '#334155'), ('skipped', 'παραλείφθηκαν', '#94a3b8')] %}
+                    ('failed', 'αποτυχίες', '#ef4444'), ('no_rule', 'χωρίς πρόταση', '#f59e0b'), ('new_type', 'νέος τύπος', '#d97706'), ('held', 'αναμένουν επιβεβαίωση', '#334155'), ('skipped', 'παραλείφθηκαν', '#94a3b8')] %}
 {% macro chips(counts) -%}
 <span class="chips">
   {%- for k, label, color in chip_defs if (counts or {}).get(k) %}<span class="chip" style="--k:{{ color }}"><b>{{ counts[k] }}</b> {{ label }}</span>{% else %}<span class="chip chip--none">καμία αλλαγή</span>{% endfor -%}

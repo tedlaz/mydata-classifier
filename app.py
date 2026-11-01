@@ -21,7 +21,9 @@ import time
 import tomllib
 import traceback
 import unicodedata
+from collections import Counter  # noqa
 from contextlib import contextmanager
+from types import SimpleNamespace
 from datetime import date, datetime, timedelta
 from urllib.parse import parse_qsl, quote, urlparse
 from zoneinfo import ZoneInfo
@@ -68,6 +70,7 @@ from classifications import (
 from ensure_env import ensure_env, env_path
 from mydata_client import (
     SELF_EXPENSE_TYPES,
+    SELF_TYPES_INTRA_EU,
     ExpenseInvoice,
     InvoiceLine,
     MyDataClient,
@@ -425,18 +428,34 @@ def save_rule(issuer_vat: str | None, ctype: str, ccat: str, vat_type: str = "")
 
 
 def _learn_patterns(inv, entries: list[dict]) -> dict:
-    """Προτάσεις από έναν χαρακτηρισμό, ανά κατηγορία ΦΠΑ γραμμής:
-    {vat_category: {category, type, vat_type}}. Για κάθε κατηγορία ΦΠΑ κρατά το Ε3 με το
-    μεγαλύτερο ποσό και τον χαρακτηρισμό ΦΠΑ της ίδιας γραμμής/ομάδας. Δέχεται εγγραφές
-    ανά γραμμή (line_number) ή ανά παραστατικό (line_number None + vat_category ομάδας)."""
-    line_cat = {ln.line_number: str(ln.vat_category or "") for ln in inv.lines or []}
+    """Προτάσεις από έναν χαρακτηρισμό: {κλειδί: {category, type, vat_type}}. Για κάθε κλειδί κρατά
+    το Ε3 με το μεγαλύτερο ποσό και τον χαρακτηρισμό ΦΠΑ της ίδιας γραμμής/ομάδας. Δέχεται εγγραφές
+    ανά γραμμή (line_number) ή ανά παραστατικό (line_number None + vat_category ομάδας).
+    Κλειδί = η υπάρχουσα πρόταση που ταιριάζει (π.χ. «2.1|*», «7:16»)· αλλιώς η κατηγορία ΦΠΑ,
+    ώστε να μη δημιουργούνται μόνες τους προτάσεις ανά τύπο/εξαίρεση. Εξαίρεση: παραστατικό νέου τύπου
+    για τον συναλλασσόμενο (_new_type) → «τύπος|κατηγορία ΦΠΑ», για να μην πατήσει τις προτάσεις των
+    άλλων τύπων του."""
+    existing = _patterns_for(getattr(inv, "issuer_vat", None))
+    by_line = {ln.line_number: ln for ln in inv.lines or []}
+    itype = getattr(inv, "invoice_type", None)
+    cid = _active_company_id()
+    new = bool(cid and db.load_all_rule_patterns(cid, getattr(inv, "issuer_vat", None) or "")) \
+        and _new_type(inv, _known_types(cid, getattr(inv, "mark", None)))
+
+    def key_of(vc, ex=""):
+        if new:
+            return f"{itype}|{vc or ''}"
+        k = _pick_rule(existing, {}, itype, vc, ex)[0]
+        return str(vc or "") if k == db.DEFAULT_RULE else k
+
     best: dict = {}
     vat_of: dict = {}
     for e in entries:
+        ln = by_line.get(e.get("line_number")) if e.get("line_number") is not None else None
         if e.get("line_number") is None:
-            key = str(e.get("vat_category") or "")
+            key = key_of(e.get("vat_category"))
         else:
-            key = line_cat.get(e["line_number"], "")
+            key = key_of(ln.vat_category, getattr(ln, "vat_exemption", "")) if ln else ""
         ctype = e.get("classification_type") or ""
         if ctype.startswith("VAT_"):
             vat_of.setdefault(key, ctype)
@@ -869,6 +888,11 @@ def _row_to_invoice(row: dict, names: dict | None = None) -> ExpenseInvoice:
         )
         for ln in json.loads(row.get("lines_json") or "[]")
     ]
+    # Εξαίρεση ΦΠΑ από το XML του εκδότη: μόνο όταν υπάρχει γραμμή 0% (το XML κοστίζει).
+    if any(str(ln.vat_category) == "7" for ln in lines) and row.get("raw_xml"):
+        exempt = vat_return._parse_exempt(row)[1]
+        for ln in lines:
+            ln.vat_exemption = exempt.get(ln.line_number, "")
     inv = ExpenseInvoice(
         mark=row["mark"],
         uid=None,
@@ -1203,7 +1227,7 @@ def sync_run():
         return redirect(url_for("sync", scope=scope, date_from=request.form["date_from"],
                                 date_to=request.form["date_to"], tab=request.form.get("tab")))
     if "expense" in _SYNC_SCOPES[scope]:
-        if db.get_setting("auto_classify") == "1" and _auto_classify_candidates(cid):
+        if db.get_setting("auto_classify") == "1" and any(_auto_classify_split(cid)):  # και μόνο νέου τύπου: ειδοποίηση
             return redirect(url_for("auto_classify"))
     return redirect(url_for({"income": "income", "expense": "invoices"}.get(scope, "sync"),
                             **({"scope": scope} if scope == "both" else {})))
@@ -1228,25 +1252,57 @@ def _classify_zero_docs(cid: int, marks: list) -> int:
     return n
 
 
-def _auto_classify_candidates(cid: int) -> list:
-    """Αχαρακτήριστα έξοδα με αποθηκευμένη πρόταση συναλλασσόμενου (εκτός 1.5, όπως στο bulk)."""
-    rules, names = load_rules(), db.load_names()
-    out = []
+def _known_types(cid: int | None, exclude_mark: str | None = None) -> dict[str, set]:
+    """{vat: {τύποι}} που ο συναλλασσόμενος «ξέρει»: ήδη χαρακτηρισμένοι (τοπικά ή στο myDATA), με δική
+    τους πρόταση («τύπος|…») ή εγκεκριμένοι από τον χρήστη στη σελίδα προτάσεων."""
+    known = db.classified_expense_types(cid, exclude_mark)
+    for vat, ts in db.approved_rule_types(cid).items():
+        known.setdefault(vat, set()).update(ts)
+    for vat, pats in db.load_rule_patterns(cid).items():
+        known.setdefault(vat, set()).update(k.split("|")[0] for k in pats if "|" in k)
+    return known
+
+
+def _new_type(inv, known: dict) -> bool:
+    """Πρώτο παραστατικό αυτού του τύπου από συναλλασσόμενο που ήδη χαρακτηρίζεται με άλλους τύπους: οι
+    προτάσεις του δεν είναι για αυτόν, άρα όχι αυτόματος χαρακτηρισμός. Τα πιστωτικά ακολουθούν τους
+    υπόλοιπους τύπους· χωρίς κανέναν γνωστό τύπο (προτάσεις χωρίς ιστορικό) δεν μπλοκάρεται τίποτα."""
+    kt = known.get(getattr(inv, "issuer_vat", None) or "")
+    t = getattr(inv, "invoice_type", None)
+    return bool(kt) and t not in kt and t not in CREDIT_INVOICE_TYPES
+
+
+def _auto_classify_split(cid: int) -> tuple[list, list]:
+    """(προς αυτόματο χαρακτηρισμό, νέου τύπου): αχαρακτήριστα έξοδα με αποθηκευμένη πρόταση συναλλασσόμενου
+    (εκτός 1.5, όπως στο bulk). Τα νέου τύπου (_new_type) μένουν για τον χρήστη, με ειδοποίηση."""
+    rules, names, known = load_rules(), db.load_names(), _known_types(cid)
+    out, new = [], []
     for row in db.get_documents(cid, "expense", ["unclassified"]):
         inv = _row_to_invoice(row, names)
         vat = inv.issuer_vat or ""
         if inv.invoice_type != "1.5" and (rules.get(vat) or _patterns_for(vat)):
-            out.append(inv)
-    return sorted(out, key=lambda i: i.issue_date or "")
+            if _new_type(inv, known):
+                inv.known_types = sorted(known[vat])
+                new.append(inv)
+            else:
+                out.append(inv)
+    by_date = lambda i: i.issue_date or ""  # noqa: E731
+    return sorted(out, key=by_date), sorted(new, key=by_date)
+
+
+def _auto_classify_candidates(cid: int) -> list:
+    return _auto_classify_split(cid)[0]
 
 
 @app.route("/invoices/auto-classify")
 def auto_classify():
     """Οθόνη επιβεβαίωσης του αυτόματου χαρακτηρισμού: υποβάλλει στο bulk_classify (action=rules)."""
     cid = _active_company_id()
+    cands, new_type = _auto_classify_split(cid) if cid else ([], [])
     return render_template(
         "auto_classify.html",
-        invoices=_auto_classify_candidates(cid) if cid else [],
+        invoices=cands,
+        new_type=new_type,
         rules=load_rules(),
         type_names=INVOICE_TYPE_NAMES,
         credit_types=CREDIT_INVOICE_TYPES,
@@ -2129,10 +2185,12 @@ def document_pdf(mark):
 
 
 def _save_as_rule(cid: int, vat: str, patterns: dict, post_mode: int = 0) -> None:
-    """Προτάσεις ανά κατηγορία ΦΠΑ + βασική (η πρώτη) + τρόπος για τον προμηθευτή."""
+    """Προτάσεις ανά κατηγορία ΦΠΑ + βασική (η πρώτη χωρίς τύπο) + τρόπος για τον προμηθευτή. Από
+    παραστατικό νέου τύπου (κλειδιά «τύπος|…») η βασική των άλλων τύπων μένει ως έχει."""
     db.save_rule_patterns(cid, vat, patterns)
-    first = next(iter(patterns.values()))
-    db.save_rule(cid, vat, first["type"], first["category"], first["vat_type"])
+    first = next((p for k, p in patterns.items() if "|" not in k), None)
+    if first:
+        db.save_rule(cid, vat, first["type"], first["category"], first["vat_type"])
     db.set_rule_post_mode(cid, vat, post_mode)
 
 
@@ -2372,13 +2430,32 @@ def _vat_group_label(cat: str) -> str:
     return f"ΦΠΑ {rate}" if rate and rate[0].isdigit() else "Χωρίς ΦΠΑ"
 
 
+def _rule_keys(itype: str | None, vc, ex: str = "") -> list[str]:
+    """Κλειδιά πρότασης (supplier_rules.vat_category) από το πιο ειδικό στο πιο γενικό:
+    «τύπος|κατηγορία ΦΠΑ:εξαίρεση» → «τύπος|κατηγορία ΦΠΑ» → «τύπος|*» → «κατηγορία ΦΠΑ:εξαίρεση» →
+    «κατηγορία ΦΠΑ». Η βασική «*» (rule) είναι το τελευταίο fallback, εκτός λίστας."""
+    vc = str(vc or "")
+    tail = ([f"{vc}:{ex}"] if ex else []) + [vc]
+    return ([f"{itype}|{k}" for k in tail] + [f"{itype}|*"] if itype else []) + tail
+
+
+def _pick_rule(patterns: dict, rule: dict, itype: str | None, vc, ex: str = "") -> tuple[str, dict]:
+    """(κλειδί, πρόταση) για γραμμή τύπου itype, κατηγορίας ΦΠΑ vc, εξαίρεσης ex· ("*", rule) αλλιώς."""
+    for k in _rule_keys(itype, vc, ex):
+        if patterns.get(k):
+            return k, patterns[k]
+    return db.DEFAULT_RULE, rule
+
+
 def _rule_per_invoice(inv, rule: dict, patterns: dict) -> tuple[dict, dict]:
     """Συγκεντρωτικός χαρακτηρισμός από την πρόταση του συναλλασσόμενου: (pi_e3, pi_vat)
     ανά ομάδα ΦΠΑ. Κάθε ομάδα παίρνει την πρόταση της κατηγορίας ΦΠΑ της, αλλιώς τη βασική."""
     pi_e3: dict[str, list] = {}
     pi_vat: dict[str, str] = {}
     for g in _vat_groups(inv):
-        r = patterns.get(g["vat_category"]) or rule
+        # Εξαίρεση ΦΠΑ της ομάδας μόνο αν είναι κοινή σε όλες τις γραμμές της.
+        exs = {getattr(ln, "vat_exemption", "") for ln in inv.lines or [] if str(ln.vat_category or "") == g["vat_category"]}
+        r = _pick_rule(patterns, rule, getattr(inv, "invoice_type", None), g["vat_category"], exs.pop() if len(exs) == 1 else "")[1]
         # Κατηγορία 2.5 (χωρίς δικαίωμα έκπτωσης): χωρίς χαρακτηρισμό ΦΠΑ, ο ΦΠΑ στο Ε3.
         if g["classify_vat"]:
             no_vat = r.get("category") == NO_VAT_RIGHT or r.get("vat_type") == "none"
@@ -2457,7 +2534,7 @@ def _line_classification_rows(
             rows = _pair_cls_rows(src)
         if not rows:
             # Πρόταση του συναλλασσόμενου για την κατηγορία ΦΠΑ της γραμμής, αλλιώς η βασική.
-            r = (patterns or {}).get(str(ln.vat_category or "")) or rule
+            r = _pick_rule(patterns or {}, rule, getattr(inv, "invoice_type", None), ln.vat_category, getattr(ln, "vat_exemption", ""))[1]
             no_vat_right = r.get("category") == NO_VAT_RIGHT
             rows = [
                 {
@@ -2556,6 +2633,9 @@ def classify(mark):
         line_groups=_line_classification_rows(inv, rule, line_cls, patterns),
         learned=len(patterns) > 1,
         rule_source=rule_source,
+        # Πρώτο παραστατικό αυτού του τύπου από τον συναλλασσόμενο: η προσυμπλήρωση είναι από άλλους τύπους.
+        new_type_known=(sorted(k[inv.issuer_vat]) if (rule or patterns) and not rule_source
+                        and _new_type(inv, k := _known_types(cid, mark)) else None),
         has_existing=bool(inv.cls_info),
         already_classified=row["status"] != "unclassified",
         type_desc=INVOICE_TYPE_NAMES.get(inv.invoice_type or ""),
@@ -2857,6 +2937,7 @@ def bulk_classify():
 
     cid = _active_company_id()
     ok, failed = [], []
+    known = _known_types(cid)
 
     for mark in marks:
         row = db.get_document(cid, mark) if cid else None
@@ -2867,6 +2948,14 @@ def bulk_classify():
         if (inv.invoice_type or "") == "1.5":
             failed.append(
                 f"{mark}: ο συνολικός χαρακτηρισμός δεν επιτρέπεται για τύπο 1.5"
+            )
+            continue
+        # Νέος τύπος για τον συναλλασσόμενο: οι προτάσεις του είναι για άλλους τύπους (_new_type).
+        if use_rules and _new_type(inv, known):
+            failed.append(
+                f"{mark}: 🆕 νέος τύπος {inv.invoice_type} για τον συναλλασσόμενο {inv.issuer_vat} "
+                f"(γνωστοί: {', '.join(sorted(known[inv.issuer_vat]))}) — πρόσθεσε πρόταση ή ενέκρινε τον τύπο "
+                "στους Συναλλασσόμενους"
             )
             continue
 
@@ -2900,7 +2989,7 @@ def bulk_classify():
         else:
             choice = {}
             for line in src_lines:
-                r = pats.get(str(line.vat_category or "")) or default
+                r = _pick_rule(pats, default, inv.invoice_type, line.vat_category, getattr(line, "vat_exemption", ""))[1]
                 choice[line.line_number] = (r.get("type"), r.get("category"), r.get("vat_type") or "auto")
             pairs = [(t, c) for t, c, _ in choice.values()]
         if not all(t and c for t, c in pairs):
@@ -2938,7 +3027,11 @@ def bulk_classify():
         db.save_local_classification(cid, mark, classifications, post_mode=post_mode)
         _learn(inv, classifications, post_mode)
         if not use_rules:  # ρητή επιλογή → γίνεται και η βασική πρόταση του συναλλασσόμενου
-            save_rule(inv.issuer_vat, ctype, ccat, vat_type if vat_type.startswith("VAT_") else "")
+            vt = vat_type if vat_type.startswith("VAT_") else ""
+            if _new_type(inv, known):  # … του τύπου μόνο, για να μην πατήσει τους άλλους τύπους
+                db.save_rule_patterns(cid, inv.issuer_vat, {f"{inv.invoice_type}|*": {"category": ccat, "type": ctype, "vat_type": vt}})
+            else:
+                save_rule(inv.issuer_vat, ctype, ccat, vt)
         ok.append(mark)
 
     if ok:
@@ -5446,6 +5539,15 @@ def dashboard():
 
     todo(exp_st.get("unclassified", 0), "🧾", "Έξοδα προς χαρακτηρισμό", "Αχαρακτήριστα παραστατικά εξόδων",
          url_for("invoices", view="unclassified"), "warn")
+    # Νέος τύπος παραστατικού για συναλλασσόμενο με προτάσεις: δεν χαρακτηρίζεται αυτόματα (_new_type).
+    known, has_rules = _known_types(cid), set(load_rules()) | set(db.load_rule_patterns(cid))
+    new_types = [(v, t, n) for v, t, n in db.unclassified_expense_types(cid) if v in has_rules
+                 and t != "1.5" and _new_type(SimpleNamespace(issuer_vat=v, invoice_type=t), known)]
+    todo(sum(n for *_, n in new_types), "🆕", "Νέοι τύποι παραστατικών",
+         "Δεν χαρακτηρίζονται αυτόματα — πρόσθεσε πρόταση για τον τύπο: "
+         + ", ".join(f"{v} · {t}" for v, t, _ in new_types[:3]) + (" …" if len(new_types) > 3 else ""),
+         url_for("supplier_rules", vat=new_types[0][0], back=url_for("dashboard")) if len({v for v, *_ in new_types}) == 1
+         else url_for("invoices", view="unclassified"), "warn")
     todo(exp_st.get("classified", 0), "📤", "Χαρακτηρισμοί προς αποστολή", "Έτοιμοι τοπικά — αποστολή στο myDATA",
          url_for("invoices", view="classified"), "accent")
     todo(exp_st.get("sent", 0), "⏳", "Αναμένουν επιβεβαίωση", "Απεσταλμένα — επιβεβαιώνονται στην επόμενη ανάκτηση",
@@ -6839,7 +6941,7 @@ def suppliers():
         rules=rules,
         review=review,
         stats=stats,
-        vat_label=_vat_group_label,
+        vat_label=lambda k: _rule_label(*_split_rule_key(k)),
     )
 
 
@@ -6870,67 +6972,242 @@ def suppliers_rules_delete():
     return redirect(_safe_back(request.form.get("back")) or url_for("suppliers", q=q or None))
 
 
+def _split_rule_key(key: str) -> tuple[str, str, str]:
+    """«2.1|7:16» → ("2.1", "7", "16")· «*» → ("", "*", "")."""
+    itype, _, rest = key.rpartition("|")
+    vc, _, ex = rest.partition(":")
+    return itype, vc, ex
+
+
+def _join_rule_key(itype: str, vc: str, ex: str = "") -> str:
+    return (f"{itype}|" if itype else "") + vc + (f":{ex}" if ex else "")
+
+
+def _rule_label(itype: str, vc: str, ex: str = "") -> str:
+    """Ετικέτα γραμμής πρότασης για μηνύματα: «2.1 · ΦΠΑ 24%», «0% · εξαίρεση 16», «Όλα τα υπόλοιπα»."""
+    if vc == db.DEFAULT_RULE:
+        part = "όλα τα υπόλοιπα" if itype else "Όλα τα υπόλοιπα"
+    elif vc == "7":
+        part = "0%" + (f" · εξαίρεση {ex}" if ex else "")
+    else:
+        part = _vat_group_label(vc)
+    return f"{itype} · {part}" if itype else part
+
+
+def _type_limits(t: str) -> dict:
+    """Όρια ΑΑΔΕ για έναν τύπο παραστατικού: combos {category2_x: [E3]} από τους «Συνδυασμούς
+    χαρακτηρισμών» ({} = δεν υπάρχουν για τον τύπο, χωρίς φίλτρο) και vat = επιτρεπτοί χαρακτηρισμοί
+    ΦΠΑ (VAT_364/VAT_365 μόνο στα ενδοκοινοτικά 14.1/14.3, και εκεί μόνο αυτοί). Κατηγορία χωρίς Ε3
+    («δεν ενημερώνει Ε3») δεν γίνεται πρόταση: η πρόταση θέλει τύπο Ε3."""
+    combos = {}
+    for c, es in db.combos_for_type(t).items():
+        if c.startswith("category2"):
+            es = set(EXPENSE_TYPES) if "*" in es else {e for e in es if e != "-"}
+            if es:
+                combos[c] = sorted(es)
+    intra = SELF_TYPES_INTRA_EU.get(t)
+    vat = [intra] if intra else [k for k in VAT_TYPES if k and k not in SELF_TYPES_INTRA_EU.values()]
+    return {"combos": combos, "vat": vat}
+
+
+def _merge_limits(lims: list[dict], union: bool) -> dict:
+    """Τομή (union=False) ή ένωση ορίων· όρια χωρίς combos (χωρίς φίλτρο) δεν περιορίζουν."""
+    op = set.union if union else set.intersection
+    restricted = [lm["combos"] for lm in lims if lm["combos"]]
+    combos = {}
+    if restricted:
+        for c in op(*(set(r) for r in restricted)):
+            es = op(*(set(r.get(c, [])) for r in restricted))
+            if es:
+                combos[c] = sorted(es)
+    vat = op(*(set(lm["vat"]) for lm in lims)) if lims else set()
+    return {"combos": combos, "vat": [k for k in VAT_TYPES if k in vat]}
+
+
+def _rule_limits(types) -> dict:
+    """Όρια ανά τύπο παραστατικού του συναλλασσόμενου + «any» (ένωση όλων των τύπων, για
+    συναλλασσόμενο χωρίς κινήσεις). Ίδια δομή στέλνεται στο JS του supplier_rules.html."""
+    return {"types": {t: _type_limits(t) for t in sorted(types)},
+            "any": dict(_merge_limits([_type_limits(t) for t in db.combos_invoice_types()], True),
+                        vat=[k for k in VAT_TYPES if k])}
+
+
+def _row_limits(limits: dict, itype: str, typed: set) -> dict:
+    """Όρια μίας γραμμής πρότασης (ίδιος κανόνας με rowLimits στο JS). Συγκεκριμένος τύπος: τα δικά
+    του. «Όλοι»: τομή των τύπων χωρίς δική τους βασική («τύπος|*»), ώστε η πρόταση να ισχύει για
+    όλους· κενή τομή → ένωση· χωρίς κινήσεις → any."""
+    if itype:
+        return limits["types"].get(itype) or limits["any"]
+    pool = [lm for t, lm in limits["types"].items() if t not in typed]
+    if not pool:
+        return limits["any"]
+    out = _merge_limits(pool, False)
+    if (any(lm["combos"] for lm in pool) and not out["combos"]) or not out["vat"]:
+        out = _merge_limits(pool, True)
+    return out
+
+
+def _rule_vat_ok(vc: str, category: str, vat_type: str, vat_types: list) -> bool:
+    """Χαρακτηρισμός ΦΠΑ πρότασης (ίδιος κανόνας με vatOk στο JS του supplier_rules.html):
+    - 0% (7, κάθε εξαίρεση) και χωρίς ΦΠΑ (8): χωρίς χαρακτηρισμό — ο κώδικας εφαρμογής δεν στέλνει
+      VAT_xxx σε γραμμή με ΦΠΑ 0 (_bulk_line_entries, _PI_VAT_CATEGORIES)·
+    - 2.5 (χωρίς δικαίωμα έκπτωσης) / 2.9 (για λ/σμο τρίτων): χωρίς χαρακτηρισμό·
+    - «Όλα τα υπόλοιπα» ('*'): και «χωρίς» = αυτόματα VAT_361 όπου υπάρχει ΦΠΑ (_rule_per_invoice,
+      _line_classification_rows) — π.χ. συναλλασσόμενος με μόνο γραμμές 0%·
+    - αλλιώς υποχρεωτικός (σφάλμα 230) από τους επιτρεπτούς, VAT_362 (πάγια) μόνο με 2.7 και
+      με 2.7 όχι VAT_361/VAT_363 (αγορές/εισαγωγές ΕΚΤΟΣ επενδυτικών αγαθών)."""
+    # ponytail: 7:16 (άρθρο 45/πρώην 39α, αντίστροφη επιβάρυνση) θα ήθελε VAT_366 — εκκρεμεί
+    # επιβεβαίωση στο dev της ΑΑΔΕ· τότε και αποστολή VAT_xxx σε γραμμή με ΦΠΑ 0.
+    if category in (NO_VAT_RIGHT, THIRD_PARTY) or vc in ("7", "8"):
+        return vat_type == ""
+    if vat_type == "" and vc == db.DEFAULT_RULE:
+        return True
+    if vat_type not in vat_types:
+        return False
+    if category == ASSET_CATEGORY:
+        return vat_type not in ("VAT_361", "VAT_363")
+    return vat_type != "VAT_362"
+
+
+def _doc_line_keys(docs: list[dict]) -> Counter:
+    """Πλήθος γραμμών ανά (τύπος, κατηγορία ΦΠΑ, εξαίρεση) στα παραστατικά του συναλλασσόμενου."""
+    cnt: Counter = Counter()
+    for d in docs:
+        lines = json.loads(d.get("lines_json") or "[]")
+        zero = any(str(ln.get("vat_category")) == "7" for ln in lines)
+        exempt = vat_return._parse_exempt(d)[1] if zero and d.get("raw_xml") else {}
+        for ln in lines:
+            vc = str(ln.get("vat_category") or "")
+            cnt[(d["invoice_type"], vc, exempt.get(ln.get("line_number"), "") if vc == "7" else "")] += 1
+    return cnt
+
+
+def _rule_coverage(line_keys: Counter, patterns: dict, rule: dict) -> list[dict]:
+    """Πώς θα χαρακτηριστεί κάθε (τύπος, κατηγορία ΦΠΑ, εξαίρεση) των παραστατικών του με τις
+    αποθηκευμένες προτάσεις, με προειδοποίηση όταν λείπει πρόταση ή δεν την επιτρέπει η ΑΑΔΕ."""
+    out = []
+    for (t, vc, ex), n in sorted(line_keys.items()):
+        key, r = _pick_rule(patterns, rule, t, vc, ex)
+        problem = ""
+        if not (r.get("category") and r.get("type")):
+            problem = "χωρίς πρόταση — μένει για χειροκίνητο χαρακτηρισμό"
+        elif not _combo_allowed(t, r["category"], r["type"]):
+            problem = f"η ΑΑΔΕ δεν επιτρέπει {r['category']} / {r['type']} στον τύπο {t}"
+        out.append({"type": t, "vc": vc, "ex": ex, "lines": n,
+                    "label": _rule_label(*_split_rule_key(key)), "rule": r, "problem": problem})
+    return out
+
+
 @app.route("/suppliers/<vat>/rules", methods=["GET", "POST"])
 def supplier_rules(vat):
-    """Επεξεργασία προτάσεων χαρακτηρισμού του συναλλασσόμενου (ενεργή εταιρεία): μία
-    γραμμή ανά κατηγορία ΦΠΑ, '*' = βασική (όταν δεν ταιριάζει κατηγορία ΦΠΑ)."""
+    """Επεξεργασία προτάσεων χαρακτηρισμού του συναλλασσόμενου (ενεργή εταιρεία). Κάθε γραμμή =
+    (τύπος παραστατικού ή όλοι) × (κατηγορία ΦΠΑ, το 0% και ανά εξαίρεση)· η πρώτη, «Όλα τα υπόλοιπα»
+    ('*'), είναι υποχρεωτική. Αναζήτηση από το πιο ειδικό στο πιο γενικό (_rule_keys)."""
     cid = _active_company_id()
     if not cid:
         flash("Δεν έχει οριστεί ενεργή εταιρεία.", "error")
         return redirect(url_for("suppliers"))
     back = request.values.get("back", "")
     back = back if back.startswith("/") and not back.startswith("//") else url_for("suppliers")
+    line_keys = _doc_line_keys(db.counterparty_expense_docs(cid, vat))
+    types = sorted({t for t, _, _ in line_keys}, key=lambda t: [int(x) for x in t.split(".") if x.isdigit()])
+    limits = _rule_limits(types)
+    exemptions = XML_EXTRA_CODES["vatExemptionCategory"]
+    errors: list[str] = []
     if request.method == "POST":
+        rows = [
+            {"itype": t, "vat_category": vc, "category": c, "type": e3, "vat_type": vt}
+            for t, vc, c, e3, vt in zip(
+                request.form.getlist("itype"), request.form.getlist("vat_category"),
+                request.form.getlist("category"), request.form.getlist("type"), request.form.getlist("vat_type"))
+        ]
+        typed = {r["itype"] for r in rows if r["itype"] and r["vat_category"] == db.DEFAULT_RULE
+                 and (r["category"] or r["type"])}
         patterns: dict = {}
-        errors = []
-        for vc, ccat, ctype, vt in zip(
-            request.form.getlist("vat_category"), request.form.getlist("category"),
-            request.form.getlist("type"), request.form.getlist("vat_type"),
-        ):
-            if not (ccat or ctype):
+        for r in rows:
+            itype, (vc, _, ex) = r["itype"], r["vat_category"].partition(":")
+            key, label = _join_rule_key(itype, vc, ex), _rule_label(itype, vc, ex)
+            ccat, ctype, vt = r["category"], r["type"], r["vat_type"]
+            if not (ccat or ctype) and key != db.DEFAULT_RULE:
                 continue  # κενή γραμμή
-            label = "Βασική" if vc == db.DEFAULT_RULE else _vat_group_label(vc)
-            if vc != db.DEFAULT_RULE and vc not in VAT_CATEGORY_RATES:
-                errors.append(f"άγνωστη κατηγορία ΦΠΑ «{vc}»")
+            lim = _row_limits(limits, itype, typed)
+            if itype and itype not in INVOICE_TYPE_NAMES:
+                errors.append(f"άγνωστος τύπος παραστατικού «{itype}»")
+            elif (vc != db.DEFAULT_RULE and vc not in VAT_CATEGORY_RATES) or (ex and (vc != "7" or ex not in exemptions)):
+                errors.append(f"άγνωστη κατηγορία ΦΠΑ «{r['vat_category']}»")
             elif not (ccat in EXPENSE_CATEGORIES and ctype in EXPENSE_TYPES and vt in VAT_TYPES):
                 errors.append(f"{label}: συμπλήρωσε κατηγορία και τύπο Ε3")
-            elif vc in patterns:
-                errors.append(f"{label}: υπάρχει δεύτερη γραμμή για την ίδια κατηγορία ΦΠΑ")
+            elif lim["combos"] and ctype not in lim["combos"].get(ccat, []):
+                where = f" στον τύπο {itype}" if itype else (f" σε όλους τους τύπους του ({', '.join(types)})" if types else "")
+                errors.append(f"{label}: η ΑΑΔΕ δεν επιτρέπει {ccat} με {ctype}{where}")
+            elif not _rule_vat_ok(vc, ccat, vt, lim["vat"]):
+                errors.append(f"{label}: μη επιτρεπτός χαρακτηρισμός ΦΠΑ «{vt or 'χωρίς'}» με {ccat}")
+            elif key in patterns:
+                errors.append(f"{label}: υπάρχει δεύτερη γραμμή για τον ίδιο συνδυασμό")
             else:
-                patterns[vc] = {"category": ccat, "type": ctype, "vat_type": vt}
-        if errors:
-            flash("⚠ " + " · ".join(errors) + ".", "error")
+                patterns[key] = {"category": ccat, "type": ctype, "vat_type": vt}
+        if not errors:
+            db.replace_rule_patterns(cid, vat, patterns)
+            db.set_rule_post_mode(cid, vat, request.form.get("post_mode") == "1")
+            db.set_review_vat(cid, vat, request.form.get("review") == "1")
+            flash(f"✔ Αποθηκεύτηκαν οι προτάσεις του {vat}.", "ok")
             return redirect(url_for("supplier_rules", vat=vat, back=back))
-        # Χωρίς βασική: γίνεται βασική η πρώτη γραμμή (fallback για άγνωστες κατηγορίες ΦΠΑ).
-        if patterns and db.DEFAULT_RULE not in patterns:
-            patterns[db.DEFAULT_RULE] = next(iter(patterns.values()))
-        db.replace_rule_patterns(cid, vat, patterns)
-        db.set_rule_post_mode(cid, vat, request.form.get("post_mode") == "1")
-        db.set_review_vat(cid, vat, request.form.get("review") == "1")
-        flash(f"✔ Αποθηκεύτηκαν οι προτάσεις του {vat}." if patterns else f"✔ Διαγράφηκαν οι προτάσεις του {vat}.", "ok")
-        return redirect(back)
-
-    pats = db.load_all_rule_patterns(cid, vat)
-    rows = [dict(p, vat_category=vc) for vc, p in sorted(pats.items(), key=lambda kv: (kv[0] != db.DEFAULT_RULE, kv[0]))]
+        flash("⚠ " + " · ".join(errors) + ".", "error")  # η φόρμα ξαναγεμίζει με ό,τι στάλθηκε
+        post_mode, review = request.form.get("post_mode") == "1", request.form.get("review") == "1"
+    else:
+        rows = []
+        for k, p in db.load_all_rule_patterns(cid, vat).items():
+            itype, vc, ex = _split_rule_key(k)
+            rows.append(dict(p, itype=itype, vat_category=vc + (f":{ex}" if ex else "")))
+        post_mode, review = db.get_rule_post_mode(cid, vat), vat in db.review_vats(cid)
+    # Η βασική πρώτη (υποχρεωτική)· μετά «όλοι οι τύποι» και ανά τύπο, κατά κατηγορία ΦΠΑ.
+    base = next((r for r in rows if not r["itype"] and r["vat_category"] == db.DEFAULT_RULE), None) \
+        or {"itype": "", "vat_category": db.DEFAULT_RULE, "category": "", "type": "", "vat_type": "VAT_361"}
+    rest = sorted((r for r in rows if r is not base),
+                  key=lambda r: (r["itype"], r["vat_category"] != db.DEFAULT_RULE, r["vat_category"]))
+    saved = db.load_all_rule_patterns(cid, vat)
+    known = _known_types(cid)
     latest = _latest_patterns(cid, {vat}).get(vat)
     return render_template(
         "supplier_rules.html",
         vat=vat,
         supplier=db.get_supplier(vat) or {"vat": vat, "name": None},
-        has_rules=bool(pats) or vat in load_rules(),
+        has_rules=bool(saved),
         has_docs=vat in db.vats_with_documents(),
         role=db.counterparty_stats(cid).get(vat, {}).get("role", ""),
         latest=latest[0] if latest else None,
-        rows=rows or [{"vat_category": db.DEFAULT_RULE, "category": "", "type": "", "vat_type": "VAT_361"}],
+        base=base,
+        rows=rest,
         back=back,
-        post_mode=db.get_rule_post_mode(cid, vat),
-        review=vat in db.review_vats(cid),
+        post_mode=post_mode,
+        review=review,
         default_rule=db.DEFAULT_RULE,
         vat_rates=VAT_CATEGORY_RATES,
         categories=EXPENSE_CATEGORIES,
         types=EXPENSE_TYPES,
         vat_types=VAT_TYPES,
-    )
+        doc_types=types,
+        type_names=INVOICE_TYPE_NAMES,
+        exemptions=exemptions,
+        seen_exemptions=sorted({ex for _, _, ex in line_keys if ex}, key=int),
+        limits=limits,
+        coverage=_rule_coverage(line_keys, {k: v for k, v in saved.items() if k != db.DEFAULT_RULE},
+                                saved.get(db.DEFAULT_RULE, {})),
+        # Τύποι των παραστατικών του που δεν χαρακτηρίζονται αυτόματα (_new_type), με τους γνωστούς.
+        new_types=[t for t in types if saved and _new_type(SimpleNamespace(issuer_vat=vat, invoice_type=t), known)],
+        known_types=sorted(known.get(vat, ())),
+    ), (400 if errors else 200)
+
+
+@app.route("/suppliers/<vat>/rules/approve-type", methods=["POST"])
+def supplier_rules_approve_type(vat):
+    """«Ίδιες προτάσεις και για τον τύπο X»: ο τύπος γίνεται γνωστός (_known_types) και χαρακτηρίζεται
+    αυτόματα με τις γενικές προτάσεις του συναλλασσόμενου."""
+    cid, t = _active_company_id(), request.form.get("invoice_type", "")
+    if cid and t in INVOICE_TYPE_NAMES:
+        db.approve_rule_type(cid, vat, t)
+        flash(f"✔ Ο τύπος {t} του {vat} θα χαρακτηρίζεται αυτόματα με τις υπάρχουσες προτάσεις.", "ok")
+    return redirect(url_for("supplier_rules", vat=vat, back=request.form.get("back") or None))
 
 
 @app.route("/suppliers/<vat>/documents")
@@ -7363,7 +7640,7 @@ _cycle = {"running": False, "trigger": "", "company": "", "step": "", "done": 0,
 _cycle_buf: list[str] = []  # όλες οι γραμμές του τρέχοντος κύκλου (για το αρχείο .log)
 # Ο ίδιος κύκλος δομημένα (αρχείο .json δίπλα στο .log): κάρτα κύκλου → υποκάρτα ανά εταιρεία με τις γραμμές της.
 _cycle_rec: dict = {"lines": [], "companies": []}
-_COUNT_KEYS = ("new", "classified", "sent", "confirmed", "failed", "no_rule", "held", "skipped")
+_COUNT_KEYS = ("new", "classified", "sent", "confirmed", "failed", "no_rule", "new_type", "held", "skipped")
 
 
 class _CycleStopped(Exception):
@@ -7558,10 +7835,10 @@ def _cycle_company(c: dict, chosen: str, tot: dict) -> None:
 
     # 2) Χαρακτηρισμός όσων έχουν πρόταση (ένα-ένα: πρόοδος και διακοπή ανά παραστατικό)
     with _cycle_ctx(cid):
-        cands = _auto_classify_candidates(cid)
+        cands, new_type = _auto_classify_split(cid)
         names = db.load_names()
         no_rule = [_row_to_invoice(r, names) for r in db.get_documents(cid, "expense", ["unclassified"])
-                   if r["mark"] not in {i.mark for i in cands}]
+                   if r["mark"] not in {i.mark for i in cands + new_type}]
     classified = []
     if not _cycle_level(cid, chosen, "classify"):
         _clog(f"⏭ Χαρακτηρισμός: εκτός ενεργειών της εταιρείας — {len(cands)} αχαρακτήριστα με πρόταση "
@@ -7616,7 +7893,13 @@ def _cycle_company(c: dict, chosen: str, tot: dict) -> None:
                 _clog(f"  ✗ {mark} δεν στάλθηκε — παραμένει στα «Χαρακτηρισμένα»", "err")
         _cycle_set(done=len(classified))
 
-    # 4) Χωρίς πρόταση: δεν αγγίζονται, μόνο αναφέρονται.
+    # 4) Νέος τύπος για τον συναλλασσόμενο και χωρίς πρόταση: δεν αγγίζονται, μόνο αναφέρονται.
+    tot["new_type"] += len(new_type)
+    if new_type:
+        _clog(f"🆕 Νέος τύπος παραστατικού — δεν χαρακτηρίστηκαν ({len(new_type)}):", "warn")
+        for inv in new_type:
+            _clog(f"    {_doc_text(inv)} · τύπος {inv.invoice_type} (γνωστοί: {', '.join(inv.known_types)})"
+                  " — πρόσθεσε πρόταση στους Συναλλασσόμενους", "warn")
     tot["no_rule"] += len(no_rule)
     if no_rule:
         _clog(f"⚠ Χωρίς πρόταση — δεν χαρακτηρίστηκαν ({len(no_rule)}):", "warn")
@@ -7657,7 +7940,7 @@ def _cycle_history(limit: int = 30) -> list[dict]:
 
 _LOG_CO = re.compile(r"^\d\d:\d\d:\d\d  ━━ \d+/\d+ · (.+?) · ΑΦΜ (\S+) · (prod|dev)")
 _LOG_TOTALS = {"νέα": "new", "χαρακτηρίστηκαν": "classified", "στάλθηκαν": "sent", "αποτυχίες": "failed",
-               "χωρίς πρόταση": "no_rule", "παραλείφθηκαν": "skipped"}
+               "χωρίς πρόταση": "no_rule", "νέος τύπος": "new_type", "παραλείφθηκαν": "skipped"}
 
 
 def _log_kind(t: str) -> str:
@@ -7669,7 +7952,7 @@ def _log_kind(t: str) -> str:
         return "err"
     if body.startswith("✓"):
         return "ok"
-    if body[:1] in ("⚠", "⏭", "⏹") or body[:1].isdigit() and "€" in body:  # «χωρίς πρόταση» παραστατικά
+    if body[:1] in ("⚠", "⏭", "⏹", "🆕") or body[:1].isdigit() and "€" in body:  # «χωρίς πρόταση» παραστατικά
         return "warn"
     return "head" if body[:1] in ("①", "②", "③") else "msg"
 
@@ -7710,6 +7993,8 @@ def _cycle_from_log(lg: dict) -> dict:
             n["new"] += int(m.group(1))
         elif m := re.search(r"Επιβεβαιώθηκαν στο myDATA: (\d+)", t):
             n["confirmed"] += int(m.group(1))
+        elif m := re.search(r"Νέος τύπος παραστατικού — δεν χαρακτηρίστηκαν \((\d+)\)", t):
+            n["new_type"] += int(m.group(1))
         elif m := re.search(r"Χωρίς πρόταση — δεν χαρακτηρίστηκαν \((\d+)\)", t):
             n["no_rule"] += int(m.group(1))
         elif m := re.search(r"⏸ Αναμένουν επιβεβαίωση \((\d+)\)", t):
@@ -7732,7 +8017,8 @@ def _cycle_from_log(lg: dict) -> dict:
 
 def _cycle_summary(tot: dict) -> str:
     return (f"νέα {tot['new']} · χαρακτηρίστηκαν {tot['classified']} · στάλθηκαν {tot['sent']} · "
-            f"αποτυχίες {tot['failed']} · χωρίς πρόταση {tot['no_rule']} · παραλείφθηκαν {tot['skipped']}")
+            f"αποτυχίες {tot['failed']} · χωρίς πρόταση {tot['no_rule']} · νέος τύπος {tot.get('new_type', 0)} · "
+            f"παραλείφθηκαν {tot['skipped']}")
 
 
 def _cycle_cards() -> list[dict]:
@@ -7769,7 +8055,7 @@ def _ntfy(text: str, urgent: bool = False, at: datetime | None = None) -> bool:
 _NTFY_DONE = (("new", "📥", "Νέα παραστατικά (ανάκτηση)"), ("classified", "🏷️", "Χαρακτηρίστηκαν"),
               ("sent", "📤", "Στάλθηκαν στο myDATA"), ("confirmed", "✅", "Επιβεβαιώθηκαν από το myDATA"),
               ("failed", "❌", "Λάθη"))
-_NTFY_TODO = (("no_rule", "❓", "Χωρίς πρόταση χαρακτηρισμού"), ("held", "⏸️", "Αναμένουν επιβεβαίωση πριν την αποστολή"))
+_NTFY_TODO = (("no_rule", "❓", "Χωρίς πρόταση χαρακτηρισμού"), ("new_type", "🆕", "Νέος τύπος παραστατικού — χρειάζεται πρόταση"), ("held", "⏸️", "Αναμένουν επιβεβαίωση πριν την αποστολή"))
 
 
 def _cycle_text(companies: list[dict]) -> str:
@@ -7975,7 +8261,7 @@ def auto_cycle_ntfy(action):
         flash("✔ Οι ειδοποιήσεις στο κινητό απενεργοποιήθηκαν.", "ok")
     elif action == "test":
         ok = _ntfy(_cycle_text([  # δείγμα με όλες τις περιπτώσεις, και την κάτω ενότητα «θέλουν ενέργεια»
-            {"counts": {"new": 12, "classified": 9, "sent": 8, "confirmed": 5, "no_rule": 3, "held": 1}},
+            {"counts": {"new": 12, "classified": 9, "sent": 8, "confirmed": 5, "no_rule": 3, "new_type": 1, "held": 1}},
             {"counts": {"new": 4, "failed": 1}},
             {"counts": {"new": 125, "classified": 110, "sent": 110, "confirmed": 96, "no_rule": 15}}]), urgent=True)
         flash("✔ Στάλθηκε δοκιμαστική ειδοποίηση." if ok
