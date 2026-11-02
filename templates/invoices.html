@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, cls_chips, issuer_name, type_badge, sort_link, status_tabs, filter_bar, empty_state, pager with context %}
+{% from "_macros.html" import icon, cls_chips, issuer_name, type_badge, sort_link, status_tabs, empty_state, pager, filter_form, filter_input, filter_btns, filter_lead, filter_types with context %}
 {% from "_ledger_hero.html" import ledger_hero with context %}
 {# Μία στήλη χαρακτηρισμού στη λίστα: μία τιμή ανά χαρακτηρισμό, ευθυγραμμισμένες μεταξύ στηλών. #}
 {% macro cls_stack(rows, key, labels, label, flags=[]) -%}
@@ -15,7 +15,8 @@
 {%- endmacro %}
 {% block title %}Βιβλίο εξόδων{% endblock %}
 {% block content %}
-{% set q = dict(view=view, sort=sort, dir=dir, f_mark=filters.mark, f_date=filters.date, f_issuer=filters.issuer, f_type=filters.type, review='1' if review_only else none) %}
+{% set q = dict(view=view, sort=sort, dir=dir, review='1' if review_only else none) %}
+{% for k, v in filters.items() %}{% if q.update({'f_' ~ k: v or none}) %}{% endif %}{% endfor %}
 {% call ledger_hero('invoices', q, '📥 Βιβλίο εξόδων',
     [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️'), ('sent', 'Απεσταλμένα', '🚀'), ('confirmed', 'Ολοκληρωμένα', '✅')],
     'confirmed', period, 'out') %}
@@ -37,7 +38,7 @@
     <p class="muted">Ολοκληρωμένα: ο χαρακτηρισμός επιβεβαιώθηκε από το myDATA (ή έγινε απευθείας στην πύλη).</p>
   {% endif %}
 
-  {% if counts[view] > 0 %}{{ filter_bar('invoices', q, 'Εκδότης / ΑΦΜ') }}{% endif %}
+  {{ filter_form('invoices') }}
   </div>
 
   {% if total == 0 %}
@@ -53,13 +54,33 @@
       <thead>
         <tr>
           {% if selectable %}<th class="col-check"><input type="checkbox" data-check-all=".sel" aria-label="Επιλογή όλων"></th>{% endif %}
-          <th>MARK</th>
+          <th>{{ sort_link('invoices', q, 'mark', 'MARK') }}</th>
           <th>{{ sort_link('invoices', q, 'date', 'Ημ/νία') }}</th>
           <th>{{ sort_link('invoices', q, 'name', 'Εκδότης / ΑΦΜ') }}</th>
-          <th>Τύπος{{ ' / Σειρά-ΑΑ' if view == 'sent' }}</th>{% if view != 'sent' %}<th>Σειρά/ΑΑ</th>{% endif %}
-          {% if view != 'sent' %}<th class="num">Καθαρή αξία</th><th class="num">ΦΠΑ</th>{% endif %}
+          {% if view == 'sent' %}<th>{{ sort_link('invoices', q, 'type', 'Τύπος') }} / {{ sort_link('invoices', q, 'series', 'Σειρά-ΑΑ') }}</th>
+          {% else %}<th>{{ sort_link('invoices', q, 'type', 'Τύπος') }}</th><th>{{ sort_link('invoices', q, 'series', 'Σειρά/ΑΑ') }}</th>
+          <th class="num">{{ sort_link('invoices', q, 'net', 'Καθαρή αξία') }}</th><th class="num">{{ sort_link('invoices', q, 'vat', 'ΦΠΑ') }}</th>{% endif %}
           <th class="num">{{ sort_link('invoices', q, 'total', 'Σύνολο') }}</th>
-          {% if view == 'sent' %}<th>Κατηγορία</th><th>Τύπος Ε3</th><th>Χαρακτ. ΦΠΑ</th>{% endif %}
+          {% if view == 'sent' %}<th>{{ sort_link('invoices', q, 'cat', 'Κατηγορία') }}</th><th>{{ sort_link('invoices', q, 'e3', 'Τύπος Ε3') }}</th><th>{{ sort_link('invoices', q, 'vtype', 'Χαρακτ. ΦΠΑ') }}</th>{% endif %}
+          <th></th>
+        </tr>
+        <tr class="filter-row">
+          {% if selectable %}<th>{{ filter_btns('invoices') }}</th>{{ filter_input('mark', 'MARK', 'MARK') }}
+          {% else %}{{ filter_lead('invoices') }}{% endif %}
+          {{ filter_input('date', '2026-03', 'Ημ/νία (π.χ. 2026-03 ή 2026-03:2026-05)') }}
+          {{ filter_input('issuer', 'Εκδότης/ΑΦΜ', 'Εκδότης / ΑΦΜ') }}
+          {{ filter_types() }}
+          {% if view != 'sent' %}
+          {{ filter_input('series', 'Σειρά/ΑΑ', 'Σειρά/ΑΑ') }}
+          {{ filter_input('net', 'Καθαρή', 'Καθαρή αξία') }}
+          {{ filter_input('vat', 'ΦΠΑ', 'ΦΠΑ') }}
+          {% endif %}
+          {{ filter_input('total', 'Σύνολο', 'Σύνολο') }}
+          {% if view == 'sent' %}
+          {{ filter_input('cat', 'Κατηγ.', 'Κατηγορία') }}
+          {{ filter_input('e3', 'Ε3', 'Τύπος Ε3') }}
+          {{ filter_input('vtype', 'ΦΠΑ', 'Χαρακτ. ΦΠΑ') }}
+          {% endif %}
           <th></th>
         </tr>
       </thead>

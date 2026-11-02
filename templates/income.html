@@ -1,9 +1,10 @@
 {% extends "base.html" %}
-{% from "_macros.html" import issuer_name, type_badge, sort_link, status_tabs, filter_bar, empty_state, pager with context %}
+{% from "_macros.html" import issuer_name, type_badge, sort_link, status_tabs, empty_state, pager, filter_form, filter_input, filter_lead, filter_types with context %}
 {% from "_ledger_hero.html" import ledger_hero with context %}
 {% block title %}Βιβλίο εσόδων{% endblock %}
 {% block content %}
-{% set q = dict(view=view, sort=sort, dir=dir, f_mark=filters.mark, f_date=filters.date, f_issuer=filters.issuer, f_type=filters.type) %}
+{% set q = dict(view=view, sort=sort, dir=dir) %}
+{% for k, v in filters.items() %}{% if q.update({'f_' ~ k: v or none}) %}{% endif %}{% endfor %}
 {% call ledger_hero('income', q, '📤 Βιβλίο εσόδων',
     [('unclassified', 'Αχαρακτήριστα', '🕓'), ('classified', 'Χαρακτηρισμένα', '🏷️')],
     'classified', period, 'in') %}
@@ -12,7 +13,7 @@
 <div class="card ledger-card" data-view="{{ view }}" data-lh-body>
   <div class="ledger-toolbar">
 
-  {% if counts[view] > 0 %}{{ filter_bar('income', q, 'Πελάτης / ΑΦΜ') }}{% endif %}
+  {{ filter_form('income') }}
   </div>
 
   {% if total == 0 %}
@@ -22,12 +23,22 @@
   <table class="ledger">
     <thead>
       <tr>
-        <th>MARK</th>
+        <th>{{ sort_link('income', q, 'mark', 'MARK') }}</th>
         <th>{{ sort_link('income', q, 'date', 'Ημ/νία') }}</th>
         <th>{{ sort_link('income', q, 'name', 'Πελάτης / ΑΦΜ') }}</th>
-        <th>Τύπος</th><th>Σειρά/ΑΑ</th>
-        <th class="num">Καθαρή αξία</th><th class="num">ΦΠΑ</th>
+        <th>{{ sort_link('income', q, 'type', 'Τύπος') }}</th><th>{{ sort_link('income', q, 'series', 'Σειρά/ΑΑ') }}</th>
+        <th class="num">{{ sort_link('income', q, 'net', 'Καθαρή αξία') }}</th><th class="num">{{ sort_link('income', q, 'vat', 'ΦΠΑ') }}</th>
         <th class="num">{{ sort_link('income', q, 'total', 'Σύνολο') }}</th>
+      </tr>
+      <tr class="filter-row">
+        {{ filter_lead('income') }}
+        {{ filter_input('date', '2026-03', 'Ημ/νία (π.χ. 2026-03 ή 2026-03:2026-05)') }}
+        {{ filter_input('issuer', 'Πελάτης/ΑΦΜ', 'Πελάτης / ΑΦΜ') }}
+        {{ filter_types() }}
+        {{ filter_input('series', 'Σειρά/ΑΑ', 'Σειρά/ΑΑ') }}
+        {{ filter_input('net', 'Καθαρή', 'Καθαρή αξία') }}
+        {{ filter_input('vat', 'ΦΠΑ', 'ΦΠΑ') }}
+        {{ filter_input('total', 'Σύνολο', 'Σύνολο') }}
       </tr>
     </thead>
     <tbody>

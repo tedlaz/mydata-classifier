@@ -535,10 +535,6 @@ body.is-busy .progress{opacity:1;animation:progress 8s cubic-bezier(.1,.8,.2,1) 
 }
 
 /* ---------- Filter / pager ---------- */
-.filter-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 2px;padding:10px;
-  background:var(--surface-2);border:1px solid var(--line-soft);border-radius:var(--radius-sm)}
-.filter-bar input{width:auto;flex:1 1 150px;min-width:120px;padding:8px 10px;font-size:.85rem}
-.filter-bar button,.filter-bar .btn{padding:8px 14px;font-size:.85rem}
 .result-info{margin:10px 0 4px}
 .pager{display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap;margin:18px 0 2px}
 .pg{padding:6px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);color:var(--accent);
@@ -560,6 +556,35 @@ table.ledger{width:100%;border-collapse:collapse;font-size:.9rem}
 .ledger thead th.num{text-align:right}
 .ledger thead th a{color:inherit;text-decoration:none}
 .ledger thead th a:hover{color:var(--accent)}
+.ledger .filter-row th{position:static;padding:4px 4px 6px;text-transform:none;letter-spacing:0;font-weight:400}
+/* Τα πεδία ακολουθούν το πλάτος της στήλης (size="1" + min-width:0: δεν τη φαρδαίνουν). */
+.ledger .filter-row input{box-sizing:border-box;width:100%;min-width:0;padding:4px 6px;font-size:.78rem}
+/* Φίλτρο / καθαρισμός: στοιβαγμένα, μικρά, στην αρχή της γραμμής. */
+.ledger .filter-row .filter-actions{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.ledger .filter-row .filter-actions > *{display:flex;align-items:center;justify-content:center;width:26px;height:24px;
+  padding:0;margin:0;font-size:.75rem}
+.ledger .filter-row .filter-lead{display:flex;gap:6px;align-items:center}
+.ledger .filter-row .filter-actions svg{width:14px;height:14px}
+/* Τύπος: πολλαπλή επιλογή σε <details> (χωρίς JS). */
+.f-multi{position:relative}
+.f-multi summary{list-style:none;cursor:pointer;box-sizing:border-box;width:100%;padding:4px 6px;font-size:.78rem;font-weight:400;
+  border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--ink-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f-multi summary::-webkit-details-marker{display:none}
+.f-multi[open] summary{border-color:var(--accent)}
+/* Ενεργό (εφαρμοσμένο) φίλτρο: χρωματισμένο πεδίο. */
+.ledger .filter-row input.is-on,.f-multi.is-on summary{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-deep);font-weight:600}
+.f-multi__menu{position:absolute;z-index:20;top:calc(100% + 4px);left:0;min-width:240px;max-height:320px;overflow:auto;
+  display:flex;flex-direction:column;gap:2px;padding:8px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow);white-space:normal;min-width:300px;
+  text-align:left;text-transform:none;letter-spacing:normal;font-weight:400;color:var(--ink)}
+.f-multi__menu label{display:grid;grid-template-columns:auto 2.6em 1fr;gap:8px;align-items:baseline;padding:4px 6px;
+  border-radius:6px;cursor:pointer;font-size:.8rem;margin:0;text-transform:none;letter-spacing:normal}
+.f-multi__menu label:hover{background:var(--surface-2)}
+.f-multi__menu input{position:relative;top:2px}
+.f-multi__menu button{margin-top:6px}
+/* Ημ/νία: το «⏰ εκπρόθεσμο» σε δική του γραμμή, για να μη φαρδαίνει τη στήλη. */
+.doc-date .pill{display:flex;width:fit-content;margin-top:4px;white-space:normal;font-family:var(--font-ui)}
 .ledger tbody td{padding:9px 8px;border-bottom:1px solid var(--line-soft);vertical-align:top}
 .ledger tbody tr{transition:background .15s}
 .ledger tbody tr:hover{background:var(--surface-2)}
@@ -590,6 +615,10 @@ table.ledger{width:100%;border-collapse:collapse;font-size:.9rem}
 @container (max-width:1000px){
   :where(.table-wrap:not(.tw-books)) .hide-sm{display:none !important}
   :where(.table-wrap:not(.tw-books)) .ledger thead{display:none}
+  :where(.table-wrap:not(.tw-books)) .ledger thead:has(.filter-row){display:block}
+  :where(.table-wrap:not(.tw-books)) .ledger thead tr:not(.filter-row),:where(.table-wrap:not(.tw-books)) .ledger .filter-row th:empty{display:none}
+  :where(.table-wrap:not(.tw-books)) .ledger .filter-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  :where(.table-wrap:not(.tw-books)) .ledger .filter-row th{flex:1 1 140px;border:none}
   :where(.table-wrap:not(.tw-books)) .ledger,:where(.table-wrap:not(.tw-books)) .ledger tbody,:where(.table-wrap:not(.tw-books)) .ledger tr,:where(.table-wrap:not(.tw-books)) .ledger td{display:block;width:100%}
   :where(.table-wrap:not(.tw-books)) .ledger tbody tr{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
     margin-bottom:12px;padding:6px 0 10px;box-shadow:var(--shadow);overflow:hidden}
@@ -616,6 +645,10 @@ table.ledger{width:100%;border-collapse:collapse;font-size:.9rem}
 @container (max-width:700px){
   :where(.tw-books) .hide-sm{display:none !important}
   :where(.tw-books) .ledger thead{display:none}
+  :where(.tw-books) .ledger thead:has(.filter-row){display:block}
+  :where(.tw-books) .ledger thead tr:not(.filter-row),:where(.tw-books) .ledger .filter-row th:empty{display:none}
+  :where(.tw-books) .ledger .filter-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  :where(.tw-books) .ledger .filter-row th{flex:1 1 140px;border:none}
   :where(.tw-books) .ledger,:where(.tw-books) .ledger tbody,:where(.tw-books) .ledger tr,:where(.tw-books) .ledger td{display:block;width:100%}
   :where(.tw-books) .ledger tbody tr{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
     margin-bottom:12px;padding:6px 0 10px;box-shadow:var(--shadow);overflow:hidden}
@@ -1074,6 +1107,12 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 .role-income{--h:150;--s:60%}
 .role-expense{--h:210;--s:70%}
 .role-both{--h:270;--s:60%}
+/* Κατάσταση παραστατικού: αχαρακτήριστο κόκκινο, προς αποστολή πορτοκαλί, απεσταλμένο μωβ, επιβεβαιωμένο πράσινο */
+.st-unclassified{--c:var(--err);--c-soft:var(--err-soft);--c-line:var(--err-line)}
+.st-classified{--c:var(--warn);--c-soft:var(--warn-soft);--c-line:var(--warn-line)}
+.st-sent{--c:var(--info);--c-soft:var(--info-soft);--c-line:var(--info-line)}
+.st-confirmed{--c:var(--ok);--c-soft:var(--ok-soft);--c-line:var(--ok-line)}
+.pill:is(.st-unclassified,.st-classified,.st-sent,.st-confirmed){background:var(--c-soft);border-color:var(--c-line);color:var(--c);font-weight:600}
 .role-none{--h:220;--s:8%}
 .pill--role{background:hsl(var(--h) var(--s) 50% / .14);border-color:hsl(var(--h) var(--s) 50% / .4);
   color:color-mix(in oklab,hsl(var(--h) var(--s) 42%),var(--ink) 25%);font-weight:600}

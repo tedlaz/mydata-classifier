@@ -85,24 +85,56 @@
 </div>
 {%- endmacro %}
 
-{% macro filter_bar(ep, q, issuer_label) -%}
-{% set has_filter = filters.mark or filters.date or filters.issuer or filters.type %}
-<form method="get" action="{{ url_for(ep) }}" class="filter-bar">
-  <input type="hidden" name="view" value="{{ q.view }}">
-  <input type="hidden" name="sort" value="{{ q.sort }}">
-  <input type="hidden" name="dir" value="{{ q.dir }}">
-  <input name="f_mark" value="{{ filters.mark }}" placeholder="MARK" aria-label="MARK">
-  <input name="f_date" value="{{ filters.date }}" placeholder="Ημ/νία π.χ. 2026-03" aria-label="Ημερομηνία">
-  <input name="f_issuer" value="{{ filters.issuer }}" placeholder="{{ issuer_label }}" aria-label="{{ issuer_label }}">
-  <input name="f_type" value="{{ filters.type }}" placeholder="Τύπος" aria-label="Τύπος">
-  <button type="submit">Φίλτρο</button>
-  {% if has_filter %}<a class="btn btn-ghost" href="{{ url_for(ep, view=q.view, sort=q.sort, dir=q.dir) }}">Καθαρισμός</a>{% endif %}
+{# Φίλτρα βιβλίων ως 2η γραμμή του thead (tr.filter-row). Τα πεδία ανήκουν στη GET φόρμα
+   #book-filter μέσω form="book-filter": ο πίνακας εξόδων είναι μέσα σε POST φόρμα
+   μαζικών ενεργειών και δεν γίνεται εμφωλευμένη φόρμα. #}
+{% macro filter_form(ep) -%}
+<form id="book-filter" method="get" action="{{ url_for(ep) }}">
+  <input type="hidden" name="view" value="{{ view }}">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="dir" value="{{ dir }}">
 </form>
-<p class="muted result-info">{{ total }} αποτελέσματα{% if has_filter %} (φιλτραρισμένα από {{ counts[q.view] }}){% endif %}{% if total_pages > 1 %} · σελίδα {{ page }}/{{ total_pages }}{% endif %}</p>
+{% if counts[view] > 0 %}<p class="muted result-info">{{ total }} αποτελέσματα{% if filters.values()|select|list %} (φιλτραρισμένα από {{ counts[view] }}){% endif %}{% if total_pages > 1 %} · σελίδα {{ page }}/{{ total_pages }}{% endif %}</p>{% endif %}
+{%- endmacro %}
+
+{% macro filter_field(key, ph, label) -%}
+<input form="book-filter" name="f_{{ key }}" value="{{ filters[key] }}"{% if filters[key] %} class="is-on"{% endif %} size="1" placeholder="{{ ph }}" aria-label="Φίλτρο: {{ label }}" title="Φίλτρο: {{ label }}">
+{%- endmacro %}
+
+{% macro filter_input(key, ph, label) -%}<th>{{ filter_field(key, ph, label) }}</th>{%- endmacro %}
+
+{# Φίλτρο / καθαρισμός: στοιβαγμένα, στην αρχή της γραμμής φίλτρων. #}
+{% macro filter_btns(ep) -%}
+<span class="filter-actions">
+  <button type="submit" form="book-filter" class="btn-icon" title="Φίλτρο" aria-label="Φίλτρο">{{ icon('search') }}</button>
+  {%- if filters.values()|select|list %}<a class="btn btn-ghost btn-icon" href="{{ url_for(ep, view=view, sort=sort, dir=dir) }}" title="Καθαρισμός φίλτρων" aria-label="Καθαρισμός φίλτρων">✕</a>{% endif -%}
+</span>
+{%- endmacro %}
+
+{# Κελί MARK χωρίς στήλη επιλογής: κουμπιά φίλτρου + πεδίο MARK. #}
+{% macro filter_lead(ep) -%}
+<th><div class="filter-lead">{{ filter_btns(ep) }}{{ filter_field('mark', 'MARK', 'MARK') }}</div></th>
+{%- endmacro %}
+
+{# Τύπος: πολλαπλή επιλογή από τους τύπους της καρτέλας (type_options). #}
+{% macro filter_types() -%}
+{% set sel_types = filters.type.split(',') if filters.type else [] %}
+<th>
+  <details class="f-multi{{ ' is-on' if sel_types }}">
+    <summary title="Φίλτρο: Τύπος" aria-label="Φίλτρο: Τύπος">{{ sel_types|join(', ') if sel_types else 'Όλοι' }}</summary>
+    <div class="f-multi__menu">
+      {% for t in type_options + (sel_types|reject('in', type_options)|list) %}
+      <label><input type="checkbox" form="book-filter" name="f_type" value="{{ t }}" {{ 'checked' if t in sel_types }}>
+        <b>{{ t }}</b> <span class="muted">{{ type_names.get(t, '') }}</span></label>
+      {% endfor %}
+      <button type="submit" form="book-filter" class="btn-sm">Εφαρμογή</button>
+    </div>
+  </details>
+</th>
 {%- endmacro %}
 
 {% macro empty_state(ep, q, text) -%}
-  {% if filters.mark or filters.date or filters.issuer or filters.type %}
+  {% if filters.values()|select|list %}
   <div class="empty"><b>Κανένα αποτέλεσμα</b>με τα τρέχοντα φίλτρα. <a href="{{ url_for(ep, view=q.view, sort=q.sort, dir=q.dir) }}">Καθαρισμός φίλτρων</a></div>
   {% else %}
   <div class="empty"><b>Δεν υπάρχουν παραστατικά</b>{{ text }}</div>

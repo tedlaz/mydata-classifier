@@ -26,6 +26,8 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from datetime import date, datetime, timedelta
 from urllib.parse import parse_qsl, quote, urlparse
+
+from werkzeug.datastructures import MultiDict
 from zoneinfo import ZoneInfo
 
 import requests
@@ -1766,13 +1768,28 @@ def sync():
     )
 
 
+def _type_key(t: str) -> tuple:
+    """Αριθμητική ταξινόμηση τύπων παραστατικού: 1.2 < 1.10 < 2.1."""
+    return tuple(int(x) if x.isdigit() else 0 for x in t.split("."))
+
+
 def _book_list(items: list, args, view: str) -> tuple[list, str, str, dict]:
     """Φίλτρα + ταξινόμηση λίστας βιβλίου εσόδων/εξόδων από τα query args.
     Κοινό για τις λίστες και για το προηγούμενο/επόμενο της αναλυτικής προβολής."""
     sort = args.get("sort", "date")
     direction = args.get("dir", "desc" if view in ("classified", "confirmed") else "asc")
-    filters = {k: args.get(f"f_{k}", "").strip() for k in ("mark", "date", "issuer", "type")}
-    fm, fi, ft = filters["mark"], filters["issuer"].lower(), filters["type"]
+    filters = {k: args.get(f"f_{k}", "").strip() for k in
+               ("mark", "date", "issuer", "type", "series", "net", "vat", "total", "cat", "e3", "vtype")}
+    # Τύπος: πολλαπλή επιλογή (επαναλαμβανόμενο f_type ή «1.1,2.1»), ακριβές ταίριασμα.
+    raw = args.getlist("f_type") if hasattr(args, "getlist") else [args.get("f_type", "")]
+    ft = {t.strip() for v in raw for t in v.split(",") if t.strip()}
+    filters["type"] = ",".join(sorted(ft, key=_type_key))
+    fm, fi = filters["mark"], filters["issuer"].lower()
+    fs = filters["series"].lower()
+    # Ποσά: substring πάνω στο «%.2f» (π.χ. «124» ή «124,00»).
+    famt = [(f, filters[k].replace(",", ".")) for k, f in
+            (("net", "total_net"), ("vat", "total_vat"), ("total", "total_gross")) if filters[k]]
+    fcls = [(f, filters[k].lower()) for k, f in (("cat", "category"), ("e3", "type"), ("vtype", "vat_type")) if filters[k]]
 
     # Ημερομηνία: υποστηρίζει εύρος «από:έως» με μερικές ημερομηνίες (YYYY, YYYY-MM,
     # YYYY-MM-DD), π.χ. «2026-03:2026-04» ή «2026-03-12:2026-05-15». Χωρίς «:» =
@@ -1800,13 +1817,33 @@ def _book_list(items: list, args, view: str) -> tuple[list, str, str, dict]:
             return False
         if fi and fi not in ((inv.issuer_name or "") + " " + (inv.issuer_vat or "")).lower():
             return False
-        return not (ft and ft not in (inv.invoice_type or ""))
+        if ft and inv.invoice_type not in ft:
+            return False
+        if fs and fs not in f"{inv.series or ''}/{inv.aa or ''}".lower():
+            return False
+        if any(v not in "%.2f" % (getattr(inv, f) or 0) for f, v in famt):
+            return False
+        if fcls:
+            rows = _cls_list_rows(inv.cls_info)
+            return all(any(v in (r.get(f) or "").lower() for r in rows) for f, v in fcls)
+        return True
+
+    amounts = {"total": "total_gross", "net": "total_net", "vat": "total_vat"}
+    cls_keys = {"cat": "category", "e3": "type", "vtype": "vat_type"}
 
     def sort_key(inv):
         if sort == "name":
             return (inv.issuer_name or inv.issuer_vat or "").lower()
-        if sort == "total":
-            return inv.total_gross or 0.0
+        if sort in amounts:
+            return getattr(inv, amounts[sort]) or 0.0
+        if sort == "mark":
+            return int(inv.mark) if (inv.mark or "").isdigit() else 0
+        if sort == "type":
+            return _type_key(inv.invoice_type or "")
+        if sort == "series":
+            return (inv.series or "").lower(), int(inv.aa) if (inv.aa or "").isdigit() else 0, inv.aa or ""
+        if sort in cls_keys:  # πρώτος χαρακτηρισμός· χωρίς → στο τέλος (asc)
+            return next((r.get(cls_keys[sort]) or "" for r in _cls_list_rows(inv.cls_info)), "") or "~"
         # default: ημερομηνία (ISO μορφή yyyy-mm-dd, ταξινομείται σωστά ως string)
         return inv.issue_date or ""
 
@@ -1871,6 +1908,7 @@ def invoices():
         period=_period_nav(_month_strip(cid, ("expense",)), filters["date"], view, cid, "expense"),
         per_page=PER_PAGE,
         filters=filters,
+        type_options=sorted({i.invoice_type for i in buckets.get(view, []) if i.invoice_type}, key=_type_key),
         review=review,
         review_count=review_count,
         review_only=review_only,
@@ -1907,7 +1945,7 @@ def document(mark):
     )
     bu = urlparse(back)
     if bu.path == url_for("income" if is_income else "invoices"):
-        args = dict(parse_qsl(bu.query))
+        args = MultiDict(parse_qsl(bu.query))  # MultiDict: πολλαπλό f_type
         listed = _book_list(siblings, args, args.get("view") or row["status"])[0]
         if any(i.mark == mark for i in listed):  # αλλιώς (π.χ. άλλαξε κατάσταση) → όλα
             siblings = listed
@@ -3222,6 +3260,7 @@ def income():
         period=_period_nav(_month_strip(cid, ("income",)), filters["date"], view, cid, "income"),
         per_page=PER_PAGE,
         filters=filters,
+        type_options=sorted({i.invoice_type for i in buckets.get(view, []) if i.invoice_type}, key=_type_key),
     )
 
 
