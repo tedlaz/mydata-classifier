@@ -1,15 +1,15 @@
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 
 datas = [("templates", "templates"), ("static", "static"), ("xsd", "xsd"), ("pyproject.toml", "."), ("docs/syndiasmoi_xaraktirismwn_v*.xlsx", "docs")]
-datas += collect_data_files("tzdata")
+datas += collect_data_files("tzdata") + copy_metadata("mcp")
 
 a = Analysis(
     ["windows_launcher.py"],
     pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=collect_submodules("uvicorn"),  # MCP server (windows_launcher --mcp)
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

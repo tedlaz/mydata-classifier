@@ -2,13 +2,16 @@
 
 Μόνο ανάγνωση: κανένα tool δεν γράφει στη βάση ούτε μιλά με την ΑΑΔΕ, και credentials δεν επιστρέφονται ποτέ.
 
-    uv run --group mcp mcp_server.py                      # stdio
-    MCP_TOKEN=... uv run --group mcp mcp_server.py --http # streamable HTTP στο :8001/mcp, Bearer token
+    uv run mcp_server.py           # stdio
+    uv run mcp_server.py --http    # streamable HTTP στο :8342/mcp, Bearer MCP_TOKEN (ensure_mcp_token)
+
+Desktop και τοπικός server τον ξεκινούν μόνοι τους (spawn), το Docker ως service `mcp`.
 """
 
 import hmac
 import json
 import os
+import subprocess
 import sys
 
 from mcp.server.mcpserver import MCPServer
@@ -257,17 +260,67 @@ def _bearer(app, token: str):
     return guarded
 
 
-def main() -> None:
+def spawn() -> subprocess.Popen:
+    """Ο HTTP server ως ξεχωριστή διεργασία δίπλα στην εφαρμογή (desktop, τοπικός server). Ξεχωριστή,
+    γιατί το _web μηδενίζει το auth.dec: στη διεργασία της εφαρμογής θα έσπαγαν οι κλήσεις ΑΑΔΕ."""
+    frozen = getattr(sys, "frozen", False)
+    return subprocess.Popen([sys.executable, "--mcp"] if frozen else [sys.executable, os.path.abspath(__file__), "--http"])
+
+
+_CLAUDE_MD = """# Ερωτήσεις στο βιβλίο myDATA
+
+Όλα τα δεδομένα έρχονται από τον MCP server `mydata` (read-only). Μη διαβάζεις και μη γράφεις αρχεία.
+
+- Απάντα στα ελληνικά, με ποσά σε € (1.234,56) και πίνακες όπου ταιριάζει.
+- Εταιρεία με όνομα → πρώτα `list_companies` και μετά το `company_id`. Χωρίς όνομα → η ενεργή.
+- Ανά Ε3 / τρίμηνο / μήνα / αντισυμβαλλόμενο / τύπο → `olap` (group_by, kind, date_from/date_to).
+- Πλήρες Ε3 / αποτέλεσμα / φόρος → `e3_analysis`. ΦΠΑ → `vat_return_f2`, `vat_declaration`, `vat_reconcile`.
+- Το `olap` μετρά μόνο χαρακτηρισμένα. Αν λείπει περίοδος, ρώτα τα `status_counts` και πες το.
+"""
+
+
+def client_files(url: str, token: str) -> dict[str, str]:
+    """Ο φάκελος του Claude Code (`cd claude-client; claude`): .mcp.json με URL+token, έγκριση του server
+    και των tools (όλα read-only), οδηγίες. Τον γράφει ο server (write_client) και τον δίνει η εφαρμογή
+    ως zip (Παράμετροι → Claude)."""
+    mcp_json = {"mcpServers": {"mydata": {"type": "http", "url": url, "headers": {"Authorization": f"Bearer {token}"}}}}
+    settings = {"enabledMcpjsonServers": ["mydata"], "permissions": {"allow": ["mcp__mydata"]}}
+    return {".mcp.json": json.dumps(mcp_json, indent=2), ".claude/settings.local.json": json.dumps(settings, indent=2),
+            "CLAUDE.md": _CLAUDE_MD}
+
+
+def write_client(folder: str, url: str, token: str) -> None:
+    """Γράφει τον φάκελο σε κάθε εκκίνηση· το CLAUDE.md μόνο αν λείπει (κρατά τις δικές σου οδηγίες)."""
+    for name, text in client_files(url, token).items():
+        path = os.path.join(folder, *name.split("/"))
+        if name == "CLAUDE.md" and os.path.exists(path):
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+
+def main(http: bool = False) -> None:
     db._load_dicts()  # για την αποσυμπίεση των XML (χωρίς init_db: αυτό γράφει migrations)
-    if "--http" not in sys.argv:
+    if not (http or "--http" in sys.argv):
         mcp.run()
         return
-    token = os.getenv("MCP_TOKEN", "")
+    from dotenv import load_dotenv
+
+    from ensure_env import ensure_mcp_token, env_path
+    token = ensure_mcp_token()
     if len(token) < 32:
         sys.exit("MCP_TOKEN (≥32 χαρακτήρες) υποχρεωτικό για --http")
+    load_dotenv(env_path())  # όλες οι ρυθμίσεις MCP_* στο .env του φακέλου δεδομένων
     import uvicorn
-    host = os.getenv("MCP_HOST", "127.0.0.1")
-    uvicorn.run(_bearer(mcp.streamable_http_app(host=host), token), host=host, port=int(os.getenv("MCP_PORT", "8001")))
+    host, port = os.getenv("MCP_HOST", "127.0.0.1"), int(os.getenv("MCP_PORT", "8342"))
+    url = os.getenv("MCP_PUBLIC_URL") or f"http://127.0.0.1:{port}/mcp"
+    try:
+        write_client(os.path.join(os.path.dirname(env_path()), "claude-client"), url, token)
+    except OSError as e:
+        print(f"claude-client: {e}", file=sys.stderr)
+    uvicorn.run(_bearer(mcp.streamable_http_app(host=host), token), host=host, port=port,
+                log_config=None)  # χωρίς κονσόλα (desktop) το default logging του uvicorn σκάει στο sys.stdout=None
 
 
 if __name__ == "__main__":

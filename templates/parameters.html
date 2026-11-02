@@ -33,7 +33,7 @@
 
 <nav class="pm-nav" role="tablist" aria-label="Ενότητες παραμέτρων">
   {% for key, label in [('reports', 'Αναφορές & αυτοματισμοί'), ('backup', 'Αντίγραφα ασφαλείας'), ('security', 'Ασφάλεια'),
-                        ('tax', 'Φορολογία'), ('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί')] %}
+                        ('tax', 'Φορολογία'), ('accountant', 'Λογιστής'), ('combinations', 'Συνδυασμοί'), ('claude', 'Claude')] %}
   <a class="pm-nav-item {{ 'is-active' if active_tab == key }}" href="{{ url_for('parameters', tab=key) }}"
      role="tab" id="pm-tab-{{ key }}" aria-controls="pm-{{ key }}" aria-selected="{{ 'true' if active_tab == key else 'false' }}"
      data-pm-tab="{{ key }}">{{ label }}</a>
@@ -453,6 +453,40 @@
       Το «Κλείδωμα» ξεχνά αυτή τη συσκευή· η αλλαγή κωδικού ξεχνά όλες τις άλλες.</p>
     <p class="muted small"><b>Αν ξεχάσεις τον κωδικό</b>, τα κλειδιά myDATA δεν ανακτώνται. Δες τη
       <a href="{{ url_for('help_page') }}#security">Βοήθεια</a> για την επαναφορά.</p>
+  </div>
+</div>
+</section>
+
+<section class="pm-panel" id="pm-claude" role="tabpanel" aria-labelledby="pm-tab-claude" {{ 'hidden' if active_tab != 'claude' }}>
+<div class="pm-split">
+  <div class="card">
+    <h2>🤖 Ερωτήσεις με το Claude Code</h2>
+    <p class="muted small">Κατέβασε τον έτοιμο φάκελο, αποσυμπίεσέ τον και άνοιξε εκεί το <code>claude</code>.
+      Συνδέεται μόνο του στον MCP server της εφαρμογής (μόνο ανάγνωση).</p>
+    <div class="btn-row"><a class="btn" href="{{ url_for('claude_client_zip') }}" download>⬇ Λήψη φακέλου Claude (.zip)</a></div>
+    <pre class="mono small">cd claude-client
+claude</pre>
+    <div class="grid grid-2">
+      <div>
+        <label for="mcp_url">MCP URL</label>
+        <input type="text" id="mcp_url" value="{{ mcp_url }}" readonly>
+      </div>
+      <div>
+        <label for="mcp_token">MCP token</label>
+        <input type="password" id="mcp_token" value="{{ mcp_token }}" readonly
+               onfocus="this.type='text';this.select()" onblur="this.type='password'">
+      </div>
+    </div>
+  </div>
+
+  <div class="card pm-aside">
+    <h2>💡 Πώς λειτουργεί</h2>
+    <p class="muted small">Ο φάκελος περιέχει τη διεύθυνση και το token του MCP server (<code>.mcp.json</code>),
+      την έγκρισή του και οδηγίες για το Claude (<code>CLAUDE.md</code>). Κράτα τον ιδιωτικό: το token δίνει
+      ανάγνωση όλου του βιβλίου.</p>
+    <p class="muted small">Την πρώτη φορά το Claude ρωτά αν εμπιστεύεσαι τον φάκελο — απάντησε ναι.</p>
+    <p class="muted small">Αν το URL δεν είναι σωστό (π.χ. διαφορετικό domain για τον MCP), όρισε
+      <code>MCP_PUBLIC_URL</code> στο <code>.env</code> του φακέλου δεδομένων.</p>
   </div>
 </div>
 </section>

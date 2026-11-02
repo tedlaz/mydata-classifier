@@ -172,25 +172,28 @@ tag, χωρίς να χρειάζεται διαγραφή ή επαναδημι
 `init_db`). Ερωτήσεις όπως «πόσα έξοδα μένουν αχαρακτήριστα;», «ΦΠΑ Γ' τριμήνου;», «πρόβλεψη
 αποτελέσματος ανά εταιρεία», «έξοδα ανά λογαριασμό Ε3 φέτος».
 
-**Τοπικά** (`MYDATA_DATA_DIR` = ο φάκελος της βάσης, π.χ. `%LOCALAPPDATA%\myDATA Classifier`):
+Ίδιος τρόπος σε όλους τους τρόπους λειτουργίας, χωρίς χειροκίνητες ρυθμίσεις: ο MCP τρέχει ως
+**HTTP στο `:8342/mcp`** με Bearer token. Ο φάκελος για το Claude Code (`claude-client/`: `.mcp.json` με
+URL και token, έγκριση του server, `CLAUDE.md`) κατεβαίνει έτοιμος από την εφαρμογή:
+**Παράμετροι → Claude → Λήψη φακέλου Claude (.zip)**. Αποσυμπίεση, `cd claude-client`, `claude`.
 
-```bash
-claude mcp add mydata -e MYDATA_DATA_DIR=<φάκελος> -- uv run --directory <project> --group mcp mcp_server.py
-```
+| Λειτουργία | Ο MCP ξεκινά | URL στο zip |
+|---|---|---|
+| Desktop (installer) | μόνος του, με την εφαρμογή· κουμπί **Claude** στο παράθυρο (χωρίς zip) | `http://127.0.0.1:8342/mcp` |
+| Τοπικός server (`uv run app.py`) | μόνος του, με την εφαρμογή | `http://127.0.0.1:8342/mcp` |
+| Docker compose | μαζί με την εφαρμογή (`docker compose up -d`) | `http://<host>:8342/mcp` |
 
-**Docker / server μέσω SSH** (προτεινόμενο: κανένα ανοιχτό port, η ασφάλεια είναι το SSH key):
+Το `MCP_TOKEN` φτιάχνεται αυτόματα από την εφαρμογή στο `.env` του φακέλου δεδομένων
+(`%LOCALAPPDATA%\myDATA Classifier`, το project, ή `./data` στο Docker) και το διαβάζει ο MCP. Το URL
+βγαίνει από τη διεύθυνση με την οποία ανοίγεις την εφαρμογή: με port → ίδιο host στο `:8342`,
+χωρίς port (reverse proxy) → `<host>/mcp`. Στο Docker ο MCP ακούει στο δίκτυο στο `:8342`, όπως η
+εφαρμογή στο `:8341` (απλό HTTP· πρόσβαση μόνο με το token). Με reverse proxy: στείλε το `/mcp` στο
+`:8342` και κλείσε το port στο `127.0.0.1:8342:8342` του `compose.yml`.
 
-```bash
-claude mcp add mydata -- ssh user@host docker exec -i mydata-classifier python mcp_server.py
-```
+Αλλιώς όρισε `MCP_PUBLIC_URL` στο `.env` του φακέλου δεδομένων. Την πρώτη φορά το Claude ρωτά αν
+εμπιστεύεσαι τον φάκελο (κανόνας ασφαλείας του Claude Code). Έλεγχος: `curl -i <URL>` χωρίς token → `401`.
 
-**HTTP** (προσβάσιμο από παντού): service `mcp` στο `compose.yml`, στο `127.0.0.1:8342`,
-για reverse proxy με HTTPS. Θέλει `MCP_TOKEN` (≥32 χαρακτήρες, π.χ. `openssl rand -hex 32`):
-
-```bash
-MCP_TOKEN=... UID=$(id -u) GID=$(id -g) docker compose --profile mcp up -d
-claude mcp add --transport http mydata https://<host>/mcp --header "Authorization: Bearer <MCP_TOKEN>"
-```
+Για ανάπτυξη υπάρχει και stdio: `uv run mcp_server.py` (το `.mcp.json` του repo).
 
 ## Δομή
 

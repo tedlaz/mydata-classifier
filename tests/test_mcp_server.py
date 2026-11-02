@@ -1,4 +1,4 @@
-"""MCP server: tools διαβάζουν το βιβλίο, χωρίς credentials (uv run --group mcp python -m tests.test_mcp_server)."""
+"""MCP server: tools διαβάζουν το βιβλίο, χωρίς credentials (uv run python -m tests.test_mcp_server)."""
 import asyncio
 import json
 import os
@@ -77,4 +77,24 @@ assert sent[0]["status"] == 401
 sent.clear()
 asyncio.run(guard({"type": "http", "headers": [(b"authorization", b"Bearer " + b"t" * 32)]}, None, _send))
 assert sent == ["passed"]
+
+# MCP_TOKEN: αυτόματο στο .env του φακέλου δεδομένων, σταθερό στις επόμενες εκκινήσεις, το env υπερισχύει.
+from ensure_env import ensure_mcp_token  # noqa: E402
+
+env = os.path.join(os.environ["MYDATA_DATA_DIR"], "token.env")
+os.environ.pop("MCP_TOKEN", None)
+tok = ensure_mcp_token(env)
+assert len(tok) == 64 and ensure_mcp_token(env) == tok and f"MCP_TOKEN={tok}" in open(env, encoding="utf-8").read()
+os.environ["MCP_TOKEN"] = "x" * 32
+assert ensure_mcp_token(env) == "x" * 32
+
+# Φάκελος Claude: .mcp.json με URL+token, έγκριση server, CLAUDE.md που δεν ξαναγράφεται.
+cc = os.path.join(os.environ["MYDATA_DATA_DIR"], "claude-client")
+M.write_client(cc, "https://h/mcp", tok)
+cfg = json.load(open(os.path.join(cc, ".mcp.json"), encoding="utf-8"))["mcpServers"]["mydata"]
+assert cfg == {"type": "http", "url": "https://h/mcp", "headers": {"Authorization": f"Bearer {tok}"}}, cfg
+assert json.load(open(os.path.join(cc, ".claude", "settings.local.json"), encoding="utf-8"))["enabledMcpjsonServers"] == ["mydata"]
+open(os.path.join(cc, "CLAUDE.md"), "w", encoding="utf-8").write("δικό μου")
+M.write_client(cc, "https://h/mcp", tok)
+assert open(os.path.join(cc, "CLAUDE.md"), encoding="utf-8").read() == "δικό μου"
 print("ok")

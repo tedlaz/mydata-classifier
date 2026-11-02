@@ -26,18 +26,21 @@ services:
       start_period: 10s
 
 
-  # Προαιρετικό: MCP server (read-only) μέσω HTTP — `docker compose --profile mcp up -d`.
-  # Βάλ' τον πίσω από reverse proxy με HTTPS· χωρίς MCP_TOKEN δεν ξεκινά.
+  # MCP server (read-only) για το Claude μέσω HTTP· ξεκινά μαζί με την εφαρμογή.
+  # Ο φάκελος για το Claude κατεβαίνει από την εφαρμογή: Παράμετροι → Claude (token αυτόματο στο ./data/.env).
+  # Ακούει στο δίκτυο όπως η εφαρμογή (απλό HTTP, πρόσβαση μόνο με το token): URL http://<host>:8342/mcp.
+  # Με reverse proxy: στείλε το /mcp στο :8342 και άλλαξε σε "127.0.0.1:8342:8342" (ή όρισε MCP_PUBLIC_URL).
   mcp:
-    profiles: ["mcp"]
     image: mydata-classifier:latest
     container_name: mydata-mcp
     restart: unless-stopped
     command: ["python", "mcp_server.py", "--http"]
+    depends_on:
+      mydata:
+        condition: service_healthy  # η εφαρμογή φτιάχνει πρώτα βάση και MCP_TOKEN
     ports:
-      - "127.0.0.1:8342:8001"
+      - "8342:8342"
     environment:
-      MCP_TOKEN: "${MCP_TOKEN:-}"  # υποχρεωτικό, ≥32 χαρακτήρες (αλλιώς ο server σταματά)
       MCP_HOST: "0.0.0.0"
     user: "${UID:-1000}:${GID:-1000}"
     volumes:

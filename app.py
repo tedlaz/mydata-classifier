@@ -69,7 +69,7 @@ from classifications import (
     VAT_TYPES,
     WITHHELD_CATEGORIES,
 )
-from ensure_env import ensure_env, env_path
+from ensure_env import ensure_env, ensure_mcp_token, env_path
 from mydata_client import (
     SELF_EXPENSE_TYPES,
     SELF_TYPES_INTRA_EU,
@@ -86,6 +86,7 @@ from mydata_client import (
 
 ensure_env()  # δημιουργεί .env με ασφαλές FLASK_SECRET στην πρώτη εκκίνηση
 load_dotenv(env_path())
+ensure_mcp_token()  # πριν ξεκινήσει ο MCP server (ίδιο .env): Παράμετροι → Claude
 
 # Ώρα Ελλάδας: όλες οι «σήμερα/τώρα» τιμές να είναι ανεξάρτητες από τη ζώνη του server
 ATHENS = ZoneInfo("Europe/Athens")
@@ -6512,7 +6513,7 @@ def parameters():
         return redirect(url_for("suppliers"))
     if tab == "companies":
         return redirect(url_for("companies"))
-    if tab not in {"accountant", "combinations", "reports", "backup", "security", "tax"}:
+    if tab not in {"accountant", "combinations", "reports", "backup", "security", "tax", "claude"}:
         tab = "reports"
     return render_template(
         "parameters.html",
@@ -6541,7 +6542,38 @@ def parameters():
         backup_info=_backup_info(),
         tax_scales=_tax_scales(),
         tax_custom=bool(db.get_setting("tax_scales")),
+        mcp_url=_mcp_url(),
+        mcp_token=ensure_mcp_token(),
     )
+
+
+def _mcp_url() -> str:
+    """Η διεύθυνση του MCP server όπως τη βλέπει αυτός ο browser: MCP_PUBLIC_URL, αλλιώς ίδιο host στο port
+    του MCP (desktop, τοπικός server, Docker χωρίς proxy), αλλιώς <host>/mcp (reverse proxy που στέλνει το
+    /mcp στον MCP)."""
+    if url := os.getenv("MCP_PUBLIC_URL"):
+        return url
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    host = request.host
+    if ":" in host.rsplit("]", 1)[-1]:
+        return f"{scheme}://{host.rsplit(':', 1)[0]}:{os.getenv('MCP_PORT', '8342')}/mcp"
+    return f"{scheme}://{host}/mcp"
+
+
+@app.route("/parameters/claude.zip")
+def claude_client_zip():
+    """Ο φάκελος claude-client/ (mcp_server.client_files) με URL+token: unzip, `cd claude-client`, `claude`."""
+    import io
+    import zipfile
+
+    from mcp_server import client_files
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, text in client_files(_mcp_url(), ensure_mcp_token()).items():
+            z.writestr(f"claude-client/{name}", text)
+    return Response(buf.getvalue(), mimetype="application/zip",
+                    headers={"Content-Disposition": "attachment; filename=claude-client.zip"})
 
 
 def _backup_info() -> dict:
@@ -8419,4 +8451,7 @@ def inject_company():
 
 
 if __name__ == "__main__":
+    if os.getenv("WERKZEUG_RUN_MAIN") != "true":  # ο reloader του debug ξανατρέχει το __main__
+        import mcp_server
+        mcp_server.spawn()
     app.run(debug=os.getenv("FLASK_DEBUG") == "1")

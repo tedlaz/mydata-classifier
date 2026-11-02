@@ -20,3 +20,5 @@ wheels/
 
 # Log συνδέσεων με το myDATA
 mydata_logs/
+# Γράφεται από τον MCP server (περιέχει το token)
+claude-client/

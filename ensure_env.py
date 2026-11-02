@@ -54,6 +54,27 @@ def ensure_env(path: str | None = None) -> bool:
         return False
 
 
+def ensure_mcp_token(path: str | None = None) -> str:
+    """MCP_TOKEN για τον MCP server (HTTP): από το περιβάλλον, αλλιώς από το .env του φακέλου δεδομένων·
+    αν λείπει, γράφεται εκεί νέο. Ίδιο σημείο σε desktop, τοπικό server και Docker (/data/.env)."""
+    if token := os.getenv("MCP_TOKEN"):
+        return token
+    from dotenv import dotenv_values
+    path = path or env_path()
+    if token := dotenv_values(path).get("MCP_TOKEN") if os.path.exists(path) else None:
+        return token
+    token = secrets.token_hex(32)
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(f"\n# MCP server (Claude): γράφει τον φάκελο claude-client/ δίπλα σε αυτό το αρχείο.\n"
+                     f"MCP_TOKEN={token}\n"
+                     f"# Διεύθυνση που βλέπει ο client, αν δεν είναι ο ίδιος υπολογιστής (Docker πίσω από HTTPS):\n"
+                     f"# MCP_PUBLIC_URL=https://mcp.example.com/mcp\n")
+    except OSError:
+        return ""
+    return token
+
+
 if __name__ == "__main__":
     path = env_path()
     created = ensure_env()

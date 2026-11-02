@@ -60,6 +60,27 @@ def _available_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def _check_mcp(timeout: float = 30) -> None:
+    """Smoke test: ο MCP server απαντά 401 χωρίς token."""
+    import time
+    import urllib.error
+
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            urllib.request.urlopen("http://127.0.0.1:8342/mcp", timeout=2)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 401:
+                return
+            raise
+        except OSError:
+            if time.monotonic() > deadline:
+                raise RuntimeError("MCP server did not start") from None
+            time.sleep(0.5)
+        else:
+            raise RuntimeError("MCP server answered without a token")
+
+
 def main() -> int:
     # Set this before importing app/db: both resolve their storage paths at import.
     data_dir = user_data_dir()
@@ -67,10 +88,19 @@ def main() -> int:
     os.environ["MYDATA_DATA_DIR"] = str(data_dir)
     runtime_file = data_dir / "runtime.json"
 
+    if "--mcp" in sys.argv:  # διεργασία-παιδί: ο MCP server (mcp_server.spawn), πριν από το mutex
+        if sys.stdout is None:  # windowed exe: χωρίς κονσόλα
+            sys.stdout = sys.stderr = open(data_dir / "mcp.log", "a", encoding="utf-8")
+        import mcp_server
+
+        mcp_server.main(http=True)
+        return 0
+
     mutex = _acquire_single_instance(runtime_file)
     if mutex is None:
         return 0
 
+    mcp = None
     try:
         import tkinter as tk
 
@@ -82,6 +112,10 @@ def main() -> int:
         url = f"http://127.0.0.1:{port}/"
         server = create_server(app, host="127.0.0.1", port=port, threads=6)
 
+        import mcp_server
+
+        mcp = mcp_server.spawn()  # ponytail: ορφανό αν σκοτωθεί ο launcher, Job Object αν ενοχλήσει
+
         if "--smoke-test" in sys.argv:
             server_thread = threading.Thread(target=server.run, daemon=True)
             server_thread.start()
@@ -89,6 +123,7 @@ def main() -> int:
                 if response.status != 200:
                     raise RuntimeError(f"Unexpected HTTP status: {response.status}")
             server.close()
+            _check_mcp()
             return 0
 
         runtime_file.write_text(json.dumps({"url": url}), encoding="utf-8")
@@ -97,7 +132,7 @@ def main() -> int:
         root.title(APP_TITLE)
         root.iconbitmap(os.path.join(app.static_folder, "app.ico"))
         root.resizable(False, False)
-        root.geometry("420x180")
+        root.geometry("520x180")
 
         tk.Label(root, text=APP_TITLE, font=("Segoe UI", 16, "bold")).pack(pady=(22, 6))
         tk.Label(
@@ -113,6 +148,20 @@ def main() -> int:
             text="Άνοιγμα εφαρμογής",
             command=lambda: webbrowser.open(url),
             width=20,
+            font=("Segoe UI", 10),
+        ).pack(side=tk.LEFT, padx=5)
+
+        def open_claude() -> None:
+            """Terminal στον φάκελο που γράφει ο MCP server (mcp_server.write_client), με το Claude Code."""
+            import subprocess
+
+            subprocess.Popen('start "Claude" cmd /k claude', shell=True, cwd=data_dir / "claude-client")
+
+        tk.Button(
+            buttons,
+            text="Claude",
+            command=open_claude,
+            width=10,
             font=("Segoe UI", 10),
         ).pack(side=tk.LEFT, padx=5)
 
@@ -147,6 +196,8 @@ def main() -> int:
             LOGGER.exception("Could not display the startup error dialog")
         return 1
     finally:
+        if mcp:
+            mcp.terminate()
         runtime_file.unlink(missing_ok=True)
         if sys.platform == "win32" and mutex:
             ctypes.windll.kernel32.CloseHandle(mutex)
