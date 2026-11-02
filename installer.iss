@@ -42,3 +42,24 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// Τα δεδομένα (%LOCALAPPDATA%\myDATA Classifier, βλ. windows_launcher.user_data_dir)
+// ζουν έξω από το {app}, οπότε η απεγκατάσταση τα αφήνει. Ερώτηση με προεπιλογή «No»·
+// σε silent απεγκατάσταση δεν σβήνεται τίποτα.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  DataDir: String;
+begin
+  if CurUninstallStep <> usPostUninstall then
+    exit;
+  DataDir := ExpandConstant('{localappdata}\{#MyAppName}');
+  if not DirExists(DataDir) then
+    exit;
+  if SuppressibleMsgBox('Also delete all {#MyAppName} data (database, settings, logs)?'
+      + #13#10#13#10 + DataDir + #13#10#13#10
+      + 'This cannot be undone. Choose No to keep the data for a future reinstall.',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
+    if not DelTree(DataDir, True, True, True) then
+      MsgBox('Could not delete ' + DataDir + '. Delete it manually.', mbError, MB_OK);
+end;
