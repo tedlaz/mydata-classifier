@@ -69,7 +69,7 @@ from classifications import (
     VAT_TYPES,
     WITHHELD_CATEGORIES,
 )
-from ensure_env import ensure_env, ensure_mcp_token, env_path
+from ensure_env import ensure_env, ensure_mcp_token, env_path, mcp_token_external, rotate_mcp_token
 from mydata_client import (
     SELF_EXPENSE_TYPES,
     SELF_TYPES_INTRA_EU,
@@ -6544,6 +6544,7 @@ def parameters():
         tax_custom=bool(db.get_setting("tax_scales")),
         mcp_url=_mcp_url(),
         mcp_token=ensure_mcp_token(),
+        mcp_token_external=mcp_token_external(),
     )
 
 
@@ -6574,6 +6575,22 @@ def claude_client_zip():
             z.writestr(f"claude-client/{name}", text)
     return Response(buf.getvalue(), mimetype="application/zip",
                     headers={"Content-Disposition": "attachment; filename=claude-client.zip"})
+
+
+@app.route("/parameters/mcp-token", methods=["POST"])
+def parameters_mcp_token():
+    """Νέο MCP token: το παλιό σταματά αμέσως (ο MCP server διαβάζει το .env σε κάθε αίτημα)."""
+    if mcp_token_external():
+        flash("Το MCP_TOKEN ορίζεται από το περιβάλλον· άλλαξέ το εκεί.", "error")
+        return redirect(url_for("parameters", tab="claude"))
+    token = rotate_mcp_token()
+    try:
+        from mcp_server import refresh_client
+        refresh_client(token)
+    except OSError:
+        pass  # ο τοπικός claude-client/ είναι ευκολία· το zip έχει ήδη το νέο token
+    flash("✔ Νέο MCP token. Κατέβασε ξανά τον φάκελο Claude.", "ok")
+    return redirect(url_for("parameters", tab="claude"))
 
 
 def _backup_info() -> dict:

@@ -477,6 +477,14 @@ claude</pre>
                onfocus="this.type='text';this.select()" onblur="this.type='password'">
       </div>
     </div>
+    {% if mcp_token_external %}
+    <p class="muted small">Το token ορίζεται από το περιβάλλον (<code>MCP_TOKEN</code>)· άλλαξέ το εκεί.</p>
+    {% else %}
+    <form method="post" action="{{ url_for('parameters_mcp_token') }}"
+          onsubmit="return confirm('Το παλιό token σταματά αμέσως να δουλεύει. Συνέχεια;')">
+      <div class="btn-row"><button type="submit" class="btn">🔄 Νέο token</button></div>
+    </form>
+    {% endif %}
   </div>
 
   <div class="card pm-aside">

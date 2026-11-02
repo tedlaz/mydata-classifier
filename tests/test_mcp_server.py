@@ -71,7 +71,7 @@ async def _send(m):
 async def _app(scope, receive, send):
     sent.append("passed")
 
-guard = M._bearer(_app, "t" * 32)
+guard = M._bearer(_app, lambda: "t" * 32)
 asyncio.run(guard({"type": "http", "headers": [(b"authorization", b"Bearer wrong")]}, None, _send))
 assert sent[0]["status"] == 401
 sent.clear()
@@ -79,7 +79,7 @@ asyncio.run(guard({"type": "http", "headers": [(b"authorization", b"Bearer " + b
 assert sent == ["passed"]
 
 # MCP_TOKEN: αυτόματο στο .env του φακέλου δεδομένων, σταθερό στις επόμενες εκκινήσεις, το env υπερισχύει.
-from ensure_env import ensure_mcp_token  # noqa: E402
+from ensure_env import ensure_mcp_token, mcp_token_external, rotate_mcp_token  # noqa: E402
 
 env = os.path.join(os.environ["MYDATA_DATA_DIR"], "token.env")
 os.environ.pop("MCP_TOKEN", None)
@@ -87,6 +87,21 @@ tok = ensure_mcp_token(env)
 assert len(tok) == 64 and ensure_mcp_token(env) == tok and f"MCP_TOKEN={tok}" in open(env, encoding="utf-8").read()
 os.environ["MCP_TOKEN"] = "x" * 32
 assert ensure_mcp_token(env) == "x" * 32
+assert mcp_token_external(env)  # env ≠ .env → δεν αλλάζει από το UI
+
+# Αλλαγή token: νέο στο .env, ο server το βλέπει στο επόμενο αίτημα, το παλιό → 401. Κενό token → 401.
+from dotenv import dotenv_values  # noqa: E402
+
+new = rotate_mcp_token(env)
+assert len(new) == 64 and new != tok and dotenv_values(env)["MCP_TOKEN"] == new and not mcp_token_external(env)
+guard = M._bearer(_app, lambda: dotenv_values(env).get("MCP_TOKEN") or "")
+for t, ok in ((tok, False), (new, True)):
+    sent.clear()
+    asyncio.run(guard({"type": "http", "headers": [(b"authorization", f"Bearer {t}".encode())]}, None, _send))
+    assert (sent == ["passed"]) == ok, (t, sent)
+sent.clear()
+asyncio.run(M._bearer(_app, lambda: "")({"type": "http", "headers": [(b"authorization", b"Bearer ")]}, None, _send))
+assert sent[0]["status"] == 401
 
 # Φάκελος Claude: .mcp.json με URL+token, έγκριση server, CLAUDE.md που δεν ξαναγράφεται.
 cc = os.path.join(os.environ["MYDATA_DATA_DIR"], "claude-client")

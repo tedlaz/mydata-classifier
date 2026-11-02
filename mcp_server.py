@@ -247,12 +247,14 @@ def olap(group_by: list[str], date_from: str = "", date_to: str = "", kind: str 
             "labels": {g: labels[g] for g in group_by if g in labels}}
 
 
-def _bearer(app, token: str):
-    """ASGI wrapper: κάθε HTTP αίτημα θέλει «Authorization: Bearer <MCP_TOKEN>»."""
-    expected = f"Bearer {token}".encode()
+def _bearer(app, token_fn):
+    """ASGI wrapper: κάθε HTTP αίτημα θέλει «Authorization: Bearer <MCP_TOKEN>». Το token_fn καλείται σε κάθε
+    αίτημα, ώστε η αλλαγή token από την εφαρμογή να ισχύει χωρίς restart. Κενό token → τίποτα δεν περνά."""
 
     async def guarded(scope, receive, send):
-        if scope["type"] == "http" and not hmac.compare_digest(dict(scope["headers"]).get(b"authorization", b""), expected):
+        token = token_fn()
+        if scope["type"] == "http" and not (token and hmac.compare_digest(
+                dict(scope["headers"]).get(b"authorization", b""), f"Bearer {token}".encode())):
             await send({"type": "http.response.start", "status": 401, "headers": [(b"content-type", b"text/plain")]})
             await send({"type": "http.response.body", "body": b"unauthorized"})
             return
@@ -300,26 +302,35 @@ def write_client(folder: str, url: str, token: str) -> None:
             fh.write(text)
 
 
+def refresh_client(token: str) -> None:
+    """Ξαναγράφει τον φάκελο claude-client/ δίπλα στο .env (εκκίνηση server, αλλαγή token)."""
+    from ensure_env import env_path
+    url = os.getenv("MCP_PUBLIC_URL") or f"http://127.0.0.1:{os.getenv('MCP_PORT', '8342')}/mcp"
+    write_client(os.path.join(os.path.dirname(env_path()), "claude-client"), url, token)
+
+
 def main(http: bool = False) -> None:
     db._load_dicts()  # για την αποσυμπίεση των XML (χωρίς init_db: αυτό γράφει migrations)
     if not (http or "--http" in sys.argv):
         mcp.run()
         return
-    from dotenv import load_dotenv
+    from dotenv import dotenv_values, load_dotenv
 
-    from ensure_env import ensure_mcp_token, env_path
+    from ensure_env import ensure_mcp_token, env_path, mcp_token_external
     token = ensure_mcp_token()
+    external = token if mcp_token_external() else None  # spawn από το app: κληρονομεί ίδιο με το .env → όχι εξωτερικό
     if len(token) < 32:
         sys.exit("MCP_TOKEN (≥32 χαρακτήρες) υποχρεωτικό για --http")
     load_dotenv(env_path())  # όλες οι ρυθμίσεις MCP_* στο .env του φακέλου δεδομένων
     import uvicorn
     host, port = os.getenv("MCP_HOST", "127.0.0.1"), int(os.getenv("MCP_PORT", "8342"))
-    url = os.getenv("MCP_PUBLIC_URL") or f"http://127.0.0.1:{port}/mcp"
     try:
-        write_client(os.path.join(os.path.dirname(env_path()), "claude-client"), url, token)
+        refresh_client(token)
     except OSError as e:
         print(f"claude-client: {e}", file=sys.stderr)
-    uvicorn.run(_bearer(mcp.streamable_http_app(host=host), token), host=host, port=port,
+    # ponytail: διαβάζει το .env σε κάθε αίτημα (λίγα, ένας χρήστης)· cache με mtime αν ποτέ φανεί στο profiling
+    token_fn = (lambda: external) if external else (lambda: dotenv_values(env_path()).get("MCP_TOKEN") or "")
+    uvicorn.run(_bearer(mcp.streamable_http_app(host=host), token_fn), host=host, port=port,
                 log_config=None)  # χωρίς κονσόλα (desktop) το default logging του uvicorn σκάει στο sys.stdout=None
 
 

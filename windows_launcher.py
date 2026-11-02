@@ -9,11 +9,144 @@ import sys
 import threading
 import urllib.request
 import webbrowser
+from ctypes import wintypes as wt
 from pathlib import Path
 
 APP_TITLE = "myDATA Classifier"
 MUTEX_NAME = "Local\\myDATAClassifier-8CC7589D-8531-4D61-917B-ED77EDAD83FB"
 LOGGER = logging.getLogger(__name__)
+TRAY_CLASS = "myDATAClassifier-tray"
+MB_ICONERROR = 0x10
+
+# Win32 σταθερές
+WM_DESTROY, WM_COMMAND, WM_NULL = 0x0002, 0x0111, 0x0000
+WM_LBUTTONDBLCLK, WM_RBUTTONUP = 0x0203, 0x0205
+WM_TRAY = 0x8000 + 1  # WM_APP + 1
+NIM_ADD, NIM_DELETE = 0, 2
+NIF_MESSAGE, NIF_ICON, NIF_TIP = 1, 2, 4
+TPM_RIGHTBUTTON, TPM_RETURNCMD = 0x0002, 0x0100
+IMAGE_ICON, LR_LOADFROMFILE, SM_CXSMICON = 1, 0x10, 49
+CMD_OPEN, CMD_EXIT = 1, 2
+
+LRESULT = ctypes.c_ssize_t
+WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
+
+
+class WNDCLASSW(ctypes.Structure):
+    _fields_ = [
+        ("style", wt.UINT), ("lpfnWndProc", WNDPROC), ("cbClsExtra", ctypes.c_int),
+        ("cbWndExtra", ctypes.c_int), ("hInstance", wt.HINSTANCE), ("hIcon", wt.HICON),
+        ("hCursor", wt.HANDLE), ("hbrBackground", wt.HBRUSH),
+        ("lpszMenuName", wt.LPCWSTR), ("lpszClassName", wt.LPCWSTR),
+    ]
+
+
+class NOTIFYICONDATAW(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wt.DWORD), ("hWnd", wt.HWND), ("uID", wt.UINT), ("uFlags", wt.UINT),
+        ("uCallbackMessage", wt.UINT), ("hIcon", wt.HICON), ("szTip", wt.WCHAR * 128),
+        ("dwState", wt.DWORD), ("dwStateMask", wt.DWORD), ("szInfo", wt.WCHAR * 256),
+        ("uVersion", wt.UINT), ("szInfoTitle", wt.WCHAR * 64), ("dwInfoFlags", wt.DWORD),
+        ("guidItem", ctypes.c_byte * 16), ("hBalloonIcon", wt.HICON),
+    ]
+
+
+def _win32():
+    user32, shell32 = ctypes.windll.user32, ctypes.windll.shell32
+    user32.DefWindowProcW.restype = LRESULT
+    user32.DefWindowProcW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+    user32.CreateWindowExW.restype = wt.HWND
+    user32.CreateWindowExW.argtypes = [
+        wt.DWORD, wt.LPCWSTR, wt.LPCWSTR, wt.DWORD, ctypes.c_int, ctypes.c_int,
+        ctypes.c_int, ctypes.c_int, wt.HWND, wt.HMENU, wt.HINSTANCE, wt.LPVOID,
+    ]
+    user32.LoadImageW.restype = wt.HANDLE
+    user32.LoadImageW.argtypes = [
+        wt.HINSTANCE, wt.LPCWSTR, wt.UINT, ctypes.c_int, ctypes.c_int, wt.UINT,
+    ]
+    user32.CreatePopupMenu.restype = wt.HMENU
+    user32.AppendMenuW.argtypes = [wt.HMENU, wt.UINT, ctypes.c_size_t, wt.LPCWSTR]
+    user32.TrackPopupMenu.argtypes = [
+        wt.HMENU, wt.UINT, ctypes.c_int, ctypes.c_int, ctypes.c_int, wt.HWND, wt.LPVOID,
+    ]
+    user32.DestroyMenu.argtypes = [wt.HMENU]
+    user32.PostMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+    user32.DestroyWindow.argtypes = [wt.HWND]
+    user32.SetForegroundWindow.argtypes = [wt.HWND]
+    shell32.Shell_NotifyIconW.argtypes = [wt.DWORD, ctypes.POINTER(NOTIFYICONDATAW)]
+    return user32, shell32
+
+
+def open_window(url: str) -> None:
+    """Δικό της παράθυρο χωρίς γραμμή διευθύνσεων (Chromium --app)· ο Edge
+    υπάρχει σε κάθε Windows 10/11. Το startfile (ShellExecute) βρίσκει το exe
+    από τα «App Paths» του registry — δεν είναι στο PATH."""
+    for exe in ("msedge", "chrome"):
+        try:
+            os.startfile(exe, arguments=f"--app={url}")
+            return
+        except OSError:
+            continue
+    webbrowser.open(url)
+
+
+def run_tray(url: str, icon_path: Path) -> None:
+    """Εικονίδιο στο tray — μπλοκάρει μέχρι το «Exit»."""
+    user32, shell32 = _win32()
+    hinst = ctypes.windll.kernel32.GetModuleHandleW(None)
+    nid = NOTIFYICONDATAW(cbSize=ctypes.sizeof(NOTIFYICONDATAW), uID=1,
+                          uFlags=NIF_MESSAGE | NIF_ICON | NIF_TIP, uCallbackMessage=WM_TRAY)
+
+    def show_menu(hwnd):
+        menu = user32.CreatePopupMenu()
+        user32.AppendMenuW(menu, 0, CMD_OPEN, "Άνοιγμα εφαρμογής")
+        user32.AppendMenuW(menu, 0, CMD_EXIT, "Τερματισμός")
+        pt = wt.POINT()
+        user32.GetCursorPos(ctypes.byref(pt))
+        user32.SetForegroundWindow(hwnd)  # αλλιώς το μενού δεν κλείνει με κλικ έξω
+        cmd = user32.TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD,
+                                    pt.x, pt.y, 0, hwnd, None)
+        user32.PostMessageW(hwnd, WM_NULL, 0, 0)
+        user32.DestroyMenu(menu)
+        if cmd:
+            user32.PostMessageW(hwnd, WM_COMMAND, cmd, 0)
+
+    def wndproc(hwnd, msg, wparam, lparam):
+        if msg == WM_TRAY:
+            if lparam == WM_RBUTTONUP:
+                show_menu(hwnd)
+            elif lparam == WM_LBUTTONDBLCLK:
+                open_window(url)
+            return 0
+        if msg == WM_COMMAND:
+            if wparam == CMD_OPEN:
+                open_window(url)
+            elif wparam == CMD_EXIT:
+                user32.DestroyWindow(hwnd)
+            return 0
+        if msg == WM_DESTROY:
+            shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(nid))
+            user32.PostQuitMessage(0)
+            return 0
+        return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
+
+    proc = WNDPROC(wndproc)  # κρατάμε αναφορά: αλλιώς ο GC σβήνει το callback
+    wc = WNDCLASSW(lpfnWndProc=proc, hInstance=hinst, lpszClassName=TRAY_CLASS)
+    user32.RegisterClassW(ctypes.byref(wc))
+    hwnd = user32.CreateWindowExW(0, TRAY_CLASS, APP_TITLE, 0, 0, 0, 0, 0,
+                                  None, None, hinst, None)
+    size = user32.GetSystemMetrics(SM_CXSMICON)
+    nid.hWnd = hwnd
+    nid.hIcon = user32.LoadImageW(None, str(icon_path), IMAGE_ICON, size, size,
+                                  LR_LOADFROMFILE)
+    nid.szTip = f"{APP_TITLE} — {url}"
+    if not shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)):
+        raise OSError("Δεν μπήκε το εικονίδιο στο system tray")
+
+    msg = wt.MSG()
+    while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+        user32.TranslateMessage(ctypes.byref(msg))
+        user32.DispatchMessageW(ctypes.byref(msg))
 
 
 def user_data_dir() -> Path:
@@ -35,7 +168,7 @@ def _open_running_instance(runtime_file: Path) -> bool:
             pass
     except OSError, ValueError, KeyError:
         return False
-    webbrowser.open(url)
+    open_window(url)
     return True
 
 
@@ -102,8 +235,6 @@ def main() -> int:
 
     mcp = None
     try:
-        import tkinter as tk
-
         from waitress.server import create_server
 
         from app import app
@@ -128,72 +259,16 @@ def main() -> int:
 
         runtime_file.write_text(json.dumps({"url": url}), encoding="utf-8")
 
-        root = tk.Tk()
-        root.title(APP_TITLE)
-        root.iconbitmap(os.path.join(app.static_folder, "app.ico"))
-        root.resizable(False, False)
-        root.geometry("520x180")
-
-        tk.Label(root, text=APP_TITLE, font=("Segoe UI", 16, "bold")).pack(pady=(22, 6))
-        tk.Label(
-            root,
-            text="Η εφαρμογή εκτελείται τοπικά και είναι έτοιμη για χρήση.",
-            font=("Segoe UI", 10),
-        ).pack(pady=(0, 16))
-
-        buttons = tk.Frame(root)
-        buttons.pack()
-        tk.Button(
-            buttons,
-            text="Άνοιγμα εφαρμογής",
-            command=lambda: webbrowser.open(url),
-            width=20,
-            font=("Segoe UI", 10),
-        ).pack(side=tk.LEFT, padx=5)
-
-        def open_claude() -> None:
-            """Terminal στον φάκελο που γράφει ο MCP server (mcp_server.write_client), με το Claude Code."""
-            import subprocess
-
-            subprocess.Popen('start "Claude" cmd /k claude', shell=True, cwd=data_dir / "claude-client")
-
-        tk.Button(
-            buttons,
-            text="Claude",
-            command=open_claude,
-            width=10,
-            font=("Segoe UI", 10),
-        ).pack(side=tk.LEFT, padx=5)
-
-        def stop() -> None:
-            server.close()
-            runtime_file.unlink(missing_ok=True)
-            root.destroy()
-
-        tk.Button(
-            buttons,
-            text="Τερματισμός",
-            command=stop,
-            width=12,
-            font=("Segoe UI", 10),
-        ).pack(side=tk.LEFT, padx=5)
-        root.protocol("WM_DELETE_WINDOW", stop)
-
-        server_thread = threading.Thread(target=server.run, daemon=True)
-        server_thread.start()
-        root.after(500, lambda: webbrowser.open(url))
-        root.mainloop()
+        threading.Thread(target=server.run, daemon=True).start()
+        open_window(url)
+        run_tray(url, Path(app.static_folder) / "app.ico")
+        server.close()
         return 0
     except Exception as exc:
         LOGGER.exception("The application failed to start")
-        try:
-            import tkinter.messagebox
-
-            tkinter.messagebox.showerror(
-                APP_TITLE, f"Η εφαρμογή δεν μπόρεσε να ξεκινήσει.\n\n{exc}"
-            )
-        except Exception:
-            LOGGER.exception("Could not display the startup error dialog")
+        ctypes.windll.user32.MessageBoxW(
+            None, f"Η εφαρμογή δεν μπόρεσε να ξεκινήσει.\n\n{exc}", APP_TITLE, MB_ICONERROR
+        )
         return 1
     finally:
         if mcp:

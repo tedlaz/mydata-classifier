@@ -75,6 +75,23 @@ def ensure_mcp_token(path: str | None = None) -> str:
     return token
 
 
+def rotate_mcp_token(path: str | None = None) -> str:
+    """Νέο MCP_TOKEN στο .env (Παράμετροι → Claude)· ο MCP server το διαβάζει σε κάθε αίτημα, άρα το παλιό
+    σταματά αμέσως."""
+    from dotenv import set_key
+    token = secrets.token_hex(32)
+    set_key(path or env_path(), "MCP_TOKEN", token, quote_mode="never")
+    os.environ["MCP_TOKEN"] = token  # το app έχει κάνει load_dotenv: αλλιώς θα έβλεπε το παλιό
+    return token
+
+
+def mcp_token_external(path: str | None = None) -> bool:
+    """True αν το MCP_TOKEN ορίζεται από το περιβάλλον (π.χ. compose) και όχι από το .env: τότε δεν αλλάζει από το UI."""
+    from dotenv import dotenv_values
+    path = path or env_path()
+    return os.getenv("MCP_TOKEN") != (dotenv_values(path).get("MCP_TOKEN") if os.path.exists(path) else None)
+
+
 if __name__ == "__main__":
     path = env_path()
     created = ensure_env()

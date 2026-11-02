@@ -13,7 +13,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["gunicorn"],
+    excludes=["gunicorn", "tkinter"],
     noarchive=False,
     optimize=0,
 )
