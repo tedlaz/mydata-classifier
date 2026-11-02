@@ -6907,11 +6907,15 @@ def suppliers():
     patterns, rules, stats, review = db.load_rule_patterns(cid), load_rules(), db.counterparty_stats(cid), db.review_vats(cid)
     found = _filter_suppliers(all_suppliers, q)
     # Φίλτρα badges: ρόλος (income/expense/both/none), πρόταση (1/0), επιβεβαίωση (1/0).
-    f = {k: request.args.get(k, "") for k in ("role", "rule", "review")}
+    # + κατηγορία χαρακτηρισμού (category2_x): σε οποιαδήποτε πρόταση του συναλλασσόμενου.
+    f = {k: request.args.get(k, "") for k in ("role", "rule", "review", "cat")}
+    cats = {v: {p["category"] for p in patterns.get(v, {}).values()} | ({rules[v]["category"]} if v in rules else set())
+            for v in patterns.keys() | rules.keys()}
     items = [s for s in found
              if (not f["role"] or stats.get(s["vat"], {}).get("role", "none") == f["role"])
              and (not f["rule"] or (s["vat"] in patterns or s["vat"] in rules) == (f["rule"] == "1"))
-             and (not f["review"] or (s["vat"] in review) == (f["review"] == "1"))]
+             and (not f["review"] or (s["vat"] in review) == (f["review"] == "1"))
+             and (not f["cat"] or (s["vat"] not in cats if f["cat"] == "none" else f["cat"] in cats.get(s["vat"], ())))]
     sort = request.args.get("sort") if request.args.get("sort") in ("vat", "name", "docs") else "name"
     sort_dir = "desc" if request.args.get("dir") == "desc" else "asc"
     if sort == "vat":
@@ -6941,6 +6945,7 @@ def suppliers():
         rules=rules,
         review=review,
         stats=stats,
+        cat_options=[(k, v.split(" (")[0]) for k, v in EXPENSE_CATEGORIES.items() if any(k in c for c in cats.values())],
         vat_label=lambda k: _rule_label(*_split_rule_key(k)),
     )
 

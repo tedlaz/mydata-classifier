@@ -86,7 +86,8 @@
     {% for name, label, opts in [
          ('role', 'Ρόλος', [('', 'Όλοι οι ρόλοι'), ('income', '🛒 Πελάτες'), ('expense', '🚚 Προμηθευτές'), ('both', '🔁 Και τα δύο'), ('none', 'Χωρίς παραστατικά')]),
          ('rule', 'Πρόταση', [('', 'Με/χωρίς πρόταση'), ('1', '💡 Με πρόταση'), ('0', 'Χωρίς πρόταση')]),
-         ('review', 'Επιβεβαίωση', [('', 'Με/χωρίς επιβεβαίωση'), ('1', '⏸ Με επιβεβαίωση'), ('0', 'Χωρίς επιβεβαίωση')])] %}
+         ('review', 'Επιβεβαίωση', [('', 'Με/χωρίς επιβεβαίωση'), ('1', '⏸ Με επιβεβαίωση'), ('0', 'Χωρίς επιβεβαίωση')])]
+         + ([('cat', 'Χαρακτηρισμός', [('', 'Όλοι οι χαρακτηρισμοί')] + cat_options + [('none', 'Χωρίς πρόταση')])] if cat_options else []) %}
     <select name="{{ name }}" aria-label="{{ label }}">
       {% for v, l in opts %}<option value="{{ v }}" {{ 'selected' if (params[name] or '') == v }}>{{ l }}</option>{% endfor %}
     </select>
@@ -198,13 +199,13 @@
   var form = document.querySelector('.cp-search');
   if (!form) return;
   var input = form.q, clear = form.querySelector('[data-cp-clear]'), timer, ctrl;
-  var FIELDS = ['q', 'sort', 'dir', 'role', 'rule', 'review'];
+  var FIELDS = ['q', 'sort', 'dir', 'role', 'rule', 'review', 'cat'].filter(function(k){ return form[k]; });
 
   // Η φόρμα (αναζήτηση, φίλτρα badges, ταξινόμηση) ακολουθεί τις παραμέτρους του URL.
   function syncForm(url) {
     var p = new URL(url, location.href).searchParams;
     FIELDS.forEach(function(k){ form[k].value = p.get(k) || (k === 'sort' ? 'name' : k === 'dir' ? 'asc' : ''); });
-    clear.hidden = !['q', 'role', 'rule', 'review'].some(function(k){ return p.get(k); });
+    clear.hidden = !['q', 'role', 'rule', 'review', 'cat'].some(function(k){ return p.get(k); });
     document.querySelectorAll('input[type=hidden][name=q]').forEach(function(h){ if (h.form !== form) h.value = form.q.value; });
   }
   function load(url, push) {
