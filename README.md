@@ -162,6 +162,36 @@ tag, χωρίς να χρειάζεται διαγραφή ή επαναδημι
 - Οι έγκυροι συνδυασμοί ορίζονται από το xls της ΑΑΔΕ:
   https://www.aade.gr/mydata/tehnikes-prodiagrafes-ekdoseis-mydata
 
+## MCP server (Claude Desktop / Claude Code)
+
+Το `mcp_server.py` δίνει στο Claude **μόνο ανάγνωση** του βιβλίου: εταιρείες, πλήθος ανά
+κατάσταση, παραστατικά διαστήματος, ένα παραστατικό με ΜΑΡΚ, συναλλασσόμενοι, δήλωση ΦΠΑ Φ2,
+και όλες οι Αναλύσεις της εφαρμογής (πίνακας ελέγχου, συνοπτικό βιβλίο, ανάλυση Ε3, Δήλωση ΦΠΑ,
+Συμφωνία Φ2, πρόβλεψη έτους, σύγκριση ετών, Ροές, OLAP — τρέχουν οι ίδιες οι σελίδες).
+Δεν μιλά με την ΑΑΔΕ και δεν επιστρέφει credentials (οι αναλύσεις φορτώνουν το app, άρα τρέχει το
+`init_db`). Ερωτήσεις όπως «πόσα έξοδα μένουν αχαρακτήριστα;», «ΦΠΑ Γ' τριμήνου;», «πρόβλεψη
+αποτελέσματος ανά εταιρεία», «έξοδα ανά λογαριασμό Ε3 φέτος».
+
+**Τοπικά** (`MYDATA_DATA_DIR` = ο φάκελος της βάσης, π.χ. `%LOCALAPPDATA%\myDATA Classifier`):
+
+```bash
+claude mcp add mydata -e MYDATA_DATA_DIR=<φάκελος> -- uv run --directory <project> --group mcp mcp_server.py
+```
+
+**Docker / server μέσω SSH** (προτεινόμενο: κανένα ανοιχτό port, η ασφάλεια είναι το SSH key):
+
+```bash
+claude mcp add mydata -- ssh user@host docker exec -i mydata-classifier python mcp_server.py
+```
+
+**HTTP** (προσβάσιμο από παντού): service `mcp` στο `compose.yml`, στο `127.0.0.1:8342`,
+για reverse proxy με HTTPS. Θέλει `MCP_TOKEN` (≥32 χαρακτήρες, π.χ. `openssl rand -hex 32`):
+
+```bash
+MCP_TOKEN=... UID=$(id -u) GID=$(id -g) docker compose --profile mcp up -d
+claude mcp add --transport http mydata https://<host>/mcp --header "Authorization: Bearer <MCP_TOKEN>"
+```
+
 ## Δομή
 
 ```
@@ -173,6 +203,7 @@ classifications.py# Λίστες κατηγοριών/κωδικών E3 για �
 gsis.py           # Αναζήτηση επωνυμίας από ΑΦΜ (ΓΓΠΣ)
 vies.py           # Έλεγχος ενδοκοινοτικού ΑΦΜ (VIES)
 wsgi.py           # WSGI entrypoint
+mcp_server.py     # MCP server (read-only) για Claude
 templates/        # HTML templates
 compose.yml       # Docker Compose
 Dockerfile
