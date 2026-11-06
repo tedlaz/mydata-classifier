@@ -35,4 +35,34 @@ assert url("http://my.example.com", **{"X-Forwarded-Proto": "https"}) == "https:
 os.environ["MCP_PUBLIC_URL"] = "https://mcp.example.com/mcp"
 assert url("http://my.example.com") == "https://mcp.example.com/mcp"
 assert tok in c.get("/parameters?tab=claude").get_data(as_text=True)
+
+# Διακόπτης MCP: μόνο όταν ο MCP ανήκει στη διεργασία (desktop/τοπικός), όχι σε Docker.
+import db  # noqa: E402
+import mcp_server  # noqa: E402
+
+
+class FakeProc:
+    alive = True
+    poll = lambda self: None if self.alive else 0  # noqa: E731
+    wait = lambda self, timeout: 0  # noqa: E731
+
+    def terminate(self):
+        self.alive = False
+
+
+os.environ.pop("MYDATA_MCP_LOCAL", None)
+assert "compose.mcp.yml" in c.get("/parameters?tab=claude").get_data(as_text=True)
+assert c.post("/parameters/mcp", data={"mcp_enabled": "1"}).status_code == 404
+assert db.get_setting("mcp_enabled") is None
+os.environ["MYDATA_MCP_LOCAL"] = "1"
+spawned = []
+mcp_server.spawn = lambda: spawned.append(FakeProc()) or spawned[-1]
+assert c.post("/parameters/mcp", data={"mcp_enabled": "1"}).status_code == 302
+assert mcp_server.running() and db.get_setting("mcp_enabled") == "1"
+assert "Τρέχει" in c.get("/parameters?tab=claude").get_data(as_text=True)
+c.post("/parameters/mcp", data={"mcp_enabled": "1"})
+assert len(spawned) == 1  # δεύτερο «άνοιγμα»: όχι δεύτερη διεργασία
+assert c.post("/parameters/mcp").status_code == 302
+assert not mcp_server.running() and not spawned[0].alive and db.get_setting("mcp_enabled") == "0"
+assert "Σταματημένος" in c.get("/parameters?tab=claude").get_data(as_text=True)
 print("ok")

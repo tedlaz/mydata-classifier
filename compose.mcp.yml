@@ -1,0 +1,23 @@
+# MCP server (read-only) για το Claude μέσω HTTP, ανεξάρτητος από την εφαρμογή (compose.yml):
+#   docker compose -f compose.mcp.yml up -d     # ξεκίνημα
+#   docker compose -f compose.mcp.yml down      # σταμάτημα
+# Μοιράζεται το ./data με την εφαρμογή. Σε κενό ./data ξαναδοκιμάζει (restart) μέχρι να φτιάξει τη βάση η εφαρμογή.
+# Ο φάκελος για το Claude κατεβαίνει από την εφαρμογή: Παράμετροι → Claude (token αυτόματο στο ./data/.env).
+# Ακούει στο δίκτυο όπως η εφαρμογή (απλό HTTP, πρόσβαση μόνο με το token): URL http://<host>:8342/mcp.
+# Με reverse proxy: στείλε το /mcp στο :8342 και άλλαξε σε "127.0.0.1:8342:8342" (ή όρισε MCP_PUBLIC_URL).
+name: mydata-mcp  # ξεχωριστό project: αλλιώς τα δύο compose βλέπουν το ένα το άλλο ως orphans
+
+services:
+  mcp:
+    build: .
+    image: mydata-classifier:latest
+    container_name: mydata-mcp
+    restart: unless-stopped
+    command: ["python", "mcp_server.py", "--http"]
+    ports:
+      - "8342:8342"
+    environment:
+      MCP_HOST: "0.0.0.0"
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./data:/data

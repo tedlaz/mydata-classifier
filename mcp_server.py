@@ -5,7 +5,7 @@
     uv run mcp_server.py           # stdio
     uv run mcp_server.py --http    # streamable HTTP στο :8342/mcp, Bearer MCP_TOKEN (ensure_mcp_token)
 
-Desktop και τοπικός server τον ξεκινούν μόνοι τους (spawn), το Docker ως service `mcp`.
+Desktop και τοπικός server: διακόπτης στις Παράμετροι → Claude (start/stop). Docker: compose.mcp.yml.
 """
 
 import hmac
@@ -267,6 +267,30 @@ def spawn() -> subprocess.Popen:
     γιατί το _web μηδενίζει το auth.dec: στη διεργασία της εφαρμογής θα έσπαγαν οι κλήσεις ΑΑΔΕ."""
     frozen = getattr(sys, "frozen", False)
     return subprocess.Popen([sys.executable, "--mcp"] if frozen else [sys.executable, os.path.abspath(__file__), "--http"])
+
+
+_proc: subprocess.Popen | None = None
+
+
+def running() -> bool:
+    return _proc is not None and _proc.poll() is None
+
+
+def start() -> None:
+    global _proc
+    if not running():
+        _proc = spawn()
+
+
+def stop() -> None:
+    global _proc
+    if running():
+        _proc.terminate()
+        try:
+            _proc.wait(5)
+        except subprocess.TimeoutExpired:
+            _proc.kill()
+    _proc = None
 
 
 _CLAUDE_MD = """# Ερωτήσεις στο βιβλίο myDATA

@@ -42,6 +42,19 @@ docker run --rm -v mydata-data:/data -v "$PWD":/backup alpine \
 docker compose up -d --build   # ξαναχτίζει με τον νέο κώδικα, κρατά τα δεδομένα
 ```
 
+## MCP server (Claude)
+
+Το `compose.yml` σηκώνει μόνο την εφαρμογή. Ο MCP (μόνο ανάγνωση) έχει δικό του compose και ανοίγει ανεξάρτητα:
+
+```bash
+docker compose -f compose.mcp.yml up -d --build   # ξεκίνημα
+docker compose -f compose.mcp.yml down            # σταμάτημα (η εφαρμογή συνεχίζει)
+```
+
+- Μοιράζεται το `./data` με την εφαρμογή. Σε κενό `./data` ξαναδοκιμάζει (`restart`) μέχρι να φτιάξει τη βάση η εφαρμογή.
+- Αναβάθμιση από έκδοση με τον MCP μέσα στο `compose.yml`: μία φορά `docker compose up -d --remove-orphans`,
+  για να φύγει το παλιό container, πριν το πρώτο `up` του `compose.mcp.yml`.
+
 ## Σημειώσεις παραγωγής
 
 - Τα κλειδιά myDATA καταχωρούνται από την εφαρμογή (σελίδα «Εταιρείες») και

@@ -24,24 +24,3 @@ services:
       timeout: 6s
       retries: 3
       start_period: 10s
-
-
-  # MCP server (read-only) για το Claude μέσω HTTP· ξεκινά μαζί με την εφαρμογή.
-  # Ο φάκελος για το Claude κατεβαίνει από την εφαρμογή: Παράμετροι → Claude (token αυτόματο στο ./data/.env).
-  # Ακούει στο δίκτυο όπως η εφαρμογή (απλό HTTP, πρόσβαση μόνο με το token): URL http://<host>:8342/mcp.
-  # Με reverse proxy: στείλε το /mcp στο :8342 και άλλαξε σε "127.0.0.1:8342:8342" (ή όρισε MCP_PUBLIC_URL).
-  mcp:
-    image: mydata-classifier:latest
-    container_name: mydata-mcp
-    restart: unless-stopped
-    command: ["python", "mcp_server.py", "--http"]
-    depends_on:
-      mydata:
-        condition: service_healthy  # η εφαρμογή φτιάχνει πρώτα βάση και MCP_TOKEN
-    ports:
-      - "8342:8342"
-    environment:
-      MCP_HOST: "0.0.0.0"
-    user: "${UID:-1000}:${GID:-1000}"
-    volumes:
-      - ./data:/data

@@ -21,7 +21,8 @@ for vat, name in (("111111111", "Άλφα ΑΕ"), ("222222222", "Βήτα ΟΕ")
 c = A.app.test_client()
 
 page = c.get("/suppliers").get_data(as_text=True)
-assert "Διαγραφή προτάσεων (2)" in page and page.count('aria-label="Διαγραφή προτάσεων') == 2
+assert "Διαγραφή προτάσεων</span> (2)" in page
+assert 'action="/suppliers/rules-delete"' in c.get("/suppliers/111111111/rules").get_data(as_text=True)
 
 # Ένας συναλλασσόμενος: μόνο οι δικές του, μόνο στην ενεργή εταιρεία· πίσω στην ίδια οθόνη.
 r = c.post("/suppliers/rules-delete", data={"vat": "111111111", "back": "/suppliers?q=Άλφα"})
@@ -32,13 +33,15 @@ assert "222222222" in db.load_rule_patterns(cid) and "111111111" in db.load_rule
 # Μαζικά, με αναζήτηση: μόνο όσοι ταιριάζουν.
 c.post("/suppliers/rules-delete", data={"q": "Βήτα"})
 assert db.load_rule_patterns(cid) == {} and set(db.load_rule_patterns(other)) == {"111111111", "222222222"}
-assert "Διαγραφή προτάσεων (" not in c.get("/suppliers").get_data(as_text=True)
+assert "Διαγραφή προτάσεων</span> (" not in c.get("/suppliers").get_data(as_text=True)
+assert 'action="/suppliers/rules-delete"' not in c.get("/suppliers/111111111/rules").get_data(as_text=True)
 
 # Συναλλασσόμενος με κινήσεις δεν διαγράφεται (κουμπί ανενεργό, και ο server αρνείται)· χωρίς κινήσεις διαγράφεται.
 db.upsert_supplier("333333333", "Γάμμα")
 db.save_rule_patterns(cid, "333333333", {"1": rule})
-page = c.get("/suppliers").get_data(as_text=True)
-assert page.count("δεν διαγράφεται\"><button type=\"button\" class=\"btn-danger\" disabled>") == 2
+disabled = "δεν διαγράφεται\"><button type=\"button\" class=\"btn-danger\" disabled>"
+assert disabled in c.get("/suppliers/111111111/rules").get_data(as_text=True)
+assert disabled not in c.get("/suppliers/333333333/rules").get_data(as_text=True)
 c.post("/suppliers/delete/111111111")
 assert db.get_supplier_name("111111111") == "Άλφα ΑΕ"
 c.post("/suppliers/delete/333333333")

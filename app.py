@@ -6542,6 +6542,7 @@ def parameters():
         backup_info=_backup_info(),
         tax_scales=_tax_scales(),
         tax_custom=bool(db.get_setting("tax_scales")),
+        mcp_running=_mcp_running(),
         mcp_url=_mcp_url(),
         mcp_token=ensure_mcp_token(),
         mcp_token_external=mcp_token_external(),
@@ -6559,6 +6560,30 @@ def _mcp_url() -> str:
     if ":" in host.rsplit("]", 1)[-1]:
         return f"{scheme}://{host.rsplit(':', 1)[0]}:{os.getenv('MCP_PORT', '8342')}/mcp"
     return f"{scheme}://{host}/mcp"
+
+
+def _mcp_running() -> bool | None:
+    """None: ο MCP δεν ανήκει σε αυτή τη διεργασία (Docker: compose.mcp.yml)."""
+    if not os.getenv("MYDATA_MCP_LOCAL"):
+        return None
+    import mcp_server
+    return mcp_server.running()
+
+
+@app.route("/parameters/mcp", methods=["POST"])
+def parameters_mcp():
+    """Διακόπτης MCP (desktop, τοπικός server): ξεκινά/σταματά τώρα και θυμάται για την επόμενη εκκίνηση."""
+    if _mcp_running() is None:
+        abort(404)
+    import mcp_server
+    on = bool(request.form.get("mcp_enabled"))
+    db.set_setting("mcp_enabled", "1" if on else "0")
+    if on:
+        mcp_server.start()
+    else:
+        mcp_server.stop()
+    flash(f"✔ MCP server: {'ξεκίνησε' if on else 'σταμάτησε'}.", "ok")
+    return redirect(url_for("parameters", tab="claude"))
 
 
 @app.route("/parameters/claude.zip")
@@ -8468,7 +8493,13 @@ def inject_company():
 
 
 if __name__ == "__main__":
-    if os.getenv("WERKZEUG_RUN_MAIN") != "true":  # ο reloader του debug ξανατρέχει το __main__
+    os.environ["MYDATA_MCP_LOCAL"] = "1"
+    # Με debug σερβίρει το παιδί του reloader: εκεί ζει και ο MCP, για να τον βρίσκει ο διακόπτης.
+    if os.getenv("FLASK_DEBUG") != "1" or os.getenv("WERKZEUG_RUN_MAIN") == "true":
+        import atexit
+
         import mcp_server
-        mcp_server.spawn()
+        atexit.register(mcp_server.stop)
+        if db.get_setting("mcp_enabled") == "1":
+            mcp_server.start()
     app.run(debug=os.getenv("FLASK_DEBUG") == "1")

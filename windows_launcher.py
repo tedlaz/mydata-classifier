@@ -219,6 +219,7 @@ def main() -> int:
     data_dir = user_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     os.environ["MYDATA_DATA_DIR"] = str(data_dir)
+    os.environ["MYDATA_MCP_LOCAL"] = "1"  # ο MCP ανήκει σε αυτή τη διεργασία: διακόπτης στις Παράμετροι → Claude
     runtime_file = data_dir / "runtime.json"
 
     if "--mcp" in sys.argv:  # διεργασία-παιδί: ο MCP server (mcp_server.spawn), πριν από το mutex
@@ -233,7 +234,7 @@ def main() -> int:
     if mutex is None:
         return 0
 
-    mcp = None
+    mcp_server = None
     try:
         from waitress.server import create_server
 
@@ -243,11 +244,14 @@ def main() -> int:
         url = f"http://127.0.0.1:{port}/"
         server = create_server(app, host="127.0.0.1", port=port, threads=6)
 
+        import db
         import mcp_server
 
-        mcp = mcp_server.spawn()  # ponytail: ορφανό αν σκοτωθεί ο launcher, Job Object αν ενοχλήσει
+        smoke = "--smoke-test" in sys.argv
+        if smoke or db.get_setting("mcp_enabled") == "1":
+            mcp_server.start()  # ponytail: ορφανό αν σκοτωθεί ο launcher, Job Object αν ενοχλήσει
 
-        if "--smoke-test" in sys.argv:
+        if smoke:
             server_thread = threading.Thread(target=server.run, daemon=True)
             server_thread.start()
             with urllib.request.urlopen(url, timeout=10) as response:
@@ -271,8 +275,8 @@ def main() -> int:
         )
         return 1
     finally:
-        if mcp:
-            mcp.terminate()
+        if mcp_server:
+            mcp_server.stop()
         runtime_file.unlink(missing_ok=True)
         if sys.platform == "win32" and mutex:
             ctypes.windll.kernel32.CloseHandle(mutex)

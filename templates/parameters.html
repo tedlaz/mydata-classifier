@@ -463,6 +463,21 @@
     <h2>🤖 Ερωτήσεις με το Claude Code</h2>
     <p class="muted small">Κατέβασε τον έτοιμο φάκελο, αποσυμπίεσέ τον και άνοιξε εκεί το <code>claude</code>.
       Συνδέεται μόνο του στον MCP server της εφαρμογής (μόνο ανάγνωση).</p>
+    {% if mcp_running is none %}
+    <p class="muted small">Ο MCP server τρέχει ξεχωριστά από την εφαρμογή:
+      <code>docker compose -f compose.mcp.yml up -d</code> (σταμάτημα με <code>down</code>).</p>
+    {% else %}
+    <form method="post" action="{{ url_for('parameters_mcp') }}">
+      <label class="pm-toggle">
+        <span class="pm-toggle-icon" aria-hidden="true">🔌</span>
+        <span class="pm-toggle-text"><b>MCP server</b>
+          <small>{{ 'Τρέχει' if mcp_running else 'Σταματημένος' }}. Η επιλογή ισχύει και στην επόμενη εκκίνηση·
+            κλείνει όταν κλείνει η εφαρμογή.</small></span>
+        <input type="checkbox" class="pm-switch" name="mcp_enabled" value="1" {{ 'checked' if mcp_running }}
+               aria-label="MCP server" onchange="this.form.submit()">
+      </label>
+    </form>
+    {% endif %}
     <div class="btn-row"><a class="btn" href="{{ url_for('claude_client_zip') }}" download>⬇ Λήψη φακέλου Claude (.zip)</a></div>
     <pre class="mono small">cd claude-client
 claude</pre>
