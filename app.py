@@ -7528,6 +7528,23 @@ def company_share(idx):
     )
 
 
+@app.route("/companies/qr/<int:cid>", methods=["POST"])
+def companies_qr(cid):
+    """QR για την εφαρμογή κινητού myDATAview. Μόνο με POST, ώστε τα κλειδιά να φτάνουν στη σελίδα μόνο με ρητό πάτημα.
+    Όπως το «αρχείο πελάτη»: μόνο τα κλειδιά της εταιρείας — ΠΟΤΕ του λογιστή."""
+    c = next((x for x in load_companies() if x["id"] == cid), None)
+    if c is None:
+        abort(404)
+    user, key = (c.get("AADE_USER_ID") or "").strip(), (c.get("AADE_SUBSCRIPTION_KEY") or "").strip()
+    if not (user and key) or user == (get_accountant().get("user_id") or "").strip():
+        return {"error": "Η εταιρεία δεν έχει δικά της κλειδιά ΑΑΔΕ. Συμπλήρωσέ τα στα «Βασικά στοιχεία»."}, 400
+    # ensure_ascii: η βιβλιοθήκη QR γράφει μόνο 8-bit χαρακτήρες, οπότε τα ελληνικά πάνε ως \uXXXX.
+    text = json.dumps({"format": "mydataview-company", "v": 1, "name": c["company_name"], "vat": str(c.get("AADE_VAT_NUMBER") or ""),
+                       "env": c.get("MYDATA_ENV") or "prod", "vat_period": c.get("vat_period") or "m", "user": user, "key": key},
+                      separators=(",", ":"))
+    return {"text": text}, 200, {"Cache-Control": "no-store"}
+
+
 @app.route("/companies/import-share", methods=["POST"])
 def companies_import_share():
     f = request.files.get("file")

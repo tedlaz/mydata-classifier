@@ -94,6 +94,9 @@
   <span class="co-knob"></span>
   <span><b>🧾 Υποχρεωτικός λογιστής για αποστολές</b><small>Χαρακτηρισμοί κ.λπ. μόνο με το κλειδί του λογιστή (όρια Α.1138/2020). Η «Χρήση credentials λογιστή» ανοίγει/κλείνει μαζί με την «Αποστολή». Η λήψη γίνεται με τα κλειδιά της εταιρείας, αν υπάρχουν.</small></span>
 </label>
+{% if c.id %}
+<p><button type="button" class="btn-ghost" data-co-qr="{{ url_for('companies_qr', cid=c.id) }}" title="Μεταφέρει την εταιρεία στην εφαρμογή κινητού, μαζί με τα κλειδιά ΑΑΔΕ">📱 QR για το myDATAview</button></p>
+{% endif %}
 </div>
 </div>
 {%- endmacro %}

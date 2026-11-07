@@ -296,3 +296,47 @@
     document.querySelectorAll('.is-loading').forEach(b => b.classList.remove('is-loading'));
   });
 })();
+
+// QR εταιρείας για το myDATAview. Περιέχει κλειδιά ΑΑΔΕ: έρχονται μόνο με το πάτημα, ζουν μόνο στον διάλογο,
+// και ο διάλογος κλείνει και σβήνεται μόνος του.
+(() => {
+  const SECONDS = 60;
+  const lib = new URL('vendor/qrcode.min.js', document.currentScript.src).href;
+  const load = () => window.qrcode ? Promise.resolve() : new Promise((ok, fail) => {
+    const s = document.createElement('script');
+    s.src = lib; s.onload = ok; s.onerror = fail;
+    document.head.appendChild(s);
+  });
+  document.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-co-qr]');
+    if (!btn) return;
+    e.preventDefault();
+    let text, error;
+    try {
+      const r = await fetch(btn.dataset.coQr, {method: 'POST'}), d = await r.json();
+      text = d.text; error = d.error;
+      await load();
+    } catch (_) {
+      error = 'Το QR δεν δημιουργήθηκε. Ανανέωσε τη σελίδα και ξαναδοκίμασε.';
+    }
+    if (!text) return alert(error);
+    const qr = qrcode(0, 'M');
+    qr.addData(text); qr.make();
+    const dlg = document.createElement('dialog');
+    dlg.className = 'modal';
+    dlg.innerHTML = '<div class="modal-head"><h2>📱 QR για το myDATAview</h2>' +
+      '<button type="button" class="btn-ghost btn-sm" data-qr-close aria-label="Κλείσιμο">✕</button></div>' +
+      '<p class="note note--warn">⚠ Το QR περιέχει τα κλειδιά ΑΑΔΕ της εταιρείας, με τα οποία γίνονται και αποστολές. Μην το φωτογραφίζεις και μην το στέλνεις σε κανέναν.</p>' +
+      '<div style="text-align:center;background:#fff;padding:12px;border-radius:12px" role="img" aria-label="QR εταιρείας">' + qr.createSvgTag({cellSize: 5, margin: 2}) + '</div>' +
+      '<p class="muted small">Στο κινητό: Ρυθμίσεις → Εταιρείες → Σάρωση QR. Κλείνει σε <b data-qr-left>' + SECONDS + '</b> δευτερόλεπτα.</p>';
+    document.body.appendChild(dlg);
+    let left = SECONDS;
+    const timer = setInterval(() => {
+      if (--left <= 0) dlg.close();
+      else dlg.querySelector('[data-qr-left]').textContent = left;
+    }, 1000);
+    dlg.addEventListener('click', ev => { if (ev.target.closest('[data-qr-close]')) dlg.close(); });
+    dlg.addEventListener('close', () => { clearInterval(timer); dlg.remove(); });
+    dlg.showModal();
+  });
+})();
