@@ -9,6 +9,7 @@ import glob
 import json
 import os
 import random
+import operator
 import re
 import secrets
 import statistics
@@ -1774,6 +1775,23 @@ def _type_key(t: str) -> tuple:
     return tuple(int(x) if x.isdigit() else 0 for x in t.split("."))
 
 
+_AMOUNT_OPS = {"=": operator.eq, "==": operator.eq, "!=": operator.ne, "<>": operator.ne,
+               "<": operator.lt, "<=": operator.le, ">": operator.gt, ">=": operator.ge}
+
+
+def _amount_filter(expr: str):
+    """Φίλτρο ποσού → predicate. Με τελεστές («>100 <1000») όλες οι συνθήκες (AND)·
+    αλλιώς substring πάνω στο «%.2f». Μη έγκυρη έκφραση με τελεστή → κανένα αποτέλεσμα."""
+    expr = expr.replace(",", ".")
+    if expr[0] not in "=<>!":
+        return lambda v: expr in "%.2f" % v
+    expr = expr.replace(" ", "")
+    conds = re.findall(r"(==|!=|<>|<=|>=|=|<|>)(-?\d+(?:\.\d+)?)", expr)
+    if "".join(o + n for o, n in conds) != expr:
+        return lambda v: False
+    return lambda v: all(_AMOUNT_OPS[o](round(v, 2), float(n)) for o, n in conds)
+
+
 def _book_list(items: list, args, view: str) -> tuple[list, str, str, dict]:
     """Φίλτρα + ταξινόμηση λίστας βιβλίου εσόδων/εξόδων από τα query args.
     Κοινό για τις λίστες και για το προηγούμενο/επόμενο της αναλυτικής προβολής."""
@@ -1787,8 +1805,9 @@ def _book_list(items: list, args, view: str) -> tuple[list, str, str, dict]:
     filters["type"] = ",".join(sorted(ft, key=_type_key))
     fm, fi = filters["mark"], filters["issuer"].lower()
     fs = filters["series"].lower()
-    # Ποσά: substring πάνω στο «%.2f» (π.χ. «124» ή «124,00»).
-    famt = [(f, filters[k].replace(",", ".")) for k, f in
+    # Ποσά: substring πάνω στο «%.2f» (π.χ. «124» ή «124,00»), ή συγκρίσεις
+    # όταν ξεκινά με τελεστή: «=0», «>100», «>100 <1000», «>=10 <=20», «!=0».
+    famt = [(f, _amount_filter(filters[k])) for k, f in
             (("net", "total_net"), ("vat", "total_vat"), ("total", "total_gross")) if filters[k]]
     fcls = [(f, filters[k].lower()) for k, f in (("cat", "category"), ("e3", "type"), ("vtype", "vat_type")) if filters[k]]
 
@@ -1822,7 +1841,7 @@ def _book_list(items: list, args, view: str) -> tuple[list, str, str, dict]:
             return False
         if fs and fs not in f"{inv.series or ''}/{inv.aa or ''}".lower():
             return False
-        if any(v not in "%.2f" % (getattr(inv, f) or 0) for f, v in famt):
+        if not all(m(getattr(inv, f) or 0) for f, m in famt):
             return False
         if fcls:
             rows = _cls_list_rows(inv.cls_info)

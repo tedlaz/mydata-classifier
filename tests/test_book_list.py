@@ -17,6 +17,18 @@ assert [i.mark for i in items] == ["2", "4", "1"], items
 # Χωρίς dir: προεπιλογή desc για classified, asc αλλιώς.
 assert [i.mark for i in _book_list(docs, {}, "classified")[0]][0] == "3"
 assert [i.mark for i in _book_list(docs, {"f_date": "2026-03:2026-04"}, "unclassified")[0]] == ["1", "4", "2", "3"]
+
+# Ποσά: substring ή τελεστές.
+for d, g in zip(docs, (0.0, 50.0, 100.0, 500.0, 1234.5)):
+    d.total_gross = g
+amt = lambda f: [i.mark for i in _book_list(docs, {"f_total": f}, "unclassified")[0]]  # noqa: E731
+assert amt("=0") == ["0"]
+assert amt(">100") == ["4", "3"]
+assert amt(">=100 <1000") == ["2", "3"]
+assert amt("!=0") == ["1", "4", "2", "3"]
+assert amt("> 1234,5") == []
+assert amt("1234") == ["4"]
+assert amt(">abc") == []
 print("ok")
 
 # Route: τα βελάκια του παραστατικού ακολουθούν τα φίλτρα/ταξινόμηση του back.

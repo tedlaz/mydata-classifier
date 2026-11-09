@@ -72,10 +72,10 @@
           {{ filter_types() }}
           {% if view != 'sent' %}
           {{ filter_input('series', 'Σειρά/ΑΑ', 'Σειρά/ΑΑ') }}
-          {{ filter_input('net', 'Καθαρή', 'Καθαρή αξία') }}
-          {{ filter_input('vat', 'ΦΠΑ', 'ΦΠΑ') }}
+          {{ filter_input('net', 'Καθαρή', 'Καθαρή αξία (π.χ. 124, =0, >100, >100 <1000)') }}
+          {{ filter_input('vat', 'ΦΠΑ', 'ΦΠΑ (π.χ. 124, =0, >100, >100 <1000)') }}
           {% endif %}
-          {{ filter_input('total', 'Σύνολο', 'Σύνολο') }}
+          {{ filter_input('total', 'Σύνολο', 'Σύνολο (π.χ. 124, =0, >100, >100 <1000)') }}
           {% if view == 'sent' %}
           {{ filter_input('cat', 'Κατηγ.', 'Κατηγορία') }}
           {{ filter_input('e3', 'Ε3', 'Τύπος Ε3') }}
