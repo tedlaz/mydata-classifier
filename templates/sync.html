@@ -13,10 +13,10 @@
 .sy-hero h1{position:relative;margin:0;font-size:clamp(1.7rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.02em;color:var(--hero-on)}
 .sy-hero-last{position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-top:14px}
 .sy-hero-last > div{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;padding:8px 14px;border-radius:10px;
-  background:color-mix(in srgb,var(--hero-wash) 6%,transparent);border:1px solid color-mix(in srgb,var(--hero-wash) 12%,transparent);border-left:4px solid var(--c);font-size:.8rem;color:var(--hero-ink)}
+  background:var(--hero-card);border:1px solid var(--hero-card-line);border-left:4px solid var(--c);font-size:.8rem;color:var(--hero-ink)}
 .sy-hero-last b{color:var(--hero-on);font-size:.9rem}
 .sy-hero-last .mono{font-family:var(--font-data);color:var(--hero-on)}
-.sy-hero-strip{position:relative;margin-top:14px;padding-top:12px;border-top:1px solid color-mix(in srgb,var(--hero-wash) 10%,transparent)}
+.sy-hero-strip{position:relative;margin-top:14px;padding-top:12px;border-top:1px solid var(--hero-card-line)}
 .sy-hero-strip .sy-mgrid{margin-top:8px}
 @media (prefers-reduced-motion:reduce){ .sy-hero .blob{animation:none} }
 </style>

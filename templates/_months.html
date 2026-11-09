@@ -79,13 +79,13 @@
 /* Στη σκούρα κεφαλίδα (Ανάκτηση, βιβλία). */
 .sy-strip--dark .sy-legend{color:var(--hero-ink)}
 .sy-strip--dark .sy-y:has(> input:checked){border-color:color-mix(in srgb,var(--hero-accent) 55%,transparent);background:color-mix(in srgb,var(--hero-accent) 8%,transparent)}
-.sy-strip--dark .sy-yc{background:color-mix(in srgb,var(--hero-wash) 12%,transparent);color:var(--hero-on);border-color:color-mix(in srgb,var(--hero-wash) 28%,transparent);box-shadow:inset 0 3px 0 var(--hero-accent)}
+.sy-strip--dark .sy-yc{background:var(--hero-card);color:var(--hero-on);border-color:var(--hero-card-line);box-shadow:inset 0 3px 0 var(--hero-accent)}
 .sy-strip--dark .sy-yc:hover{border-color:var(--hero-accent)}
-.sy-strip--dark .sy-q{border-color:color-mix(in srgb,var(--hero-wash) 28%,transparent)}
-.sy-strip--dark .sy-qh{color:var(--hero-ink);border-color:color-mix(in srgb,var(--hero-wash) 14%,transparent)}
-.sy-strip--dark .sy-qh:hover,.sy-strip--dark .sy-qh:focus-visible{color:var(--hero-on);background:color-mix(in srgb,var(--hero-wash) 8%,transparent)}
-.sy-strip--dark .sy-mo{color:var(--hero-on);border-color:color-mix(in srgb,var(--hero-wash) 12%,transparent)}
-.sy-strip--dark .sy-mo:hover,.sy-strip--dark .sy-mo:focus-visible{background:color-mix(in srgb,var(--hero-wash) 8%,transparent)}
+.sy-strip--dark .sy-q{border-color:var(--hero-card-line)}
+.sy-strip--dark .sy-qh{color:var(--hero-ink);border-color:var(--hero-card-line)}
+.sy-strip--dark .sy-qh:hover,.sy-strip--dark .sy-qh:focus-visible{color:var(--hero-on);background:var(--hero-card-hi)}
+.sy-strip--dark .sy-mo{color:var(--hero-on);border-color:var(--hero-card-line)}
+.sy-strip--dark .sy-mo:hover,.sy-strip--dark .sy-mo:focus-visible{background:var(--hero-card-hi)}
 .sy-strip--dark .sy-mo.is-now{box-shadow:inset 0 2px 0 var(--hero-accent)}
 .sy-strip--dark .sy-mo.is-on,.sy-strip--dark .sy-qh.is-on{background:color-mix(in srgb,var(--info) 40%,transparent);color:var(--hero-on)}
 .sy-strip--dark .sy-qh.is-on{border-color:var(--info)}
@@ -150,22 +150,22 @@
 .pn-crumbs li{display:flex;align-items:center;flex:none}
 .pn-crumbs li + li::before{content:"›";margin:0 2px;color:var(--hero-ink);opacity:.5}
 .pn-crumbs a{padding:3px 7px;border-radius:7px;color:var(--hero-ink);text-decoration:none;font-size:.85rem;font-weight:600;transition:background-color .2s,color .2s}
-.pn-crumbs a:hover,.pn-crumbs a:focus-visible{background:color-mix(in srgb,var(--hero-wash) 10%,transparent);color:var(--hero-on)}
-.pn-crumbs a[aria-current]{color:var(--hero-on);font-weight:800;background:color-mix(in srgb,var(--hero-wash) 12%,transparent)}
+.pn-crumbs a:hover,.pn-crumbs a:focus-visible{background:var(--hero-card-hi);color:var(--hero-on)}
+.pn-crumbs a[aria-current]{color:var(--hero-on);font-weight:800;background:var(--hero-card-hi)}
 .pn-crumbs .pn-n{margin-left:3px;padding:0 6px;border-radius:999px;font:800 .78rem/1.5 var(--font-data);font-variant-numeric:tabular-nums;
-  background:color-mix(in srgb,var(--hero-wash) 12%,transparent);color:var(--hero-on)}
+  background:var(--hero-card);color:var(--hero-on)}
 .pn-crumbs a[aria-current] .pn-n{background:color-mix(in srgb,var(--info) 55%,transparent)}
 .pn-crumbs .pn-arr{padding:1px 8px;font-size:1.05rem;line-height:1.2}
 .pn-crumbs .pn-arr[aria-disabled]{opacity:.3;pointer-events:none}
 .pn-x{flex:none;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;color:var(--hero-on);text-decoration:none;font-size:.8rem;
-  background:color-mix(in srgb,var(--hero-wash) 10%,transparent);border:1px solid color-mix(in srgb,var(--hero-wash) 20%,transparent)}
-.pn-x:hover{background:color-mix(in srgb,var(--hero-wash) 20%,transparent)}
+  background:var(--hero-card);border:1px solid var(--hero-card-line)}
+.pn-x:hover{background:var(--hero-card-hi)}
 .pn-kids{position:relative;display:flex;gap:6px;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:thin;padding:2px 1px 6px;min-height:52px}
 .pn-c{position:relative;flex:none;scroll-snap-align:start;min-width:50px;display:flex;flex-direction:column;align-items:center;gap:1px;
-  padding:5px 10px;border-radius:10px;color:var(--hero-on);text-decoration:none;background:color-mix(in srgb,var(--hero-wash) 8%,transparent);border:1px solid color-mix(in srgb,var(--hero-wash) 16%,transparent);
+  padding:5px 10px;border-radius:10px;color:var(--hero-on);text-decoration:none;background:var(--hero-card);border:1px solid var(--hero-card-line);
   animation:pn-in .35s var(--ease) both;animation-delay:calc(min(var(--i), 14) * 25ms);transition:background-color .2s,border-color .2s}
 .pn-c[data-ymd]{flex:1 0 38px;min-width:0;max-width:64px;padding:5px 4px}  /* εβδομάδα: οι 7 ημέρες σε μία γραμμή και στο κινητό */
-.pn-c:hover,.pn-c:focus-visible{background:color-mix(in srgb,var(--hero-wash) 15%,transparent);border-color:var(--hero-accent)}
+.pn-c:hover,.pn-c:focus-visible{background:var(--hero-card-hi);border-color:var(--hero-accent)}
 .pn-c span{font-size:.66rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--hero-ink);white-space:nowrap}
 .pn-c small{font-size:.6rem;color:var(--hero-ink);opacity:.75;line-height:1}
 .pn-c b{font:800 .98rem/1.15 var(--font-data);font-variant-numeric:tabular-nums}

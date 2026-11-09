@@ -22,15 +22,15 @@
 @keyframes rc-float{50%{transform:translate(26px,-18px) scale(1.12)}}
 .rc-top{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px}
 .rc-hero h1{margin:0;font-size:clamp(1.25rem,2.4vw,1.6rem);font-weight:800;letter-spacing:-.02em;color:var(--hero-on);display:flex;align-items:center;gap:10px}
-.rc-hero h1 .ico{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:color-mix(in srgb,var(--hero-wash) 10%,transparent);
-  border:1px solid color-mix(in srgb,var(--hero-wash) 16%,transparent);font-size:1.2rem;animation:rc-spin 6s ease-in-out infinite}
+.rc-hero h1 .ico{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--hero-card);
+  border:1px solid var(--hero-card-line);font-size:1.2rem;animation:rc-spin 6s ease-in-out infinite}
 @keyframes rc-spin{0%,70%{transform:rotate(0)}85%,100%{transform:rotate(360deg)}}
 .rc-sub{position:relative;margin:8px 0 0;max-width:70ch;font-size:.86rem;line-height:1.5;color:var(--hero-ink)}
 
 /* Πλοήγηση μήνα */
-.rc-nav{margin-left:auto;display:flex;align-items:center;gap:4px;padding:4px;border-radius:14px;background:color-mix(in srgb,var(--hero-wash) 7%,transparent);border:1px solid color-mix(in srgb,var(--hero-wash) 14%,transparent)}
+.rc-nav{margin-left:auto;display:flex;align-items:center;gap:4px;padding:4px;border-radius:14px;background:var(--hero-card);border:1px solid var(--hero-card-line)}
 .rc-nav a{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;color:var(--hero-on);text-decoration:none;font-size:1.1rem;transition:background .2s,transform .2s var(--ease)}
-.rc-nav a:hover{background:color-mix(in srgb,var(--hero-wash) 14%,transparent);transform:scale(1.08)}
+.rc-nav a:hover{background:var(--hero-card-hi);transform:scale(1.08)}
 .rc-nav form{margin:0;position:relative}
 .rc-nav b{display:block;min-width:150px;padding:0 6px;text-align:center;font-weight:800;letter-spacing:.01em;pointer-events:none}
 .rc-nav input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}  /* ο native picker πάνω στο όνομα του μήνα */
@@ -44,7 +44,7 @@
 .rc-ring b{position:absolute;inset:0;z-index:1;display:grid;place-items:center;font:800 .95rem var(--font-data)}
 @property --p{syntax:"<number>";inherits:false;initial-value:0}
 @keyframes rc-fill{from{--p:0}}
-.rc-chip{display:flex;flex-direction:column;gap:2px;padding:8px 14px;border-radius:12px;background:color-mix(in srgb,var(--hero-wash) 7%,transparent);border:1px solid color-mix(in srgb,var(--hero-wash) 12%,transparent)}
+.rc-chip{display:flex;flex-direction:column;gap:2px;padding:8px 14px;border-radius:12px;background:var(--hero-card);border:1px solid var(--hero-card-line)}
 .rc-chip span{font-size:.64rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--hero-ink)}
 .rc-chip b{font:800 1.1rem var(--font-data)}
 .rc-chip.is-late{background:color-mix(in srgb,var(--err) 26%,transparent);border-color:color-mix(in srgb,var(--err) 55%,transparent)}

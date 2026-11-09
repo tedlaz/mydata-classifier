@@ -88,9 +88,9 @@
 
 .acx-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;counter-reset:s;margin:0;padding:0}
 .acx-steps li{list-style:none;position:relative;padding:10px 10px 10px 40px;border-radius:12px;font-size:.82rem;font-weight:700;
-  background:color-mix(in srgb,var(--hero-wash) 5%,transparent);border:1px solid color-mix(in srgb,var(--hero-wash) 10%,transparent);color:var(--hero-ink);transition:all .4s;overflow-wrap:anywhere}
+  background:var(--hero-card);border:1px solid var(--hero-card-line);color:var(--hero-ink);transition:all .4s;overflow-wrap:anywhere}
 .acx-steps li::before{counter-increment:s;content:counter(s);position:absolute;left:10px;top:50%;translate:0 -50%;width:22px;height:22px;
-  border-radius:50%;display:grid;place-items:center;font-size:.75rem;background:color-mix(in srgb,var(--hero-wash) 10%,transparent)}
+  border-radius:50%;display:grid;place-items:center;font-size:.75rem;background:var(--hero-card-hi)}
 .acx-steps li.done{color:color-mix(in srgb,var(--ok) 55%,var(--hero-on));border-color:rgba(52,211,153,.4)}
 .acx-steps li.done::before{content:"✓";background:#34d399;color:#05261a}
 .acx-steps li.now{color:var(--hero-on);background:linear-gradient(135deg,color-mix(in oklab,var(--ring) 35%,transparent),color-mix(in oklab,var(--ring2) 25%,transparent));
@@ -100,7 +100,7 @@
 .acx-steps li.off::before{content:"🔒";background:none}
 .acx-steps li small{display:block;font-weight:600;opacity:.85;font-family:var(--font-data)}
 
-.acx-bar{height:12px;border-radius:999px;background:color-mix(in srgb,var(--hero-wash) 8%,transparent);overflow:hidden}
+.acx-bar{height:12px;border-radius:999px;background:var(--hero-card-hi);overflow:hidden}
 .acx-bar i{display:block;height:100%;width:0;border-radius:inherit;transition:width .8s cubic-bezier(.2,.8,.2,1);
   background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--hero-wash) 22%,transparent) 0 10px,transparent 10px 20px),linear-gradient(90deg,var(--ring),var(--ring2));
   background-size:28px 28px,100% 100%;animation:acx-stripes .8s linear infinite;box-shadow:0 0 14px var(--glow)}
@@ -112,13 +112,13 @@
 .acx-go{background:linear-gradient(135deg,#34d399,#22d3ee);color:#05261a;box-shadow:0 10px 26px -10px rgba(52,211,153,.8)}
 .acx-go:not(:disabled):hover{filter:brightness(1.08);transform:translateY(-1px)}
 .acx-halt{background:linear-gradient(135deg,#f87171,#fb923c);color:#2a0a0a;box-shadow:0 10px 26px -10px rgba(248,113,113,.8)}
-.acx-pause{grid-column:1 / -1;min-height:46px!important;font-size:.92rem!important;background:color-mix(in srgb,var(--hero-wash) 6%,transparent);
+.acx-pause{grid-column:1 / -1;min-height:46px!important;font-size:.92rem!important;background:var(--hero-card);
   color:color-mix(in srgb,var(--warn) 55%,var(--hero-on));border:1px solid rgba(251,191,36,.45)!important;box-shadow:none}
 .acx-pause:hover{background:rgba(251,191,36,.14)}
 .acx-pause[data-on="0"]{color:color-mix(in srgb,var(--ok) 55%,var(--hero-on));border-color:rgba(52,211,153,.5)!important;background:rgba(52,211,153,.1);
   animation:acx-breathe 2.4s ease-in-out infinite}
 @keyframes acx-breathe{50%{box-shadow:0 0 22px -4px rgba(52,211,153,.6)}}
-.acx-btns button:disabled{background:color-mix(in srgb,var(--hero-wash) 8%,transparent);color:color-mix(in srgb,var(--hero-wash) 35%,transparent);box-shadow:none;cursor:not-allowed}
+.acx-btns button:disabled{background:var(--hero-card);color:color-mix(in srgb,var(--hero-wash) 35%,transparent);box-shadow:none;cursor:not-allowed}
 
 
 /* Mini μπάρα όταν το ρολόι φύγει από την οθόνη. Πάντα fixed (εκτός ροής): αν έπιανε χώρο, η εμφάνισή της θα

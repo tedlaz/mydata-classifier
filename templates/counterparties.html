@@ -7,10 +7,10 @@
 .cp-hero{padding:12px 16px;border-radius:16px}
 .cp-hero .cp-top{align-items:center;gap:10px}
 .cp-hero h1{margin:0;font-size:clamp(1.15rem,2.4vw,1.5rem);display:flex;align-items:center;gap:8px}
-.cp-hero h1 .count{font-size:.8rem;background:color-mix(in srgb,var(--hero-wash) 14%,transparent);color:var(--hero-on)}
+.cp-hero h1 .count{font-size:.8rem;background:var(--hero-card-hi);color:var(--hero-on)}
 .cp-hero .btn-row button{padding:7px 12px;font-size:.85rem}
 .cp-search{position:relative;display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;animation:cp-rise .55s var(--ease) .2s both}
-.cp-search select{flex:0 1 auto;width:auto;min-width:0;padding:8px 10px;border-radius:10px;background:color-mix(in srgb,var(--hero-wash) 10%,transparent);border:1px solid color-mix(in srgb,var(--hero-wash) 20%,transparent);color:var(--hero-on);font-size:.85rem}
+.cp-search select{flex:0 1 auto;width:auto;min-width:0;padding:8px 10px;border-radius:10px;background:var(--hero-card);border:1px solid var(--hero-card-line);color:var(--hero-on);font-size:.85rem}
 .cp-search select option{color:var(--ink);background:var(--surface)}
 .cp-search button,.cp-search .btn{padding:8px 14px;font-size:.85rem}
 @media (max-width:640px){
@@ -20,9 +20,9 @@
   .cp-search select{flex:1 1 calc(33% - 8px)}
   .cp-search button[type=submit]{display:none}  /* τα φίλτρα εφαρμόζονται αμέσως (JS) */
 }
-.cp-search input{flex:1 1 240px;padding:9px 14px 9px 38px;border-radius:10px;background:color-mix(in srgb,var(--hero-wash) 10%,transparent);border:1px solid color-mix(in srgb,var(--hero-wash) 20%,transparent);color:var(--hero-on);font-size:.95rem}
+.cp-search input{flex:1 1 240px;padding:9px 14px 9px 38px;border-radius:10px;background:var(--hero-card);border:1px solid var(--hero-card-line);color:var(--hero-on);font-size:.95rem}
 .cp-search input::placeholder{color:var(--hero-ink)}
-.cp-search input:focus{background:color-mix(in srgb,var(--hero-wash) 16%,transparent);border-color:var(--hero-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--hero-accent) 25%,transparent)}
+.cp-search input:focus{background:var(--hero-card-hi);border-color:var(--hero-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--hero-accent) 25%,transparent)}
 .cp-search::before{content:"🔎";position:absolute;left:12px;top:19px;transform:translateY(-50%);opacity:.8;pointer-events:none}
 /* Πίνακας */
 .cp-who{display:flex;align-items:center;gap:12px}
