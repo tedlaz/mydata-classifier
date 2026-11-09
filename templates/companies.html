@@ -8,7 +8,7 @@
 <style>
 .co{--co-gap:18px}
 /* ---------- Κεφαλίδα ---------- */
-.co-hero{position:relative;overflow:hidden;border-radius:16px;padding:14px clamp(16px,2.5vw,26px);color:#fff;
+.co-hero{position:relative;overflow:hidden;border-radius:16px;padding:14px clamp(16px,2.5vw,26px);color:var(--hero-on);
   background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,#2a2f7a,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
 .co-blob{position:absolute;border-radius:50%;filter:blur(48px);opacity:.5;animation:co-float 13s ease-in-out infinite;pointer-events:none}
 .co-blob.b1{width:300px;height:300px;background:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));top:-130px;right:-40px}
@@ -17,8 +17,8 @@
 .co-hero-in{position:relative;display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between;align-items:center}
 .co-hero h1{margin:0;font-size:clamp(1.35rem,2.4vw,1.75rem);font-weight:800;letter-spacing:-.02em}
 .co-hero .btn-row{margin:0;display:flex;flex-wrap:wrap;gap:8px}
-.co-hero .btn-ghost{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.2)}
-.co-hero .btn-ghost:hover{background:rgba(255,255,255,.16)}
+.co-hero .btn-ghost{background:color-mix(in srgb,var(--hero-wash) 8%,transparent);color:var(--hero-on);border-color:color-mix(in srgb,var(--hero-wash) 20%,transparent)}
+.co-hero .btn-ghost:hover{background:color-mix(in srgb,var(--hero-wash) 16%,transparent)}
 
 /* ---------- Κάρτες: η μία πάνω στην άλλη ---------- */
 /* Χρώματα rack: στο Φωτεινό/Σκοτεινό ίδια με πριν· στις παλέτες τραβιούνται προς το θέμα (--hero-fade). */
@@ -67,10 +67,10 @@
 .co-tag{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:.7rem;font-weight:700;padding:3px 9px;border-radius:999px;
   background:var(--surface-3);color:var(--ink-2)}
 .co-tag i{width:7px;height:7px;border-radius:50%;background:currentColor;animation:co-ping 2s ease-out infinite}
-.co-tag--prod{background:rgba(31,191,138,.16);color:#4fdcab}
-.co-tag--dev{background:rgba(245,165,36,.16);color:#f8bd5a}
+.co-tag--prod{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.co-tag--dev{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .co-tag--acc{background:color-mix(in srgb,var(--rk-acc) 16%,transparent);color:var(--rk-acc)}
-.co-tag--danger{background:rgba(240,80,80,.16);color:#ff8f8f}
+.co-tag--danger{background:color-mix(in srgb,var(--err) 16%,transparent);color:var(--err)}
 /* Tags-διακόπτες: χωρίς το γενικό στυλ κουμπιού· σβηστό = μόνο περίγραμμα, ξεθωριασμένο. */
 .co-tags form{display:contents}
 .co-tags button.co-tag{border:0;font-family:inherit;cursor:pointer;box-shadow:none;filter:none;transform:none;transition:opacity .2s,background .2s}
@@ -89,7 +89,7 @@
   box-shadow:inset 0 1px 3px rgba(0,0,0,.6)}
 .co-nums{display:grid;grid-template-columns:repeat(3,auto);gap:2px 8px;min-width:0;font-size:.7rem;color:var(--muted)}
 .co-nums b{display:block;font:700 .95rem var(--font-data);color:var(--ink)}
-.co-nums .hot b{color:#f8bd5a}
+.co-nums .hot b{color:var(--warn)}
 .co-empty-book{font-size:.8rem;color:var(--muted);max-width:260px}
 .co-spark{padding-right:10px;margin-right:2px;border-right:1px solid var(--line)}
 
@@ -153,11 +153,25 @@
 .co-actions .co-cover:hover{transform:rotateX(-14deg)}
 .co-guard.is-open .co-cover{transform:rotateX(-118deg);pointer-events:none}
 
+/* Φωτεινά θέματα: το rack ακολουθεί το θέμα — καθαρές κάρτες με περίγραμμα, «οθόνη» με πλαίσιο, χωρίς βαριές σκιές
+   και χωρίς ξεθώριασμα των μη ενεργών (η ενεργή ξεχωρίζει από το δαχτυλίδι και την κορδέλα). */
+[data-theme-now="light"] .co-grid{background:color-mix(in oklab,var(--accent) 6%,var(--surface-3));box-shadow:inset 0 0 0 1px var(--line)}
+[data-theme-now="light"] .co-card{--line:color-mix(in srgb,var(--rk-ink) 16%,transparent);--surface-2:color-mix(in srgb,var(--accent) 6%,var(--surface));
+  --surface-3:color-mix(in srgb,var(--rk-ink) 8%,transparent);background:var(--surface);
+  box-shadow:inset 0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.05),0 6px 16px -10px rgba(0,0,0,.25)}
+[data-theme-now="light"] .co-card:hover{box-shadow:inset 0 0 0 1px var(--line),0 2px 4px rgba(0,0,0,.06),0 12px 24px -12px rgba(0,0,0,.3)}
+[data-theme-now="light"] .co-card.is-active{box-shadow:inset 0 0 0 2px var(--rk-glow),0 10px 24px -12px color-mix(in srgb,var(--rk-glow) 70%,transparent)}
+[data-theme-now="light"] .co-card.is-active .co-name h2{color:var(--rk-ink)}
+[data-theme-now="light"] .co-grid:has(.is-active) .co-card:not(.is-active){opacity:1;filter:none}
+[data-theme-now="light"] .co-body{box-shadow:inset 0 0 0 1px var(--line)}
+[data-theme-now="light"] .co-pb{box-shadow:0 1px 3px rgba(0,0,0,.3)}
+[data-theme-now="light"] .co-add{border-color:color-mix(in srgb,var(--rk-ink) 22%,transparent)}
+
 /* «Κενή θέση»: νέα εταιρεία */
 .co-add{display:flex;align-items:center;justify-content:center;gap:12px;min-height:58px;border:2px dashed rgba(255,255,255,.18);border-radius:4px;
   background:transparent;color:var(--rk-muted);box-shadow:none;font-weight:700;animation:co-rise .55s var(--ease) both;animation-delay:calc(var(--i) * 70ms)}
 .co-add:hover{border-color:var(--rk-glow);color:var(--rk-ink-2);background:color-mix(in srgb,var(--rk-glow) 10%,transparent);box-shadow:none;filter:none}
-.co-add span{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--accent-grad);color:#fff;font-size:1.2rem;
+.co-add span{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--accent-grad);color:var(--on-accent);font-size:1.2rem;
   box-shadow:0 8px 18px -8px var(--accent);transition:transform .4s var(--ease)}
 .co-add:hover span{transform:rotate(90deg) scale(1.08)}
 

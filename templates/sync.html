@@ -4,19 +4,19 @@
 {% block content %}
 <style>
 /* Κεφαλίδα στο ύφος των βιβλίων (_ledger_hero.html: .lh--in). */
-.sy-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(14px,2vw,20px);color:#fff;margin-bottom:14px;
+.sy-hero{position:relative;overflow:hidden;border-radius:20px;padding:clamp(14px,2vw,20px);color:var(--hero-on);margin-bottom:14px;
   background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,#0f5a4a,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
 .sy-hero .blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.45;pointer-events:none;animation:sy-float 13s ease-in-out infinite}
 .sy-hero .b1{width:300px;height:300px;background:color-mix(in oklab,#1fbf8a,var(--hero-glow) var(--hero-fade));top:-140px;right:-40px}
 .sy-hero .b2{width:220px;height:220px;background:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));bottom:-140px;left:35%;opacity:.28;animation-delay:-6s}
 @keyframes sy-float{50%{transform:translate(26px,-18px) scale(1.1)}}
-.sy-hero h1{position:relative;margin:0;font-size:clamp(1.7rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.02em;color:#fff}
+.sy-hero h1{position:relative;margin:0;font-size:clamp(1.7rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.02em;color:var(--hero-on)}
 .sy-hero-last{position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-top:14px}
 .sy-hero-last > div{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;padding:8px 14px;border-radius:10px;
-  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-left:4px solid var(--c);font-size:.8rem;color:var(--hero-ink)}
-.sy-hero-last b{color:#fff;font-size:.9rem}
-.sy-hero-last .mono{font-family:var(--font-data);color:#fff}
-.sy-hero-strip{position:relative;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)}
+  background:color-mix(in srgb,var(--hero-wash) 6%,transparent);border:1px solid color-mix(in srgb,var(--hero-wash) 12%,transparent);border-left:4px solid var(--c);font-size:.8rem;color:var(--hero-ink)}
+.sy-hero-last b{color:var(--hero-on);font-size:.9rem}
+.sy-hero-last .mono{font-family:var(--font-data);color:var(--hero-on)}
+.sy-hero-strip{position:relative;margin-top:14px;padding-top:12px;border-top:1px solid color-mix(in srgb,var(--hero-wash) 10%,transparent)}
 .sy-hero-strip .sy-mgrid{margin-top:8px}
 @media (prefers-reduced-motion:reduce){ .sy-hero .blob{animation:none} }
 </style>
@@ -56,7 +56,7 @@
 .sy-chip{padding:6px 12px;border-radius:999px;font-size:.8rem;font-weight:600;background:var(--surface-3);color:var(--ink-2);
   border:1px solid transparent;box-shadow:none}
 .sy-chip:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-glow);box-shadow:none;filter:none}
-.sy-chip.is-on{background:var(--accent-grad);color:#fff}
+.sy-chip.is-on{background:var(--accent-grad);color:var(--on-accent)}
 .sy-chip--last{background:var(--ok-soft);color:var(--ok)}
 
 /* Ροή myDATA ⇄ βιβλίο: στατική σε αναμονή· κινείται μόνο όσο τρέχει μια ενέργεια (body.is-busy).
@@ -85,7 +85,7 @@ body.is-busy .sy-flow .ln{stroke:var(--accent);animation:sy-dash .4s linear infi
 body.is-busy #sy-form[data-run=delete] .sy-dot--in,
 body.is-busy #sy-form[data-run=fetch] .sy-dot--out{visibility:hidden}
 .sy-busy{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:none;align-items:center;gap:8px;padding:6px 14px;
-  border-radius:999px;background:var(--accent-grad);color:#fff;font-size:.8rem;font-weight:700;white-space:nowrap}
+  border-radius:999px;background:var(--accent-grad);color:var(--on-accent);font-size:.8rem;font-weight:700;white-space:nowrap}
 .sy-busy i{width:12px;height:12px;border-radius:50%;border:2px solid #fff;border-right-color:transparent;animation:sy-spin .7s linear infinite}
 @keyframes sy-spin{to{transform:rotate(360deg)}}
 body.is-busy .sy-busy{display:flex}
@@ -102,7 +102,7 @@ body.is-busy .sy-busy{display:flex}
 .sy-run.is-loading::after{content:none}
 .sy-run-cap{display:flex;flex-direction:column;gap:4px;max-width:46ch}
 /* Ο τίτλος ως γεμάτο «κουμπί» μέσα στην κάρτα, για να φαίνεται ότι πατιέται. */
-.sy-run-cap b{align-self:center;font-size:1.1rem;color:#fff;padding:8px 22px;border-radius:999px;background:var(--accent-grad);
+.sy-run-cap b{align-self:center;font-size:1.1rem;color:var(--on-accent);padding:8px 22px;border-radius:999px;background:var(--accent-grad);
   box-shadow:0 8px 18px -8px var(--c),inset 0 1px 0 rgba(255,255,255,.3);transition:transform .2s var(--ease),box-shadow .2s}
 .sy-run--del .sy-run-cap b{background:var(--c)}
 .sy-run:hover .sy-run-cap b{transform:scale(1.05);box-shadow:0 10px 22px -8px var(--c),inset 0 1px 0 rgba(255,255,255,.3)}
@@ -260,7 +260,7 @@ body.is-busy .sy-run-cap{visibility:hidden}
       <svg viewBox="0 0 420 210" aria-hidden="true">
         <path class="ln" d="M130 78 C 190 40, 230 40, 290 78"/>
         <path class="ln" d="M290 132 C 230 170, 190 170, 130 132"/>
-        <text class="lbl" x="210" y="36" text-anchor="middle" fill="#1fbf8a" style="fill:#1fbf8a">ανάκτηση</text>
+        <text class="lbl" x="210" y="36" text-anchor="middle" style="fill:var(--ok)">ανάκτηση</text>
         <text class="lbl" x="210" y="190" text-anchor="middle" style="fill:var(--err)">διαγραφή (μόνο τοπικά)</text>
         <rect class="box" x="10" y="55" width="120" height="100" rx="16"/>
         <text x="70" y="98" text-anchor="middle" style="font-size:30px">☁️</text>

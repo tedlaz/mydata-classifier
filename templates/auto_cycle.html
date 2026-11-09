@@ -32,7 +32,7 @@
 .acx[data-p="locked"],.acx[data-p="disabled"]{--ring:#64748b;--ring2:#94a3b8;--glow:rgba(100,116,139,.25)}
 .acx.is-hot{--ring:#fbbf24;--ring2:#f87171;--glow:rgba(251,191,36,.6)}
 
-.acx-hero{position:relative;overflow:hidden;isolation:isolate;border-radius:24px;color:#fff;margin-bottom:14px;
+.acx-hero{position:relative;overflow:hidden;isolation:isolate;border-radius:24px;color:var(--hero-on);margin-bottom:14px;
   padding:clamp(16px,3vw,28px);box-shadow:var(--shadow-hi);
   background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,#1e1b4b,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 50%,var(--hero-end) 100%)}
 .acx-hero::before{content:"";position:absolute;inset:-40%;z-index:-1;opacity:.5;
@@ -50,7 +50,7 @@
 /* Ρολόι */
 .acx-clock{position:relative;width:clamp(230px,72vw,320px);aspect-ratio:1;display:grid;place-items:center}
 .acx-clock svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
-.acx-track{fill:none;stroke:rgba(255,255,255,.08);stroke-width:12}
+.acx-track{fill:none;stroke:color-mix(in srgb,var(--hero-wash) 8%,transparent);stroke-width:12}
 .acx-arc{fill:none;stroke:url(#acx-grad);stroke-width:12;stroke-linecap:round;transform:rotate(-90deg);transform-origin:50% 50%;
   transition:stroke-dashoffset 1s linear;filter:drop-shadow(0 0 10px var(--glow))}
 .acx-orbit{fill:none;stroke:var(--ring2);stroke-width:2;stroke-dasharray:2 10;opacity:.55;transform-origin:50% 50%;animation:acx-sweep 40s linear infinite}
@@ -68,7 +68,7 @@
 @keyframes acx-flip{from{transform:translateY(-45%) scale(.8);opacity:0;filter:blur(3px)}}
 @keyframes acx-blink{50%{opacity:.15}}
 .acx-sub{font-size:.8rem;color:var(--hero-ink-2);min-height:1.2em}
-.acx.is-hot .acx-digits{color:#fde68a;animation:acx-pulse 1s ease-in-out infinite}
+.acx.is-hot .acx-digits{color:color-mix(in srgb,var(--warn) 55%,var(--hero-on));animation:acx-pulse 1s ease-in-out infinite}
 .acx.is-hot .acx-clock{animation:acx-shake 1s ease-in-out infinite}
 @keyframes acx-pulse{50%{transform:scale(1.08);text-shadow:0 0 40px var(--glow)}}
 @keyframes acx-shake{25%{transform:rotate(-1deg)}75%{transform:rotate(1deg)}}
@@ -82,27 +82,27 @@
   color:#0b1020;background:linear-gradient(135deg,var(--ring),var(--ring2));box-shadow:0 0 22px -4px var(--glow);transition:background 1s}
 .acx-pill i{width:9px;height:9px;border-radius:50%;background:#0b1020}
 .acx[data-p="running"] .acx-pill i,.acx[data-p="stopping"] .acx-pill i{animation:acx-blink .8s infinite}
-.acx-net{font-size:.75rem;color:var(--hero-ink)} .acx-net.is-off{color:#fca5a5;font-weight:700}
+.acx-net{font-size:.75rem;color:var(--hero-ink)} .acx-net.is-off{color:color-mix(in srgb,var(--err) 55%,var(--hero-on));font-weight:700}
 .acx-where{font-size:clamp(1.2rem,3.5vw,1.6rem);font-weight:800;letter-spacing:-.01em;overflow-wrap:anywhere;min-height:1.3em}
 .acx-where small{display:block;font-size:.8rem;font-weight:600;color:var(--hero-ink)}
 
 .acx-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;counter-reset:s;margin:0;padding:0}
 .acx-steps li{list-style:none;position:relative;padding:10px 10px 10px 40px;border-radius:12px;font-size:.82rem;font-weight:700;
-  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:var(--hero-ink);transition:all .4s;overflow-wrap:anywhere}
+  background:color-mix(in srgb,var(--hero-wash) 5%,transparent);border:1px solid color-mix(in srgb,var(--hero-wash) 10%,transparent);color:var(--hero-ink);transition:all .4s;overflow-wrap:anywhere}
 .acx-steps li::before{counter-increment:s;content:counter(s);position:absolute;left:10px;top:50%;translate:0 -50%;width:22px;height:22px;
-  border-radius:50%;display:grid;place-items:center;font-size:.75rem;background:rgba(255,255,255,.1)}
-.acx-steps li.done{color:#d1fae5;border-color:rgba(52,211,153,.4)}
+  border-radius:50%;display:grid;place-items:center;font-size:.75rem;background:color-mix(in srgb,var(--hero-wash) 10%,transparent)}
+.acx-steps li.done{color:color-mix(in srgb,var(--ok) 55%,var(--hero-on));border-color:rgba(52,211,153,.4)}
 .acx-steps li.done::before{content:"✓";background:#34d399;color:#05261a}
-.acx-steps li.now{color:#fff;background:linear-gradient(135deg,color-mix(in oklab,var(--ring) 35%,transparent),color-mix(in oklab,var(--ring2) 25%,transparent));
+.acx-steps li.now{color:var(--hero-on);background:linear-gradient(135deg,color-mix(in oklab,var(--ring) 35%,transparent),color-mix(in oklab,var(--ring2) 25%,transparent));
   border-color:var(--ring);box-shadow:0 0 18px -6px var(--glow)}
 .acx-steps li.now::before{background:var(--ring);color:#0b1020;animation:acx-pulse 1.2s ease-in-out infinite}
 .acx-steps li.off{opacity:.35;text-decoration:line-through;border-style:dashed}
 .acx-steps li.off::before{content:"🔒";background:none}
 .acx-steps li small{display:block;font-weight:600;opacity:.85;font-family:var(--font-data)}
 
-.acx-bar{height:12px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.acx-bar{height:12px;border-radius:999px;background:color-mix(in srgb,var(--hero-wash) 8%,transparent);overflow:hidden}
 .acx-bar i{display:block;height:100%;width:0;border-radius:inherit;transition:width .8s cubic-bezier(.2,.8,.2,1);
-  background:repeating-linear-gradient(-45deg,rgba(255,255,255,.22) 0 10px,transparent 10px 20px),linear-gradient(90deg,var(--ring),var(--ring2));
+  background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--hero-wash) 22%,transparent) 0 10px,transparent 10px 20px),linear-gradient(90deg,var(--ring),var(--ring2));
   background-size:28px 28px,100% 100%;animation:acx-stripes .8s linear infinite;box-shadow:0 0 14px var(--glow)}
 @keyframes acx-stripes{to{background-position:28px 0,0 0}}
 .acx-barmeta{display:flex;justify-content:space-between;font-size:.75rem;color:var(--hero-ink);font-family:var(--font-data);margin-top:4px}
@@ -112,19 +112,19 @@
 .acx-go{background:linear-gradient(135deg,#34d399,#22d3ee);color:#05261a;box-shadow:0 10px 26px -10px rgba(52,211,153,.8)}
 .acx-go:not(:disabled):hover{filter:brightness(1.08);transform:translateY(-1px)}
 .acx-halt{background:linear-gradient(135deg,#f87171,#fb923c);color:#2a0a0a;box-shadow:0 10px 26px -10px rgba(248,113,113,.8)}
-.acx-pause{grid-column:1 / -1;min-height:46px!important;font-size:.92rem!important;background:rgba(255,255,255,.06);
-  color:#fde68a;border:1px solid rgba(251,191,36,.45)!important;box-shadow:none}
+.acx-pause{grid-column:1 / -1;min-height:46px!important;font-size:.92rem!important;background:color-mix(in srgb,var(--hero-wash) 6%,transparent);
+  color:color-mix(in srgb,var(--warn) 55%,var(--hero-on));border:1px solid rgba(251,191,36,.45)!important;box-shadow:none}
 .acx-pause:hover{background:rgba(251,191,36,.14)}
-.acx-pause[data-on="0"]{color:#6ee7b7;border-color:rgba(52,211,153,.5)!important;background:rgba(52,211,153,.1);
+.acx-pause[data-on="0"]{color:color-mix(in srgb,var(--ok) 55%,var(--hero-on));border-color:rgba(52,211,153,.5)!important;background:rgba(52,211,153,.1);
   animation:acx-breathe 2.4s ease-in-out infinite}
 @keyframes acx-breathe{50%{box-shadow:0 0 22px -4px rgba(52,211,153,.6)}}
-.acx-btns button:disabled{background:rgba(255,255,255,.08);color:rgba(255,255,255,.35);box-shadow:none;cursor:not-allowed}
+.acx-btns button:disabled{background:color-mix(in srgb,var(--hero-wash) 8%,transparent);color:color-mix(in srgb,var(--hero-wash) 35%,transparent);box-shadow:none;cursor:not-allowed}
 
 
 /* Mini μπάρα όταν το ρολόι φύγει από την οθόνη. Πάντα fixed (εκτός ροής): αν έπιανε χώρο, η εμφάνισή της θα
    μετακινούσε τη σελίδα → το ρολόι ξανά ορατό → κρύβεται → τρεμόπαιγμα στο scroll. */
 .acx-mini{position:fixed;top:calc(var(--topbar-h) + 10px);right:16px;z-index:40;width:min(360px,calc(100vw - 32px));
-  display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:999px;color:#fff;font-weight:700;font-size:.85rem;
+  display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:999px;color:var(--hero-on);font-weight:700;font-size:.85rem;
   background:linear-gradient(135deg,var(--hero-mid),var(--hero-end));border:1px solid var(--ring);box-shadow:0 8px 22px -10px var(--glow);
   transition:opacity .3s,transform .3s}
 .acx-mini[hidden]{display:flex;opacity:0;transform:translateY(-10px);pointer-events:none}

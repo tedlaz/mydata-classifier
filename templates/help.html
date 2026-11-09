@@ -16,7 +16,7 @@
 .hp-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px}
 
 /* ---------- Hero ---------- */
-.hp-hero{position:relative;overflow:hidden;border-radius:22px;padding:clamp(18px,3.4vw,36px);color:#fff;
+.hp-hero{position:relative;overflow:hidden;border-radius:22px;padding:clamp(18px,3.4vw,36px);color:var(--hero-on);
   background:radial-gradient(120% 140% at 0% 0%,color-mix(in oklab,#2a2f7a,var(--hero-mid) var(--hero-fade)) 0%,var(--hero-mid) 45%,var(--hero-end) 100%);box-shadow:var(--shadow-hi)}
 .hp-blob{position:absolute;border-radius:50%;filter:blur(50px);opacity:.55;animation:hp-float 14s ease-in-out infinite}
 .hp-blob.b1{width:340px;height:340px;background:color-mix(in oklab,#5b66f5,var(--hero-glow) var(--hero-fade));top:-120px;right:-60px}
@@ -25,19 +25,19 @@
 @keyframes hp-float{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(30px,-20px) scale(1.12)}}
 .hp-hero-in{position:relative;display:grid;gap:30px}
 .hp-hero h1{font-size:clamp(2rem,5vw,3.3rem);line-height:1.05;margin:0 0 12px;font-weight:800;letter-spacing:-.02em}
-.hp-hero h1 span{background:linear-gradient(90deg,var(--hero-accent),#6ff0c4,#ffd27a);-webkit-background-clip:text;background-clip:text;color:transparent;
+.hp-hero h1 span{background:linear-gradient(90deg,var(--hero-accent),var(--ok),var(--warn));-webkit-background-clip:text;background-clip:text;color:transparent;
   background-size:200% 100%;animation:hp-shine 6s linear infinite}
 @keyframes hp-shine{to{background-position:200% 0}}
 .hp-hero p{color:var(--hero-ink-2);max-width:640px;font-size:1.05rem}
 .hp-hero .hp-kicker{color:var(--hero-accent)}
 .hp-pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
-.hp-pill{font-size:.8rem;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:var(--hero-ink-hi)}
+.hp-pill{font-size:.8rem;padding:6px 12px;border-radius:999px;background:color-mix(in srgb,var(--hero-wash) 8%,transparent);border:1px solid color-mix(in srgb,var(--hero-wash) 14%,transparent);color:var(--hero-ink-hi)}
 .hp-flow{width:100%;height:auto;display:block}
-.hp-flow .n rect{fill:rgba(255,255,255,.07);stroke:rgba(255,255,255,.22)}
-.hp-flow .n text{fill:#fff;font-family:var(--font-ui);font-weight:700;font-size:15px}
+.hp-flow .n rect{fill:color-mix(in srgb,var(--hero-wash) 7%,transparent);stroke:color-mix(in srgb,var(--hero-wash) 22%,transparent)}
+.hp-flow .n text{fill:var(--hero-on);font-family:var(--font-ui);font-weight:700;font-size:15px}
 .hp-flow .n .s{fill:var(--hero-ink);font-weight:500;font-size:11.5px}
 .hp-flow .n .e{font-size:26px}
-.hp-flow .ln{fill:none;stroke:rgba(255,255,255,.18);stroke-width:2;stroke-dasharray:5 7;animation:hp-dash 1.2s linear infinite}
+.hp-flow .ln{fill:none;stroke:color-mix(in srgb,var(--hero-wash) 18%,transparent);stroke-width:2;stroke-dasharray:5 7;animation:hp-dash 1.2s linear infinite}
 .hp-flow .lbl{fill:var(--hero-ink);font:600 11px var(--font-data)}
 @keyframes hp-dash{to{stroke-dashoffset:-24}}
 .hp-flow .n{animation:hp-pulse 4s ease-in-out infinite}
@@ -51,7 +51,7 @@
 .hp-toc::-webkit-scrollbar{display:none}
 .hp-toc a{flex:none;text-decoration:none;color:var(--ink-2);font-size:.84rem;font-weight:600;padding:7px 12px;border-radius:9px;transition:background .2s,color .2s}
 .hp-toc a:hover{background:var(--surface-3);color:var(--ink)}
-.hp-toc a.is-on{background:var(--accent-grad);color:#fff}
+.hp-toc a.is-on{background:var(--accent-grad);color:var(--on-accent)}
 
 /* ---------- Γρήγορη εκκίνηση ---------- */
 .hp-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:22px;counter-reset:st}
@@ -59,7 +59,7 @@
   box-shadow:var(--shadow);transition:transform .3s var(--ease),box-shadow .3s}
 .hp-step:hover{transform:translateY(-4px);box-shadow:var(--shadow-hi)}
 .hp-step::before{counter-increment:st;content:counter(st);position:absolute;top:-14px;left:18px;width:32px;height:32px;border-radius:10px;
-  display:grid;place-items:center;font-weight:800;color:#fff;background:var(--accent-grad);box-shadow:0 6px 16px -6px var(--accent)}
+  display:grid;place-items:center;font-weight:800;color:var(--on-accent);background:var(--accent-grad);box-shadow:0 6px 16px -6px var(--accent)}
 .hp-step .ico{font-size:1.8rem;display:block;margin:6px 0 8px}
 .hp-step p{font-size:.9rem;margin-bottom:12px}
 .hp-step a{font-size:.85rem;font-weight:700;text-decoration:none}

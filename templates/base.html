@@ -10,7 +10,7 @@
 <script>
 // Πριν το πρώτο paint: θέμα + εικονίδιο εναλλαγής, για να μην «αναβοσβήνει».
 (function(){var r=document.documentElement,t;try{t=localStorage.getItem('theme')}catch(e){}
-var b={tokyo:'dark',nord:'dark',neon:'dark',paper:'light',solar:'light',neonl:'light',art:'dark',artl:'light',ted:'dark'}[t];if(b){r.dataset.palette=t;t=b}
+var b={tokyo:'dark',nord:'dark',neon:'dark',paper:'light',solar:'light',neonl:'light',art:'dark',artl:'light',ted:'dark',hn:'light',hnd:'dark'}[t];if(b){r.dataset.palette=t;t=b}
 if(t)r.dataset.theme=t;r.dataset.themeNow=t||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
 try{if(localStorage.getItem('navMini'))r.dataset.navMini=''}catch(e){}})();
 // Ίδια σελίδα (φίλτρο, σελιδοποίηση, καρτέλα του ίδιου βιβλίου π.χ. /invoices ⇄ /invoices/sync):
@@ -134,12 +134,14 @@ addEventListener('pageswap',function(e){var v=e.viewTransition;if(v&&document.qu
              ('solar', 'Solarized', '#fdf6e3', '#073642', '#268bd2'),
              ('neonl', 'Neon Light', '#f7f7fb', '#0a0a14', '#d1007a'),
              ('artl', 'ArtCraft Light', '#f2f1ee', '#101014', '#1659c4'),
+             ('hn', 'HackerNoon', '#f5f5f5', '#101010', '#00ff00'),
              ('dark', 'Σκοτεινό', '#0c1020', '#090c19', '#8a93ff'),
              ('tokyo', 'Tokyo Night', '#1a1b26', '#16161e', '#7aa2f7'),
              ('nord', 'Nord', '#2e3440', '#272c36', '#88c0d0'),
              ('neon', 'Neon', '#07060d', '#050409', '#00f0ff'),
              ('art', 'ArtCraft', '#121316', '#060607', '#74aaff'),
-             ('ted', 'ted', '#070604', '#000000', '#00dd00')] %}
+             ('ted', 'ted', '#070604', '#000000', '#00dd00'),
+             ('hnd', 'HackerNoon σκοτεινό', '#07201a', '#05170f', '#63ff86')] %}
         <button type="button" data-theme-pick="{{ key }}" aria-pressed="false"
                 style="--sw-bg:{{ bg }};--sw-side:{{ side }};--sw-ac:{{ ac }}"><i class="theme-sw"></i>{{ name }}</button>
         {% endfor %}
