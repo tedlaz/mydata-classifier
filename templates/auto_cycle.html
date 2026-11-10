@@ -328,22 +328,21 @@
         καταγράφονται στο log.
         Τρέχει μόνο όσο η εφαρμογή είναι ανοιχτή και ξεκλείδωτη.</p>
       <details class="acx-ntfy">
-        <summary>📱 Ειδοποιήσεις στο κινητό {{ '· ενεργές' if ntfy_url }}</summary>
-        {% if ntfy_url %}
-        <p class="muted small">Σκάναρε το QR με την <b>κάμερα</b> του κινητού (με εγκατεστημένο το ntfy): ανοίγει το ntfy και
-          γίνεται μόνιμη εγγραφή στο κανάλι. Στο τέλος κάθε κύκλου με νέα, αποστολές ή αποτυχίες έρχεται, ανά εταιρεία,
-          ό,τι χαρακτηρίστηκε, ό,τι στάλθηκε (με το MARK χαρακτηρισμού) και ό,τι έμεινε χωρίς πρόταση.</p>
+        <summary>📱 Ειδοποιήσεις στο κινητό {{ '· ενεργές' if notify_pairing }}</summary>
+        {% if notify_pairing %}
+        <p class="muted small">Στην εφαρμογή <b>Report Notify</b> πάτα <b>«Σάρωση QR»</b> και σκάναρε τον κωδικό (όχι με την
+          κάμερα). Στο τέλος κάθε κύκλου με νέα, αποστολές ή αποτυχίες έρχεται μια <b>κρυπτογραφημένη</b> αναφορά με, ανά
+          εταιρεία, ό,τι χαρακτηρίστηκε, ό,τι στάλθηκε (με το MARK χαρακτηρισμού) και ό,τι έμεινε χωρίς πρόταση.</p>
         <div class="acx-ntfy-row">
-          <div class="acx-ntfy-qr" id="ntfy-qr" data-url="{{ ntfy_url }}"></div>
+          <div class="acx-ntfy-qr" id="ntfy-qr" data-url="{{ notify_pairing }}"></div>
         </div>
-        <p class="muted small">Χωρίς QR: στο ntfy πάτα <b>+</b>, γράψε το κανάλι <code>{{ ntfy_topic }}</code>
-          <button type="button" class="btn-ghost" onclick="navigator.clipboard.writeText(this.dataset.t)" data-t="{{ ntfy_topic }}">Αντιγραφή</button>
-          και πάτα «Subscribe».</p>
+        <p class="muted small">Χωρίς QR: στην εφαρμογή «ή επικόλλησε τον κωδικό»
+          <button type="button" class="btn-ghost" onclick="navigator.clipboard.writeText(this.dataset.t)" data-t="{{ notify_pairing }}">Αντιγραφή κωδικού</button>
+          · Ο κωδικός περιέχει το κλειδί κρυπτογράφησης: μην τον μοιράζεσαι.</p>
         <div class="acx-ntfy-act">
           <form method="post" action="{{ url_for('auto_cycle_ntfy', action='test') }}"><button type="submit">Δοκιμή</button></form>
-          <form method="post" action="{{ url_for('auto_cycle_ntfy', action='test_big') }}"><button type="submit" class="btn-ghost">Μεγάλη δοκιμή</button></form>
           <form method="post" action="{{ url_for('auto_cycle_ntfy', action='new') }}"
-                onsubmit="return confirm('Νέο κανάλι; Το κινητό πρέπει να σκανάρει ξανά το QR.')"><button type="submit" class="btn-ghost">Νέο κανάλι</button></form>
+                onsubmit="return confirm('Νέο κανάλι και κλειδί; Το κινητό πρέπει να σκανάρει ξανά το QR (στο Report Notify: κουμπί QR πάνω δεξιά).')"><button type="submit" class="btn-ghost">Νέο κανάλι</button></form>
           <form method="post" action="{{ url_for('auto_cycle_ntfy', action='off') }}"><button type="submit" class="btn-ghost">Απενεργοποίηση</button></form>
         </div>
         <script src="{{ url_for('static', filename='vendor/qrcode.min.js') }}"></script>
@@ -352,8 +351,10 @@
                    qr.addData(el.dataset.url); qr.make(); el.innerHTML = qr.createSvgTag({cellSize: 5, margin: 4}); })();
         </script>
         {% else %}
-        <p class="muted small">Ειδοποίηση στο κινητό στο τέλος κάθε κύκλου, μέσω της δωρεάν εφαρμογής <b>ntfy</b>
-          (Android / iPhone, χωρίς λογαριασμό). Εγκατέστησέ την και πάτα «Ενεργοποίηση» για να εμφανιστεί το QR. <a href="{{ url_for('help_page') }}#notify">Οδηγίες</a></p>
+        <p class="muted small">Κρυπτογραφημένη αναφορά στο κινητό στο τέλος κάθε κύκλου, μέσω της δωρεάν εφαρμογής
+          <b>Report Notify</b> (Android, χωρίς λογαριασμό):
+          <a href="https://github.com/tedlaz/report-notify/releases/latest" target="_blank" rel="noopener">λήψη APK</a>.
+          Εγκατέστησέ την και πάτα «Ενεργοποίηση» για να εμφανιστεί το QR. <a href="{{ url_for('help_page') }}#notify">Οδηγίες</a></p>
         <form method="post" action="{{ url_for('auto_cycle_ntfy', action='new') }}"><button type="submit">Ενεργοποίηση</button></form>
         {% endif %}
       </details>

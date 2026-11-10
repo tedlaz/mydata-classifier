@@ -291,12 +291,17 @@ A.auth.unlocked = orig_unlocked
 db.set_active_company_id(a)
 print("OK review list")
 
-# 13) Ειδοποίηση ntfy: μόνο με κανάλι και μόνο όταν ο κύκλος έκανε κάτι· χαρακτηρισμένα, αποστολές, χωρίς πρόταση.
-posts = []  # (url, headers, κείμενο)
+# 13) Ειδοποίηση (Report Notify): μόνο με κανάλι και μόνο όταν ο κύκλος έκανε κάτι· αναφορά HTML κρυπτογραφημένη
+# με AES-256-GCM (nonce 12 + ciphertext), όπως την αποκρυπτογραφεί η εφαρμογή Android.
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: E402
+
+posts = []  # (url, title, html)
 
 
-def fake_put(url, data, headers, **kw):
-    posts.append((url, headers, data.decode()))
+def fake_put(url, data, params=None, **kw):
+    key = base64.b64decode(A._ntfy_pairing().split("#", 1)[1])
+    posts.append((url, params["title"], AESGCM(key).decrypt(data[:12], data[12:], None).decode()))
+    assert params["filename"] == "r.bin" and "κύκλος" not in data.decode("latin-1"), params  # δεν ταξιδεύει καθαρό
     return NS(ok=True)
 
 
@@ -306,19 +311,21 @@ add_doc("2008")
 A._run_cycle("δοκιμή")  # χωρίς κανάλι → τίποτα
 assert posts == [], posts
 c.post("/auto-cycle/ntfy/new")
-topic = db.get_setting("ntfy_topic")
-assert topic.startswith("mydata-") and f"ntfy://ntfy.sh/{topic}?display=myDATA" in c.get("/auto-cycle").get_data(as_text=True)
+pairing = A._ntfy_pairing()
+url_, key_ = pairing.split("#", 1)
+assert url_.startswith("https://ntfy.sh/mydata-") and len(base64.b64decode(key_)) == 32, pairing
+assert f'data-url="{pairing}"' in c.get("/auto-cycle").get_data(as_text=True)
 add_doc("2009")
 A._run_cycle("δοκιμή")
-url, headers, text = posts[0]
-assert base64.b64decode(headers["Title"][10:-2]).decode().startswith("myDATA · ") and headers["Tags"] == "white_check_mark", headers
-assert len(posts) == 1 and url == "https://ntfy.sh/" + topic, posts
-assert text == ("Κύκλος ΑΕ\n🟢 2009·2026-01-12·111·62.00€ → category2_1/E3_102_001 50.00 · VAT_361 50.00"
-                "\n🔵 2009 → MARK χαρακτηρισμού 9002009\n🟠 2002·2026-01-10·999·124.00€ Χωρίς πρόταση"), text
+url, title, html = posts[0]
+assert len(posts) == 1 and url == url_ and title.startswith("✅ myDATA · "), posts
+for s in ("Κύκλος ΑΕ", "2009", "category2_1/E3_102_001 50.00 · VAT_361 50.00", "62,00 €",
+          "MARK χαρακτηρισμού 9002009", "2002", "124,00 €", "Χωρίς πρόταση"):
+    assert s in html, (s, html)
 A._run_cycle("δοκιμή")  # τίποτα νέο → καμία ειδοποίηση
 assert len(posts) == 1, posts
 A._run_cycle("χειροκίνητα")  # «Έναρξη τώρα» → ειδοποίηση και χωρίς τίποτα νέο
-assert len(posts) == 2 and posts[1][2] == "Κύκλος ΑΕ\n🟠 2002·2026-01-10·999·124.00€ Χωρίς πρόταση", posts
+assert len(posts) == 2 and "2002" in posts[1][2] and "2009" not in posts[1][2], posts
 
 # Επιβεβαίωση: το «απεσταλμένο» 2009 βρίσκεται χαρακτηρισμένο στην ανάκτηση του κύκλου → μετρά confirmed.
 A.get_client = lambda send="": NS(send_expenses_classification=send_cls, new_since=lambda *x: (
@@ -329,20 +336,22 @@ assert A.mydata_logs(None, A._CYCLE_DIR) and A._cycle_from_log(A.mydata_logs(Non
     "companies"][0]["counts"]["confirmed"] == 1
 A.get_client = lambda send="": NS(new_since=new_since, send_expenses_classification=send_cls)
 
-# Επωνυμία αντί για ΑΦΜ όταν υπάρχει· νέος τύπος / αποτυχίες δεν εμφανίζονται· «—» χωρίς τίποτα.
-assert A._cycle_text([{"name": "Χ", "lines": [
+# Επωνυμία αντί για ΑΦΜ όταν υπάρχει· νέος τύπος / αποτυχίες δεν εμφανίζονται· εταιρεία χωρίς τίποτα παραλείπεται.
+assert A._cycle_rows([{"name": "Χ", "lines": [
     {"k": "ok", "t": "12:00:00    ✓ 1 · 2026-10-30 · 094 ΤΡΑΠΕΖΑ ΠΕΙΡΑΙΩΣ · 1.1 · 1.40 € → category2_5/E3_586 1.40"},
     {"k": "warn", "t": "            1 · 2026-10-30 · 094 Α · 1.4 · 1.40 € · τύπος 1.4 (γνωστοί: 1.1) — πρόσθεσε πρόταση"},
     {"k": "err", "t": "12:00:00    ✗ 2 · 2026-10-30 · 094 Α · 1.1 · 1.40 € → δεν χαρακτηρίστηκε"}]},
-    {"name": "Ψ", "lines": []}]) == "Χ\n🟢 1·2026-10-30·ΤΡΑΠΕΖΑ ΠΕΙΡΑΙΩΣ·1.40€ → category2_5/E3_586 1.40"
-assert A._cycle_text([]) == "—"
-# Πάνω από NTFY_MAX: συνοπτικά (πλήθη ανά εταιρεία), ποτέ συνημμένο· αν ούτε αυτό χωράει, «… και άλλες N».
-big = [dict(co, name=f"{co['name']} #{i}") for i in range(1, 9) for co in A._ntfy_sample()]
-assert "ΣΑΜΑΡΑΣ ΟΕ #1\n🟢 3 χαρακτηρίστηκαν · 🔵 3 στάλθηκαν · 🟠 1 χωρίς πρόταση\n\nTED-NICK OE #1\n🟠 2 χωρίς" \
-    in A._cycle_text(big)
-huge = A._cycle_text(big * 50)
-assert len(huge.encode()) <= A.NTFY_MAX and huge.endswith(" εταιρείες") and "… και άλλες" in huge
+    {"name": "Ψ", "lines": []}]) == [{"name": "Χ", "n": {"cls": 1, "sent": 0, "norule": 0}, "rows": [
+        {"k": "cls", "mark": "1", "date": "2026-10-30", "who": "ΤΡΑΠΕΖΑ ΠΕΙΡΑΙΩΣ", "amount": "1.40",
+         "cls": "category2_5/E3_586 1.40"}]}]
+assert A._cycle_rows([]) == [] and "Τίποτα νέο" in A._cycle_html([])
+# Δείγμα «Δοκιμή»: όλα τα είδη, αποτυχία → ⚠️· ονόματα από τα δεδομένα περνούν escaped (autoescape).
+sample = A._cycle_html(A._ntfy_sample() + [{"name": "<b>X</b>", "lines": [
+    {"k": "warn", "t": "            9 · 2026-10-30 · 094 <i>Y</i> · 1.1 · 1.00 €"}]}], failed=True)
+assert "ΣΑΜΑΡΑΣ ΟΕ" in sample and "αποτυχίες" in sample and "MARK χαρακτηρισμού 400015880489171" in sample
+assert "&lt;b&gt;X&lt;/b&gt;" in sample and "&lt;i&gt;Y&lt;/i&gt;" in sample and "<b>X</b>" not in sample
+assert c.post("/auto-cycle/ntfy/test").status_code == 302 and posts[-1][1].startswith("⚠️ myDATA · ")
 c.post("/auto-cycle/ntfy/off")
-assert A._ntfy("x") is False and len(posts) == 3
+assert A._ntfy("x") is False and len(posts) == 4  # 3 κύκλοι + «Δοκιμή»· μετά το off τίποτα
 A.requests.put = orig_put
 print("OK ntfy")

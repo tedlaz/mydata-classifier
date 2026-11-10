@@ -1,0 +1,94 @@
+{#- Αναφορά κύκλου για το κινητό (Report Notify). Αυτόνομη: χωρίς base.html, εξωτερικά αρχεία ή url_for, γιατί
+    αποδίδεται από το νήμα του κύκλου (χωρίς app context) και ανοίγει offline στο κινητό. Δεδομένα από _cycle_html. -#}
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>myDATA · {{ at.strftime('%H:%M') }}</title>
+<style>
+  :root {
+    --bg: #F3F5FA; --card: #FFFFFF; --fg: #131722; --muted: #6A7283; --line: #E4E8F0;
+    --green: #16A34A; --blue: #2D6CDF; --amber: #D97706; --red: #DC3B3B;
+    --green-soft: #E3F6E9; --blue-soft: #E7EEFC; --amber-soft: #FCF1DA;
+    --shadow: 0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0D1016; --card: #171B23; --fg: #ECEFF5; --muted: #98A0AF; --line: #262B36;
+      --green: #3CCB74; --blue: #5B8DEF; --amber: #F2B84B; --red: #F07070;
+      --green-soft: #15301F; --blue-soft: #1C2740; --amber-soft: #33290F; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 0 12px 24px; }
+  .hero { margin: 0 -12px 12px; padding: 20px 20px 22px; color: #fff; border-radius: 0 0 24px 24px;
+          background: radial-gradient(120% 140% at 100% 0%, #0EA5A4 0%, #2D6CDF 50%, #1B3F94 100%); }
+  .hero.bad { background: radial-gradient(120% 140% at 100% 0%, #F59E0B 0%, #DC3B3B 50%, #8F1D2C 100%); }
+  .eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: .85; }
+  .hero h1 { margin: 4px 0 14px; font-size: 22px; line-height: 1.25; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tile { background: rgba(255,255,255,.16); border-radius: 14px; padding: 10px; text-align: center; }
+  .tile b { display: block; font-size: 24px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .tile small { font-size: 11px; opacity: .9; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 14px; margin-bottom: 12px; box-shadow: var(--shadow); }
+  .co { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .co h2 { flex: 1; min-width: 0; margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+  .chips { display: flex; gap: 4px; flex: none; }
+  .chip { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; font-variant-numeric: tabular-nums; }
+  .cls { --c: var(--green); --s: var(--green-soft); } .sent { --c: var(--blue); --s: var(--blue-soft); }
+  .norule { --c: var(--amber); --s: var(--amber-soft); }
+  .chip { color: var(--c); background: var(--s); }
+  .row { border-left: 4px solid var(--c); background: var(--s); border-radius: 10px; padding: 8px 10px; margin-top: 6px; }
+  .row .top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .row .who { font-weight: 600; overflow-wrap: anywhere; }
+  .row .amt { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .row .meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .row .res { font-size: 12px; margin-top: 2px; color: var(--c); font-weight: 600; overflow-wrap: anywhere; }
+  .empty { text-align: center; color: var(--muted); padding: 28px 12px; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding-top: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="hero{{ ' bad' if failed }}">
+    <div class="eyebrow">myDATA · Αυτόματος κύκλος · {{ at.strftime('%d/%m/%Y %H:%M') }}</div>
+    <h1>{{ '⚠️ Ο κύκλος είχε αποτυχίες — δες το log' if failed else '✅ Ο κύκλος ολοκληρώθηκε' }}</h1>
+    <div class="tiles">
+      <div class="tile"><b>{{ total.cls }}</b><small>χαρακτηρίστηκαν</small></div>
+      <div class="tile"><b>{{ total.sent }}</b><small>στάλθηκαν</small></div>
+      <div class="tile"><b>{{ total.norule }}</b><small>χωρίς πρόταση</small></div>
+    </div>
+  </section>
+
+  {% for co in companies %}
+  <section class="card">
+    <div class="co">
+      <h2>{{ co.name }}</h2>
+      <div class="chips">
+        {% for k in ('cls', 'sent', 'norule') if co.n[k] %}<span class="chip {{ k }}">{{ co.n[k] }}</span>{% endfor %}
+      </div>
+    </div>
+    {% for r in co.rows %}
+    <div class="row {{ r.k }}">
+      {% if r.k == 'sent' %}
+      <div class="top"><span class="who">Στάλθηκε</span></div>
+      <div class="meta">MARK {{ r.mark }}</div>
+      <div class="res">{{ r.cls }}</div>
+      {% else %}
+      <div class="top"><span class="who">{{ r.who }}</span><span class="amt">{{ r.amount|replace('.', ',') }} €</span></div>
+      <div class="meta">{{ r.date }} · MARK {{ r.mark }}</div>
+      <div class="res">{{ '→ ' ~ r.cls if r.k == 'cls' else 'Χωρίς πρόταση — χαρακτήρισέ το με το χέρι' }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </section>
+  {% else %}
+  <section class="card empty">Τίποτα νέο σε αυτόν τον κύκλο.</section>
+  {% endfor %}
+
+  <footer>mydata-classifier · κρυπτογραφημένη αναφορά</footer>
+</div>
+</body>
+</html>

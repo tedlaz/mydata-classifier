@@ -32,6 +32,7 @@ from werkzeug.datastructures import MultiDict
 from zoneinfo import ZoneInfo
 
 import requests
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from dotenv import load_dotenv
 from flask import (
     Flask,
@@ -8183,22 +8184,25 @@ def _cycle_cards() -> list[dict]:
 NTFY = "https://ntfy.sh"  # ponytail: σταθερός δημόσιος server· πεδίο ρύθμισης αν ζητηθεί self-hosted
 
 
-def _ntfy_topic() -> str:
-    return auth.dec(db.get_setting("ntfy_topic") or "")
+def _ntfy_pairing() -> str:
+    """Κωδικός σύνδεσης της εφαρμογής Report Notify (github.com/tedlaz/report-notify): «https://ntfy.sh/<κανάλι>#<κλειδί>».
+    Το κανάλι μεταφέρει μόνο κρυπτογραφημένα δεδομένα· το κλειδί υπάρχει μόνο εδώ και στο κινητό."""
+    return auth.dec(db.get_setting("notify_pairing") or "")
 
 
-def _ntfy(text: str, urgent: bool = False, at: datetime | None = None) -> bool:
-    """Ειδοποίηση στο κινητό (εφαρμογή ntfy): «✅/⚠️ myDATA · ώρα» + σύνοψη. Μόνο ουδέτερο περιεχόμενο: όποιος μάθει
-    το κανάλι το διαβάζει. Αποτυχία δεν σταματά ποτέ τον κύκλο."""
-    topic = _ntfy_topic()
-    if not topic:
+def _ntfy(html: str, urgent: bool = False, at: datetime | None = None) -> bool:
+    """Ειδοποίηση στο κινητό (Report Notify): τίτλος «✅/⚠️ myDATA · ώρα» και αναφορά HTML κρυπτογραφημένη με
+    AES-256-GCM (nonce 12 bytes + ciphertext, όπως το send_report.py). Ο τίτλος είναι το μόνο μη κρυπτογραφημένο,
+    γι' αυτό μένει ουδέτερος. Αποτυχία δεν σταματά ποτέ τον κύκλο."""
+    pairing = _ntfy_pairing()
+    if not pairing:
         return False
-    try:
-        title = f"myDATA · {at or datetime.now(ATHENS):%H:%M}"  # RFC 2047: τα headers δεν παίρνουν σωστά το «·»
-        return requests.put(f"{NTFY}/{topic}", data=text.encode(), timeout=10, headers={
-            "Title": f"=?UTF-8?B?{base64.b64encode(title.encode()).decode()}?=",
-            "Priority": "high" if urgent else "default",
-            "Tags": "warning" if urgent else "white_check_mark"}).ok  # το ntfy δείχνει το tag ως ⚠️/✅ πριν τον τίτλο
+    url, key = pairing.split("#", 1)
+    nonce = os.urandom(12)
+    blob = nonce + AESGCM(base64.b64decode(key)).encrypt(nonce, html.encode(), None)
+    title = f"{'⚠️' if urgent else '✅'} myDATA · {at or datetime.now(ATHENS):%H:%M}"
+    try:  # title ως παράμετρος (όχι header): έτσι περνούν σωστά τα ελληνικά και τα emoji
+        return requests.put(url, data=blob, params={"title": title, "filename": "r.bin"}, timeout=30).ok
     except requests.RequestException:
         app.logger.warning("ntfy: αποτυχία αποστολής")
         return False
@@ -8210,7 +8214,6 @@ _NTFY_DOC = r"(\S+) · (\S+) · (\S+)(?: (.+?))? · \S+ · (-?[\d.]+) €"
 _NTFY_CLS = re.compile(rf"✓ {_NTFY_DOC} → (.+)")
 _NTFY_SENT = re.compile(r"✓ (\S+) στάλθηκε · (MARK χαρακτηρισμού \S+)")
 _NTFY_NORULE = re.compile(rf"{_NTFY_DOC}(?: · τύπος 1\.5: μόνο χειροκίνητα)?")
-NTFY_MAX = 4000  # το ntfy.sh κάνει συνημμένο ό,τι ξεπερνά τα 4096 bytes· πάνω από αυτό → συνοπτικά
 
 
 def _ntfy_sample() -> list[dict]:
@@ -8251,14 +8254,11 @@ def _ntfy_sample() -> list[dict]:
     ]
 
 
-_NTFY_KINDS = (("🟢", "χαρακτηρίστηκαν"), ("🔵", "στάλθηκαν"), ("🟠", "χωρίς πρόταση"))
-
-
-def _cycle_text(companies: list[dict]) -> str:
-    """Αναλυτικά (γραμμή ανά παραστατικό) αν χωράει στο NTFY_MAX, αλλιώς συνοπτικά (πλήθη ανά εταιρεία) — ποτέ
-    συνημμένο. Αν δεν χωράει ούτε η σύνοψη, οι τελευταίες εταιρείες γίνονται «… και άλλες N»."""
-    def doc(m):
-        return f"{m[1]}·{m[2]}·{m[4] or m[3]}·{m[5]}€"
+def _cycle_rows(companies: list[dict]) -> list[dict]:
+    """Για την αναφορά: ανά εταιρεία οι γραμμές «cls» (χαρακτηρίστηκε), «sent» (στάλθηκε, με MARK χαρακτηρισμού) και
+    «norule» (χωρίς πρόταση). Εταιρείες χωρίς τίποτα από αυτά παραλείπονται."""
+    def doc(k, m):
+        return {"k": k, "mark": m[1], "date": m[2], "who": m[4] or m[3], "amount": m[5]}
 
     out = []
     for co in companies:
@@ -8266,24 +8266,24 @@ def _cycle_text(companies: list[dict]) -> str:
         for ln in co.get("lines", []):
             t = ln["t"][10:].strip()
             if m := _NTFY_SENT.fullmatch(t):
-                rows.append(f"🔵 {m[1]} → {m[2]}")
+                rows.append({"k": "sent", "mark": m[1], "cls": m[2]})
             elif m := _NTFY_CLS.fullmatch(t):
-                rows.append(f"🟢 {doc(m)} → {m[6]}")
+                rows.append(doc("cls", m) | {"cls": m[6]})
             elif ln["k"] == "warn" and (m := _NTFY_NORULE.fullmatch(t)):
-                rows.append(f"🟠 {doc(m)} Χωρίς πρόταση")
-        if rows:  # ponytail: το ntfy δεν έχει χρώμα κειμένου· η κουκκίδα δείχνει το είδος της γραμμής
-            out.append((co["name"], rows))
-    text = "\n\n".join("\n".join([name] + rows) for name, rows in out) or "—"
-    if len(text.encode()) <= NTFY_MAX:
-        return text
-    blocks = [name + "\n" + " · ".join(f"{em} {n} {label}" for em, label in _NTFY_KINDS
-                                      if (n := sum(r.startswith(em) for r in rows)))
-              for name, rows in out]
-    for k in range(len(blocks), 0, -1):
-        text = "\n\n".join(blocks[:k] + ([f"… και άλλες {len(blocks) - k} εταιρείες"] if k < len(blocks) else []))
-        if len(text.encode()) <= NTFY_MAX:
-            return text
-    return text
+                rows.append(doc("norule", m))
+        if rows:
+            out.append({"name": co["name"], "rows": rows,
+                        "n": {k: sum(r["k"] == k for r in rows) for k in ("cls", "sent", "norule")}})
+    return out
+
+
+def _cycle_html(companies: list[dict], failed: bool = False, at: datetime | None = None) -> str:
+    """Η αναφορά HTML του κύκλου για το κινητό. Μέσω jinja_env (όχι render_template): ο κύκλος τρέχει σε νήμα χωρίς
+    app context· το autoescape ισχύει κανονικά (.html)."""
+    cos = _cycle_rows(companies)
+    return app.jinja_env.get_template("notify_report.html").render(
+        companies=cos, failed=failed, at=at or datetime.now(ATHENS),
+        total={k: sum(c["n"][k] for c in cos) for k in ("cls", "sent", "norule")})
 
 
 def _run_cycle(trigger: str) -> dict:
@@ -8356,7 +8356,7 @@ def _run_cycle(trigger: str) -> dict:
     # «Έναρξη τώρα»: πάντα ειδοποίηση· προγραμματισμένος χωρίς τίποτα: όχι (για να μην έρχεται κάθε ώρα)
     if _cycle_rec["companies"] and (trigger == "χειροκίνητα"
                                     or any(tot[k] for k in ("new", "sent", "failed", "held"))):
-        _ntfy(_cycle_text(_cycle_rec["companies"]), urgent=bool(tot["failed"]), at=started)
+        _ntfy(_cycle_html(_cycle_rec["companies"], bool(tot["failed"]), started), urgent=bool(tot["failed"]), at=started)
     app.logger.info("auto cycle (%s): %s", trigger, summary)
     _cycle_stop.clear()
     _cycle_set(running=False, company="", step="", done=0, total=0,
@@ -8412,9 +8412,7 @@ def auto_cycle():
     return render_template("auto_cycle.html", on=on, minutes=minutes, ids=sel, companies=companies,
                            levels=_CYCLE_LEVELS, rank=_LEVEL_RANK,
                            history=_cycle_history(), running_started=_cycle["started"] if _cycle["running"] else None,
-                           ntfy_topic=(t := _ntfy_topic()),
-                           # ntfy://: μόνο αυτό ανοίγει την Android app και κάνει μόνιμη εγγραφή (το https:// όχι)
-                           ntfy_url=f"ntfy://{NTFY.split('://')[1]}/{t}?display=myDATA" if t else None)
+                           notify_pairing=_ntfy_pairing())
 
 
 @app.route("/auto-cycle/status")
@@ -8469,18 +8467,18 @@ def auto_cycle_toggle():
 
 @app.route("/auto-cycle/ntfy/<action>", methods=["POST"])
 def auto_cycle_ntfy(action):
-    """Ειδοποιήσεις στο κινητό: new = νέο τυχαίο κανάλι (το παλιό παύει να λαμβάνει), off = απενεργοποίηση, test."""
+    """Ειδοποιήσεις στο κινητό: new = νέο τυχαίο κανάλι και κλειδί (το παλιό παύει να λαμβάνει), off = απενεργοποίηση,
+    test = δοκιμαστική αναφορά."""
     if action == "new":
-        db.set_setting("ntfy_topic", auth.enc("mydata-" + secrets.token_urlsafe(16)))
-        flash("✔ Νέο κανάλι ειδοποιήσεων: σκάναρε το QR με την κάμερα του κινητού.", "ok")
+        key = base64.b64encode(os.urandom(32)).decode()
+        db.set_setting("notify_pairing", auth.enc(f"{NTFY}/mydata-{secrets.token_urlsafe(16)}#{key}"))
+        db.set_setting("ntfy_topic", "")  # παλιό κανάλι ntfy (απλό κείμενο), πριν το Report Notify
+        flash("✔ Νέο κανάλι ειδοποιήσεων: σκάναρε το QR με την εφαρμογή Report Notify.", "ok")
     elif action == "off":
-        db.set_setting("ntfy_topic", "")
+        db.set_setting("notify_pairing", "")
         flash("✔ Οι ειδοποιήσεις στο κινητό απενεργοποιήθηκαν.", "ok")
-    elif action in ("test", "test_big"):
-        # test_big: ~9 KB αναλυτικά → δεν χωράει, άρα στέλνεται η συνοπτική μορφή
-        sample = (_ntfy_sample() if action == "test" else
-                  [dict(co, name=f"{co['name']} #{i}") for i in range(1, 9) for co in _ntfy_sample()])
-        ok = _ntfy(_cycle_text(sample), urgent=True)
+    elif action == "test":
+        ok = _ntfy(_cycle_html(_ntfy_sample(), failed=True), urgent=True)
         flash("✔ Στάλθηκε δοκιμαστική ειδοποίηση." if ok
               else "Δεν στάλθηκε η ειδοποίηση (έλεγξε τη σύνδεση στο internet).", "ok" if ok else "error")
     return redirect(url_for("auto_cycle"))
