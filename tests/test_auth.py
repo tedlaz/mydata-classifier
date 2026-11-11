@@ -52,9 +52,10 @@ with c2.session_transaction() as s:
     s["auth"] = "forged"
 assert c2.get("/").headers["Location"].endswith("/login")
 c.post("/logout")
-assert not auth.unlocked()
+assert auth.unlocked()  # το logout βγάζει μόνο αυτόν τον browser
 assert c.get("/").headers["Location"].endswith("/login")
 assert c.get("/login").status_code == 200
+auth.lock()  # ≈ restart
 
 # 5) Λάθος κωδικός / λάθος χρήστης απορρίπτονται· σωστός ξεκλειδώνει.
 c.post("/login", data={"username": "ted", "password": "wrong password"})

@@ -163,7 +163,7 @@ def _require_feature():
 
 @app.before_request
 def _require_same_company():
-    """Η ενεργή εταιρεία είναι μία για όλες τις καρτέλες: POST από σελίδα άλλης εταιρείας (το _cid
+    """Η ενεργή εταιρεία είναι μία για όλες τις καρτέλες του ίδιου browser: POST από σελίδα άλλης εταιρείας (το _cid
     βάζει το app.js) δεν εκτελείται. Οι σελίδες «Εταιρείες» εξαιρούνται: εκεί αλλάζει η ίδια η εταιρεία."""
     cid = request.form.get("_cid") if request.method == "POST" else None
     if not cid or (request.endpoint or "").startswith("companies") or cid == str(_active_company_id()):
@@ -224,8 +224,7 @@ def login():
 
 @app.route("/logout", methods=["POST"])
 def logout():
-    session.clear()
-    auth.lock()
+    session.clear()  # χωρίς auth.lock(): οι άλλοι χρήστες συνεχίζουν
     resp = redirect(url_for("login"))
     resp.delete_cookie(_REMEMBER)
     return resp
@@ -240,12 +239,14 @@ def change_password():
     if not auth.unlock(rec["auth_user"], request.form.get("old_password", ""), rec):
         flash("Λάθος τρέχων κωδικός.", "error")
         return back
-    session["auth"] = auth.nonce  # το unlock ανανεώνει το nonce
+    session["auth"] = auth.nonce  # το unlock ξεκλειδώνει αν ήταν κλειδωμένη
     if not user or not pw or pw != request.form.get("password2"):
         flash("Όνομα χρήστη υποχρεωτικό· νέος κωδικός υποχρεωτικός, ίδιος και στις δύο θέσεις.", "error")
         return back
     new = auth.rewrap(user, pw)
     db.save_auth(new)
+    auth.rotate()  # οι άλλες συσκευές βγαίνουν (το remember τους έχει πλέον παλιό salt)
+    session["auth"] = auth.nonce
     flash("✔ Άλλαξε ο κωδικός.", "ok")
     # νέο salt → οι άλλες συσκευές ξεχνιούνται· αυτή μένει θυμημένη αν ήταν
     return _remember(back, new["auth_salt"], force=bool(request.cookies.get(_REMEMBER)))
@@ -367,7 +368,8 @@ def get_active_index() -> int:
     if not companies:
         return 0
     # Ο αυτόματος κύκλος δουλεύει σε δική του εταιρεία (g.auto_cid) χωρίς να αλλάζει την ενεργή του χρήστη.
-    active_id = (has_request_context() and g.get("auto_cid")) or db.get_active_company_id()
+    # Κάθε browser (session) έχει δική του ενεργή· χωρίς επιλογή → η τελευταία επιλογή στη βάση.
+    active_id = (has_request_context() and (g.get("auto_cid") or session.get("cid"))) or db.get_active_company_id()
     for i, c in enumerate(companies):
         if c["id"] == active_id:
             return i
@@ -6908,6 +6910,8 @@ def companies_delete(idx):
         removed["id"]
     )  # cascade: παραστατικά της εταιρείας (οι προμηθευτές είναι κοινοί)
     shutil.rmtree(_log_dir(removed["id"]), ignore_errors=True)
+    if session.get("cid") == removed["id"]:
+        session.pop("cid")
     # Αν διαγράφηκε η ενεργή, όρισε την πρώτη που απομένει (αν υπάρχει).
     if was_active:
         remaining = load_companies()
@@ -6924,6 +6928,7 @@ def companies_select(idx):
     if not c:
         return redirect(url_for("companies"))
     old = get_active_company() or {}
+    session["cid"] = c["id"]  # ανά browser· η βάση κρατά την τελευταία επιλογή ως προεπιλογή
     db.set_active_company_id(c["id"])
     back = request.form.get("back")
     target = _switch_back(back, c)

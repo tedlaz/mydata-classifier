@@ -29,8 +29,18 @@ def _kek(password: str, salt: bytes) -> Fernet:
 
 
 def _set(dek: bytes) -> None:
+    """Ξεκλείδωμα. Αν είναι ήδη ξεκλείδωτη με το ίδιο DEK, το nonce μένει: το login ενός
+    χρήστη δεν βγάζει τους άλλους."""
     global _dek, _raw, nonce
+    if _raw is not None and hmac.compare_digest(_raw, dek):
+        return
     _dek, _raw, nonce = Fernet(dek), dek, secrets.token_urlsafe(32)
+
+
+def rotate() -> None:
+    """Νέο nonce: όλα τα ανοιχτά sessions χρειάζονται ξανά login/remember."""
+    global nonce
+    nonce = secrets.token_urlsafe(32)
 
 
 def create(username: str, password: str) -> dict:
