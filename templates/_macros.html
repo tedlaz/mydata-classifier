@@ -111,9 +111,9 @@
 </span>
 {%- endmacro %}
 
-{# Κελί MARK χωρίς στήλη επιλογής: κουμπιά φίλτρου + πεδίο MARK. #}
+{# Πρώτο κελί χωρίς στήλη επιλογής: κουμπιά φίλτρου + πεδίο ημερομηνίας. #}
 {% macro filter_lead(ep) -%}
-<th><div class="filter-lead">{{ filter_btns(ep) }}{{ filter_field('mark', 'MARK', 'MARK') }}</div></th>
+<th><div class="filter-lead">{{ filter_btns(ep) }}{{ filter_field('date', '2026-03', 'Ημ/νία (π.χ. 2026-03 ή 2026-03:2026-05)') }}</div></th>
 {%- endmacro %}
 
 {# Τύπος: πολλαπλή επιλογή από τους τύπους της καρτέλας (type_options). #}

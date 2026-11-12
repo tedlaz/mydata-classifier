@@ -252,13 +252,6 @@ def change_password():
     return _remember(back, new["auth_salt"], force=bool(request.cookies.get(_REMEMBER)))
 
 
-@app.template_filter("mark5")
-def short_mark(mark) -> str:
-    """MARK στα βιβλία: μόνο τα τελευταία 5 ψηφία (ολόκληρο στο title), για στενότερη στήλη."""
-    mark = str(mark or "")
-    return "…" + mark[-5:] if len(mark) > 5 else mark
-
-
 @app.template_filter("cpname")
 def short_counterparty_name(name):
     """Σύντομη επωνυμία συναλλασσομένου για εμφάνιση (η ΒΔ κρατά την πλήρη του VIES)."""

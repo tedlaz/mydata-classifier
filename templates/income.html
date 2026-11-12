@@ -23,7 +23,6 @@
   <table class="ledger">
     <thead>
       <tr>
-        <th>{{ sort_link('income', q, 'mark', 'MARK') }}</th>
         <th>{{ sort_link('income', q, 'date', 'Ημ/νία') }}</th>
         <th>{{ sort_link('income', q, 'name', 'Πελάτης / ΑΦΜ') }}</th>
         <th>{{ sort_link('income', q, 'type', 'Τύπος') }}</th><th>{{ sort_link('income', q, 'series', 'Σειρά/ΑΑ') }}</th>
@@ -32,7 +31,6 @@
       </tr>
       <tr class="filter-row">
         {{ filter_lead('income') }}
-        {{ filter_input('date', '2026-03', 'Ημ/νία (π.χ. 2026-03 ή 2026-03:2026-05)') }}
         {{ filter_input('issuer', 'Πελάτης/ΑΦΜ', 'Πελάτης / ΑΦΜ') }}
         {{ filter_types() }}
         {{ filter_input('series', 'Σειρά/ΑΑ', 'Σειρά/ΑΑ') }}
@@ -44,7 +42,6 @@
     <tbody>
       {% for inv in invoices %}
       <tr class="{{ 'is-credit' if inv.invoice_type in credit_types }}" data-href="{{ url_for('document', mark=inv.mark, back=request.full_path) }}" tabindex="0">
-        <td data-label="MARK" class="mark" title="MARK {{ inv.mark }}">{{ inv.mark|mark5 }}</td>
         <td data-label="Ημ/νία" class="doc-date">{{ '/'.join(inv.issue_date[:10].split('-')[::-1]) if inv.issue_date else "—" }}{% if inv.late and view == 'unclassified' %}<span class="pill" title="Ανέβηκε στο myDATA μετά τον μήνα έκδοσης">⏰ εκπρόθεσμο</span>{% endif %}</td>
         <td data-label="Πελάτης">
           <span class="issuer" data-vat="{{ inv.issuer_vat or '' }}">
