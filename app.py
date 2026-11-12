@@ -1321,24 +1321,32 @@ def auto_classify():
 _EXPENSE_VIEWS = ("unclassified", "classified", "sent", "confirmed")
 
 
-PER_PAGE = 50
+PER_PAGE = 50  # προεπιλογή της παραμέτρου «per_page» (Παράμετροι → Ανάκτηση)
+PER_PAGE_RANGE = (10, 1000)
 
 
-def _page_of(total: int, page_arg) -> tuple[int, int]:
-    """(τρέχουσα σελίδα, σύνολο σελίδων) για `total` στοιχεία, PER_PAGE ανά σελίδα."""
+def per_page() -> int:
+    """Εγγραφές ανά σελίδα στις λίστες (παράμετρος· οι λίστες βιβλίων φέρνουν από τη βάση μόνο τόσες)."""
+    v = db.get_setting("per_page") or ""
+    return int(v) if v.isdigit() and PER_PAGE_RANGE[0] <= int(v) <= PER_PAGE_RANGE[1] else PER_PAGE
+
+
+def _page_of(total: int, page_arg, size: int) -> tuple[int, int]:
+    """(τρέχουσα σελίδα, σύνολο σελίδων) για `total` στοιχεία, `size` ανά σελίδα."""
     try:
         page = max(1, int(page_arg or 1))
     except ValueError:
         page = 1
-    total_pages = max(1, -(-total // PER_PAGE))
+    total_pages = max(1, -(-total // size))
     return min(page, total_pages), total_pages
 
 
 def paginate(items: list, page_arg) -> tuple[list, int, int]:
-    """(στοιχεία σελίδας, τρέχουσα σελίδα, σύνολο σελίδων) με PER_PAGE ανά σελίδα."""
-    page, total_pages = _page_of(len(items), page_arg)
-    start = (page - 1) * PER_PAGE
-    return items[start : start + PER_PAGE], page, total_pages
+    """(στοιχεία σελίδας, τρέχουσα σελίδα, σύνολο σελίδων) με per_page() ανά σελίδα."""
+    size = per_page()
+    page, total_pages = _page_of(len(items), page_arg, size)
+    start = (page - 1) * size
+    return items[start : start + size], page, total_pages
 
 
 @app.template_global()
@@ -1890,7 +1898,7 @@ def _book_sql(args, view: str) -> tuple[dict, str, str, dict]:
 
 def _book_page(cid: int, kind: str, view: str, args, only_vats: set | None = None) -> dict:
     """Μία σελίδα της λίστας βιβλίου από τη βάση: φίλτρα, ταξινόμηση και σελίδα στο SQL, ώστε να χτίζονται
-    μόνο τα PER_PAGE παραστατικά της. only_vats: μόνο αυτοί οι συναλλασσόμενοι (π.χ. «αναμένουν επιβεβαίωση»)."""
+    μόνο τα per_page() παραστατικά της. only_vats: μόνο αυτοί οι συναλλασσόμενοι (π.χ. «αναμένουν επιβεβαίωση»)."""
     q, sort, direction, filters = _book_sql(args, view)
     if only_vats is not None:
         vats = sorted(only_vats)
@@ -1898,9 +1906,10 @@ def _book_page(cid: int, kind: str, view: str, args, only_vats: set | None = Non
         q["params"] = [*q["params"], *vats]
     sel = {k: q[k] for k in ("where", "params", "funcs")}
     total = db.book_select(cid, kind, view, "COUNT(*) AS n", **sel)[0]["n"]
-    page, total_pages = _page_of(total, args.get("page"))
+    size = per_page()
+    page, total_pages = _page_of(total, args.get("page"), size)
     names = db.load_names()
-    rows = db.book_select(cid, kind, view, **q, limit=PER_PAGE, offset=(page - 1) * PER_PAGE)
+    rows = db.book_select(cid, kind, view, **q, limit=size, offset=(page - 1) * size)
     types = {r["t"] for r in db.book_select(cid, kind, view, "DISTINCT d.invoice_type AS t") if r["t"]}
     return {
         "invoices": [_row_to_invoice(r, names, exempt=False) for r in rows],
@@ -1957,7 +1966,7 @@ def invoices():
         total_pages=bp["total_pages"],
         total=bp["total"],
         period=_period_nav(_month_strip(cid, ("expense",)), bp["filters"]["date"], view, cid, "expense"),
-        per_page=PER_PAGE,
+        per_page=per_page(),
         filters=bp["filters"],
         type_options=bp["type_options"],
         review=review,
@@ -3303,7 +3312,7 @@ def income():
         total_pages=bp["total_pages"],
         total=bp["total"],
         period=_period_nav(_month_strip(cid, ("income",)), bp["filters"]["date"], view, cid, "income"),
-        per_page=PER_PAGE,
+        per_page=per_page(),
         filters=bp["filters"],
         type_options=bp["type_options"],
     )
@@ -6598,6 +6607,7 @@ def parameters():
         pay_amount=db.get_setting("pay_amount", "1") == "1",
         sync_mode=db.get_setting("sync_mode") or "mark",
         strip_from_year=_strip_from_year(), this_year=datetime.now(ATHENS).year,
+        per_page=per_page(), per_page_range=PER_PAGE_RANGE,
         # Όλα τα tabs αποδίδονται μαζί· η εναλλαγή γίνεται στον browser χωρίς reload.
         safety_backups=db.list_safety_backups(),
         keep_safety=db.keep_safety(),
@@ -6784,6 +6794,12 @@ def parameters_automation():
             flash(f"Μη έγκυρο έτος λωρίδας: {y} (2000 – {this_year}).", "error")
             return redirect(url_for("parameters", tab="reports"))
         db.set_setting("strip_from_year", y)
+    n, (lo, hi) = request.form.get("per_page", "").strip(), PER_PAGE_RANGE
+    if n:
+        if not (n.isdigit() and lo <= int(n) <= hi):
+            flash(f"Μη έγκυρος αριθμός εγγραφών ανά σελίδα: {n} ({lo} – {hi}).", "error")
+            return redirect(url_for("parameters", tab="reports"))
+        db.set_setting("per_page", str(int(n)))
     flash("✔ Αποθηκεύτηκαν οι ρυθμίσεις ανάκτησης και αυτόματου χαρακτηρισμού.", "ok")
     return redirect(url_for("parameters", tab="reports"))
 

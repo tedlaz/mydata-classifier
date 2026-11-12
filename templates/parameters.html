@@ -152,6 +152,10 @@
       <label for="strip-from">📊 Λωρίδα ετών (Ανάκτηση, βιβλία) από το έτος</label>
       <input id="strip-from" type="number" name="strip_from_year" min="2000" max="{{ this_year }}" value="{{ strip_from_year }}" required style="width:7em">
     </p>
+    <p style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <label for="per-page">📄 Εγγραφές ανά σελίδα στις λίστες (βιβλία, αναφορές, συναλλασσόμενοι)</label>
+      <input id="per-page" type="number" name="per_page" min="{{ per_page_range[0] }}" max="{{ per_page_range[1] }}" value="{{ per_page }}" required style="width:7em">
+    </p>
     <div class="pm-toggles">
       <label class="pm-toggle">
         <span class="pm-toggle-icon" aria-hidden="true">⚡</span>

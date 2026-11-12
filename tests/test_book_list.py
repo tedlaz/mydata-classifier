@@ -60,13 +60,25 @@ assert marks({"f_date": "2026-06", "sort": "type"}) == ["t2", "t1"]
 assert marks({"f_date": "2026-06", "sort": "series"}) == ["t2", "t1"]
 assert marks({"f_type": "1.10"}) == ["t1"]
 
-# Σελίδα: PER_PAGE ανά σελίδα, μετά την ταξινόμηση· σελίδα εκτός ορίων → η τελευταία.
+# Σελίδα: per_page() ανά σελίδα (προεπιλογή 50), μετά την ταξινόμηση· σελίδα εκτός ορίων → η τελευταία.
+assert A.per_page() == A.PER_PAGE == 50
 for n in range(A.PER_PAGE + 5):
     add(f"p{n:03d}", "2027-01-01")
 with A.app.test_request_context():
     bp = A._book_page(cid, "expense", "unclassified", {"f_date": "2027", "page": "9"})
 assert (bp["page"], bp["total_pages"], bp["total"]) == (2, 2, A.PER_PAGE + 5)
 assert [i.mark for i in bp["invoices"]] == [f"p{n:03d}" for n in range(A.PER_PAGE, A.PER_PAGE + 5)]
+
+# Παράμετρος «Εγγραφές ανά σελίδα»: αποθήκευση με έλεγχο ορίων· η βάση φέρνει μόνο τόσες.
+c = A.app.test_client()
+c.post("/parameters/automation", data={"per_page": "5"})  # εκτός ορίων → δεν αλλάζει
+assert A.per_page() == 50
+c.post("/parameters/automation", data={"per_page": "20"})
+assert A.per_page() == 20
+with A.app.test_request_context():
+    bp = A._book_page(cid, "expense", "unclassified", {"f_date": "2027", "page": "3"})
+assert (bp["page"], bp["total_pages"], len(bp["invoices"])) == (3, 3, 15)
+db.set_setting("per_page", "")
 print("ok")
 
 # Route: τα βελάκια του παραστατικού ακολουθούν τα φίλτρα/ταξινόμηση του back.
