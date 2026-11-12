@@ -24,7 +24,7 @@
     <thead>
       <tr>
         <th>{{ sort_link('income', q, 'date', 'Ημ/νία') }}</th>
-        <th>{{ sort_link('income', q, 'name', 'Πελάτης / ΑΦΜ') }}</th>
+        <th>{{ sort_link('income', q, 'name', 'Πελάτης') }}</th>
         <th>{{ sort_link('income', q, 'type', 'Τύπος') }}</th><th>{{ sort_link('income', q, 'series', 'Σειρά/ΑΑ') }}</th>
         <th class="num">{{ sort_link('income', q, 'net', 'Καθαρή αξία') }}</th><th class="num">{{ sort_link('income', q, 'vat', 'ΦΠΑ') }}</th>
         <th class="num">{{ sort_link('income', q, 'total', 'Σύνολο') }}</th>
@@ -46,7 +46,6 @@
         <td data-label="Πελάτης">
           <span class="issuer" data-vat="{{ inv.issuer_vat or '' }}">
             {{ issuer_name(inv, editable=false, empty='—' if inv.issuer_vat else 'Λιανική πώληση') }}
-            <span class="vat">{{ inv.issuer_vat or "" }}</span>
           </span>
         </td>
         <td data-label="Τύπος">{{ type_badge(inv) }}</td>
