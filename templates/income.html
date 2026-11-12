@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import issuer_name, type_badge, sort_link, status_tabs, empty_state, pager, filter_form, filter_input, filter_lead, filter_types with context %}
+{% from "_macros.html" import issuer_name, type_badge, sort_link, status_tabs, empty_state, pager, filter_form, filter_input, filter_types with context %}
 {% from "_ledger_hero.html" import ledger_hero with context %}
 {% block title %}Βιβλίο εσόδων{% endblock %}
 {% block content %}
@@ -30,7 +30,7 @@
         <th class="num">{{ sort_link('income', q, 'total', 'Σύνολο') }}</th>
       </tr>
       <tr class="filter-row">
-        {{ filter_lead('income') }}
+        {{ filter_input('date', '2026-03', 'Ημ/νία (π.χ. 2026-03 ή 2026-03:2026-05)') }}
         {{ filter_input('issuer', 'Πελάτης/ΑΦΜ', 'Πελάτης / ΑΦΜ') }}
         {{ filter_types() }}
         {{ filter_input('series', 'Σειρά/ΑΑ', 'Σειρά/ΑΑ') }}

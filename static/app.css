@@ -648,12 +648,7 @@ table.ledger{width:100%;border-collapse:collapse;font-size:.9rem}
 .ledger .filter-row th{position:static;padding:4px 4px 6px;text-transform:none;letter-spacing:0;font-weight:400}
 /* Τα πεδία ακολουθούν το πλάτος της στήλης (size="1" + min-width:0: δεν τη φαρδαίνουν). */
 .ledger .filter-row input{box-sizing:border-box;width:100%;min-width:0;padding:4px 6px;font-size:.78rem}
-/* Φίλτρο / καθαρισμός: στοιβαγμένα, μικρά, στην αρχή της γραμμής. */
-.ledger .filter-row .filter-actions{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
-.ledger .filter-row .filter-actions > *{display:flex;align-items:center;justify-content:center;width:26px;height:24px;
-  padding:0;margin:0;font-size:.75rem}
-.ledger .filter-row .filter-lead{display:flex;gap:6px;align-items:center}
-.ledger .filter-row .filter-actions svg{width:14px;height:14px}
+.result-info .filter-clear{color:inherit;font-weight:600;white-space:nowrap}
 /* Τύπος: πολλαπλή επιλογή σε <details> (χωρίς JS). */
 .f-multi{position:relative}
 .f-multi summary{list-style:none;cursor:pointer;box-sizing:border-box;width:100%;padding:4px 6px;font-size:.78rem;font-weight:400;
@@ -1093,7 +1088,7 @@ table.doc-lines{width:100%;border-collapse:collapse;font-size:.9rem}
 /* Κουμπί-εικονίδιο στη στήλη ενεργειών (π.χ. ✎ χαρακτηρισμός) */
 .actions .btn-icon{width:38px;height:34px;padding:0}
 /* Βιβλία (πίνακας): μικρότερο ✎ ώστε η γραμμή να έχει το ύψος του κειμένου. */
-@container (min-width:701px){ :where(.tw-books) .ledger tbody td{padding-block:6px} :where(.tw-books) .actions .btn-icon{width:30px;height:24px} }
+@container (min-width:701px){ :where(.tw-books) .ledger tbody td{padding-block:6px} :where(.tw-books) .ledger td.doc-date{width:1%} :where(.tw-books) .actions .btn-icon{width:30px;height:24px} }
 .btn-icon svg{width:17px;height:17px}
 /* Συναλλασσόμενοι: προτάσεις χαρακτηρισμού ανά κατηγορία ΦΠΑ */
 .rule-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}

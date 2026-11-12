@@ -21,6 +21,9 @@ _PREFIX = "enc:"
 _dek: Fernet | None = None
 _raw: bytes | None = None  # το DEK σε bytes, για re-wrap στην αλλαγή κωδικού
 nonce: str | None = None  # τιμή του session["auth"] για το τρέχον ξεκλείδωμα
+# dec(): κρυπτογράφημα → τιμή. Οι εταιρείες αποκρυπτογραφούνται σε κάθε get_active_company (πολλές
+# φορές ανά σελίδα)· αδειάζει μαζί με το DEK (_set/lock).
+_plain: dict[str, str] = {}
 
 
 def _kek(password: str, salt: bytes) -> Fernet:
@@ -35,6 +38,7 @@ def _set(dek: bytes) -> None:
     if _raw is not None and hmac.compare_digest(_raw, dek):
         return
     _dek, _raw, nonce = Fernet(dek), dek, secrets.token_urlsafe(32)
+    _plain.clear()
 
 
 def rotate() -> None:
@@ -107,6 +111,7 @@ def recall(token: str | None, secret: str, rec: dict) -> bool:
 def lock() -> None:
     global _dek, _raw, nonce
     _dek = _raw = nonce = None
+    _plain.clear()
 
 
 def unlocked() -> bool:
@@ -143,4 +148,6 @@ def dec(value: str) -> str:
         return value or ""
     if _dek is None:
         raise RuntimeError("Η εφαρμογή είναι κλειδωμένη.")
-    return _dek.decrypt(value[len(_PREFIX):].encode()).decode()
+    if value not in _plain:
+        _plain[value] = _dek.decrypt(value[len(_PREFIX):].encode()).decode()
+    return _plain[value]

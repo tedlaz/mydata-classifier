@@ -93,28 +93,19 @@
   <input type="hidden" name="view" value="{{ view }}">
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ dir }}">
+  {# Αόρατο submit: χωρίς αυτό το Enter δεν υποβάλλει φόρμα με πολλά πεδία. #}
+  <button type="submit" style="display:none" tabindex="-1" aria-hidden="true"></button>
 </form>
-{% if counts[view] > 0 %}<p class="muted result-info">{{ total }} αποτελέσματα{% if filters.values()|select|list %} (φιλτραρισμένα από {{ counts[view] }}){% endif %}{% if total_pages > 1 %} · σελίδα {{ page }}/{{ total_pages }}{% endif %}</p>{% endif %}
+{% set filtered = filters.values()|select|list %}
+{% if counts[view] > 0 %}<p class="muted result-info">{{ total }} αποτελέσματα{% if filtered %} (φιλτραρισμένα από {{ counts[view] }}){% endif %}{% if total_pages > 1 %} · σελίδα {{ page }}/{{ total_pages }}{% endif %}
+  {%- if filtered %} · <a class="filter-clear" href="{{ url_for(ep, view=view, sort=sort, dir=dir) }}">✕ Καθαρισμός φίλτρων</a>{% endif %}</p>{% endif %}
 {%- endmacro %}
 
 {% macro filter_field(key, ph, label) -%}
-<input form="book-filter" name="f_{{ key }}" value="{{ filters[key] }}"{% if filters[key] %} class="is-on"{% endif %} size="1" placeholder="{{ ph }}" aria-label="Φίλτρο: {{ label }}" title="Φίλτρο: {{ label }}">
+<input form="book-filter" name="f_{{ key }}" value="{{ filters[key] }}"{% if filters[key] %} class="is-on"{% endif %} size="1" placeholder="{{ ph }}" aria-label="Φίλτρο: {{ label }}" title="Φίλτρο: {{ label }} · Enter για φίλτρο">
 {%- endmacro %}
 
 {% macro filter_input(key, ph, label) -%}<th>{{ filter_field(key, ph, label) }}</th>{%- endmacro %}
-
-{# Φίλτρο / καθαρισμός: στοιβαγμένα, στην αρχή της γραμμής φίλτρων. #}
-{% macro filter_btns(ep) -%}
-<span class="filter-actions">
-  <button type="submit" form="book-filter" class="btn-icon" title="Φίλτρο" aria-label="Φίλτρο">{{ icon('search') }}</button>
-  {%- if filters.values()|select|list %}<a class="btn btn-ghost btn-icon" href="{{ url_for(ep, view=view, sort=sort, dir=dir) }}" title="Καθαρισμός φίλτρων" aria-label="Καθαρισμός φίλτρων">✕</a>{% endif -%}
-</span>
-{%- endmacro %}
-
-{# Πρώτο κελί χωρίς στήλη επιλογής: κουμπιά φίλτρου + πεδίο ημερομηνίας. #}
-{% macro filter_lead(ep) -%}
-<th><div class="filter-lead">{{ filter_btns(ep) }}{{ filter_field('date', '2026-03', 'Ημ/νία (π.χ. 2026-03 ή 2026-03:2026-05)') }}</div></th>
-{%- endmacro %}
 
 {# Τύπος: πολλαπλή επιλογή από τους τύπους της καρτέλας (type_options). #}
 {% macro filter_types() -%}

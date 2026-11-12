@@ -1536,18 +1536,48 @@ def _set_extra_totals(conn: sqlite3.Connection, company_id: int, doc: dict) -> N
         )
 
 
+_XML_COLUMNS = ("raw_xml", "cls_xml")
+
+
+def _light_cols(conn) -> str:
+    """Όλες οι στήλες του documents (ως d.<στήλη>) εκτός από τα XML."""
+    return ", ".join(f"d.{r['name']}" for r in conn.execute("PRAGMA table_info(documents)")
+                     if r["name"] not in _XML_COLUMNS)
+
+
+def book_select(company_id: int, kind: str, status: str, select: str = "", where=(), params=(), order: str = "",
+                funcs: dict | None = None, limit: int | None = None, offset: int = 0) -> list[dict]:
+    """Λίστα βιβλίου: παραστατικά μιας κατάστασης με επωνυμία συναλλασσομένου (s.name), φίλτρα (where/params),
+    ταξινόμηση και σελίδα στη βάση. select: π.χ. "COUNT(*) AS n", "d.mark"· κενό = όλες οι στήλες χωρίς XML.
+    funcs: συναρτήσεις Python για το SQL (ό,τι η SQLite δεν κάνει ίδια, π.χ. πεζά ελληνικά)."""
+    with get_conn() as conn:
+        for name, fn in (funcs or {}).items():
+            conn.create_function(name, 1, fn, deterministic=True)
+        q = (f"SELECT {select or _light_cols(conn)} FROM documents AS d LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
+             "WHERE d.company_id = ? AND d.kind = ? AND d.status = ?" + "".join(f" AND ({w})" for w in where))
+        args = [company_id, kind, status, *params]
+        if order:
+            q += " ORDER BY " + order
+        if limit is not None:
+            q += " LIMIT ? OFFSET ?"
+            args += [limit, offset]
+        return [dict(r) for r in conn.execute(q, args).fetchall()]
+
+
 def get_documents(
-    company_id: int, kind: str, statuses: list[str] | None = None
+    company_id: int, kind: str, statuses: list[str] | None = None, light: bool = False
 ) -> list[dict]:
-    q = "SELECT * FROM documents WHERE company_id = ? AND kind = ?"
+    """light=True: χωρίς τα (συμπιεσμένα) XML — για λίστες, όπου η αποσυμπίεση είναι το μισό κόστος."""
     params: list = [company_id, kind]
+    tail = ""
     if statuses:
         statuses_str = ",".join("?" * len(statuses))
-        q += f" AND status IN ({statuses_str})"
+        tail += f" AND status IN ({statuses_str})"
         params.extend(statuses)
-    q += " ORDER BY mark"  # η σειρά του UNIQUE (company_id, mark), όπως πριν από το ix_documents_period
+    tail += " ORDER BY mark"  # η σειρά του UNIQUE (company_id, mark), όπως πριν από το ix_documents_period
     with get_conn() as conn:
-        rows = conn.execute(q, params).fetchall()
+        cols = _light_cols(conn) if light else "*"
+        rows = conn.execute(f"SELECT {cols} FROM documents AS d WHERE company_id = ? AND kind = ?" + tail, params).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -1586,6 +1616,16 @@ def day_counts(company_id: int, kind: str, ym: str) -> dict:
     for r in rows:
         out.setdefault(r["d"], {})[r["status"]] = r["n"]
     return out
+
+
+def status_vats(company_id: int, kind: str, status: str) -> list[str]:
+    """ΑΦΜ συναλλασσομένου ανά παραστατικό μιας κατάστασης (χωρίς να φορτωθούν τα XML)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT counterparty_vat FROM documents WHERE company_id = ? AND kind = ? AND status = ?",
+            (company_id, kind, status),
+        ).fetchall()
+    return [r[0] for r in rows]
 
 
 def count_by_status(company_id: int, kind: str) -> dict:

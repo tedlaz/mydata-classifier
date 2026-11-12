@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, cls_chips, issuer_name, type_badge, sort_link, status_tabs, empty_state, pager, filter_form, filter_input, filter_btns, filter_lead, filter_types with context %}
+{% from "_macros.html" import icon, cls_chips, issuer_name, type_badge, sort_link, status_tabs, empty_state, pager, filter_form, filter_input, filter_types with context %}
 {% from "_ledger_hero.html" import ledger_hero with context %}
 {# Μία στήλη χαρακτηρισμού στη λίστα: μία τιμή ανά χαρακτηρισμό, ευθυγραμμισμένες μεταξύ στηλών. #}
 {% macro cls_stack(rows, key, labels, label, flags=[]) -%}
@@ -64,8 +64,8 @@
           <th></th>
         </tr>
         <tr class="filter-row">
-          {% if selectable %}<th>{{ filter_btns('invoices') }}</th>{{ filter_input('date', '2026-03', 'Ημ/νία (π.χ. 2026-03 ή 2026-03:2026-05)') }}
-          {% else %}{{ filter_lead('invoices') }}{% endif %}
+          {% if selectable %}<th></th>{% endif %}
+          {{ filter_input('date', '2026-03', 'Ημ/νία (π.χ. 2026-03 ή 2026-03:2026-05)') }}
           {{ filter_input('issuer', 'Εκδότης/ΑΦΜ', 'Εκδότης / ΑΦΜ') }}
           {{ filter_types() }}
           {% if view != 'sent' %}

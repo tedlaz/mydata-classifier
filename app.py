@@ -351,8 +351,14 @@ def save_accountant(data: dict):
 
 
 def load_companies() -> list:
-    """Λίστα εταιρειών (dicts με τα ίδια κλειδιά όπως πριν + εσωτερικό "id")."""
-    return db.list_companies()
+    """Λίστα εταιρειών (dicts με τα ίδια κλειδιά όπως πριν + εσωτερικό "id").
+    Σε GET μία ανάγνωση ανά αίτημα (καλείται εκατοντάδες φορές, π.χ. ανά παραστατικό)· τα POST
+    αλλάζουν εταιρείες, οπότε διαβάζουν πάντα από τη βάση."""
+    if not (has_request_context() and request.method == "GET"):
+        return db.list_companies()
+    if "companies" not in g:
+        g.companies = db.list_companies()
+    return g.companies
 
 
 def get_active_index() -> int:
@@ -870,10 +876,11 @@ def _income_to_doc(inv) -> dict:
     return doc
 
 
-def _row_to_invoice(row: dict, names: dict | None = None) -> ExpenseInvoice:
+def _row_to_invoice(row: dict, names: dict | None = None, exempt: bool = True) -> ExpenseInvoice:
     """Ξαναχτίζει ExpenseInvoice (με γραμμές + cls_info) από γραμμή documents.
     Το όνομα εκδότη προκύπτει από τον πίνακα suppliers (κοινός). Δώσε `names`
-    (χάρτης vat→name) όταν φτιάχνεις πολλά, για αποφυγή Ν queries."""
+    (χάρτης vat→name) όταν φτιάχνεις πολλά, για αποφυγή Ν queries.
+    exempt=False: χωρίς αιτία εξαίρεσης ΦΠΑ (ανάλυση XML) — για λίστες που δεν τη δείχνουν."""
     vat = row.get("counterparty_vat")
     issuer_name = names.get(vat) if names is not None else db.get_supplier_name(vat)
     lines = [
@@ -889,7 +896,7 @@ def _row_to_invoice(row: dict, names: dict | None = None) -> ExpenseInvoice:
         for ln in json.loads(row.get("lines_json") or "[]")
     ]
     # Εξαίρεση ΦΠΑ από το XML του εκδότη: μόνο όταν υπάρχει γραμμή 0% (το XML κοστίζει).
-    if any(str(ln.vat_category) == "7" for ln in lines) and row.get("raw_xml"):
+    if exempt and any(str(ln.vat_category) == "7" for ln in lines) and row.get("raw_xml"):
         exempt = vat_return._parse_exempt(row)[1]
         for ln in lines:
             ln.vat_exemption = exempt.get(ln.line_number, "")
@@ -1276,11 +1283,12 @@ def _auto_classify_split(cid: int) -> tuple[list, list]:
     """(προς αυτόματο χαρακτηρισμό, νέου τύπου): αχαρακτήριστα έξοδα με αποθηκευμένη πρόταση συναλλασσόμενου
     (εκτός 1.5, όπως στο bulk). Τα νέου τύπου (_new_type) μένουν για τον χρήστη, με ειδοποίηση."""
     rules, names, known = load_rules(), db.load_names(), _known_types(cid)
+    pats = db.load_rule_patterns(cid)  # μία φορά για όλους (όχι ερώτημα ανά παραστατικό)
     out, new = [], []
     for row in db.get_documents(cid, "expense", ["unclassified"]):
-        inv = _row_to_invoice(row, names)
-        vat = inv.issuer_vat or ""
-        if inv.invoice_type != "1.5" and (rules.get(vat) or _patterns_for(vat)):
+        vat = row.get("counterparty_vat") or ""
+        if row.get("invoice_type") != "1.5" and (rules.get(vat) or pats.get(vat)):
+            inv = _row_to_invoice(row, names)
             if _new_type(inv, known):
                 inv.known_types = sorted(known[vat])
                 new.append(inv)
@@ -1316,14 +1324,19 @@ _EXPENSE_VIEWS = ("unclassified", "classified", "sent", "confirmed")
 PER_PAGE = 50
 
 
-def paginate(items: list, page_arg) -> tuple[list, int, int]:
-    """(στοιχεία σελίδας, τρέχουσα σελίδα, σύνολο σελίδων) με PER_PAGE ανά σελίδα."""
+def _page_of(total: int, page_arg) -> tuple[int, int]:
+    """(τρέχουσα σελίδα, σύνολο σελίδων) για `total` στοιχεία, PER_PAGE ανά σελίδα."""
     try:
         page = max(1, int(page_arg or 1))
     except ValueError:
         page = 1
-    total_pages = max(1, -(-len(items) // PER_PAGE))
-    page = min(page, total_pages)
+    total_pages = max(1, -(-total // PER_PAGE))
+    return min(page, total_pages), total_pages
+
+
+def paginate(items: list, page_arg) -> tuple[list, int, int]:
+    """(στοιχεία σελίδας, τρέχουσα σελίδα, σύνολο σελίδων) με PER_PAGE ανά σελίδα."""
+    page, total_pages = _page_of(len(items), page_arg)
     start = (page - 1) * PER_PAGE
     return items[start : start + PER_PAGE], page, total_pages
 
@@ -1788,9 +1801,25 @@ def _amount_filter(expr: str):
     return lambda v: all(_AMOUNT_OPS[o](round(v, 2), float(n)) for o, n in conds)
 
 
-def _book_list(items: list, args, view: str) -> tuple[list, str, str, dict]:
-    """Φίλτρα + ταξινόμηση λίστας βιβλίου εσόδων/εξόδων από τα query args.
-    Κοινό για τις λίστες και για το προηγούμενο/επόμενο της αναλυτικής προβολής."""
+def _cls_json_rows(cls_json: str | None) -> list[dict]:
+    return _cls_list_rows(json.loads(cls_json or "[]"))
+
+
+# Συναρτήσεις Python μέσα στο SQL των λιστών: η SQLite κάνει lower() μόνο σε λατινικά και δεν ξέρει
+# τη σειρά τύπων (1.2 < 1.10) ή τα ψηφία όπως το str.isdigit — έτσι τα αποτελέσματα μένουν ίδια με πριν.
+_BOOK_FUNCS = {
+    "plower": lambda s: (s or "").lower(),
+    "int0": lambda s: int(s) if s and s.isdigit() else 0,
+    "typekey": lambda t: ".".join("%012d" % x for x in _type_key(t or "")),
+}
+_BOOK_AMOUNTS = {"net": "total_net", "vat": "total_vat", "total": "total_gross"}
+_BOOK_CLS = {"cat": "category", "e3": "type", "vtype": "vat_type"}
+
+
+def _book_sql(args, view: str) -> tuple[dict, str, str, dict]:
+    """Φίλτρα + ταξινόμηση λίστας βιβλίου εσόδων/εξόδων (από τα query args) ως SQL για το db.book_select:
+    ({where, params, order, funcs}, sort, direction, filters). Κοινό για τις λίστες και για το
+    προηγούμενο/επόμενο της αναλυτικής προβολής."""
     sort = args.get("sort", "date")
     direction = args.get("dir", "desc" if view in ("classified", "confirmed") else "asc")
     filters = {k: args.get(f"f_{k}", "").strip() for k in
@@ -1799,73 +1828,85 @@ def _book_list(items: list, args, view: str) -> tuple[list, str, str, dict]:
     raw = args.getlist("f_type") if hasattr(args, "getlist") else [args.get("f_type", "")]
     ft = {t.strip() for v in raw for t in v.split(",") if t.strip()}
     filters["type"] = ",".join(sorted(ft, key=_type_key))
-    fm, fi = filters["mark"], filters["issuer"].lower()
-    fs = filters["series"].lower()
-    # Ποσά: substring πάνω στο «%.2f» (π.χ. «124» ή «124,00»), ή συγκρίσεις
-    # όταν ξεκινά με τελεστή: «=0», «>100», «>100 <1000», «>=10 <=20», «!=0».
-    famt = [(f, _amount_filter(filters[k])) for k, f in
-            (("net", "total_net"), ("vat", "total_vat"), ("total", "total_gross")) if filters[k]]
-    fcls = [(f, filters[k].lower()) for k, f in (("cat", "category"), ("e3", "type"), ("vtype", "vat_type")) if filters[k]]
+    where, params, funcs = [], [], dict(_BOOK_FUNCS)
 
-    # Ημερομηνία: υποστηρίζει εύρος «από:έως» με μερικές ημερομηνίες (YYYY, YYYY-MM,
-    # YYYY-MM-DD), π.χ. «2026-03:2026-04» ή «2026-03-12:2026-05-15». Χωρίς «:» =
-    # απλό substring (π.χ. «2026-03» = Μάρτιος). Οι συγκρίσεις είναι lexicographic
-    # πάνω σε ISO ημερομηνίες· το «~» ως άνω όριο κάνει το prefix inclusive.
-    fd = filters["date"]
-    date_sub = date_lo = date_hi = None
-    if fd:
+    def add(sql, *p):
+        where.append(sql)
+        params.extend(p)
+
+    if filters["mark"]:
+        add("instr(d.mark, ?) > 0", filters["mark"])
+    # Ημερομηνία: εύρος «από:έως» με μερικές ημερομηνίες (YYYY, YYYY-MM, YYYY-MM-DD), π.χ. «2026-03:2026-04»·
+    # χωρίς «:» = απλό substring (π.χ. «2026-03» = Μάρτιος). Συγκρίσεις κειμένου σε ISO ημερομηνίες·
+    # το «~» στο άνω όριο κάνει το πρόθεμα inclusive.
+    if fd := filters["date"]:
         if ":" in fd:
             lo, _, hi = fd.partition(":")
-            date_lo = lo.strip() or None
-            date_hi = (hi.strip() + "~") if hi.strip() else None
+            if lo.strip():
+                add("COALESCE(d.issue_date, '') >= ?", lo.strip())
+            if hi.strip():
+                add("COALESCE(d.issue_date, '') <= ?", hi.strip() + "~")
         else:
-            date_sub = fd
+            add("instr(COALESCE(d.issue_date, ''), ?) > 0", fd)
+    if filters["issuer"]:
+        add("instr(plower(COALESCE(s.name, '') || ' ' || COALESCE(d.counterparty_vat, '')), ?) > 0",
+            filters["issuer"].lower())
+    if ft:
+        add(f"d.invoice_type IN ({','.join('?' * len(ft))})", *sorted(ft))
+    if filters["series"]:
+        add("instr(plower(COALESCE(d.series, '') || '/' || COALESCE(d.aa, '')), ?) > 0", filters["series"].lower())
+    # Ποσά: substring πάνω στο «%.2f» (π.χ. «124» ή «124,00»), ή συγκρίσεις όταν ξεκινά με τελεστή:
+    # «=0», «>100», «>100 <1000», «>=10 <=20», «!=0» (βλ. _amount_filter).
+    for k, col in _BOOK_AMOUNTS.items():
+        if filters[k]:
+            funcs[f"f_{k}"] = lambda v, m=_amount_filter(filters[k]): m(v or 0)
+            where.append(f"f_{k}(d.{col})")
+    if fcls := [(f, filters[k].lower()) for k, f in _BOOK_CLS.items() if filters[k]]:
+        funcs["f_cls"] = lambda j: (lambda rows: all(any(v in (r.get(f) or "").lower() for r in rows)
+                                                     for f, v in fcls))(_cls_json_rows(j))
+        where.append("f_cls(d.cls_json)")
 
-    def _match(inv):
-        if fm and fm not in (inv.mark or ""):
-            return False
-        d = inv.issue_date or ""
-        if date_sub and date_sub not in d:
-            return False
-        if date_lo and d < date_lo:
-            return False
-        if date_hi and d > date_hi:
-            return False
-        if fi and fi not in ((inv.issuer_name or "") + " " + (inv.issuer_vat or "")).lower():
-            return False
-        if ft and inv.invoice_type not in ft:
-            return False
-        if fs and fs not in f"{inv.series or ''}/{inv.aa or ''}".lower():
-            return False
-        if not all(m(getattr(inv, f) or 0) for f, m in famt):
-            return False
-        if fcls:
-            rows = _cls_list_rows(inv.cls_info)
-            return all(any(v in (r.get(f) or "").lower() for r in rows) for f, v in fcls)
-        return True
+    if sort == "name":
+        keys = ["plower(COALESCE(NULLIF(s.name, ''), NULLIF(d.counterparty_vat, ''), ''))"]
+    elif sort in _BOOK_AMOUNTS:
+        keys = [f"COALESCE(d.{_BOOK_AMOUNTS[sort]}, 0.0)"]
+    elif sort == "mark":
+        keys = ["int0(d.mark)"]
+    elif sort == "type":
+        keys = ["typekey(d.invoice_type)"]
+    elif sort == "series":
+        keys = ["plower(d.series)", "int0(d.aa)", "COALESCE(d.aa, '')"]
+    elif sort in _BOOK_CLS:  # πρώτος χαρακτηρισμός· χωρίς → στο τέλος (asc)
+        f = _BOOK_CLS[sort]
+        funcs["cls_first"] = lambda j: next((r.get(f) or "" for r in _cls_json_rows(j)), "") or "~"
+        keys = ["cls_first(d.cls_json)"]
+    else:  # ημερομηνία (ISO yyyy-mm-dd)
+        keys = ["COALESCE(d.issue_date, '')"]
+    # Ισοβαθμίες: κατά MARK, όπως η παλιά (σταθερή) ταξινόμηση της λίστας που ερχόταν κατά MARK.
+    dirsql = " DESC" if direction == "desc" else ""
+    order = ", ".join(k + dirsql for k in keys) + ", d.mark"
+    return {"where": where, "params": params, "order": order, "funcs": funcs}, sort, direction, filters
 
-    amounts = {"total": "total_gross", "net": "total_net", "vat": "total_vat"}
-    cls_keys = {"cat": "category", "e3": "type", "vtype": "vat_type"}
 
-    def sort_key(inv):
-        if sort == "name":
-            return (inv.issuer_name or inv.issuer_vat or "").lower()
-        if sort in amounts:
-            return getattr(inv, amounts[sort]) or 0.0
-        if sort == "mark":
-            return int(inv.mark) if (inv.mark or "").isdigit() else 0
-        if sort == "type":
-            return _type_key(inv.invoice_type or "")
-        if sort == "series":
-            return (inv.series or "").lower(), int(inv.aa) if (inv.aa or "").isdigit() else 0, inv.aa or ""
-        if sort in cls_keys:  # πρώτος χαρακτηρισμός· χωρίς → στο τέλος (asc)
-            return next((r.get(cls_keys[sort]) or "" for r in _cls_list_rows(inv.cls_info)), "") or "~"
-        # default: ημερομηνία (ISO μορφή yyyy-mm-dd, ταξινομείται σωστά ως string)
-        return inv.issue_date or ""
-
-    if any(filters.values()):
-        items = [i for i in items if _match(i)]
-    return sorted(items, key=sort_key, reverse=direction == "desc"), sort, direction, filters
+def _book_page(cid: int, kind: str, view: str, args, only_vats: set | None = None) -> dict:
+    """Μία σελίδα της λίστας βιβλίου από τη βάση: φίλτρα, ταξινόμηση και σελίδα στο SQL, ώστε να χτίζονται
+    μόνο τα PER_PAGE παραστατικά της. only_vats: μόνο αυτοί οι συναλλασσόμενοι (π.χ. «αναμένουν επιβεβαίωση»)."""
+    q, sort, direction, filters = _book_sql(args, view)
+    if only_vats is not None:
+        vats = sorted(only_vats)
+        q["where"] = [*q["where"], f"d.counterparty_vat IN ({','.join('?' * len(vats))})" if vats else "0"]
+        q["params"] = [*q["params"], *vats]
+    sel = {k: q[k] for k in ("where", "params", "funcs")}
+    total = db.book_select(cid, kind, view, "COUNT(*) AS n", **sel)[0]["n"]
+    page, total_pages = _page_of(total, args.get("page"))
+    names = db.load_names()
+    rows = db.book_select(cid, kind, view, **q, limit=PER_PAGE, offset=(page - 1) * PER_PAGE)
+    types = {r["t"] for r in db.book_select(cid, kind, view, "DISTINCT d.invoice_type AS t") if r["t"]}
+    return {
+        "invoices": [_row_to_invoice(r, names, exempt=False) for r in rows],
+        "page": page, "total_pages": total_pages, "total": total,
+        "sort": sort, "dir": direction, "filters": filters, "type_options": sorted(types, key=_type_key),
+    }
 
 
 @app.route("/invoices")
@@ -1879,21 +1920,15 @@ def invoices():
         if view is None:
             return redirect(url_for("sync", scope="expense"))
     cid = _active_company_id()
-    names = db.load_names()  # κοινός χάρτης vat→επωνυμία (μία φορά)
-    buckets = {v: [] for v in _EXPENSE_VIEWS}
-    for row in db.get_documents(cid, "expense") if cid else []:
-        buckets.setdefault(row["status"], []).append(_row_to_invoice(row, names))
-
-    counts = {v: len(buckets[v]) for v in _EXPENSE_VIEWS}
-    items, sort, direction, filters = _book_list(buckets.get(view, []), request.args, view)
+    by_status = db.count_by_status(cid, "expense") if cid else {}
+    counts = {v: by_status.get(v, 0) for v in _EXPENSE_VIEWS}
     # «⏸ Αναμένουν επιβεβαίωση»: χαρακτηρισμένα προμηθευτών που ο αυτόματος κύκλος δεν στέλνει.
     review = db.review_vats(cid)
-    review_count = sum(1 for i in buckets["classified"] if i.issuer_vat in review)
+    review_count = sum(1 for v in db.status_vats(cid, "expense", "classified") if v in review) if cid else 0
     review_only = view == "classified" and request.args.get("review") == "1"
-    if review_only:
-        items = [i for i in items if i.issuer_vat in review]
-    total = len(items)
-    page_items, page, total_pages = paginate(items, request.args.get("page"))
+    # Φίλτρα, ταξινόμηση και σελίδα στη βάση: χτίζονται μόνο τα παραστατικά της σελίδας.
+    bp = _book_page(cid, "expense", view, request.args, review if review_only else None)
+    page_items = bp["invoices"]
     if view == "classified":
         for inv in page_items:
             inv.check_errors = (
@@ -1916,15 +1951,15 @@ def invoices():
         type_names=INVOICE_TYPE_NAMES,
         credit_types=CREDIT_INVOICE_TYPES,
         rules=load_rules(),
-        sort=sort,
-        dir=direction,
-        page=page,
-        total_pages=total_pages,
-        total=total,
-        period=_period_nav(_month_strip(cid, ("expense",)), filters["date"], view, cid, "expense"),
+        sort=bp["sort"],
+        dir=bp["dir"],
+        page=bp["page"],
+        total_pages=bp["total_pages"],
+        total=bp["total"],
+        period=_period_nav(_month_strip(cid, ("expense",)), bp["filters"]["date"], view, cid, "expense"),
         per_page=PER_PAGE,
-        filters=filters,
-        type_options=sorted({i.invoice_type for i in buckets.get(view, []) if i.invoice_type}, key=_type_key),
+        filters=bp["filters"],
+        type_options=bp["type_options"],
         review=review,
         review_count=review_count,
         review_only=review_only,
@@ -1954,18 +1989,18 @@ def document(mark):
     back = request.args.get("back") or url_for("income" if is_income else "invoices", view=row["status"])
     # Προηγούμενο/επόμενο: ίδιο βιβλίο και κατάσταση. Αν ήρθαμε από τη λίστα του βιβλίου,
     # ακολουθεί τα φίλτρα/ταξινόμησή της (από το back URL)· αλλιώς σειρά ημ/νίας.
-    names = db.load_names()
-    siblings = sorted(
-        (_row_to_invoice(r, names) for r in db.get_documents(cid, row["kind"], [row["status"]])),
-        key=lambda i: (i.issue_date or "", i.mark),
-    )
+    # Μόνο τα MARK, με τη σειρά της λίστας (ταξινόμηση/φίλτρα στη βάση).
+    marks_of = lambda **q: [r["mark"] for r in db.book_select(cid, row["kind"], row["status"], "d.mark", **q)]  # noqa: E731
+    siblings = None
     bu = urlparse(back)
     if bu.path == url_for("income" if is_income else "invoices"):
         args = MultiDict(parse_qsl(bu.query))  # MultiDict: πολλαπλό f_type
-        listed = _book_list(siblings, args, args.get("view") or row["status"])[0]
-        if any(i.mark == mark for i in listed):  # αλλιώς (π.χ. άλλαξε κατάσταση) → όλα
+        listed = marks_of(**_book_sql(args, args.get("view") or row["status"])[0])
+        if mark in listed:  # αλλιώς (π.χ. άλλαξε κατάσταση) → όλα
             siblings = listed
-    pos = next(i for i, r in enumerate(siblings) if r.mark == mark)
+    if siblings is None:
+        siblings = marks_of(order="COALESCE(d.issue_date, ''), d.mark")
+    pos = siblings.index(mark)
     return render_template(
         "document.html",
         inv=inv,
@@ -1983,8 +2018,8 @@ def document(mark):
         tax_types=TAX_TYPES,
         tax_categories=TAX_CATEGORIES,
         back=back,
-        prev_mark=siblings[pos - 1].mark if pos > 0 else None,
-        next_mark=siblings[pos + 1].mark if pos + 1 < len(siblings) else None,
+        prev_mark=siblings[pos - 1] if pos > 0 else None,
+        next_mark=siblings[pos + 1] if pos + 1 < len(siblings) else None,
         pos=pos + 1,
         siblings_total=len(siblings),
         line_cls=line_cls,
@@ -3248,35 +3283,29 @@ def income():
         if view is None:
             return redirect(url_for("sync", scope="income"))
     cid = _active_company_id()
-    names = db.load_names()
-    buckets = {v: [] for v in _INCOME_VIEWS}
-    for row in db.get_documents(cid, "income") if cid else []:
-        buckets.setdefault(row["status"], []).append(_row_to_invoice(row, names))
-
-    counts = {v: len(buckets[v]) for v in _INCOME_VIEWS}
-    items, sort, direction, filters = _book_list(buckets.get(view, []), request.args, view)
-    total = len(items)
-    page_items, page, total_pages = paginate(items, request.args.get("page"))
+    by_status = db.count_by_status(cid, "income") if cid else {}
+    counts = {v: by_status.get(v, 0) for v in _INCOME_VIEWS}
+    bp = _book_page(cid, "income", view, request.args)  # φίλτρα, ταξινόμηση και σελίδα στη βάση
 
     return render_template(
         "income.html",
         view=view,
-        invoices=page_items,
+        invoices=bp["invoices"],
         counts=counts,
         categories=INCOME_CATEGORIES,
         types=INCOME_TYPES,
         vat_types=VAT_TYPES,
         type_names=INVOICE_TYPE_NAMES,
         credit_types=CREDIT_INVOICE_TYPES,
-        sort=sort,
-        dir=direction,
-        page=page,
-        total_pages=total_pages,
-        total=total,
-        period=_period_nav(_month_strip(cid, ("income",)), filters["date"], view, cid, "income"),
+        sort=bp["sort"],
+        dir=bp["dir"],
+        page=bp["page"],
+        total_pages=bp["total_pages"],
+        total=bp["total"],
+        period=_period_nav(_month_strip(cid, ("income",)), bp["filters"]["date"], view, cid, "income"),
         per_page=PER_PAGE,
-        filters=filters,
-        type_options=sorted({i.invoice_type for i in buckets.get(view, []) if i.invoice_type}, key=_type_key),
+        filters=bp["filters"],
+        type_options=bp["type_options"],
     )
 
 
@@ -3997,6 +4026,25 @@ def _cmp_e3(Y: dict, years: list[str], key: str) -> dict:
             "movers": movers, "movers_max": max([abs(r["d"]["v"]) for r in movers] + [1])}
 
 
+_REV_CACHE: dict = {}  # (όνομα, εταιρεία) → (κλειδί εκδόσεων, αποτέλεσμα)
+
+
+def _rev_cached(name: str, cid: int | None, extra: tuple, compute):
+    """Βαριοί υπολογισμοί αναφορών: ξανά μόνο όταν αλλάξει κάποιο παραστατικό της εταιρείας, κάποια επωνυμία
+    ή το `extra` (ρυθμίσεις / ημέρα που επηρεάζουν το αποτέλεσμα). Μην αλλάζεις το αποτέλεσμα: είναι κοινό."""
+    key = (db.documents_rev(cid), hash(frozenset(db.load_names().items())), extra)
+    hit = _REV_CACHE.get((name, cid))
+    if hit and hit[0] == key:
+        return hit[1]
+    _REV_CACHE[(name, cid)] = (key, out := compute())
+    return out
+
+
+def _compare_cached(cid: int | None, now: datetime) -> dict:
+    """_compare (Σύγκριση ετών, Πρόβλεψη)· εξαρτάται και από την ημέρα και τα αποθέματα."""
+    return _rev_cached("compare", cid, (now.date(), stock_in("dashboard")), lambda: _compare(cid, now))
+
+
 def _compare(cid: int | None, now: datetime) -> dict:
     """Όλα τα στοιχεία της σελίδας «Σύγκριση ετών». Έσοδα, έξοδα, κέρδος και Ε3: ίδιος υπολογισμός με την
     «Ανάλυση Ε3» (_pl)· αποθέματα μόνο σε χρήση με έναρξης και λήξης (βλ. παρακάτω).
@@ -4228,7 +4276,7 @@ def _compare(cid: int | None, now: datetime) -> dict:
 def reports_compare():
     """Σύγκριση ετών: τρέχον έτος απέναντι στα προηγούμενα, στους ίδιους ολοκληρωμένους μήνες."""
     now = datetime.now(ATHENS)
-    data = _compare(_active_company_id(), now)
+    data = _compare_cached(_active_company_id(), now)
     return render_template("reports_compare.html", c=data, months=_GREEK_MONTHS,
                            now_str=now.strftime("%d/%m/%Y"))
 
@@ -5163,7 +5211,7 @@ def reports_forecast():
     # Η διαφορά μοιράζεται στους μήνες πρόβλεψης αναλογικά (σχήμα της εποχικότητας)· στα έξοδα μόνο στα μεταβλητά
     # (σταθερά και αποσβέσεις μένουν). Ποτέ κάτω από τα ήδη καταχωρημένα. Πρόγραμμα / sliders εφαρμόζονται μετά.
     # ponytail: ξαναϋπολογίζει όλη τη σύγκριση (6 έτη παραστατικών)· cache αν η σελίδα αργήσει.
-    cmp = {c["key"]: c["proj_v"] for c in _compare(cid, now)["cums"]}
+    cmp = {c["key"]: c["proj_v"] for c in _compare_cached(cid, now)["cums"]}
     stat_in = round(sum(f_in), 2)
     stat_out = round(sum(f_var) + sum(cur_fixed[:done]) + sum(fixed.values()) * (12 - done) + dep["total"], 2)
     avg = {"income": {"stat": stat_in, "cmp": cmp["in"]}, "expense": {"stat": stat_out, "cmp": cmp["out"]},
@@ -5688,7 +5736,8 @@ def dashboard_assets():
 @app.route("/reports")
 def reports():
     """OLAP: κύβος ανάλυσης εσόδων-εξόδων (pivot, slice, drill-down στον browser)."""
-    return render_template("reports.html", cube=_olap_cube(_active_company_id()))
+    cid = _active_company_id()
+    return render_template("reports.html", cube=_rev_cached("olap", cid, (stock_in("olap"),), lambda: _olap_cube(cid)))
 
 
 def _copy_lines(inv, local: list[dict], exemptions: dict | None = None) -> list[dict]:
