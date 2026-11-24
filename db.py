@@ -540,6 +540,9 @@ def init_db() -> None:
             conn.execute("ALTER TABLE companies ADD COLUMN birth_year INTEGER")
         if "mark_check_hours" not in comp_cols:
             conn.execute("ALTER TABLE companies ADD COLUMN mark_check_hours REAL DEFAULT 1")
+        for col in ("gsis_username", "gsis_password"):  # ειδικοί κωδικοί Μητρώου ΑΑΔΕ (κρυπτογραφημένοι)
+            if col not in comp_cols:
+                conn.execute(f"ALTER TABLE companies ADD COLUMN {col} TEXT")
         if "rule_post_mode" not in {r["name"] for r in conn.execute("PRAGMA table_info(supplier_rules)")}:
             conn.execute("ALTER TABLE supplier_rules ADD COLUMN rule_post_mode INTEGER DEFAULT 0")
         cls_cols = {r["name"] for r in conn.execute("PRAGMA table_info(classifications)")}
@@ -852,6 +855,8 @@ def _company_row_to_dict(row: sqlite3.Row) -> dict:
         "entity_type": "sole" if row["entity_type"] == "sole" else "legal",
         "birth_year": row["birth_year"],
         "mark_check_hours": check_hours(row["mark_check_hours"]),
+        "GSIS_USERNAME": auth.dec(row["gsis_username"]),
+        "GSIS_PASSWORD": auth.dec(row["gsis_password"]),
     }
 
 
@@ -944,6 +949,13 @@ def update_company(company_id: int, data: dict) -> None:
         )
 
 
+def set_gsis(company_id: int, username: str, password: str) -> None:
+    """Ειδικοί κωδικοί Μητρώου ΑΑΔΕ: χωριστά από το update_company, ώστε import/toggles να μην τους σβήνουν."""
+    with get_conn() as conn:
+        conn.execute("UPDATE companies SET gsis_username = ?, gsis_password = ? WHERE id = ?",
+                     (auth.enc(username or ""), auth.enc(password or ""), company_id))
+
+
 def lock_company(company_id: int) -> None:
     """«Αρχείο πελάτη»: μόνο αναφορές — όλες οι άδειες κλειστές, και δεν ξανανοίγουν (βλ. update_company)."""
     with get_conn() as conn:
@@ -1020,7 +1032,8 @@ def encrypt_credentials() -> None:
     with get_conn() as conn:
         plain = conn.execute(
             "SELECT (SELECT COUNT(*) FROM companies WHERE aade_user_id NOT LIKE 'enc:%' AND aade_user_id <> '' "
-            "OR aade_subscription_key NOT LIKE 'enc:%' AND aade_subscription_key <> '') + "
+            "OR aade_subscription_key NOT LIKE 'enc:%' AND aade_subscription_key <> '' "
+            "OR gsis_password NOT LIKE 'enc:%' AND gsis_password <> '') + "
             "(SELECT COUNT(*) FROM accountant WHERE user_id NOT LIKE 'enc:%' AND user_id <> '' "
             "OR subscription_key NOT LIKE 'enc:%' AND subscription_key <> '')"
         ).fetchone()[0]
@@ -1028,6 +1041,7 @@ def encrypt_credentials() -> None:
         return
     for c in list_companies():
         update_company(c["id"], c)
+        set_gsis(c["id"], c["GSIS_USERNAME"], c["GSIS_PASSWORD"])
     acc = get_accountant()
     if acc:
         save_accountant(acc)
@@ -1044,7 +1058,8 @@ def reset_auth() -> None:
     Τα παραστατικά μένουν. Από τερματικό: python -c "import db; db.reset_auth()"."""
     with get_conn() as conn:
         conn.execute(f"DELETE FROM settings WHERE key IN ({','.join('?' * len(_AUTH_KEYS))})", _AUTH_KEYS)
-        conn.execute("UPDATE companies SET aade_user_id = '', aade_subscription_key = ''")
+        conn.execute("UPDATE companies SET aade_user_id = '', aade_subscription_key = '', "
+                     "gsis_username = '', gsis_password = ''")
         conn.execute("UPDATE accountant SET user_id = '', subscription_key = ''")
     auth.lock()
 

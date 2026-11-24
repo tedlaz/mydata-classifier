@@ -584,13 +584,13 @@ def enrich_names(invoices, vat_attr="issuer_vat", name_attr="issuer_name"):
             found = dict(zip(missing, pool.map(vies.lookup_name, missing)))
         n_vies = sum(1 for n in found.values() if n)
 
-        # fallback στο Μητρώο ΑΑΔΕ/GSIS για όσα δεν βρέθηκαν (επίσης παράλληλα)
-        if gsis.gsis_available():
-            rest = [v for v, n in found.items() if not n]
-            if rest:
-                with ThreadPoolExecutor(max_workers=min(4, len(rest))) as pool:
-                    for v, n in zip(rest, pool.map(gsis.lookup_name, rest)):
-                        found[v] = n
+        # fallback στο Μητρώο ΑΑΔΕ/GSIS για ελληνικά ΑΦΜ που δεν βρέθηκαν (επίσης παράλληλα)
+        creds = gsis.credentials(get_active_company())
+        rest = [v for v, n in found.items() if not n and gsis.is_greek_afm(v)] if creds else []
+        if rest:
+            with ThreadPoolExecutor(max_workers=min(4, len(rest))) as pool:
+                for v, n in zip(rest, pool.map(lambda v: gsis.lookup_name(v, creds), rest)):
+                    found[v] = n
         ok = sum(1 for n in found.values() if n)
         if has_request_context():  # μία συγκεντρωτική γραμμή στο log της ενέργειας (Ιστορικό συνδέσεων)
             g.setdefault("mydata_log", []).append(
@@ -6836,6 +6836,15 @@ def _sole_without_birth_year() -> bool:
     return False
 
 
+def _gsis_form(old: dict | None = None) -> tuple[str, str]:
+    """Ειδικοί κωδικοί Μητρώου ΑΑΔΕ από τη φόρμα. Ο κωδικός δεν στέλνεται πίσω: κενός = κράτα τον
+    αποθηκευμένο· κενό username = απενεργοποίηση (σβήνονται και τα δύο)."""
+    user = request.form.get("gsis_username", "").strip()
+    if not user:
+        return "", ""
+    return user, request.form.get("gsis_password", "") or (old or {}).get("GSIS_PASSWORD", "")
+
+
 @app.route("/companies/add", methods=["POST"])
 def companies_add():
     name = request.form.get("company_name", "").strip()
@@ -6871,6 +6880,7 @@ def companies_add():
     if _accountant_missing(data):
         data["allow_send"] = False
     new_id = db.add_company(data)
+    db.set_gsis(new_id, *_gsis_form())
     if db.get_active_company_id() is None and new_id is not None:
         db.set_active_company_id(new_id)
     flash(f"✔ Προστέθηκε η εταιρεία «{name}».", "ok")
@@ -6915,6 +6925,7 @@ def companies_update(idx):
     if _accountant_missing(data):
         data["allow_send"] = False
     db.update_company(comps[idx]["id"], data)
+    db.set_gsis(comps[idx]["id"], *_gsis_form(comps[idx]))
     flash(f"✔ Ενημερώθηκε η εταιρεία «{name}».", "ok")
     back = request.form.get("back", "")  # modal ενεργής εταιρείας (base.html) → πίσω στη σελίδα του
     return redirect(_safe_back(back) or url_for("companies"))
@@ -7036,10 +7047,24 @@ def supplier_lookup(vat):
 
 @app.route("/check_vat/<country>/<afm>")
 def check_vat(country, afm):
-    """AJAX έλεγχος ΑΦΜ μέσω VIES: εγκυρότητα + επωνυμία (αν κοινοποιείται)."""
+    """AJAX έλεγχος ΑΦΜ μέσω VIES: εγκυρότητα + επωνυμία (αν κοινοποιείται).
+    Ελληνικό ΑΦΜ χωρίς στοιχεία στο VIES → fallback στο Μητρώο ΑΑΔΕ (αν η εταιρεία έχει ειδικούς κωδικούς)."""
+    import gsis
     import vies
 
     result = vies.check_vat(country, afm)
+    ctry, num = vies.normalize(country, afm)
+    creds = gsis.credentials(get_active_company())
+    if creds and ctry == "EL" and not (result and result["valid"] and result["name"]):
+        if reg := gsis.lookup(num, creds):
+            names = load_names()
+            if names.get(num) != reg["name"]:
+                names[num] = reg["name"]
+                save_names(names)
+            parts = {k: reg[k] for k in ("street", "number", "postal_code", "city")}
+            return {"ok": True, "valid": True, "name": reg["name"], "legal_name": reg["name"],
+                    "address": " ".join(filter(None, parts.values())), **parts,
+                    "message": f"✔ Έγκυρο ΑΦΜ (Μητρώο ΑΑΔΕ) · {reg['name']}"}
     if result is None:
         return {"ok": False, "message": "Η υπηρεσία VIES δεν απάντησε - δοκίμασε ξανά."}
     if not result["valid"]:

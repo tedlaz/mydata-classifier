@@ -34,7 +34,7 @@ def request_income(df, dt, *_):
 
 
 vies.lookup_name = lambda v: "ΒΡΕΘΗΚΕ" if v == "094025817" else None
-gsis.gsis_available = lambda: False
+gsis.credentials = lambda company=None: None
 A.save_names = lambda names: None
 
 

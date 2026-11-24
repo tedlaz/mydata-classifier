@@ -3,7 +3,7 @@
 {% set first = 'main' if c.company_name else 'basic' %}
 <div class="co-tabs">
 <div class="tabs">
-  {% for v, lbl in [('main', '⚙️ Λειτουργία & άδειες'), ('basic', '🏢 Βασικά στοιχεία')] %}
+  {% for v, lbl in [('main', '⚙️ Λειτουργία & άδειες'), ('basic', '🏢 Βασικά στοιχεία'), ('gsis', '🔎 Μητρώο ΑΑΔΕ')] %}
   <label class="tab"><input type="radio" name="_tab_{{ pfx }}" value="{{ v }}" {{ 'checked' if first == v }}>{{ lbl }}</label>
   {% endfor %}
 </div>
@@ -97,6 +97,21 @@
 {% if c.id %}
 <p><button type="button" class="btn-ghost" data-co-qr="{{ url_for('companies_qr', cid=c.id) }}" title="Μεταφέρει την εταιρεία στην εφαρμογή κινητού, μαζί με τα κλειδιά ΑΑΔΕ">📱 QR για το myDATAview</button></p>
 {% endif %}
+</div>
+<div class="co-pane co-pane--gsis">
+<p class="muted">Προαιρετικό. Αν συμπληρωθούν, ελληνικά ΑΦΜ που δεν βρίσκονται στο VIES αναζητούνται στο Μητρώο της ΑΑΔΕ (RgWsPublic2).
+  Χρειάζονται οι <b>ειδικοί κωδικοί</b> του myAADE (Μητρώο &amp; Επικοινωνία → Ειδικοί κωδικοί για χρήση web services) — όχι οι κωδικοί TAXISnet ούτε τα κλειδιά myDATA.
+  Κενό username = απενεργοποίηση.</p>
+<div class="co-fields">
+  <div>
+    <label for="{{ pfx }}-gsis-user">Username</label>
+    <input type="text" id="{{ pfx }}-gsis-user" name="gsis_username" value="{{ c.GSIS_USERNAME or '' }}" autocomplete="off">
+  </div>
+  <div>
+    <label for="{{ pfx }}-gsis-pw">Password</label>
+    <input type="password" id="{{ pfx }}-gsis-pw" name="gsis_password" value="" autocomplete="new-password" data-reveal{% if c.GSIS_PASSWORD %} placeholder="•••• αποθηκευμένο (κενό = δεν αλλάζει)"{% endif %}>
+  </div>
+</div>
 </div>
 </div>
 {%- endmacro %}
