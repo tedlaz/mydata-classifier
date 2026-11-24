@@ -4796,6 +4796,38 @@ def mark_lookup():
                            types={**EXPENSE_TYPES, **INCOME_TYPES}, vat_types=VAT_TYPES)
 
 
+@app.route("/vat_lookup")
+def vat_lookup():
+    """Αναζήτηση ΑΦΜ: tab «vies» (όλα τα κράτη-μέλη, default Ελλάδα) ή «gsis» (Μητρώο ΑΑΔΕ, μόνο με
+    ειδικούς κωδικούς της ενεργής εταιρείας)."""
+    import gsis
+    import vies
+
+    creds = gsis.credentials(get_active_company())
+    tab = "gsis" if request.args.get("tab") == "gsis" and creds else "vies"
+    country = (request.args.get("country") or "GR").upper()
+    afm = (request.args.get("afm") or "").strip()
+    ctx = {"tab": tab, "country": country, "afm": afm, "gsis_on": bool(creds), "result": None, "error": None,
+           "countries": [(c, XML_EXTRA_CODES["country"].get(c, c)) for c in ["GR", *sorted(EU_COUNTRIES - {"GR"})]]}
+    if afm and tab == "gsis":
+        if not gsis.is_greek_afm(afm):
+            ctx["error"] = "Το ελληνικό ΑΦΜ έχει 9 ψηφία."
+        elif (reg := gsis.lookup(afm, creds) or {}).get("name"):
+            ctx["result"] = reg
+        else:
+            ctx["error"] = reg.get("error") or "Δεν βρέθηκαν στοιχεία στο Μητρώο ΑΑΔΕ."
+    elif afm:
+        r = vies.check_vat(country, afm)
+        if r is None:
+            ctx["error"] = "Η υπηρεσία VIES δεν απάντησε — δοκίμασε ξανά."
+        elif not r["valid"]:
+            ctx["error"] = "✖ Το ΑΦΜ δεν βρέθηκε ενεργό στο VIES."
+        else:
+            ctx["result"] = {"name": vies.legal_name(r["name"]) or "—", "title": (r["name"] or "").partition("||")[2].strip(),
+                             **vies.split_address(r.get("address"))}
+    return render_template("vat_lookup.html", **ctx)
+
+
 @app.route("/mark/<m>/xml")
 def mark_xml(m):
     """Λήψη του XML μίας εγγραφής του myDATA (οποιουδήποτε είδους), όπως ήρθε."""
@@ -7056,7 +7088,7 @@ def check_vat(country, afm):
     ctry, num = vies.normalize(country, afm)
     creds = gsis.credentials(get_active_company())
     if creds and ctry == "EL" and not (result and result["valid"] and result["name"]):
-        if reg := gsis.lookup(num, creds):
+        if (reg := gsis.lookup(num, creds) or {}).get("name"):
             names = load_names()
             if names.get(num) != reg["name"]:
                 names[num] = reg["name"]

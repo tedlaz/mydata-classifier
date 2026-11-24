@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Αναζήτηση ΑΦΜ{% endblock %}
+
+{% block content %}
+<style>
+.vl-search{display:flex;gap:8px;flex-wrap:wrap;max-width:640px}
+.vl-hint{margin:0 0 12px}
+.vl-search select{flex:0 1 200px}
+.vl-search input{flex:1 1 220px;min-width:0;font:600 1.15rem var(--font-data);letter-spacing:.02em;padding:12px 14px;border-radius:12px}
+.vl-search button{padding:0 20px}
+.vl-tabs{margin:0 0 16px}
+.vl-tabs .tab[aria-disabled=true]{opacity:.45;cursor:not-allowed}
+.vl-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px 18px;margin:0}
+.vl-facts > div{min-width:0}
+.vl-facts dt{font-size:.74rem;color:var(--muted);margin-bottom:2px}
+.vl-facts dd{margin:0;overflow-wrap:anywhere}
+.vl-wide{grid-column:1 / -1}
+.vl-name{font:800 1.3rem var(--font-data)}
+.vl-acts{width:100%;border-collapse:collapse}
+.vl-acts th,.vl-acts td{text-align:left;padding:6px 10px 6px 0;vertical-align:top}
+.vl-acts tbody tr + tr td{border-top:1px solid var(--line-soft)}
+.vl-mono{font-family:var(--font-data);white-space:nowrap}
+.yr > .card + .card{margin-top:16px}
+</style>
+
+<div class="yr">
+  <nav class="tabs vl-tabs" aria-label="Υπηρεσία">
+    <a class="tab {{ 'is-active' if tab == 'vies' }}" href="{{ url_for('vat_lookup', tab='vies') }}">🇪🇺 VIES (ΕΕ)</a>
+    {% if gsis_on %}
+    <a class="tab {{ 'is-active' if tab == 'gsis' }}" href="{{ url_for('vat_lookup', tab='gsis') }}">🔎 Μητρώο ΑΑΔΕ</a>
+    {% else %}
+    <span class="tab" aria-disabled="true" title="Χρειάζονται ειδικοί κωδικοί: Εταιρείες → καρτέλα «🔎 Μητρώο ΑΑΔΕ»">🔎 Μητρώο ΑΑΔΕ</span>
+    {% endif %}
+  </nav>
+
+  {# Τα πεδία της αναζήτησης ανήκουν στο ενεργό tab #}
+  <section class="card" aria-label="Αναζήτηση">
+    <p class="muted vl-hint">{% if tab == 'gsis' %}Ελληνικά ΑΦΜ από το Μητρώο της ΑΑΔΕ, με τους ειδικούς κωδικούς της εταιρείας.{% else %}Έλεγχος ΑΦΜ σε όλα τα κράτη-μέλη της ΕΕ μέσω VIES.{% endif %}</p>
+    <form class="vl-search" method="get" action="{{ url_for('vat_lookup') }}" role="search">
+      <input type="hidden" name="tab" value="{{ tab }}">
+      {% if tab == 'vies' %}
+      <select name="country" aria-label="Χώρα">
+        {% for code, label in countries %}<option value="{{ code }}" {{ 'selected' if code == country }}>{{ code }} · {{ label }}</option>{% endfor %}
+      </select>
+      <input type="search" name="afm" value="{{ afm }}" autocomplete="off" placeholder="ΑΦΜ / VAT number" aria-label="ΑΦΜ" autofocus>
+      {% else %}
+      <input type="search" name="afm" value="{{ afm }}" inputmode="numeric" maxlength="11" autocomplete="off" placeholder="ΑΦΜ (9 ψηφία)" aria-label="ΑΦΜ" autofocus>
+      {% endif %}
+      <button type="submit" class="btn">Αναζήτηση</button>
+    </form>
+  </section>
+
+  {% if error %}
+  <div class="card card-danger" role="alert">{{ error }}</div>
+  {% elif result %}
+  <section class="card" aria-label="Αποτέλεσμα">
+    <div class="card-head"><h2>✔ Έγκυρο ΑΦΜ {{ afm }}</h2></div>
+    <dl class="vl-facts">
+      <div class="vl-wide"><dt>Επωνυμία</dt><dd class="vl-name">{{ result.name }}</dd></div>
+      {% if result.details %}
+      {# Μητρώο ΑΑΔΕ: όλα τα πεδία της απάντησης (η επωνυμία ήδη πάνω) #}
+      {% for label, value in result.details if label != 'Επωνυμία' %}
+      <div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>
+      {% endfor %}
+      {% else %}
+      {% if result.title %}<div class="vl-wide"><dt>Διακριτικός τίτλος</dt><dd>{{ result.title }}</dd></div>{% endif %}
+      <div><dt>Οδός</dt><dd>{{ result.street or '—' }}</dd></div>
+      <div><dt>Αριθμός</dt><dd>{{ result.number or '—' }}</dd></div>
+      <div><dt>Τ.Κ.</dt><dd>{{ result.postal_code or '—' }}</dd></div>
+      <div><dt>Πόλη</dt><dd>{{ result.city or '—' }}</dd></div>
+      {% endif %}
+    </dl>
+  </section>
+  {% if result.activities %}
+  <section class="card" aria-label="Δραστηριότητες">
+    <div class="card-head"><h2>Δραστηριότητες (ΚΑΔ)</h2></div>
+    <div class="table-wrap">
+      <table class="vl-acts">
+        <thead><tr><th>ΚΑΔ</th><th>Περιγραφή</th><th>Είδος</th></tr></thead>
+        <tbody>
+          {% for a in result.activities %}
+          <tr><td class="vl-mono">{{ a.firm_act_code }}</td><td>{{ a.firm_act_descr }}</td><td>{{ a.firm_act_kind_descr or a.firm_act_kind }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}
