@@ -377,3 +377,37 @@ c.post("/auto-cycle/ntfy/off")
 assert A._ntfy("x") is False and len(posts) == 4  # 3 κύκλοι + «Δοκιμή»· μετά το off τίποτα
 A.requests.put = orig_put
 print("OK ntfy")
+
+# Έσοδα με «Νέα από MARK»: ο κύκλος τα ανακτά κι αυτά, ώστε ο Πίνακας ελέγχου της εταιρείας να μη ζητά ανάκτηση.
+db.set_setting(A._start_key("income", b), "2026-01-01")
+for ep in A._MARK_ENDPOINTS["income"]:
+    db.set_setting(A._wm_key("income", ep, b), "900")  # διαφορετικό W από τα έξοδα (1000) → ευθυγραμμίζεται
+for k in ("income", "expense"):
+    db.delete_setting(A._last_key(k, b))
+db.set_setting("auto_cycle_companies", json.dumps({b: "fetch"}))
+calls, clients = [], []
+
+
+def make_client(send=""):  # ένας client ανά request· καταγράφει (client, endpoint, W) — ίδια τριάδα = ίδιο κλειδί cache
+    cl = NS(send_expenses_classification=send_cls)
+    cl.new_since = lambda ep, mark: (calls.append((id(cl), ep, int(mark))), new_since(ep, mark))[1]
+    clients.append(cl)
+    return cl
+
+
+A.get_client = lambda send="": A.g.setdefault("test_client", make_client(send))
+tot = A._run_cycle("δοκιμή")
+assert all(db.get_setting(A._last_key(k, b)) for k in ("income", "expense")) and tot["failed"] == 0, tot
+body = A.mydata_logs(None, A._CYCLE_DIR)[0]["body"]
+assert "εσόδων & εξόδων" in body and "Νέα παραστατικά εσόδων: 0" in body and "Νέα παραστατικά εξόδων: 0" in body, body
+tr = [x for x in calls if x[1] == "RequestTransmittedDocs"]
+assert len(tr) == 2 and len(set(tr)) == 1 and tr[0][2] == 900, calls  # ίδιο client + ίδιο W → μία πραγματική κλήση
+A.get_client = lambda send="": NS(new_since=new_since, send_expenses_classification=send_cls)
+with c.session_transaction() as s:
+    s["cid"] = b
+assert "<b>Ανάκτηση παραστατικών</b>" not in c.get("/dashboard").get_data(as_text=True)
+db.delete_setting(A._last_key("income", b))  # κάρτα ορατή + η Β στον ενεργό κύκλο → η σελίδα ξαναελέγχει μόνη της
+db.set_setting("auto_cycle_on", "1")
+html = c.get("/dashboard").get_data(as_text=True)
+assert "<b>Ανάκτηση παραστατικών</b>" in html and 'id="db-todos" data-due-in=' in html
+print("OK income fetch")

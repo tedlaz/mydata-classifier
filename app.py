@@ -1105,6 +1105,16 @@ def _init_watermarks(cid: int, kind: str) -> bool:
     return True
 
 
+def _align_watermarks(cid: int) -> None:
+    """Έσοδα & έξοδα μαζί: κοινό endpoint (RequestTransmittedDocs) με ίδιο W στα δύο βιβλία = ίδιο ερώτημα, άρα μία
+    κλήση (cache του client). Αν διαφέρουν, παίρνουν το μικρότερο: ξαναέρχονται μόνο όσα ήδη έχουμε (upsert)."""
+    for ep in set(_MARK_ENDPOINTS["income"]) & set(_MARK_ENDPOINTS["expense"]):
+        keys = [_wm_key(k, ep, cid) for k in ("income", "expense")]
+        low = min(int(db.get_setting(key)) for key in keys)
+        for key in keys:
+            db.set_setting(key, low)
+
+
 def _gr(iso: str) -> str:
     return date.fromisoformat(iso).strftime("%d/%m/%Y")
 
@@ -1196,6 +1206,8 @@ def sync_run():
     if bad:
         return bad
     ok, done = 0, []
+    if action == "new" and scope == "both" and all(_mark_ready(cid, k) for k in _SYNC_SCOPES[scope]):
+        _align_watermarks(cid)
     for kind in _SYNC_SCOPES[scope]:
         label = "Έσοδα" if kind == "income" else "Έξοδα"
         prefix = f"{label}: " if scope == "both" else ""
@@ -5716,6 +5728,9 @@ def dashboard():
              url_for("sync_run"), "info",
              {"scope": "both" if len(ready) == 2 else ready[0], "action": "new", "back": "dashboard",
               "date_from": today.isoformat(), "date_to": today.isoformat()})  # ημερομηνίες: μόνο για την επικύρωση
+        on, _, sel = _cycle_settings()
+        if on and cid in sel:  # ο αυτόματος κύκλος θα την κάνει: ξαναέλεγχος λίγο μετά τον επόμενο κύκλο
+            fetch_due_in = 30 if _cycle["running"] else max(30, int((_cycle_due() - now).total_seconds()) + 30)
     elif ready:
         fetch_due_in = int((due - now).total_seconds()) + 1
 
@@ -8143,21 +8158,34 @@ def _cycle_company(c: dict, chosen: str, tot: dict) -> None:
         tot["skipped"] += 1
         return
 
-    # 1) Ανάκτηση
+    # 1) Ανάκτηση: έξοδα και (αν έχουν «Νέα από MARK») έσοδα σε ΕΝΑ request — ένας client, άρα το κοινό
+    # RequestTransmittedDocs καλείται μία φορά (cache του client). Τα έσοδα μόνο ανακτώνται, δεν χαρακτηρίζονται.
+    # Αποτυχία μόνο των εσόδων δεν σταματά τα έξοδα.
     _cycle_set(step="Ανάκτηση από myDATA", done=0, total=0)
-    _clog("① Ανάκτηση: Νέα παραστατικά εξόδων από MARK", "head")
-    before = {r["mark"] for r in db.get_documents(cid, "expense")}
+    kinds = ("expense", "income") if _mark_ready(cid, "income") else ("expense",)
+    _clog("① Ανάκτηση: Νέα παραστατικά " + ("εσόδων & εξόδων" if len(kinds) == 2 else "εξόδων") + " από MARK", "head")
+    before = {k: {r["mark"] for r in db.get_documents(cid, k)} for k in kinds}
     was_sent = {r["mark"] for r in db.get_documents(cid, "expense", ["sent"])}
-    with _cycle_ctx(cid, {"scope": "expense", "action": "new", "date_from": today, "date_to": today}):
+    with _cycle_ctx(cid, {"scope": "both" if len(kinds) == 2 else "expense", "action": "new",
+                          "date_from": today, "date_to": today}):
         sync_run()
-        failed = any(cat == "error" for cat, _ in session.get("_flashes", []))
-    if failed:
+        errors = [str(m) for cat, m in session.get("_flashes", []) if cat == "error"]
+    # Στο «both» κάθε μήνυμα έχει πρόθεμα «Έσοδα: » / «Έξοδα: »· στο «expense» όλα αφορούν τα έξοδα.
+    if any(not m.startswith("Έσοδα: ") for m in errors):
         _clog("✗ Η ανάκτηση απέτυχε — η εταιρεία παραλείπεται σε αυτόν τον κύκλο.", "err")
         tot["failed"] += 1
         return
-    new = [r["mark"] for r in db.get_documents(cid, "expense") if r["mark"] not in before]
-    tot["new"] += len(new)
-    _clog(f"  Νέα παραστατικά εξόδων: {len(new)}" + (f" ({', '.join(new)})" if new else ""))
+    if errors:
+        tot["failed"] += 1
+        _clog("✗ Η ανάκτηση εσόδων απέτυχε — συνεχίζω με τα έξοδα.", "err")
+    for k in kinds:
+        if k == "income" and errors:
+            continue
+        new = [r["mark"] for r in db.get_documents(cid, k) if r["mark"] not in before[k]]
+        if k == "expense":
+            tot["new"] += len(new)
+        _clog(f"  Νέα παραστατικά {'εξόδων' if k == 'expense' else 'εσόδων'}: {len(new)}"
+              + (f" ({', '.join(new)})" if new else ""))
     # Επιβεβαιώσεις: όσα ήταν «απεσταλμένα» και η ανάκτηση τα βρήκε πλέον χαρακτηρισμένα στο myDATA
     if confirmed := was_sent & {r["mark"] for r in db.get_documents(cid, "expense", ["confirmed"])}:
         tot["confirmed"] += len(confirmed)
