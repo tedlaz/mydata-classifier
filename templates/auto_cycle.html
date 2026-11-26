@@ -205,6 +205,16 @@
 .acx-field small{color:var(--muted);font-size:.75rem}
 .acx-min{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.85rem}
 .acx-min input{width:6.5em}
+.acx-min input[type=radio]{width:18px;height:18px;flex:none}
+.acx-min input[name=times]{width:auto;flex:1;min-width:0}
+.acx-when{display:grid;justify-content:stretch;gap:8px;cursor:default;grid-column:1 / -1}
+.acx-days{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:.85rem;padding-left:26px}
+.acx-days label{display:flex;align-items:center;gap:4px}
+.acx-days .btn-ghost{padding:2px 10px;font-size:.78rem}
+.acx-when:has(input[value=every]:checked) .acx-days,
+.acx-when:has(input[value=every]:checked) input[name=times],
+.acx-when:has(input[value=at]:checked) input[name=minutes],
+.acx-when:has(input[value=at]:checked) select[name=unit]{opacity:.45}
 .acx-co-head{display:grid;gap:2px}
 .acx-note{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 14px;border-radius:12px;font-size:.88rem;
   background:var(--err-soft);border:1px solid var(--err-line);color:var(--ink)}
@@ -293,9 +303,25 @@
           <div class="acx-note" id="acx-set-note" hidden></div>
           <div class="acx-sched">
             <label class="acx-field"><input type="checkbox" name="on" value="1" {{ 'checked' if on }}>
-              <span><b>Χρονοπρογραμματισμός ενεργός</b><small>Ο κύκλος ξεκινά μόνος του κάθε τόσο</small></span></label>
-            <label class="acx-field"><span><b>Διάστημα κύκλου</b><small>5 – 1440 λεπτά</small></span>
-              <span class="acx-min"><input type="number" name="minutes" min="5" max="1440" value="{{ minutes }}" inputmode="numeric" required> λεπτά</span></label>
+              <span><b>Χρονοπρογραμματισμός ενεργός</b><small>{{ sched_label }}</small></span></label>
+            {%- set hrs = minutes % 60 == 0 %}
+            <div class="acx-field acx-when">
+              <label class="acx-min"><input type="radio" name="mode" value="every" {{ 'checked' if sched.mode == 'every' }}>
+                <b>Κάθε</b>
+                <input type="number" name="minutes" min="1" max="10080" value="{{ minutes // 60 if hrs else minutes }}" inputmode="numeric">
+                <select name="unit"><option value="minutes">λεπτά</option><option value="hours" {{ 'selected' if hrs }}>ώρες</option></select></label>
+              <label class="acx-min"><input type="radio" name="mode" value="at" {{ 'checked' if sched.mode == 'at' }}>
+                <b>Στις</b>
+                <input type="text" name="times" value="{{ times }}" placeholder="08:00, 22:00" title="Μία ή περισσότερες ώρες, χωρισμένες με κόμμα"></label>
+              <div class="acx-days" data-mode="at">
+                {%- for d in day_names %}
+                <label><input type="checkbox" name="days" value="{{ loop.index0 }}" {{ 'checked' if loop.index0 in days }}>{{ d }}</label>
+                {%- endfor %}
+                <button type="button" class="btn-ghost" data-days="0,1,2,3,4,5,6">Όλες</button>
+                <button type="button" class="btn-ghost" data-days="0,1,2,3,4">Καθημερινές</button>
+                <button type="button" class="btn-ghost" data-days="5,6">Σ/Κ</button>
+              </div>
+            </div>
           </div>
           <div class="acx-co-head">
             <b>Εταιρείες — τι κάνει ο κύκλος σε καθεμία</b>
@@ -555,10 +581,12 @@
       sub = s.step || 'Έναρξη';
       setArc(parseFloat($('acx-bar').style.width) / 100 || 0); setTicks(Math.floor(el) % 60 + 1);
     } else if (nextAt) {
-      const left = (nextAt - Date.now()) / 1000, total = (s.minutes || 60) * 60;
+      const prev = s.prev_run ? new Date(s.prev_run).getTime() : 0;
+      const left = (nextAt - Date.now()) / 1000, total = prev && nextAt > prev ? (nextAt - prev) / 1000 : (s.minutes || 60) * 60;
       label = 'Επόμενος κύκλος'; txt = clock(Math.ceil(left));
       hot = left <= 10;
-      sub = left <= 0 ? '🚀 Ξεκινά…' : `στις ${new Date(nextAt).toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit'})}`;
+      const at = new Date(nextAt), today = at.toDateString() === new Date().toDateString();
+      sub = left <= 0 ? '🚀 Ξεκινά…' : `${today ? '' : at.toLocaleDateString('el-GR', {weekday: 'short', day: 'numeric', month: 'numeric'}) + ' '}στις ${at.toLocaleTimeString('el-GR', {hour: '2-digit', minute: '2-digit'})}`;
       setArc(left / total); setTicks(Math.ceil(Math.max(0, left)) % 60 || (left > 0 ? 60 : 0));
     } else {
       label = PH[s.phase] || ''; txt = '--:--'; setArc(0); setTicks(0);
@@ -594,6 +622,14 @@
   // Mini μπάρα όταν το ρολόι κυλήσει εκτός οθόνης.
   new IntersectionObserver(([e]) => { $('acx-mini').hidden = e.isIntersecting; }).observe($('acx-clock'));
 
+  document.addEventListener('click', e => {  // γρήγορη επιλογή μερών (document: η φόρμα αντικαθίσταται σε ανανέωση)
+    const b = e.target.closest('.acx-days [data-days]');
+    if (!b) return;
+    const on = b.dataset.days.split(',');
+    b.parentElement.querySelectorAll('input[name=days]').forEach(i => { i.checked = on.includes(i.value); });
+    b.closest('.acx-when').querySelector('input[value=at]').checked = true;
+    dirty = true;
+  });
   const post = url => fetch(url, {method: 'POST'}).then(poll);
   $('acx-start').addEventListener('click', () => { $('acx-start').disabled = true; boom(); post(`{{ url_for('auto_cycle_start') }}`); });
   $('acx-toggle').addEventListener('click', () => {

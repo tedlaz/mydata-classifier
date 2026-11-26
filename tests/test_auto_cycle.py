@@ -97,6 +97,28 @@ c.post("/auto-cycle/settings", data={"on": "1", "minutes": "15", f"level_{b}": "
 assert A._cycle_settings() == (True, 15, {b: "send"})
 c.post("/auto-cycle/settings", data={"minutes": "2"})  # εκτός ορίων → καμία αλλαγή
 assert A._cycle_settings() == (True, 15, {b: "send"})
+# Χρονοπρογραμματισμός: «Κάθε 3 ώρες», «Στις» ώρες/μέρες, άκυρα.
+c.post("/auto-cycle/settings", data={"on": "1", "minutes": "3", "unit": "hours", f"level_{b}": "send"})
+assert A._cycle_settings()[1] == 180 and A._cycle_label(A._cycle_sched()) == "Κάθε 3 ώρες"
+for bad in ({"times": "25:00", "days": ["0"]}, {"times": "08:00"}, {"times": "", "days": ["0"]}):
+    c.post("/auto-cycle/settings", data={"on": "1", "mode": "at", f"level_{b}": "send", **bad})
+    assert A._cycle_sched()["mode"] == "every", bad
+c.post("/auto-cycle/settings", data={"on": "1", "mode": "at", "times": "8:00", "days": ["0", "1", "2", "3", "4"],
+                                     f"level_{b}": "send"})
+sc = A._cycle_sched()
+assert sc["mode"] == "at" and A._cycle_label(sc) == "Κάθε καθημερινή στις 08:00", sc
+assert A._cycle_settings() == (True, 180, {b: "send"})
+T = lambda s: A.datetime.fromisoformat(s).replace(tzinfo=A.ATHENS)  # noqa: E731
+assert A._cycle_next(T("2026-11-27 09:00"), sc) == T("2026-11-30 08:00")  # Παρ μετά τις 8 → Δευτ
+assert A._cycle_next(T("2026-11-30 07:59"), sc) == T("2026-11-30 08:00")
+daily = {"mode": "at", "times": [(8, 0), (22, 0)], "days": set(range(7))}
+assert A._cycle_next(T("2026-11-28 22:00"), daily) == T("2026-11-29 08:00")  # ακριβώς στην ώρα → η επόμενη
+assert A._cycle_next(T("2026-11-28 21:59"), daily) == T("2026-11-28 22:00")
+assert A._cycle_label({"mode": "at", "times": [(10, 0)], "days": {5, 6}}) == "Κάθε Σαββατοκύριακο στις 10:00"
+assert c.get("/auto-cycle/status").get_json()["label"] == "Κάθε καθημερινή στις 08:00"
+assert "Κάθε καθημερινή στις 08:00" in c.get("/auto-cycle").get_data(as_text=True)
+c.post("/auto-cycle/settings", data={"on": "1", "minutes": "15", f"level_{b}": "send"})  # πίσω σε every για τα επόμενα
+assert A._cycle_sched()["mode"] == "every" and A._cycle_settings() == (True, 15, {b: "send"})
 assert c.get(f"/auto-cycle/log/{log['name']}").status_code == 200
 assert c.get("/auto-cycle/log/..%2Fx.log").status_code == 404
 print("OK")

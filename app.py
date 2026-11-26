@@ -7889,7 +7889,7 @@ if getattr(sys, "frozen", False):
 
 
 # ------------------------------------------------------------------ #
-# ΑΥΤΟΜΑΤΟΣ ΚΥΚΛΟΣ: κάθε auto_cycle_minutes, για τις επιλεγμένες εταιρείες μία-μία: «Νέα παραστατικά από MARK»
+# ΑΥΤΟΜΑΤΟΣ ΚΥΚΛΟΣ: κάθε auto_cycle_minutes ή στις ώρες/μέρες του προγράμματος (_cycle_sched), για τις επιλεγμένες εταιρείες μία-μία: «Νέα παραστατικά από MARK»
 # (έξοδα) → χαρακτηρισμός όσων έχουν πρόταση συναλλασσόμενου → αποστολή τους στο myDATA. Όσα δεν έχουν πρόταση
 # δεν αγγίζονται, μόνο καταγράφονται. Καλούνται τα ίδια views με τα κουμπιά (sync_run, bulk_classify, send) σε
 # ψεύτικο request με g.auto_cid: ίδιοι έλεγχοι, και η ενεργή εταιρεία του χρήστη δεν αλλάζει.
@@ -7995,11 +7995,67 @@ def _cycle_after_company_edit(response):
     return response
 
 
+_DAYS = ("Δε", "Τρ", "Τε", "Πέ", "Πα", "Σά", "Κυ")
+CYCLE_MAX_MINUTES = 7 * 1440
+
+
+def _parse_times(s: str) -> list[tuple[int, int]] | None:
+    """«08:00, 22:00» → [(8, 0), (22, 0)] ταξινομημένες· None αν κάποια δεν είναι έγκυρη ώρα ή δεν δόθηκε καμία."""
+    out = set()
+    for part in re.split(r"[,;\s]+", s.strip()):
+        m = re.fullmatch(r"(\d{1,2}):(\d{2})", part)
+        if not m or int(m[1]) > 23 or int(m[2]) > 59:
+            return None
+        out.add((int(m[1]), int(m[2])))
+    return sorted(out) or None
+
+
+def _parse_days(s: str) -> set[int]:
+    return {int(d) for d in s.split(",") if d.strip() in {"0", "1", "2", "3", "4", "5", "6"}}
+
+
+def _cycle_sched() -> dict:
+    """Χρονοπρογραμματισμός: mode every = κάθε minutes λεπτά από την έναρξη του προηγούμενου·
+    at = στις times, τις μέρες days (0 = Δευτέρα). Ελλιπές «at» → every (όπως πριν υπάρξει)."""
+    times = _parse_times(db.get_setting("auto_cycle_times") or "") or []
+    days = _parse_days(db.get_setting("auto_cycle_days") or "")
+    mode = "at" if db.get_setting("auto_cycle_mode") == "at" and times and days else "every"
+    return {"mode": mode, "minutes": _cycle_settings()[1], "times": times, "days": days}
+
+
+def _cycle_label(sc: dict) -> str:
+    """«Κάθε 3 ώρες», «Κάθε καθημερινή στις 08:00», «Σά, Κυ στις 10:00, 18:00»."""
+    if sc["mode"] == "every":
+        m = sc["minutes"]
+        for unit, one, many in ((1440, "Κάθε μέρα", "μέρες"), (60, "Κάθε ώρα", "ώρες")):
+            if m % unit == 0:
+                return one if m == unit else f"Κάθε {m // unit} {many}"
+        return f"Κάθε {m} λεπτά"
+    d = sc["days"]
+    days = ("Κάθε μέρα" if len(d) == 7 else "Κάθε καθημερινή" if d == {0, 1, 2, 3, 4}
+            else "Κάθε Σαββατοκύριακο" if d == {5, 6} else ", ".join(_DAYS[i] for i in sorted(d)))
+    return f"{days} στις " + ", ".join(f"{h:02}:{m:02}" for h, m in sc["times"])
+
+
+def _cycle_next(last: datetime, sc: dict) -> datetime:
+    """Επόμενη εκτέλεση μετά το last. «at»: η πρώτη ώρα του προγράμματος αυστηρά μετά το last· αν η εφαρμογή ήταν
+    κλειστή σε κάποια, τρέχει μία φορά μόλις ανοίξει (όχι μία για κάθε χαμένη)."""
+    if sc["mode"] == "every":
+        return last + timedelta(minutes=sc["minutes"])
+    day = last.astimezone(ATHENS).date()
+    for i in range(8):
+        d = day + timedelta(days=i)
+        if d.weekday() in sc["days"]:
+            for h, m in sc["times"]:
+                if (t := datetime(d.year, d.month, d.day, h, m, tzinfo=ATHENS)) > last:
+                    return t
+    return last + timedelta(days=1)  # δεν φτάνει ποτέ εδώ (days μη κενό)
+
+
 def _cycle_due() -> datetime:
     """Πότε τρέχει ο επόμενος προγραμματισμένος κύκλος (μετρά από την έναρξη του προηγούμενου)."""
     last = db.get_setting("auto_cycle_last")
-    now = datetime.now(ATHENS)
-    return datetime.fromisoformat(last) + timedelta(minutes=_cycle_settings()[1]) if last else now
+    return _cycle_next(datetime.fromisoformat(last), _cycle_sched()) if last else datetime.now(ATHENS)
 
 
 def _cycle_set(**kw) -> None:
@@ -8416,7 +8472,8 @@ def _run_cycle(trigger: str) -> dict:
     _cycle_stop.clear()
     _cycle_buf.clear()
     _cycle_rec.clear()
-    _cycle_rec.update(started=started.isoformat(), trigger=trigger, minutes=minutes, lines=[], companies=[],
+    _cycle_rec.update(started=started.isoformat(), trigger=trigger, minutes=minutes,
+                      schedule=_cycle_label(_cycle_sched()), lines=[], companies=[],
                       ended=None, secs=0, stopped=False, totals={})
     _cycle_set(running=True, trigger=trigger, company="", step="Έναρξη", done=0, total=0,
                started=started.isoformat(), lines=[], cidx=0, companies=[])
@@ -8529,7 +8586,11 @@ def auto_cycle():
     on, minutes, sel = _cycle_settings()
     companies = [dict(c, ready=_mark_ready(c["id"], "expense"), max_level=_cycle_allowed(c),
                       level=sel.get(c["id"], "")) for c in load_companies()]
+    sched = _cycle_sched()
     return render_template("auto_cycle.html", on=on, minutes=minutes, ids=sel, companies=companies,
+                           sched=sched, sched_label=_cycle_label(sched), day_names=_DAYS,
+                           times=db.get_setting("auto_cycle_times") or "08:00",
+                           days=_parse_days(db.get_setting("auto_cycle_days") or "0,1,2,3,4"),
                            levels=_CYCLE_LEVELS, rank=_LEVEL_RANK,
                            history=_cycle_history(), running_started=_cycle["started"] if _cycle["running"] else None,
                            notify_pairing=_ntfy_pairing())
@@ -8549,10 +8610,11 @@ def auto_cycle_status():
         lines = [ln for ln in _cycle["lines"] if ln["n"] > since]  # νέος κύκλος = νέο started → η σελίδα καθαρίζει
     phase = _cycle_phase()
     # Υπογραφή των ρυθμίσεων: αν αλλάξει (επιλογή ή άδειες εταιρείας), η σελίδα ξαναφέρνει τις Ρυθμίσεις.
-    settings_sig = json.dumps([minutes, on] + [[c["id"], c["company_name"], sel.get(c["id"], ""), _cycle_allowed(c)]
+    label = _cycle_label(_cycle_sched())
+    settings_sig = json.dumps([minutes, on, label] + [[c["id"], c["company_name"], sel.get(c["id"], ""), _cycle_allowed(c)]
                                                for c in load_companies()], ensure_ascii=False)
     return {**state, "phase": phase, "on": on, "minutes": minutes, "lines": lines, "notes": notes,
-            "settings_sig": settings_sig,
+            "settings_sig": settings_sig, "label": label, "prev_run": db.get_setting("auto_cycle_last") or None,
             "next_run": _cycle_due().isoformat() if on and phase == "idle" else None,
             "now": datetime.now(ATHENS).isoformat()}
 
@@ -8606,10 +8668,26 @@ def auto_cycle_ntfy(action):
 
 @app.route("/auto-cycle/settings", methods=["POST"])
 def auto_cycle_settings():
-    minutes = request.form.get("minutes", "").strip()
-    if not (minutes.isdigit() and 5 <= int(minutes) <= 1440):
-        flash("Το διάστημα του κύκλου πρέπει να είναι από 5 έως 1440 λεπτά.", "error")
-        return redirect(url_for("auto_cycle"))
+    mode = "at" if request.form.get("mode") == "at" else "every"
+    if mode == "every":
+        minutes = request.form.get("minutes", "").strip()
+        minutes = str(int(minutes) * (60 if request.form.get("unit") == "hours" else 1)) if minutes.isdigit() else ""
+        if not (minutes and 5 <= int(minutes) <= CYCLE_MAX_MINUTES):
+            flash("Το διάστημα του κύκλου πρέπει να είναι από 5 λεπτά έως 168 ώρες (7 μέρες).", "error")
+            return redirect(url_for("auto_cycle"))
+    else:
+        minutes = str(_cycle_settings()[1])
+        times = _parse_times(request.form.get("times", ""))
+        days = _parse_days(",".join(request.form.getlist("days")))
+        if not times or not days:
+            flash("Δώσε τουλάχιστον μία ώρα (π.χ. 08:00 ή 08:00, 22:00) και τουλάχιστον μία μέρα.", "error")
+            return redirect(url_for("auto_cycle"))
+        old = _cycle_sched()
+        db.set_setting("auto_cycle_times", ", ".join(f"{h:02}:{m:02}" for h, m in times))
+        db.set_setting("auto_cycle_days", ",".join(map(str, sorted(days))))
+        if (old["mode"], old["times"], old["days"]) != ("at", times, days):  # νέο πρόγραμμα: ισχύει από τώρα,
+            db.set_setting("auto_cycle_last", datetime.now(ATHENS).isoformat())  # όχι «χαμένη» ώρα του παρελθόντος
+    db.set_setting("auto_cycle_mode", mode)
     sel = {}
     for c in load_companies():  # level_<id>: "" = εκτός κύκλου· ποτέ πάνω από ό,τι επιτρέπουν οι άδειές της
         chosen = request.form.get(f"level_{c['id']}", "")
