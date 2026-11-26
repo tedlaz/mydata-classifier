@@ -5,7 +5,8 @@ services:
     container_name: mydata-classifier
     restart: unless-stopped
     ports:
-      - "8341:8000"
+      # Π.χ. MYDATA_PORT=127.0.0.1:8341 στο .env για πρόσβαση μόνο μέσω reverse proxy
+      - "${MYDATA_PORT:-8341}:8000"
     environment:
       # ΥΠΟΧΡΕΩΤΙΚΟ: άλλαξέ το σε τυχαία μυστική τιμή
       FLASK_SECRET: "${FLASK_SECRET:-please-change-me}"
