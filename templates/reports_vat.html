@@ -22,6 +22,7 @@
       {% for y in years %}<a href="{{ url_for('reports_vat', year=y, period=period) }}" {% if y == year %}aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
     </nav>
     <a class="btn btn-ghost" href="{{ url_for('reports_vat_reconcile', year=year, period=period) }}">🔎 Συμφωνία</a>
+    <a class="btn btn-ghost" href="{{ url_for('reports_art46', as_of=date_to) }}" title="Τιμολόγια προμηθευτών άρθρου 46 (39β): τι πληρώθηκε και τι μένει">🕒 Άρθρο 46</a>
     <button type="button" class="btn-ghost" onclick="print()">🖨 Εκτύπωση</button>
   </div>
 </div>

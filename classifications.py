@@ -4,6 +4,7 @@
 (Παράρτημα: Κωδικός Τύπου Χαρακτηρισμού Εξόδων) και το xls «Συνδυασμοί χαρακτηρισμών»:
 https://www.aade.gr/mydata/tehnikes-prodiagrafes-ekdoseis-mydata
 """
+import json
 
 EXPENSE_CATEGORIES = {
     "category2_1": "Αγορές Εμπορευμάτων",
@@ -435,3 +436,11 @@ TAX_CATEGORIES = {
     "3": OTHER_TAX_CATEGORIES,
     "4": STAMP_DUTY_CATEGORIES,
 }
+
+
+def is_informational(cls_json: str | None) -> bool:
+    """Μόνο πληροφοριακοί χαρακτηρισμοί (category1_95 / category2_95, π.χ. πληρωμή προμηθευτή άρθρου 46): δηλώνονται
+    στο myDATA για το Φ2, αλλά δεν είναι έσοδο/έξοδο — έξω από τις οικονομικές αναφορές, μέσα στη δήλωση ΦΠΑ.
+    ponytail: ανά παραστατικό· μεικτό (γραμμή 2_95 + κανονική) μετρά ολόκληρο — ανά γραμμή αν χρειαστεί."""
+    e3 = [e for e in json.loads(cls_json or "[]") if not (e.get("type") or "").startswith("VAT_")]
+    return bool(e3) and all((e.get("category") or "").endswith("_95") for e in e3)

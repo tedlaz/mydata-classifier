@@ -12,7 +12,7 @@ import json
 import xml.etree.ElementTree as ET
 from functools import lru_cache
 
-from classifications import CREDIT_INVOICE_TYPES, EU_COUNTRIES
+from classifications import CREDIT_INVOICE_TYPES, EU_COUNTRIES, is_informational
 
 # Κατηγορία ΦΠΑ myDATA → (κωδ. βάσης, κωδ. φόρου, συντελεστής).
 # ponytail: οι νησιωτικοί 4% (κατηγ. 6 και 10) πάνε και οι δύο στο 305· το 308 (4% ηπειρωτική)
@@ -209,6 +209,8 @@ def compute(income: list[dict], expense: list[dict], prev_credit: float = 0.0, p
     for d in filter(_sent, expense):
         if d.get("local_action") in ("reject", "cancel"):
             continue
+        if d.get("vat_cash") and not is_informational(d.get("cls_json")):
+            continue  # προμηθευτής άρθρου 46 (39β): ο ΦΠΑ μπαίνει με την πληρωμή (εγγραφή 2_95), όχι με το τιμολόγιο
         lines = {ln.get("line_number"): ln for ln in json.loads(d["lines_json"] or "[]")}
         for typ, base, tax, ns in _input_vat(d):  # χωρίς χαρακτηρισμό ΦΠΑ → εκτός δήλωσης
             base_code, tax_code = INPUT_CODES[typ]
@@ -263,6 +265,9 @@ def compute(income: list[dict], expense: list[dict], prev_credit: float = 0.0, p
 
 
 OUT, ND = "out", "nd"  # στήλες «Εκτός Φ2» και «ΦΠΑ μη εκπιπτόμενος» του πίνακα συμφωνίας
+# Τιμολόγια προμηθευτή άρθρου 46 (39β): βάση και ΦΠΑ που ΔΕΝ μπαίνουν στο Φ2 του τιμολογίου — μπαίνουν με τις πληρωμές.
+A46, A46V = "a46", "a46v"
+INFO_ROW = "2.95"  # γραμμή της συμφωνίας για τα πληροφοριακά (πληρωμές άρθρου 46)
 
 
 def _e3(d: dict) -> list[dict]:
@@ -274,7 +279,8 @@ def _matrix(rows: dict, cols_order: list[str], total: float, docs: dict) -> dict
     """{e3: {στήλη: ποσό}} → γραμμές/στήλες για προβολή, με σύνολα και έλεγχο συμφωνίας.
     docs = {(e3, στήλη): {mark: ποσό}}: ποια παραστατικά σχηματίζουν κάθε κελί (modal της συμφωνίας)."""
     used = [c for c in cols_order if any(abs(r.get(c, 0.0)) >= 0.005 for r in rows.values())]
-    bases = {b for b, _, _ in OUTPUT_RATES.values()} | {b for b, _ in INPUT_CODES.values()} | set(EXEMPT_CODES.values()) | {OUT}
+    bases = ({b for b, _, _ in OUTPUT_RATES.values()} | {b for b, _ in INPUT_CODES.values()} | set(EXEMPT_CODES.values())
+             | {OUT, A46})
     base_cols = [c for c in used if c in bases]  # βάσεις (30x/36x) + εκτός = καθαρή αξία· όχι οι φόροι
     out_rows = []
     for e3 in sorted(rows, key=lambda k: (k == "", k)):
@@ -342,14 +348,23 @@ def reconcile(income: list[dict], expense: list[dict]) -> dict:
         net_doc = sign * (d["total_net"] or 0.0)
         total += net_doc
         e3 = _e3(d)
-        owners = e3 or [{"type": "", "amount": 1.0}]
+        info = is_informational(d.get("cls_json"))
+        owners = e3 or [{"type": INFO_ROW if info else "", "amount": 1.0}]
         # Καθαρή αξία ανά Ε3: κατά το ποσό του (κλιμάκωση όταν τα Ε3 αθροίζουν σε μικτή, π.χ. 2.5).
         weight = sum(sign * (o.get("amount") or 0.0) for o in owners)
         nets = ([net_doc * sign * (o.get("amount") or 0.0) / weight for o in owners] if weight
                 else [net_doc / len(owners)] * len(owners))  # Ε3 με μηδενικά ποσά: ισόποσα
         left = list(nets)
         taxed = 0.0
-        if _sent(d) and d.get("local_action") not in ("reject", "cancel"):
+        if _sent(d) and d.get("local_action") not in ("reject", "cancel") and d.get("vat_cash") and not info:
+            # Άρθρο 46 (39β): ούτε 36x/38x ούτε «μη εκπιπτόμενος» — ο ΦΠΑ εκκρεμεί, εκπίπτει με τις πληρωμές.
+            w = sum(abs(x) for x in nets) or 1.0
+            for i, o in enumerate(owners):
+                add(rows, o.get("type") or "", A46, left[i])
+                add(rows, o.get("type") or "", A46V, sign * (d["total_vat"] or 0.0) * abs(nets[i]) / w)
+                left[i] = 0.0
+            nd = 0.0
+        elif _sent(d) and d.get("local_action") not in ("reject", "cancel"):
             vat_entries = [e for e in json.loads(d["cls_json"] or "[]") if (e.get("type") or "").startswith("VAT_")]
             free = list(range(len(owners)))
             for (typ, base, tax, _), ve in zip(_input_vat(d), vat_entries):
@@ -378,9 +393,38 @@ def reconcile(income: list[dict], expense: list[dict]) -> dict:
             src = left if sum(abs(x) for x in left) else nets
             for i, o in enumerate(owners):
                 add(rows, o.get("type") or "", ND, nd * abs(src[i]) / w)
-    exp_cols = [c for t in sorted(INPUT_CODES) for c in INPUT_CODES[t]] + [OUT, ND]
+    exp_cols = [c for t in sorted(INPUT_CODES) for c in INPUT_CODES[t]] + [A46, A46V, OUT, ND]
     out["expense"] = _matrix(rows, exp_cols, total, docs)
     return out
+
+
+def art46_ledger(docs: list[dict], as_of: str | None = None) -> list[dict]:
+    """Εκκαθάριση άρθρου 46 (39β) ανά προμηθευτή (db.art46_documents): καρτέλα με τα τιμολόγια (vat_cash, χρέωση)
+    και τις πληρωμές (2_95, πίστωση) κατά ημερομηνία, σε ζευγάρια καθαρή αξία / ΦΠΑ, με τρέχον υπόλοιπο. Ο ΦΠΑ που εκπίπτει
+    είναι ό,τι δηλώθηκε στις πληρωμές (όπως στο Φ2). as_of (yyyy-mm-dd): μόνο ό,τι εκδόθηκε έως τότε."""
+    out: dict[str, dict] = {}
+    for d in docs:  # ήδη κατά ημερομηνία (db.art46_documents)
+        if as_of and (d.get("issue_date") or "") > as_of:
+            continue
+        sign = -1 if d["invoice_type"] in CREDIT_INVOICE_TYPES else 1
+        s = out.setdefault(d.get("counterparty_vat") or "", {"vat_number": d.get("counterparty_vat") or "",
+                           "name": d.get("counterparty_name") or "", "rows": [], "invoices": 0})
+        pay = not d.get("vat_cash") or is_informational(d.get("cls_json"))
+        s["invoices"] += not pay
+        s["rows"].append(dict(d, payment=pay, net=round(sign * (d.get("total_net") or 0.0), 2),
+                              vat=round(sign * (d.get("total_vat") or 0.0), 2)))
+    for s in out.values():
+        rest = rest_vat = 0.0
+        for r in s["rows"]:
+            k = -1 if r["payment"] else 1
+            rest, rest_vat = round(rest + k * r["net"], 2), round(rest_vat + k * r["vat"], 2)
+            r.update(rest=rest, rest_vat=rest_vat)
+        inv = [r for r in s["rows"] if not r["payment"]]
+        pay = [r for r in s["rows"] if r["payment"]]
+        s["totals"] = {"net": round(sum(r["net"] for r in inv), 2), "vat": round(sum(r["vat"] for r in inv), 2),
+                       "paid": round(sum(r["net"] for r in pay), 2), "vat_deducted": round(sum(r["vat"] for r in pay), 2),
+                       "rest": rest, "rest_vat": rest_vat}
+    return sorted(out.values(), key=lambda s: (-abs(s["totals"]["rest"]), s["name"] or s["vat_number"]))
 
 
 if __name__ == "__main__":

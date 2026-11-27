@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Εκκαθάριση άρθρου 46{% endblock %}
+{% block content %}
+<style>
+.a46-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0 16px}
+.a46-sum div{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.a46-sum span{display:block;font-size:.74rem;color:var(--muted);font-weight:600}
+.a46-sum b{font:800 1.05rem var(--font-data)}
+.a46-sum .is-open b{color:var(--warn, var(--accent))}
+.a46-card{margin-bottom:14px}
+.a46-card h2{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;margin:0 0 6px;font-size:1rem}
+.a46-card h2 small{font:600 .78rem var(--font-data);color:var(--muted)}
+.a46-card h2 .pill{margin-left:auto}
+.a46-t{width:100%;border-collapse:collapse;font-size:.82rem}
+.a46-t th,.a46-t td{padding:5px 8px;border-bottom:1px solid var(--line-soft);white-space:nowrap;text-align:right}
+.a46-t th{font-size:.72rem;color:var(--muted);font-weight:700;background:var(--surface-2)}
+.a46-t th:first-child,.a46-t td:first-child,.a46-t td.l{text-align:left}
+.a46-t td{font-family:var(--font-data)}
+.a46-t tfoot td{font-weight:800;border-top:2px solid var(--line)}
+.a46-t tr.is-pay td{background:color-mix(in srgb,var(--ok-soft, var(--surface-2)) 60%,transparent)}
+.a46-t .rest{font-weight:800}
+.a46-t thead th{vertical-align:bottom}
+.a46-t thead th.l{text-align:left}
+.a46-t thead th.grp{text-align:center;border-bottom:1px solid var(--line)}
+.a46-t .g{border-left:2px solid var(--line)}  /* αρχή του «Υπόλοιπο» */
+.a46-t td.neg{color:var(--err)}               /* πληρωμή: αρνητικά ποσά */
+.a46-pay{margin:8px 0 0;font-size:.8rem;color:var(--ink-2)}
+.a46-pay a{font-family:var(--font-data)}
+.a46-warn{color:var(--err);font-weight:700}
+.a46-scroll{overflow-x:auto}
+.a46-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+</style>
+
+<div class="yr-head">
+  <div>
+    <a class="back back--inline" href="{{ url_for('reports_vat') }}">← Δήλωση ΦΠΑ</a>
+    <h1>Εκκαθάριση άρθρου 46 (39β)</h1>
+    <p class="page-sub">Τιμολόγια προμηθευτών στο ειδικό καθεστώς ΦΠΑ κατά την είσπραξη (σημειωμένα «Με την πληρωμή» στη σελίδα
+      του παραστατικού) και οι πληρωμές τους (εγγραφές 2.95 — Φόρμα καταχώρησης → «Πληρωμή προμηθευτή άρθρου 46»),
+      ανά προμηθευτή και κατά ημερομηνία· αξία (καθαρή) και ΦΠΑ, με το υπόλοιπο μετά από κάθε κίνηση.</p>
+  </div>
+</div>
+
+<section class="card">
+  <form method="get" class="a46-bar">
+    <label>Κατάσταση στις <input type="date" name="as_of" value="{{ as_of }}" onchange="this.form.submit()"></label>
+    <label class="check"><input type="checkbox" name="open" value="1" {{ 'checked' if open_only }} onchange="this.form.submit()"> Μόνο με υπόλοιπο</label>
+    {% if suppliers %}<a class="btn btn-ghost btn-sm" href="{{ url_for('entry', preset='art46') }}">＋ Πληρωμή προμηθευτή άρθρου 46</a>{% endif %}
+  </form>
+  <div class="a46-sum">
+    <div><span>Τιμολόγια · αξία</span><b>{{ totals.net|el_amount }}</b></div>
+    <div><span>Τιμολόγια · ΦΠΑ</span><b>{{ totals.vat|el_amount }}</b></div>
+    <div><span>Πληρωμές · αξία</span><b>{{ totals.paid|el_amount }}</b></div>
+    <div><span>Πληρωμές · ΦΠΑ (εκπίπτει)</span><b>{{ totals.vat_deducted|el_amount }}</b></div>
+    <div class="is-open"><span>Υπόλοιπο · αξία</span><b>{{ totals.rest|el_amount }}</b></div>
+    <div class="is-open"><span>Υπόλοιπο · ΦΠΑ (εκκρεμεί)</span><b>{{ totals.rest_vat|el_amount }}</b></div>
+  </div>
+</section>
+
+{% for s in suppliers if not open_only or s.totals.rest|abs >= 0.005 %}
+<section class="card a46-card">
+  <h2>{% if s.vat_number %}<a href="{{ url_for('supplier_rules', vat=s.vat_number) }}">{{ s.name|cpname or s.vat_number }}</a>{% else %}Χωρίς ΑΦΜ{% endif %}
+    <small>ΑΦΜ {{ s.vat_number or '—' }}</small>
+    <span class="pill">{{ '✔ Εξοφλημένος' if s.totals.rest|abs < 0.005 and s.invoices else 'Υπόλοιπο ' ~ (s.totals.rest|el_amount) ~ ' + ΦΠΑ ' ~ (s.totals.rest_vat|el_amount) }}</span></h2>
+  <div class="a46-scroll">
+  <table class="a46-t">
+    <thead>
+      <tr><th rowspan="2" class="l">Ημ/νία</th><th rowspan="2" class="l">Κίνηση</th><th rowspan="2" class="l">Παραστατικό</th>
+        <th rowspan="2">Αξία</th><th rowspan="2">ΦΠΑ</th><th rowspan="2">Σύνολο</th>
+        <th colspan="3" class="g grp">Υπόλοιπο</th></tr>
+      <tr><th class="g">Αξία</th><th>ΦΠΑ</th><th>Σύνολο</th></tr>
+    </thead>
+    <tbody>
+      {% for r in s.rows %}
+      {% set k = -1 if r.payment else 1 %}{% set neg = 'neg' if r.payment else '' %}
+      <tr class="{{ 'is-pay' if r.payment else 'is-inv' }}">
+        <td class="l">{{ '/'.join(r.issue_date.split('-')[::-1]) }}</td>
+        <td class="l">{{ '💳 Πληρωμή (2.95)' if r.payment else '🧾 Τιμολόγιο' }}</td>
+        <td class="l"><a href="{{ url_for('document', mark=r.mark) }}">{{ r.invoice_type }} · {{ r.series or '0' }}/{{ r.aa }}</a></td>
+        <td class="{{ neg }}">{{ (k * r.net)|el_amount }}</td><td class="{{ neg }}">{{ (k * r.vat)|el_amount }}</td>
+        <td class="{{ neg }}">{{ (k * (r.net + r.vat))|el_amount }}</td>
+        <td class="g rest">{{ r.rest|el_amount }}</td><td class="rest">{{ r.rest_vat|el_amount }}</td>
+        <td class="rest">{{ (r.rest + r.rest_vat)|el_amount }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr><td class="l" colspan="3">Σύνολο</td>
+      <td>{{ s.totals.rest|el_amount }}</td><td>{{ s.totals.rest_vat|el_amount }}</td>
+      <td>{{ (s.totals.rest + s.totals.rest_vat)|el_amount }}</td>
+      <td class="g rest">{{ s.totals.rest|el_amount }}</td><td class="rest">{{ s.totals.rest_vat|el_amount }}</td>
+      <td class="rest">{{ (s.totals.rest + s.totals.rest_vat)|el_amount }}</td></tr></tfoot>
+  </table>
+  </div>
+  {% if not s.invoices %}<p class="a46-pay a46-warn">⚠ Πληρωμές χωρίς σημειωμένο τιμολόγιο — σημείωσε τα τιμολόγια του προμηθευτή «ΦΠΑ: Με την πληρωμή (αρ. 46)».</p>
+  {% elif s.totals.rest < -0.005 %}<p class="a46-pay a46-warn">⚠ Οι πληρωμές ξεπερνούν τα τιμολόγια κατά {{ (-s.totals.rest)|el_amount }}.</p>{% endif %}
+  {% if s.totals.rest_vat < -0.005 %}<p class="a46-pay a46-warn">⚠ Ο ΦΠΑ των πληρωμών ξεπερνά τον ΦΠΑ των τιμολογίων κατά {{ (-s.totals.rest_vat)|el_amount }}.</p>{% endif %}
+</section>
+{% else %}
+<section class="card"><p class="muted">Δεν υπάρχουν τιμολόγια ή πληρωμές άρθρου 46{{ ' με υπόλοιπο' if open_only }} έως {{ '/'.join(as_of.split('-')[::-1]) }}.
+  Στη σελίδα ενός τιμολογίου εξόδου διάλεξε «ΦΠΑ: Με την πληρωμή (αρ. 46)».</p></section>
+{% endfor %}
+{% endblock %}

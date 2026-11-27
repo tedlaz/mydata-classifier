@@ -7,7 +7,7 @@ from types import SimpleNamespace as NS
 os.environ["MYDATA_DATA_DIR"] = tempfile.mkdtemp()
 from mydata_client import MyDataClient  # noqa: E402
 
-doc = dict(invoice_type="1.1", issue_date="2025-01-23", is_off_books=False, is_cancelled=False,
+doc = dict(invoice_type="1.1", issue_date="2025-01-23", is_off_books=False, is_self_issued=False, is_cancelled=False,
            has_embedded_classification=True, has_income_line_classification=True, income_classifications=[],
            counterpart_vat="", lines=[], issuer_vat="")
 c = MyDataClient("u", "k", "dev")
@@ -19,6 +19,6 @@ c._recipient_transmitted = lambda inv: False
 
 assert [i.mark for i in c.request_docs("01/01/2025", "31/01/2025")[0]] == ["7", "8"]
 assert [i.mark for i in c.request_income("01/01/2025", "31/01/2025")[1]] == ["7", "8"]
-doc["invoice_type"] = "17.5"  # αυτοτιμολογούμενο έξοδο
+doc.update(invoice_type="17.5", is_self_issued=True)  # αυτοτιμολογούμενο έξοδο
 assert [i.mark for i in c.request_transmitted("01/01/2025", "31/01/2025")[0]] == ["7", "8"]
 print("OK")

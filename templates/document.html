@@ -34,6 +34,11 @@
 .dc-hero--credit .dc-meta .dc-type{font-weight:800;letter-spacing:.08em;color:#fff;background:var(--err);border-color:var(--err);font-size:.85rem;padding:3px 12px}
 .dc-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .dc-acts form{margin:0}
+.dc-vatcash{display:flex;gap:6px;align-items:center}
+.dc-vatcash-l{font-size:.72rem;font-weight:700;color:var(--muted);cursor:help}
+.dc-vatcash .seg{padding:2px;border-radius:8px}
+.dc-vatcash .seg label{padding:2px 8px;font-size:.74rem;gap:4px;border-radius:6px}
+.dc-vatcash .seg input{width:11px;height:11px}
 /* Τρόποι πληρωμής (από το XML) */
 .dc-meta .pm{display:inline-flex;gap:6px;align-items:center;background:var(--warn-soft);border-color:var(--warn-line);color:var(--ink)}
 .dc-meta .pm b{font:700 .76rem var(--font-data);color:var(--warn)}
@@ -170,12 +175,26 @@
           <span class="dc-kind dc-kind--{{ 'in' if is_income else 'out' }}">{{ 'ΕΣΟΔΑ' if is_income else 'ΕΞΟΔΑ' }}</span>
           <span class="mono">ΑΦΜ {{ inv.issuer_vat or "—" }}</span>
           <span class="mono">MARK {{ inv.mark }}</span>
+          {% if vat_cash %}<span class="pm" title="Ο ΦΠΑ του δεν μπαίνει στη δήλωση ΦΠΑ· μπαίνει με κάθε πληρωμή (εγγραφή 2.95)">🕒 Άρθρο 46 (39β)</span>{% endif %}
           <span class="dc-type" title="{{ type_desc or '' }}">{{ inv.invoice_type or "—" }}{% if type_desc %} · {{ type_desc }}{% endif %}</span>
           {% for p in payments or [] %}<span class="pm">💳 {{ p.method }}{% if pay_amount and p.amount %} <b>{{ money(p.amount|float) }} €</b>{% endif %}</span>{% endfor %}
         </div>
       </div>
     </div>
     <div class="dc-acts">
+    {% if not is_income %}
+    {# Τιμολόγιο προμηθευτή στο ειδικό καθεστώς ΦΠΑ κατά την είσπραξη: ο ΦΠΑ εκπίπτει με κάθε πληρωμή, όχι εδώ. #}
+    <form method="post" action="{{ url_for('document_vat_cash', mark=inv.mark) }}" class="dc-vatcash">
+      <span class="dc-vatcash-l" title="Πότε εκπίπτει ο ΦΠΑ αυτού του τιμολογίου στη δήλωση ΦΠΑ">ΦΠΑ</span>
+      <fieldset class="seg" onchange="this.form.submit()">
+        <label title="Κανονικό καθεστώς: ο ΦΠΑ εκπίπτει τον μήνα του τιμολογίου">
+          <input type="radio" name="on" value="0" {{ 'checked' if not vat_cash }}>Με το τιμολόγιο</label>
+        <label title="Άρθρο 46 (πρώην 39β), ειδικό καθεστώς ΦΠΑ κατά την είσπραξη: ο ΦΠΑ εκπίπτει τον μήνα κάθε πληρωμής, για το ποσό που πληρώθηκε (Φόρμα καταχώρησης → «Πληρωμή προμηθευτή άρθρου 46»)">
+          <input type="radio" name="on" value="1" {{ 'checked' if vat_cash }}>Με την πληρωμή (αρ. 46)</label>
+      </fieldset>
+      <noscript><button type="submit" class="btn btn-ghost btn-sm">Αποθήκευση</button></noscript>
+    </form>
+    {% endif %}
     {% if not is_income and status == 'confirmed' and inv.invoice_type in self_types and active_company.allow_new %}
     <a class="btn btn-ghost btn-sm" href="{{ url_for('entry', copy=inv.mark) }}" title="Νέο παραστατικό με τα ίδια στοιχεία και χαρακτηρισμούς">📄 Αντιγραφή σε νέα εγγραφή</a>
     {% endif %}

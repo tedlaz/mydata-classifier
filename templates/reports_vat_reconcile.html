@@ -13,7 +13,9 @@
   '381': 'ΦΠΑ αγορών', '382': 'ΦΠΑ παγίων', '383': 'ΦΠΑ εισαγωγών', '384': 'ΦΠΑ ενδοκ. αποκτ.', '385': 'ΦΠΑ ενδοκ. υπηρ.', '386': 'ΦΠΑ πράξ. λήπτη',
   '342': 'Ενδοκ. παραδόσεις', '345': 'Ενδοκ. παροχές υπηρεσιών', '348': 'Εξαγωγές, πλοία & αεροσκάφη',
   '349': 'Λοιπές εκροές χωρίς ΦΠΑ με δικ. έκπτωσης', '310': 'Απαλλασσόμενες χωρίς δικ. έκπτωσης',
-  'out': 'Εκτός Φ2', 'nd': 'ΦΠΑ μη εκπιπτόμενος'} %}
+  'out': 'Εκτός Φ2', 'nd': 'ΦΠΑ μη εκπιπτόμενος',
+  'a46': 'Άρθρο 46 (39β) · αξία', 'a46v': 'ΦΠΑ άρθρου 46 · με την πληρωμή'} %}
+{% set no_code = ('out', 'nd', 'a46', 'a46v') %}
 {% block content %}
 <style>
 .rc-card{margin-bottom:18px}
@@ -62,7 +64,7 @@
 
 {# Κελί με ποσό: κουμπί που ανοίγει το modal με τα παραστατικά του (e3 = none → σύνολο στήλης). #}
 {% macro cell(v, book, c, e3=none, cls='') -%}
-  {% set title = ('Έσοδα' if book == 'income' else 'Έξοδα') ~ ' · ' ~ ('Καθαρή αξία' if c == 'net' else ((c ~ ' ') if c not in ('out', 'nd') else '') ~ col_names.get(c, c)) %}
+  {% set title = ('Έσοδα' if book == 'income' else 'Έξοδα') ~ ' · ' ~ ('Καθαρή αξία' if c == 'net' else ((c ~ ' ') if c not in no_code else '') ~ col_names.get(c, c)) %}
   <td class="c-{{ c }} {{ cls }} {{ 'zero' if not v }}">{% if v %}<button type="button" class="rc-cell"
     data-docs="{{ url_for('reports_vat_reconcile_docs', year=year, period=period, book=book, col=c, e3=e3, t=title) }}"
     title="Παραστατικά: {{ title }}">{{ v|el_amount }}</button>{% else %}—{% endif %}</td>
@@ -74,13 +76,13 @@
 <table class="rc-t">
   <thead><tr>
     <th>Λογαριασμός Ε3</th>
-    {% for c in m.cols %}<th class="c-{{ c }}">{% if c not in ('out', 'nd') %}<b>{{ c }}</b>{% endif %}<small>{{ col_names.get(c, c) }}</small></th>{% endfor %}
+    {% for c in m.cols %}<th class="c-{{ c }}">{% if c not in no_code %}<b>{{ c }}</b>{% endif %}<small>{{ col_names.get(c, c) }}</small></th>{% endfor %}
     <th class="c-net"><small>Καθαρή αξία</small></th>
   </tr></thead>
   <tbody>
     {% for r in m.rows %}
     <tr>
-      <td>{% if r.e3 %}<code>{{ r.e3 }}</code><small>{{ accounts.get(r.e3, '') }}</small>{% else %}<small>— χωρίς λογαριασμό Ε3 (αχαρακτήριστα / μόνο ΦΠΑ / απορριφθέντα)</small>{% endif %}</td>
+      <td>{% if r.e3 == '2.95' %}<code>2.95</code><small>Πληρωμές άρθρου 46 (39β) — πληροφοριακά, ΦΠΑ στο Φ2</small>{% elif r.e3 %}<code>{{ r.e3 }}</code><small>{{ accounts.get(r.e3, '') }}</small>{% else %}<small>— χωρίς λογαριασμό Ε3 (αχαρακτήριστα / μόνο ΦΠΑ / απορριφθέντα)</small>{% endif %}</td>
       {% for c in m.cols %}{{ cell(r.vals[c], book, c, r.e3) }}{% endfor %}
       {{ cell(r.net, book, 'net', r.e3) }}
     </tr>

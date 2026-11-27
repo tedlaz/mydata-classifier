@@ -24,6 +24,7 @@ from compression import zstd
 from datetime import UTC, datetime
 
 import auth
+from classifications import is_informational  # noqa: F401 — και ως db.is_informational
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _DATA_DIR = os.getenv("MYDATA_DATA_DIR", _BASE_DIR)
@@ -401,6 +402,9 @@ _DOCUMENT_COLUMNS = {
     # Μηνιαία εγγραφή από πρότυπο: μία ανά (εταιρεία, πρότυπο, μήνας) — unique index στο init_db.
     "template_id": "INTEGER",
     "period": "TEXT",
+    # Τιμολόγιο προμηθευτή στο ειδικό καθεστώς ΦΠΑ κατά την είσπραξη (άρθρο 46, πρώην 39β): ο ΦΠΑ του δεν μπαίνει
+    # στο Φ2 — μπαίνει με κάθε πληρωμή (εγγραφή 2_95). Ανά παραστατικό: ο προμηθευτής μπορεί να βγει/ξαναμπεί.
+    "vat_cash": "INTEGER DEFAULT 0",
     # Ολόκληρο το XML του παραστατικού από το myDATA (προβολή «Όλα τα στοιχεία»).
     "raw_xml": "TEXT",
     # Ημερομηνία που εντοπίστηκε ως εκπρόθεσμο («Νέα παραστατικά από MARK»).
@@ -1307,6 +1311,30 @@ def save_supplier_address(vat: str, name: str | None, country: str, street: str 
         _save_supplier_address(conn, vat, name, country, street, postal_code, city)
 
 
+def art46_documents(company_id: int | None) -> list[dict]:
+    """Εκκαθάριση άρθρου 46 (39β): τα σημειωμένα τιμολόγια (vat_cash) και οι πληρωμές (πληροφοριακά 2_95,
+    13.1/14.30) της εταιρείας, χωρίς ακυρώσεις/απορρίψεις, με την επωνυμία του προμηθευτή."""
+    if not company_id:
+        return []
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT d.mark, d.issue_date, d.invoice_type, d.series, d.aa, d.counterparty_vat, d.status, d.vat_cash, "
+            "d.total_net, d.total_vat, d.total_gross, d.cls_json, s.name AS counterparty_name "
+            "FROM documents AS d LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
+            "WHERE d.company_id = ? AND d.kind = 'expense' AND (d.vat_cash = 1 OR d.invoice_type IN ('13.1', '14.30')) "
+            "AND COALESCE(d.local_action, '') NOT IN ('reject', 'cancel') ORDER BY d.issue_date, d.mark",
+            (company_id,),
+        ).fetchall()
+    return [dict(r) for r in rows if r["vat_cash"] or is_informational(r["cls_json"])]
+
+
+def set_document_vat_cash(company_id: int, mark: str, on: bool) -> None:
+    """Σημαία «άρθρο 46 (39β)» σε παραστατικό εξόδου (βλ. _DOCUMENT_COLUMNS["vat_cash"])."""
+    with get_conn() as conn:
+        conn.execute("UPDATE documents SET vat_cash = ? WHERE company_id = ? AND mark = ? AND kind = 'expense'",
+                     (int(on), company_id, mark))
+
+
 def get_supplier(vat: str | None) -> dict | None:
     """Ένας συναλλασσόμενος του κοινού καταλόγου (επωνυμία, χώρα, διεύθυνση) ή None."""
     if not vat:
@@ -1694,7 +1722,7 @@ def olap_documents(company_id: int | None, kind: str, statuses: list[str]) -> li
             f"WHERE d.company_id = ? AND d.kind = ? AND d.status IN ({','.join('?' * len(statuses))}) ORDER BY d.mark",
             [company_id, kind, *statuses],
         ).fetchall()
-    return [dict(r) for r in rows]
+    return financial(rows)  # χωρίς πληροφοριακά (2_95): δεν είναι έσοδο/έξοδο
 
 
 def save_local_classification(
@@ -2126,6 +2154,9 @@ def import_combos_xlsx(data: bytes) -> int:
                     cat_cols.add(col)
                 elif _RE_E3.match(val):
                     e3_cols.add(col)
+        # Η στήλη δεξιά της κατηγορίας είναι η στήλη E3 της ακόμα κι όταν γράφει μόνο κείμενο
+        # (π.χ. 17.6: category2_12 → «Δεν ενημερώνει E3»· αλλιώς ο τύπος έμενε χωρίς κανόνες).
+        e3_cols |= {c + 1 for c in cat_cols if c + 1 not in cat_cols}
         # Κάθε στήλη E3 ζευγαρώνει με την πλησιέστερη στήλη κατηγορίας αριστερά της.
         pairs = []
         for e3c in e3_cols:
@@ -2213,9 +2244,12 @@ def combos_for_type(invoice_type: str | None) -> dict:
         out.setdefault(r["category"], []).append(r["e3_type"])
     # Επέκταση marker '*' («οι παραπάνω/όλες») στην ένωση των συγκεκριμένων E3 του
     # τύπου. Το '-' («δεν ενημερώνει E3») μένει ως έχει (κατηγορία χωρίς E3).
-    union = sorted({e for lst in out.values() for e in lst if e not in ("*", "-")})
+    # Ανά πλευρά: «οι παραπάνω» σε κατηγορία εξόδων = οι E3 εξόδων του τύπου, όχι και των εσόδων (π.χ. 8.1:
+    # E3_561_001 σε category2_x → απορρίπτεται από το XSD).
     for cat, lst in out.items():
         if "*" in lst:
+            side = cat.split("_")[0]
+            union = sorted({e for c, es in out.items() if c.split("_")[0] == side for e in es if e not in ("*", "-")})
             out[cat] = union if union else ["*"]
     return out
 
@@ -2302,6 +2336,11 @@ def template_with_series(company_id: int | None, series: str, exclude_name: str)
     return None
 
 
+def financial(rows) -> list[dict]:
+    """Παραστατικά για οικονομικές αναφορές: χωρίς τα πληροφοριακά (is_informational)."""
+    return [dict(r) for r in rows if not is_informational(r["cls_json"])]
+
+
 def yearly_documents(company_id: int | None, kind: str, statuses: list[str], year: str) -> list[dict]:
     """Παραστατικά ενός έτους (κατά ημ/νία έκδοσης) με όλα τα σύνολα σύνοψης και τον συναλλασσόμενο,
     για την ετήσια σύνοψη και τη σύγκριση ετών."""
@@ -2316,7 +2355,7 @@ def yearly_documents(company_id: int | None, kind: str, statuses: list[str], yea
             f"AND d.status IN ({','.join('?' * len(statuses))}) AND d.issue_date >= ? AND d.issue_date < ? || '~' ORDER BY d.mark",  # = έτος (πρόθεμα), με χρήση του index
             [company_id, kind, *statuses, year, year],
         ).fetchall()
-    return [dict(r) for r in rows]
+    return financial(rows)  # χωρίς πληροφοριακά (2_95): δεν είναι έσοδο/έξοδο
 
 
 def period_documents(company_id: int | None, kind: str, date_from: str, date_to: str, xml: bool = True) -> list[dict]:
@@ -2329,7 +2368,7 @@ def period_documents(company_id: int | None, kind: str, date_from: str, date_to:
         rows = conn.execute(
             "SELECT d.mark, d.issue_date, d.invoice_type, d.series, d.aa, d.counterparty_vat, d.status, "
             f"d.local_action, d.total_net, d.total_vat, d.lines_json, d.cls_json, {'d.raw_xml' if xml else 'NULL AS raw_xml'}, "
-            "s.name AS counterparty_name "
+            "s.name AS counterparty_name, d.vat_cash "
             "FROM documents AS d LEFT JOIN suppliers AS s ON s.vat = d.counterparty_vat "
             "WHERE d.company_id = ? AND d.kind = ? AND d.issue_date BETWEEN ? AND ? "
             "ORDER BY d.issue_date, d.series, d.aa",
@@ -2375,4 +2414,4 @@ def month_documents(company_id: int | None, kind: str, statuses: list[str], year
             "AND d.issue_date >= ? AND d.issue_date < ? || '~' ORDER BY d.issue_date, d.series, d.aa",  # = μήνας
             [company_id, kind, *statuses, year_month, year_month],
         ).fetchall()
-    return [dict(r) for r in rows]
+    return financial(rows)  # χωρίς πληροφοριακά (2_95): δεν είναι έσοδο/έξοδο

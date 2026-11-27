@@ -15,6 +15,8 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 import aade_form
 
@@ -285,6 +287,7 @@ class ExpenseInvoice:
     extra_totals: dict = field(default_factory=dict)
     # Ολόκληρο το <invoice> όπως το έδωσε το myDATA (για προβολή «Όλα τα στοιχεία»).
     raw_xml: str = ""
+    self_pricing: bool = False  # invoiceHeader/selfPricing: εκδότης εμείς για λογαριασμό του πωλητή → έξοδο
 
     @property
     def is_cancelled(self) -> bool:
@@ -309,9 +312,10 @@ class ExpenseInvoice:
 
     @property
     def is_self_issued(self) -> bool:
-        """Αυτοτιμολογούμενο παραστατικό εξόδου (13.x/14.x/15.1/16.1/17.x).
-        Μόνο αυτά μπορεί να ακυρώσει ο χρήστης - τα υπόλοιπα τα ακυρώνει ο εκδότης τους."""
-        return (self.invoice_type or "") in SELF_EXPENSE_DOC_TYPES
+        """Παραστατικό εξόδου που διαβιβάζουμε εμείς: 13.x/14.x/15.1/16.1/17.x, τίτλοι κτήσης 3.x και
+        αυτοτιμολόγηση (selfPricing). Μόνο αυτά μπορεί να ακυρώσει ο χρήστης - τα υπόλοιπα ο εκδότης τους."""
+        t = self.invoice_type or ""
+        return t in SELF_EXPENSE_DOC_TYPES or t.split(".")[0] == "3" or self.self_pricing
 
 
 class MyDataClient:
@@ -332,6 +336,10 @@ class MyDataClient:
         self.own_vat = (own_vat or entity_vat or "").strip()
         self.last_cancelled: set[str] = set()
         self.session = requests.Session()
+        # Προσωρινά 502/503/504 της πύλης της ΑΑΔΕ: έως 3 νέες προσπάθειες (1, 2, 4 δλ), ΜΟΝΟ στα GET· οι αποστολές
+        # (POST) δεν επαναλαμβάνονται, γιατί μπορεί να έχουν ήδη καταχωρηθεί (διπλό παραστατικό).
+        self.session.mount("https://", HTTPAdapter(max_retries=Retry(
+            total=3, backoff_factor=1, status_forcelist=(502, 503, 504), allowed_methods={"GET"}, raise_on_status=False)))
         self.session.headers.update(
             {
                 "aade-user-id": user_id,
@@ -373,7 +381,7 @@ class MyDataClient:
                     "Μη έγκυρα credentials (401). Έλεγξε aade-user-id / subscription key."
                 )
             if resp.status_code != 200:
-                raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
+                raise http_error(resp)
             root = ET.fromstring(resp.content)
             roots.append(root)
             npk, nrk = _continuation(root)
@@ -438,9 +446,7 @@ class MyDataClient:
         cancelled_marks: set[str] = set()
         for root in self._pages("RequestTransmittedDocs", self._query(date_from, date_to, mark)):
             for inv in self._parse_requested_doc(root):
-                if (inv.invoice_type or "") in SELF_EXPENSE_DOC_TYPES or (
-                    self._recipient_transmitted(inv) and not inv.is_off_books
-                ):
+                if inv.is_self_issued or (self._recipient_transmitted(inv) and not inv.is_off_books):
                     self_invoices.append(inv)
             cls_map.update(self._parse_expenses_classifications(root))
             cancelled_marks |= self._parse_cancelled_invoices(root)
@@ -454,7 +460,7 @@ class MyDataClient:
             resp = self.session.get(self.base_url + endpoint, timeout=60,
                                     params=self._params({"mark": str(int(mark) - 1), "maxMark": mark}))
             if resp.status_code != 200:
-                raise MyDataError(f"{endpoint}: HTTP {resp.status_code}: {resp.text[:300]}")
+                raise http_error(resp, endpoint)
             recs = [r for r in archive_records(resp.content, endpoint) if r["mark"] == mark]
             if recs:
                 return recs
@@ -560,9 +566,8 @@ class MyDataClient:
         query_to = date_to if mark is not None else _today_gr()
         for root in self._pages("RequestTransmittedDocs", self._query(date_from, query_to, mark)):
             for inv in self._parse_requested_doc(root):
-                itype = inv.invoice_type or ""
-                if itype in SELF_EXPENSE_DOC_TYPES or inv.is_off_books or self._recipient_transmitted(inv):
-                    continue  # αυτοτιμολογούμενα έξοδα / διακίνηση / διαβίβαση από λήπτη — όχι έσοδα
+                if inv.is_self_issued or inv.is_off_books or self._recipient_transmitted(inv):
+                    continue  # δικά μας έξοδα (και 3.x / αυτοτιμολόγηση) / διακίνηση / διαβίβαση από λήπτη — όχι έσοδα
                 if mark is None and not _in_range(inv, date_from, date_to):
                     continue  # εκδόθηκε μετά την περίοδο: ήρθε μόνο λόγω κλήσης έως σήμερα
                 # Ακυρωμένο (cancelledByMark στο ίδιο το παραστατικό): κράτησέ το
@@ -721,7 +726,7 @@ class MyDataClient:
         while True:
             resp = self.session.get(self.base_url + endpoint, params=params, timeout=60)
             if resp.status_code != 200:
-                raise MyDataError(f"{endpoint}: HTTP {resp.status_code}: {resp.text[:300]}")
+                raise http_error(resp, endpoint)
             root = ET.fromstring(resp.content)
             for rec in root:
                 if "continuation" not in _local(rec.tag).lower():
@@ -892,7 +897,9 @@ class MyDataClient:
 
             header = inv.find("inv:invoiceHeader", namespaces=NS)
             inv_type = series = aa = issue_date = None
+            self_pricing = False
             if header is not None:
+                self_pricing = header.findtext("inv:selfPricing", namespaces=NS) == "true"
                 inv_type = header.findtext("inv:invoiceType", namespaces=NS)
                 series = header.findtext("inv:series", namespaces=NS)
                 aa = header.findtext("inv:aa", namespaces=NS)
@@ -971,6 +978,7 @@ class MyDataClient:
                     cancelled_by_mark=cancelled_by,
                     extra_totals=extra_totals,
                     raw_xml=_invoice_xml(inv),
+                    self_pricing=self_pricing,
                 )
             )
         return result
@@ -1057,7 +1065,7 @@ class MyDataClient:
             timeout=60,
         )
         if resp.status_code != 200:
-            raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
+            raise http_error(resp, sent=True)
         return parse_response_doc(resp.content)
 
     def cancel_invoice(self, mark: str) -> dict:
@@ -1072,7 +1080,7 @@ class MyDataClient:
             timeout=60,
         )
         if resp.status_code != 200:
-            raise MyDataError(f"HTTP {resp.status_code}: {resp.text[:500]}")
+            raise http_error(resp, sent=True)
         return parse_response_doc(resp.content)
 
     def reject_invoice(self, mark: str) -> dict:
@@ -1129,6 +1137,18 @@ def _f(v: str | None) -> float | None:
         return float(v) if v not in (None, "") else None
     except ValueError:
         return None
+
+
+def http_error(resp, endpoint: str = "", sent: bool = False) -> "MyDataError":
+    """Μη-200 απάντηση → μήνυμα για τον χρήστη. 5xx (π.χ. 502 Bad Gateway της πύλης της ΑΑΔΕ): χωρίς τη σελίδα
+    HTML· σε αποστολή, προειδοποίηση ότι μπορεί να έχει ήδη καταχωρηθεί."""
+    pre = f"{endpoint}: " if endpoint else ""
+    if resp.status_code >= 500:
+        msg = f"Το myDATA δεν απάντησε (HTTP {resp.status_code}) — προσωρινό πρόβλημα της ΑΑΔΕ, δοκίμασε ξανά σε λίγο."
+        if sent:
+            msg += " Πριν την ξαναστείλεις, έλεγξε με «Ανάκτηση» αν καταχωρήθηκε ήδη."
+        return MyDataError(pre + msg)
+    return MyDataError(f"{pre}HTTP {resp.status_code}: {resp.text[:500]}")
 
 
 INV_NS = "http://www.aade.gr/myDATA/invoice/v1.0"
@@ -1438,6 +1458,19 @@ ENTRY_RULES["country"] = {
     party: {t: "eu" if t in ENTRY_EU_TYPES else "third" for t in not_greek}
     for party, not_greek in (("issuer", aade_form.NOT_GREEK_ISSUER), ("counterpart", aade_form.NOT_GREEK_COUNTERPART))
 }
+# 'any': τύποι «ημεδαπής / αλλοδαπής» — εκδότης από την Ελλάδα ή από οποιαδήποτε χώρα (προεπιλογή GR).
+ENTRY_RULES["country"]["issuer"].update(dict.fromkeys(("13.1", "13.2", "14.31"), "any"))
+# Τύποι όπου η ΑΑΔΕ θέλει διεύθυνση αντισυμβαλλόμενου και στην Ελλάδα (dev: σφάλμα 204 «Counterpart address is
+# mandatory»)· στα 14.x είμαστε εμείς, στα 1.4/3.1 ο τρίτος. Μόνο διεύθυνση, χωρίς επωνυμία.
+ENTRY_RULES["counterpart_address"] = ["1.4", "3.1", "14.4", "14.31"]
+# Συσχετιζόμενο MARK υποχρεωτικό (dev: 204 «CorrelatedInvoices is mandatory»· 5.1 από την ονομασία του).
+ENTRY_RULES["correlated_required"] = ["1.6", "2.4", "5.1"]
+# Είδος γραμμής (invoiceDetailType) υποχρεωτικό ανά γραμμή, με τουλάχιστον μία από το καθένα (dev: 246/204).
+ENTRY_RULES["detail_type"] = ["1.5"]
+ENTRY_RULES["detail_types"] = {"1": "Εκκαθάριση Πωλήσεων Τρίτων", "2": "Αμοιβή από Πωλήσεις Τρίτων"}
+# Οικογένειες τιμολογίων με υποχρεωτικό ΑΦΜ αντισυμβαλλόμενου (dev: 3.1 χωρίς ΑΦΜ → 204 «Counterpart is mandatory»).
+ENTRY_RULES["counterpart_required"] = ["1", "2", "3", "5"]
+ENTRY_RULES["intra_vat"] = SELF_TYPES_INTRA_EU  # 14.1/14.3: μόνος επιτρεπτός χαρακτηρισμός ΦΠΑ
 
 
 def entry_country_rule(party: str, invoice_type: str) -> str:
@@ -1460,13 +1493,21 @@ def entry_roles(invoice_type: str, self_pricing: bool = False, omission: bool = 
     t = invoice_type or ""
     fam = t.split(".")[0]
     third_issuer = omission or fam in ("13", "14", "15", "16")  # τα διαβιβάζουμε εμείς ως λήπτης
-    expense = third_issuer or self_pricing or fam == "3" or t in SELF_EXPENSE_TYPES
+    # 1.5 (εκκαθάριση πωλήσεων τρίτων): και με αυτοτιμολόγηση χαρακτηρισμοί ΕΣΟΔΩΝ (dev: 230/231).
+    expense = third_issuer or (self_pricing and t != "1.5") or fam == "3" or t in SELF_EXPENSE_TYPES
     hidden = ENTRY_HIDDEN.get(t, [])
     return {
         "side": "expense" if expense else "income",
         "issuer": "none" if "issuer" in hidden or t in SELF_TYPES_NO_ISSUER else "other" if third_issuer else "own",
         "counterpart": "own" if third_issuer else "none" if "counterpart" in hidden else "other",
     }
+
+
+def entry_side(draft: dict) -> str:
+    """'income' / 'expense' ενός (καθαρού) draft: από τον τύπο ή, στην ελεύθερη φόρμα, όπως τη διάλεξε ο χρήστης."""
+    if draft.get("free"):
+        return draft.get("side") or "expense"
+    return entry_roles(draft["invoice_type"], draft.get("self_pricing"), draft.get("omission"))["side"]
 
 
 def entry_totals(draft: dict) -> dict:
@@ -1494,8 +1535,7 @@ def build_invoice_xml(draft: dict) -> str:
     ET.register_namespace("ecls", ECLS_NS)
     q = lambda tag: f"{{{INV_NS}}}{tag}"  # noqa: E731
     sub = lambda parent, tag, text: setattr(ET.SubElement(parent, q(tag)), "text", str(text))  # noqa: E731
-    roles = entry_roles(draft["invoice_type"], draft.get("self_pricing"), draft.get("omission"))
-    cls_ns, cls_tag = (ICLS_NS, "incomeClassification") if roles["side"] == "income" else (ECLS_NS, "expensesClassification")
+    cls_ns, cls_tag = (ICLS_NS, "incomeClassification") if entry_side(draft) == "income" else (ECLS_NS, "expensesClassification")
     line_taxes = draft.get("tax_level") == "line"
     tot = entry_totals(draft)
 
@@ -1509,9 +1549,11 @@ def build_invoice_xml(draft: dict) -> str:
         sub(el, "vatNumber", p["vat"])
         sub(el, "country", country)
         sub(el, "branch", p.get("branch") or "0")
-        # Εκτός Ελλάδας: επωνυμία + διεύθυνση υποχρεωτικές· στην Ελλάδα δεν δηλώνονται (σφάλματα 204/205).
-        if country != "GR":
-            if p.get("name"):
+        # Εκτός Ελλάδας: επωνυμία + διεύθυνση υποχρεωτικές· στην Ελλάδα δεν δηλώνονται (σφάλματα 204/205),
+        # εκτός από τη διεύθυνση της εταιρείας ως αντισυμβαλλόμενου όπου τη ζητά η ΑΑΔΕ (14.31).
+        gr_address = tag == "counterpart" and draft["invoice_type"] in ENTRY_RULES["counterpart_address"] and p.get("city")
+        if country != "GR" or gr_address:  # παλιό πρόχειρο χωρίς διεύθυνση: όχι κενό <address> (XSD)
+            if p.get("name") and country != "GR":
                 sub(el, "name", p["name"])
             a = ET.SubElement(el, q("address"))
             for k, xml_k in (("street", "street"), ("number", "number"), ("postal_code", "postalCode"), ("city", "city")):
@@ -1559,6 +1601,8 @@ def build_invoice_xml(draft: dict) -> str:
             sub(det, "quantity", ln["quantity"])
         if ln.get("unit"):
             sub(det, "measurementUnit", ln["unit"])
+        if ln.get("detail_type"):
+            sub(det, "invoiceDetailType", ln["detail_type"])
         sub(det, "netValue", f"{ln['net']:.2f}")
         sub(det, "vatCategory", ln["vat_category"])
         sub(det, "vatAmount", f"{ln['vat_amount']:.2f}")

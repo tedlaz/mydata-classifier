@@ -40,6 +40,7 @@ from flask import (
     abort,
     flash,
     g,
+    jsonify,
     has_request_context,
     redirect,
     render_template,
@@ -146,7 +147,7 @@ def _remember(resp, salt: str, force: bool = False):
 _GATED = {
     "allow_classify": ({"auto_classify", "classify", "submit", "bulk_classify"},
                        "Οι χαρακτηρισμοί είναι απενεργοποιημένοι για την εταιρεία — ενεργοποίησέ τους στις Παραμέτρους εταιρείας."),
-    "allow_new": ({"new_expense", "entry", "entry_submit", "expense_template_save", "expense_template_delete",
+    "allow_new": ({"new_expense", "entry", "entry_submit", "entry_xml", "expense_template_save", "expense_template_delete",
                    "recurring", "recurring_days", "recurring_create"},
                   "Η «Νέα εγγραφή» είναι απενεργοποιημένη για την εταιρεία — ενεργοποίησέ την στις Παραμέτρους εταιρείας."),
 }
@@ -315,6 +316,10 @@ def _bundled_combos() -> tuple[str, tuple] | None:
     return max(files, key=lambda x: x[1]) if files else None
 
 
+# Αύξηση όταν αλλάζει η ανάγνωση του xlsx (db.import_combos_xlsx): ξαναφορτώνει και την ίδια έκδοση αρχείου.
+_COMBOS_PARSER = "2"  # 2: φύλλα χωρίς κωδικούς E3 (π.χ. 17.6 «Δεν ενημερώνει E3»)
+
+
 def _load_bundled_combos() -> None:
     """Πρώτη εκκίνηση (ή νεότερο αρχείο σε νέα έκδοση της εφαρμογής): φόρτωση των συνδυασμών
     ΑΑΔΕ. Ποτέ πάνω από νεότερη ή ίδια έκδοση που υπάρχει ήδη· ο «Καθαρισμός» δεν ξαναφορτώνει."""
@@ -323,12 +328,13 @@ def _load_bundled_combos() -> None:
         return
     path, version = bundled
     stored = _combos_version("v" + (db.get_setting("combos_version") or ""))
-    if stored and stored >= version:
+    if stored and (stored > version or (stored == version and db.get_setting("combos_parser") == _COMBOS_PARSER)):
         return
     try:
         with open(path, "rb") as fh:
             if db.import_combos_xlsx(fh.read()):
                 db.set_setting("combos_version", ".".join(map(str, version)))
+                db.set_setting("combos_parser", _COMBOS_PARSER)
     except Exception as e:  # noqa: BLE001 — χαλασμένο αρχείο δεν σταματά την εκκίνηση
         print(f"Αποτυχία φόρτωσης συνδυασμών από {path}: {e}")
 
@@ -2030,6 +2036,7 @@ def document(mark):
         can_cancel=cancel_allowed(),
         status=row["status"],
         local_action=row.get("local_action") or "classify",
+        vat_cash=bool(row.get("vat_cash")),
         source=row.get("source") or "rest",
         classification_mark=row.get("classification_mark"),
         cls_history=cls_hist,
@@ -2259,6 +2266,17 @@ def _local_xml(row: dict) -> str:
         return draft_xml(json.loads(row["draft_json"]), get_own_vat())
     except Exception:  # χαλασμένο/παλιό draft: η σελίδα φορτώνει χωρίς XML
         return ""
+
+
+@app.route("/document/<mark>/vat_cash", methods=["POST"])
+def document_vat_cash(mark):
+    """Τιμολόγιο προμηθευτή άρθρου 46 (39β): ο ΦΠΑ του δεν μπαίνει στο Φ2 — μπαίνει με κάθε πληρωμή (2_95)."""
+    on = request.form.get("on") == "1"
+    db.set_document_vat_cash(_active_company_id(), mark, on)
+    flash("✔ Άρθρο 46 (39β): ο ΦΠΑ του παραστατικού δεν μπαίνει στη δήλωση ΦΠΑ — μπαίνει με κάθε πληρωμή "
+          "(Φόρμα καταχώρησης → «Πληρωμή προμηθευτή άρθρου 46»)." if on
+          else "✔ Κανονικό καθεστώς ΦΠΑ: ο ΦΠΑ του παραστατικού μπαίνει στη δήλωση ΦΠΑ.", "ok")
+    return redirect(url_for("document", mark=mark))
 
 
 @app.route("/document/<mark>/xml")
@@ -4304,7 +4322,7 @@ def reports_compare():
 
 def _flow_docs(cid: int | None, year: str) -> tuple[list[dict], list[dict]]:
     """Χαρακτηρισμένα έσοδα/έξοδα ενός έτους για τις Ροές (ίδιες καταστάσεις με τις αναφορές)."""
-    docs = lambda kind, st: [d for d in db.period_documents(cid, kind, f"{year}-01-01", f"{year}-12-31")  # noqa: E731
+    docs = lambda kind, st: [d for d in db.financial(db.period_documents(cid, kind, f"{year}-01-01", f"{year}-12-31"))  # noqa: E731
                              if d["status"] in st]
     return docs("income", _INCOME_CLASSIFIED_STATUSES), docs("expense", _EXPENSE_CLASSIFIED_STATUSES)
 
@@ -5390,6 +5408,22 @@ def reports_vat_reconcile():
     )
 
 
+@app.route("/reports/vat/art46")
+def reports_art46():
+    """Εκκαθάριση άρθρου 46 (39β): ανά προμηθευτή τα τιμολόγια που λάβαμε, τι πληρώθηκε (ΦΠΑ που εκπίπτει)
+    και τι μένει. as_of (yyyy-mm-dd): κατάσταση σε ημερομηνία (π.χ. τέλος περιόδου ΦΠΑ)."""
+    as_of = request.args.get("as_of") or date.today().isoformat()
+    try:
+        date.fromisoformat(as_of)
+    except ValueError:
+        as_of = date.today().isoformat()
+    suppliers = vat_return.art46_ledger(db.art46_documents(_active_company_id()), as_of)
+    totals = {k: round(sum(s["totals"][k] for s in suppliers), 2)
+              for k in ("net", "vat", "paid", "rest", "vat_deducted", "rest_vat")}
+    return render_template("reports_art46.html", suppliers=suppliers, totals=totals, as_of=as_of,
+                           open_only=request.args.get("open") == "1")
+
+
 @app.route("/reports/vat/reconcile/docs")
 def reports_vat_reconcile_docs():
     """Τμήμα HTML για το modal της συμφωνίας Φ2: τα παραστατικά ενός κελιού (book, e3, col). Ανά παραστατικό
@@ -5405,7 +5439,8 @@ def reports_vat_reconcile_docs():
     date_from, date_to = _vat_bounds(int(year), kind, int(period[1:]))
     docs = db.period_documents(cid, book, date_from, date_to)
     m = vat_return.reconcile(docs if book == "income" else [], docs if book == "expense" else [])[book]
-    pairs = [p[:2] for p in vat_return.OUTPUT_RATES.values()] + list(vat_return.INPUT_CODES.values())
+    pairs = ([p[:2] for p in vat_return.OUTPUT_RATES.values()] + list(vat_return.INPUT_CODES.values())
+             + [(vat_return.A46, vat_return.A46V)])
     tax_of, base_of = {b: t for b, t in pairs}, {t: b for b, t in pairs}
     if col == "net":
         base_cols, tax_cols = m["base_cols"], [c for c in m["cols"] if c not in m["base_cols"]]
@@ -5749,8 +5784,8 @@ def dashboard():
     done_pct = round(exp_st.get("confirmed", 0) / exp_total * 100) if exp_total else 0
 
     # Κορυφαίοι προμηθευτές/πελάτες έτους + πρόσφατη κίνηση.
-    exp_docs = db.period_documents(cid, "expense", f"{year}-01-01", f"{year}-12-31", xml=False)
-    inc_docs = db.period_documents(cid, "income", f"{year}-01-01", f"{year}-12-31", xml=False)
+    exp_docs = db.financial(db.period_documents(cid, "expense", f"{year}-01-01", f"{year}-12-31", xml=False))
+    inc_docs = db.financial(db.period_documents(cid, "income", f"{year}-01-01", f"{year}-12-31", xml=False))
 
     def top_of(docs, stock):
         return sorted(_counterparty_totals(docs, stock).values(), key=lambda t: -t["amount"])[:5]
@@ -5884,7 +5919,20 @@ _ENTRY_TYPES = {code: label for code, label in aade_form.OPTIONS["invoice_type"]
 
 
 # Έτοιμα πρότυπα: τύπος, εκδότης, γραμμές και Ε3 (επιτρεπτοί συνδυασμοί ΑΑΔΕ)· ποσά, σειρά και Α/Α ο χρήστης.
+def _preset(t: str, cat: str, e3: str = "", vat: str = "1", **kw) -> dict:
+    """Έτοιμο πρότυπο: τύπος + μία γραμμή με χαρακτηρισμό (ποσά, εκδότης/αντισυμβαλλόμενος συμπληρώνονται στη φόρμα)."""
+    return {"invoice_type": t, "lines": [{"vat_category": vat, "cls": [{"category": cat, "type": e3}]}], **kw}
+
+
+# «Γρήγορη έναρξη» της Φόρμας καταχώρησης: περιπτώσεις που έγιναν δεκτές στο dev της ΑΑΔΕ (11/2026).
 _ENTRY_PRESETS = {
+    # Προμηθευτής στο ειδικό καθεστώς ΦΠΑ κατά την είσπραξη (άρθρο 46, πρώην 39β): ο ΦΠΑ εκπίπτει τον μήνα της
+    # πληρωμής και μόνο για το ποσό που πληρώθηκε. Ανεπίσημη πρακτική (δεν υπάρχει οδηγία ΑΑΔΕ): 14.30 με εκδότη τον
+    # προμηθευτή, καθαρή αξία + ΦΠΑ του ποσού πληρωμής, category2_95 χωρίς Ε3 και VAT_361 → μόνο Φ2 (dev ΑΑΔΕ: δεκτό).
+    "art46": ("Πληρωμή προμηθευτή άρθρου 46 (39β)", {
+        "invoice_type": "14.30",
+        "lines": [{"vat_category": "1", "comments": "Εξόφληση τιμολογίου προμηθευτή άρθρου 46 ΚΦΠΑ (πρώην 39β)",
+                   "cls": [{"category": "category2_95", "type": ""}, {"category": "", "type": "VAT_361"}]}]}),
     "efka": ("ΕΦΚΑ", {"invoice_type": "14.5", "issuer": {"country": "GR", "vat": "997072577"},
                       "lines": [{"vat_category": "8", "cls": [{"category": "category2_5", "type": "E3_585_007"}]}]}),
     "rent": ("Ενοίκιο", {"invoice_type": "16.1",
@@ -5895,9 +5943,22 @@ _ENTRY_PRESETS = {
                                          {"vat_category": "8", "cls": [{"category": "category2_6", "type": "E3_581_002"}]}],
                                "taxes": [{"type": "1", "category": "11"}, {"type": "5"}],
                                "payments": [{"type": "1"}]}),  # Επαγ. Λογαριασμός Πληρωμών Ημεδαπής
+    "depr": ("Αποσβέσεις (17.2)", _preset("17.2", "category2_8", "E3_587", "8")),
     "stock": ("Απογραφή", {"invoice_type": "17.5",
                            "lines": [{"vat_category": "8", "cls": [{"category": "category2_13", "type": "E3_101"}]},
                                      {"vat_category": "8", "cls": [{"category": "category2_14", "type": "E3_104"}]}]}),
+    "retail": ("Απόδειξη λιανικής (13.1)", _preset("13.1", "category2_4", "E3_585_016")),
+    "common": ("Κοινόχρηστα (13.3)", _preset("13.3", "category2_3", "E3_585_016", "8")),
+    "subs": ("Συνδρομές (13.4)", _preset("13.4", "category2_3", "E3_585_016", "8")),
+    "eu_goods": ("Ενδοκοινοτική αγορά αγαθών (14.1)", _preset("14.1", "category2_1", "E3_102_004")),
+    "eu_serv": ("Ενδοκοινοτική λήψη υπηρεσιών (14.3)", _preset("14.3", "category2_3", "E3_585_016")),
+    "tc_goods": ("Αγορά αγαθών τρίτων χωρών (14.2)", _preset("14.2", "category2_1", "E3_102_005")),
+    "tc_serv": ("Λήψη υπηρεσιών τρίτων χωρών (14.4)", _preset("14.4", "category2_3", "E3_585_016")),
+    "contract": ("Συμβόλαιο (15.1)", _preset("15.1", "category2_3", "E3_585_016")),
+    "title": ("Τίτλος κτήσης από ιδιώτη (3.1)", _preset("3.1", "category2_1", "E3_102_002", "8")),
+    "self": ("Αυτοτιμολόγηση αγοράς (1.1)", _preset("1.1", "category2_1", "E3_102_001", self_pricing=True)),
+    "omit": ("Τιμολόγιο προμηθευτή που δεν το διαβίβασε (1.1)",
+             _preset("1.1", "category2_1", "E3_102_001", omission=True)),
 }
 
 
@@ -6010,7 +6071,8 @@ def _render_entry(draft: dict | None, edit_mark: str = "", status: int = 200, te
         tax_types=dict(aade_form.TAX_TYPES),
         # όλες οι χώρες του CountryType· τα ελληνικά ονόματα τα συμπληρώνει ο browser (Intl)
         countries={c: XML_EXTRA_CODES["country"].get(c, c) for c in xsd_enum("CountryType")},
-        own={"vat": get_own_vat(), "name": company.get("company_name", "")},
+        own={"vat": get_own_vat(), "name": company.get("company_name", ""),
+             **{k: v or "" for k, v in (db.get_supplier(get_own_vat()) or {}).items() if k in ("street", "postal_code", "city")}},
         suppliers=db.list_suppliers(_active_company_id()),
         today=datetime.now(ATHENS).strftime("%Y-%m-%d"),
         templates=db.list_templates(_active_company_id()),
@@ -6091,6 +6153,7 @@ def _entry_clean(raw: dict) -> tuple[dict, list[str]]:
     d["lines"] = [
         {
             "rec_type": s(ln.get("rec_type")),
+            "detail_type": s(ln.get("detail_type")) if t in ENTRY_RULES["detail_type"] or raw.get("free") else "",
             "not_vat195": bool(ln.get("not_vat195")),
             "unit": s(ln.get("unit")),
             "quantity": s(ln.get("quantity")),
@@ -6115,6 +6178,19 @@ def _entry_clean(raw: dict) -> tuple[dict, list[str]]:
 
     if t not in _ENTRY_TYPES:
         return d, ["Επίλεξε τύπο παραστατικού."]
+    if raw.get("free"):
+        # Ελεύθερη φόρμα: χωρίς τους κανόνες ανά τύπο (κρυφά πεδία, ρόλοι, συνδυασμοί, ΦΠΑ...) — στο XML μπαίνει ό,τι
+        # έχει τιμή, όπως το έδωσε ο χρήστης. Μένουν οι βασικοί έλεγχοι και το XSD (στην αποθήκευση/προεπισκόπηση).
+        d.update(free=True, side="income" if raw.get("side") == "income" else "expense")
+        for p in (d["issuer"], d["counterpart"]):
+            p["country"] = (p["country"] or "GR").upper()
+        if not (d["series"] and d["aa"] and d["issue_date"]):
+            errors.append("Συμπλήρωσε σειρά, Α/Α και ημερομηνία έκδοσης.")
+        if not d["lines"]:
+            errors.append("Συμπλήρωσε τουλάχιστον μία γραμμή.")
+        if any(tx["type"] not in ENTRY_TAX_KEYS for tx in d["taxes"]):
+            errors.append("Μη έγκυρος τύπος φόρου.")
+        return d, errors
     # Πεδία που δεν ισχύουν για τον τύπο (η φόρμα τα κρύβει, όπως η Ειδική Φόρμα της ΑΑΔΕ): δεν στέλνονται.
     fam = t.split(".")[0]
     hidden = set(ENTRY_RULES["hidden"].get(t, []))
@@ -6127,6 +6203,8 @@ def _entry_clean(raw: dict) -> tuple[dict, list[str]]:
         d.update(dispatch=False, dispatch_date="", dispatch_time="", vehicle="", move_purpose="")
     if t not in ENTRY_RULES["correlated"]:
         d["correlated"] = ""
+    elif t in ENTRY_RULES["correlated_required"] and not d["correlated"]:
+        errors.append(f"Ο τύπος {t} θέλει το MARK του παραστατικού που συσχετίζεται.")
     if no_vat or entry_roles(t, d["self_pricing"], d["omission"])["side"] != "income":
         d["vat_suspension"] = False  # αναστολή καταβολής ΦΠΑ: μόνο σε πωλήσεις με ΦΠΑ
     if "payments" in hidden:
@@ -6159,20 +6237,27 @@ def _entry_clean(raw: dict) -> tuple[dict, list[str]]:
         p = d[key]
         if role == "own":
             d[key] = dict(party({}), country="GR", vat=own_vat, branch=p["branch"] or "0")
+            if key == "counterpart" and t in ENTRY_RULES["counterpart_address"]:  # η ΑΑΔΕ θέλει τη διεύθυνσή μας (204)
+                d[key].update({k: p[k] for k in ("street", "number", "postal_code", "city")})
+                if not (p["postal_code"] and p["city"]):
+                    errors.append(f"Ο τύπος {t} θέλει τη διεύθυνση της εταιρείας σου (Τ.Κ. και πόλη) στον αντισυμβαλλόμενο.")
         elif role == "none":
             d[key] = party({})
         else:
             rule = entry_country_rule(key, t)
-            p["country"] = "GR" if rule == "gr" else (p["country"] or "").upper()
+            p["country"] = "GR" if rule == "gr" else (p["country"] or ("GR" if rule == "any" else "")).upper()
             if rule == "eu" and p["country"] not in EU_COUNTRIES:
                 errors.append(f"Ο τύπος {t} θέλει {label} από χώρα της ΕΕ (εκτός Ελλάδας).")
             elif rule == "third" and (p["country"] in EU_COUNTRIES or p["country"] in ("", "GR")):
                 errors.append(f"Ο τύπος {t} θέλει {label} από χώρα εκτός ΕΕ.")
             if not p["vat"]:
-                if key == "issuer" and t not in SELF_TYPES_ISSUER_OPTIONAL:
+                if (key == "issuer" and t not in SELF_TYPES_ISSUER_OPTIONAL) or (
+                        key == "counterpart" and fam in ENTRY_RULES["counterpart_required"]):
                     errors.append(f"Συμπλήρωσε το ΑΦΜ του {label}.")
             elif p["country"] != "GR" and not (p["name"] and p["postal_code"] and p["city"]):
                 errors.append(f"Για {label} εκτός Ελλάδας συμπλήρωσε επωνυμία, Τ.Κ. και πόλη.")
+            elif key == "counterpart" and t in ENTRY_RULES["counterpart_address"] and not (p["postal_code"] and p["city"]):
+                errors.append(f"Ο τύπος {t} θέλει τη διεύθυνση του αντισυμβαλλόμενου (Τ.Κ. και πόλη).")
 
     if not d["lines"]:
         errors.append("Συμπλήρωσε τουλάχιστον μία γραμμή.")
@@ -6226,8 +6311,15 @@ def _entry_clean(raw: dict) -> tuple[dict, list[str]]:
                           f"αθροίζουν στην καθαρή αξία ({ln['net']:.2f}).")
         if roles["side"] == "income":
             ln["cls"] = e3  # χαρακτηρισμός ΦΠΑ μόνο στα έξοδα
-        elif needs_vat_cls(ln["vat_category"]) and not any(_is_vat_cls(c["type"]) for c in ln["cls"]):
-            ln["cls"].append({"category": "", "type": VAT_EXPENSE_TYPE, "amount": ln["net"]})  # σφάλμα 230
+        else:
+            # Ενδοκοινοτικά 14.1/14.3: μόνο VAT_364/VAT_365· αλλού όλοι οι άλλοι (ίδιο με _type_limits).
+            intra = SELF_TYPES_INTRA_EU.get(t)
+            for v in {c["type"] for c in ln["cls"] if _is_vat_cls(c["type"])}:
+                if (v != intra) if intra else v in SELF_TYPES_INTRA_EU.values():
+                    errors.append(f"Γραμμή {n}: ο τύπος {t} δεν δέχεται χαρακτηρισμό ΦΠΑ {v}"
+                                  + (f" — μόνο {intra}." if intra else "."))
+            if needs_vat_cls(ln["vat_category"]) and not any(_is_vat_cls(c["type"]) for c in ln["cls"]):
+                ln["cls"].append({"category": "", "type": intra or VAT_EXPENSE_TYPE, "amount": ln["net"]})  # σφάλμα 230
         for k in ("withheld", "fees", "other", "stamp"):
             if ln[k] and ln[k + "_cat"] not in O[k]:
                 errors.append(f"Γραμμή {n}: επίλεξε κατηγορία για το ποσό {ln[k]:.2f}.")
@@ -6240,6 +6332,18 @@ def _entry_clean(raw: dict) -> tuple[dict, list[str]]:
             errors.append(f"Φόρος {n}: επίλεξε κατηγορία φόρου.")
         if tx["amount"] <= 0:
             errors.append(f"Φόρος {n}: συμπλήρωσε ποσό.")
+    if t == "8.2" and d["lines"]:  # τέλος ανθεκτικότητας: μόνο το τέλος, ως λοιπός φόρος γραμμής (dev: 213/204)
+        if any(ln["net"] for ln in d["lines"]):
+            errors.append("Ο τύπος 8.2 θέλει καθαρή αξία 0 — το ποσό είναι μόνο το τέλος.")
+        if d["tax_level"] != "line" or not all(ln["other"] and ln["other_cat"] for ln in d["lines"]):
+            errors.append("Ο τύπος 8.2 θέλει το τέλος σε κάθε γραμμή: φόροι σε επίπεδο γραμμής, «Λοιποί φόροι» "
+                          "με κατηγορία (π.χ. ξενοδοχεία ή βραχυχρόνια μίσθωση) και ποσό.")
+    if t in ENTRY_RULES["detail_type"] and d["lines"]:  # 1.5: εκκαθάριση + αμοιβή, κάθε γραμμή με είδος (246)
+        kinds = ENTRY_RULES["detail_types"]
+        if any(ln["detail_type"] not in kinds for ln in d["lines"]):
+            errors.append(f"Ο τύπος {t} θέλει «Είδος γραμμής» σε κάθε γραμμή.")
+        elif {ln["detail_type"] for ln in d["lines"]} != set(kinds):
+            errors.append(f"Ο τύπος {t} θέλει τουλάχιστον μία γραμμή «{kinds['1']}» και μία «{kinds['2']}».")
     if t == "17.1" and d["lines"]:  # μισθοδοσία: παρακράτηση και κρατήσεις μέσα στις αποδοχές
         tot = entry_totals(d)
         if tot["withheld"] + tot["deductions"] > tot["net"] + 0.005:
@@ -6254,9 +6358,25 @@ def _entry_clean(raw: dict) -> tuple[dict, list[str]]:
     return d, errors
 
 
+@app.route("/entry/xml", methods=["POST"])
+def entry_xml():
+    """Προεπισκόπηση: το XML που θα σταλεί για το draft της φόρμας, με τους ίδιους ελέγχους με την αποθήκευση."""
+    import xml.etree.ElementTree as ET
+
+    draft, errors = _entry_clean(_posted_draft())
+    xml = ""
+    if draft.get("invoice_type") in _ENTRY_TYPES and draft.get("lines"):
+        xml = draft_xml(draft)
+        errors += [f"Έλεγχος XSD ΑΑΔΕ: {e}" for e in xsd_errors(xml)]
+        tree = ET.ElementTree(ET.fromstring(xml))
+        ET.indent(tree)
+        xml = '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(tree.getroot(), encoding="unicode")
+    return jsonify(xml=xml, errors=errors)
+
+
 @app.route("/entry", methods=["POST"])
 def entry_submit():
-    from mydata_client import entry_roles
+    from mydata_client import entry_side
 
     edit_mark = request.form.get("edit_mark", "").strip()
     template_id = request.form.get("template_id", "").strip()
@@ -6272,7 +6392,7 @@ def entry_submit():
         flash("Δεν έχει οριστεί ενεργή εταιρεία.", "error")
         return redirect(url_for("companies"))
 
-    if entry_roles(draft["invoice_type"], draft["self_pricing"], draft["omission"])["side"] == "income":
+    if entry_side(draft) == "income":
         # Τα έσοδα δεν έχουν μαζική «Αποστολή» (όπως η ακύρωση εσόδου): SendInvoices τώρα.
         if not send_allowed():
             flash(SEND_DISABLED_MSG, "error")
@@ -6322,7 +6442,7 @@ def _posted_draft() -> dict:
 @app.route("/entry/template", methods=["POST"])
 def expense_template_save():
     """Η τρέχουσα φόρμα ως πρότυπο εξόδου (χωρίς ημ/νία και Α/Α)."""
-    from mydata_client import entry_roles
+    from mydata_client import entry_side
 
     cid = _active_company_id()
     name = " ".join(request.form.get("template_name", "").split())[:80]
@@ -6333,7 +6453,7 @@ def expense_template_save():
     error = (
         "Δώσε όνομα προτύπου (π.χ. «ΕΦΚΑ εργοδότη»)." if not cid or not name
         else "Πρότυπα γίνονται μόνο για παραστατικά εξόδων." if draft["invoice_type"] not in _ENTRY_TYPES
-        or entry_roles(draft["invoice_type"], draft["self_pricing"], draft["omission"])["side"] != "expense"
+        or entry_side(draft) != "expense"
         else f"Η σειρά «{series}» χρησιμοποιείται ήδη από το πρότυπο «{other}» — κάθε πρότυπο θέλει δική του σειρά."
         if other else "Δώσε σειρά στο πρότυπο — ο Α/Α του συνεχίζει μέσα στη σειρά." if not series else ""
     )
@@ -6360,6 +6480,9 @@ def _save_entry_parties(cid: int, d: dict) -> None:
     own = get_own_vat()
     for p in (d["issuer"], d["counterpart"]):
         vat, name = p.get("vat"), p.get("name") or p.get("known_name")
+        if vat and vat == own and p.get("city"):  # η διεύθυνσή μας (14.31): για τις επόμενες εγγραφές
+            db.save_supplier_address(vat, None, "GR", " ".join(x for x in (p.get("street"), p.get("number")) if x),
+                                     p.get("postal_code"), p.get("city"))
         if not vat or vat == own:
             continue
         db.link_supplier(cid, vat)
@@ -7856,6 +7979,7 @@ def combinations_import():
         # Νεότερη έκδοση της εφαρμογής φέρνει νεότερο αρχείο → αντικαθιστά· ίδια/παλαιότερη όχι.
         version = _combos_version(f.filename) or (_bundled_combos() or (None, None))[1]
         db.set_setting("combos_version", ".".join(map(str, version)) if version else "")
+        db.set_setting("combos_parser", _COMBOS_PARSER)
         flash(
             f"✔ Εισήχθησαν {n} συνδυασμοί για {len(db.combos_invoice_types())} τύπους παραστατικών.",
             "ok",
