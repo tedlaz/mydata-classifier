@@ -41,7 +41,10 @@ USER appuser
 EXPOSE 8000
 VOLUME ["/data"]
 
-# gunicorn: 1 worker (το κλειδί ξεκλειδώματος ζει στη μνήμη της διεργασίας, βλ. auth.py) x 8 threads
+# gunicorn: 1 worker (το κλειδί ξεκλειδώματος ζει στη μνήμη της διεργασίας, βλ. auth.py) x 8 threads.
+# --keep-alive > idle timeout του reverse proxy (Caddy: 2'): αλλιώς ο proxy ξαναχρησιμοποιεί σύνδεση
+# που έκλεισε ήδη το gunicorn → EOF → 502 στα /static → σελίδα χωρίς CSS.
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", \
      "--workers", "1", "--threads", "8", \
-     "--timeout", "120", "--access-logfile", "-", "wsgi:app"]
+     "--timeout", "120", "--access-logfile", "-", \
+     "--keep-alive", "300", "wsgi:app"]
