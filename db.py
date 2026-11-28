@@ -618,6 +618,10 @@ def init_db() -> None:
             f"UPDATE {t} SET {c} = z({c}) WHERE typeof({c}) = 'text' AND {c} <> ''").rowcount
             for t, c in _XML_COLS)
         squeezed += _zstd_migrate(conn)
+        cids = [r[0] for r in conn.execute("SELECT DISTINCT company_id FROM documents WHERE COALESCE(cls_xml, '') <> ''")]
+    # Εγγραφές πριν το _retire_stale_cls: παλιό cls_xml κάτω από νέο MARK χαρακτηρισμού → κουβάς.
+    for cid in cids:
+        archive_sync(cid, [])
     if squeezed:
         vacuum()  # αλλιώς το αρχείο δεν μικραίνει
 
