@@ -67,7 +67,7 @@ def look(m, **kw):
 
 
 def nodes(h):  # (MARK, ετικέτα κατάστασης) των κόμβων του χρονολογίου
-    return re.findall(r'mk-rel-mark">(\d+)</span>\s*<span><span class="mk-pill" data-tone="\w+" title="[^"]*">([^<]+)<', h)
+    return re.findall(r'mk-rel-mark">(\d+)</span>\s*(?:<span class="mk-rel-kind">[^<]*</span>\s*)?<span><span class="mk-pill" data-tone="\w+" title="[^"]*">([^<]+)<', h)
 
 
 # Παραστατικό στα βιβλία: ενεργό, καρτέλα, χαρακτηρισμοί + ό,τι το αναφέρει.
@@ -75,6 +75,7 @@ h = look("100")
 assert "Ενεργό στο βιβλίο εξόδων" in h and "Καρτέλα στα βιβλία" in h, h
 n = dict(nodes(h))
 assert n["101"] == "Ισχύει — στα βιβλία" and n["99"] == "Αντικαταστάθηκε" and n["400"] == "Εκτός βιβλίων", n
+assert re.search(r'mk-rel-mark">100</span>\s*<span class="mk-rel-kind">\d\.\d', h), h  # τύπος/σειρά στον κόμβο παραστατικού
 
 # Προηγούμενος χαρακτηρισμός: αντικαταστάθηκε, δείχνει το παραστατικό του.
 h = look("99")

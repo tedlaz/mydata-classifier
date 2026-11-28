@@ -5,9 +5,9 @@
   <h2>{{ label }}</h2>
   <button type="button" class="btn-ghost btn-sm" data-close aria-label="Κλείσιμο">✕</button>
 </div>
-<p class="muted small">{{ n }} {{ 'παραστατικά' if grouped or cat == 'cancelled' else 'εγγραφές' }}{% if pages > 1 %} (σελίδα {{ page }} από {{ pages }}){% endif %} · {{ 'κλικ στο «Ιστορικό» για τις αλλαγές χαρακτηρισμού' if grouped else 'κλικ σε ένα MARK για όλα τα στοιχεία' }}</p>
+<p class="muted small">{{ n }} {{ 'παραστατικά' if grouped or cat == 'cancelled' else 'εγγραφές' }}{% if pages > 1 %} (σελίδα {{ page }} από {{ pages }}){% endif %} · {{ '«Ανάλυση MARK» για όλες τις υποβολές' if grouped else 'κλικ σε ένα MARK για όλα τα στοιχεία' }}</p>
 {% if rows and grouped %}
-{# Χαρακτηρισμοί: μία γραμμή ανά παραστατικό· «Ιστορικό» = όλες οι υποβολές του, από την ισχύουσα προς την παλαιότερη. #}
+{# Χαρακτηρισμοί: μία γραμμή ανά παραστατικό· «Ανάλυση MARK» = όλες οι υποβολές του (Αναζήτηση MARK). #}
 <div class="yr-scroll">
 <table class="yr-table yr-docs">
   <thead>
@@ -15,7 +15,6 @@
   </thead>
   <tbody>
     {% for r in rows %}
-    {% set hist = url_for('cls_history', mark=r.invoice_mark, back=here) %}
     <tr>
       <td>{{ '/'.join(r.date[:10].split('-')[::-1]) if r.date }}</td>
       <td class="yr-docs-mark">
@@ -25,7 +24,7 @@
       <td><span title="{{ type_names.get(r.ref_type, '') }}">{{ r.ref_type or '' }}</span></td>
       <td class="yr-docs-cp">{% if r.ref_vat %}<b>{{ names.get(r.ref_vat) or '—' }}</b><span class="vat">{{ r.ref_vat }}</span>{% endif %}</td>
       <td class="num">{{ r.n }}</td>
-      <td><button type="button" class="btn btn-ghost btn-sm" data-docs="{{ hist }}">🕘 Ιστορικό</button></td>
+      <td><a class="btn btn-ghost btn-sm" href="{{ url_for('mark_lookup', m=r.invoice_mark, back=url_for('reports_history')) }}">🔎 Ανάλυση MARK</a></td>
     </tr>
     {% endfor %}
   </tbody>

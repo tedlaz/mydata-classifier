@@ -148,8 +148,8 @@ page_html = web.get("/reports/history").get_data(as_text=True)
 assert "myData λοιπά" in page_html and "/reports/history/docs?cat=foreign" in page_html
 docs_html = web.get("/reports/history/docs?cat=expenses_cls").get_data(as_text=True)
 assert "kind=invoice&amp;mark=2&amp;" in docs_html  # MARK → στοιχεία παραστατικού (κουβάς)
-assert docs_html.count("/history/cls/2") == 1 and "<td class=\"num\">2</td>" in docs_html, docs_html  # 9/10 → 1 γραμμή
-assert web.get("/reports/history/docs?cat=active_cls").get_data(as_text=True).count("/history/cls/2") == 1
+assert docs_html.count("/mark?m=2&") == 1 and "<td class=\"num\">2</td>" in docs_html, docs_html  # 9/10 → 1 γραμμή
+assert web.get("/reports/history/docs?cat=active_cls").get_data(as_text=True).count("/mark?m=2&") == 1
 docs_html = web.get("/reports/history/docs?cat=cancelled").get_data(as_text=True)  # ακύρωση 11 κάτω από το 3
 assert "cat=cancel\"" not in page_html and docs_html.index("mark=3&") < docs_html.index("hx-branch") < docs_html.index("mark=11&"), docs_html
 item = web.get("/reports/history/item?kind=expenses_cls&mark=12")
@@ -187,11 +187,9 @@ assert [r["kind"] for r in c.request_mark("71")] == ["expenses_cls"]
 assert c.request_mark("65") == [] and len(calls) == 4  # δοκιμάζει και τα δύο endpoints
 
 
-# 9. Ιστορικό χαρακτηρισμών: από τον ισχύοντα προς τον παλαιότερο· κουμπί στην καρτέλα όταν υπάρχουν αλλαγές.
+# 9. Ιστορικό χαρακτηρισμών (db.cls_history): από τον ισχύοντα προς τον παλαιότερο.
 from mydata_client import cls_record  # noqa: E402
 
-h = web.get("/history/cls/2").get_data(as_text=True)
-assert h.index('<span class="mono">12</span>') < h.index('<span class="mono">10</span>') < h.index('<span class="mono">9</span>') and "ισχύει" in h, h
 rej = cls(13, 2).replace("<invoicesExpensesClassificationDetails>", "<transactionMode>1</transactionMode>"
                          "<invoicesExpensesClassificationDetails>")
 assert cls_record(rej)["transaction_mode"] == "1" and len(cls_record(rej)["entries"]) == 2
@@ -203,46 +201,26 @@ assert A._history_category(cat14, "999758350", set()) == "active_cls"  # παρ�
 db.upsert_document(cid, "expense", doc("2", "12"), "confirmed")
 db.archive_sync(cid, [])
 assert [(r["mark"], r["active"]) for r in db.cls_history(cid, "2")] == [("12", 1), ("10", 0), ("9", 0)]
-assert "Ιστορικό χαρακτηρισμών (3)" in web.get("/document/2").get_data(as_text=True)
 assert "href=\"/document/2?back=" in web.get("/reports/history/docs?cat=expenses_cls").get_data(as_text=True)  # MARK → καρτέλα
-h = web.get("/history/cls/2").get_data(as_text=True)
-assert "ισχύει" in h and h.index('<span class="mono">12</span>') < h.index('<span class="mono">9</span>')
-assert "Απόκλιση" not in h and "(εκτίμηση)" not in h and 'class="chip new' not in h[h.index("<tbody>"):], h  # 9/10/12 ίδιοι: καμία διαφορά
 
-# Διαφορές: ο 31 άλλαξε το ποσό της 2ης εγγραφής (24 → 20) σε σχέση με τον 30.
+# Επόμενες υποβολές στον κουβά (διαφορετικά ποσά, ΦΠΑ με/χωρίς κατηγορία, νεότερη από του βιβλίου): ακέραιος κουβάς.
 db.archive_sync(cid, fetch(page(classifications=cls(30, 6) + cls(31, 6).replace("<amount>24<", "<amount>20<"))))
-h = web.get("/history/cls/6").get_data(as_text=True)
-h = h[h.index("<thead>"):]  # χωρίς το υπόμνημα
-new_at, gone_at = h.index('class="chip new'), h.index('class="chip  gone')
-assert h.index('<span class="mono">31</span>') < new_at and "20.00" in h[new_at:new_at + 400], h  # νέο στον 31
-assert gone_at > h.index('<span class="mono">30</span>') and "24.00" in h[gone_at:gone_at + 400], h  # άλλαξε μετά τον 30
-assert h.count('class="chip new') == 1 and h.count('class="chip  gone') == 1, h
 check()
-
-# ΦΠΑ: ίδιος τύπος/ποσό με διαφορετική (άνευ ουσίας) κατηγορία = καμία αλλαγή.
 vat = lambda m, extra: (f'<expensesInvoiceClassification xmlns="{ECLS}"><invoiceMark>7</invoiceMark>'
                         f'<classificationMark>{m}</classificationMark><invoicesExpensesClassificationDetails>'
                         f'<lineNumber>1</lineNumber><expensesClassificationDetailData><classificationType>VAT_361'
                         f'</classificationType>{extra}<amount>10</amount></expensesClassificationDetailData>'
                         f'</invoicesExpensesClassificationDetails></expensesInvoiceClassification>')
 db.archive_sync(cid, fetch(page(classifications=vat(40, "") + vat(41, "<classificationCategory>category2_1</classificationCategory>"))))
-h = web.get("/history/cls/7").get_data(as_text=True)
-h = h[h.index("<thead>"):]
-assert 'class="chip new' not in h and 'gone' not in h, h
-
-# Νεότερη υποβολή στο myDATA από αυτή του βιβλίου (ήρθε χωρίς ανάκτηση της περιόδου): ισχύει η νεότερη.
 db.archive_sync(cid, fetch(page(classifications=cls(15, 2))))
-h = web.get("/history/cls/2").get_data(as_text=True)
-assert "Το βιβλίο δείχνει ακόμα τον χαρακτηρισμό" in h
-t = h[h.index("<thead>"):]
-assert t.index('<span class="mono">15</span>') < t.index('<span class="pill">ισχύει</span>') < t.index('<span class="mono">12</span>') < t.index("στο βιβλίο"), t
+assert [r["mark"] for r in db.cls_history(cid, "2")][:2] == ["15", "12"]  # ισχύει η νεότερη στο myDATA
 check()
 
 # Χαρακτηρισμός ακυρωμένου παραστατικού (3, ακύρωση 11): στα «Ακυρωμένα» κάτω από αυτό, όχι στους ισχύοντες,
 # και χωρίς να αλλάζει το σύνολο.
 total_before = web.get("/reports/history/docs?cat=cancelled").get_data(as_text=True).split("hx-tree-total")[1][:300]
 db.archive_sync(cid, fetch(page(classifications=cls(50, 3))))
-assert "/history/cls/3" not in web.get("/reports/history/docs?cat=active_cls").get_data(as_text=True)
+assert "/mark?m=3&" not in web.get("/reports/history/docs?cat=active_cls").get_data(as_text=True)
 h = web.get("/reports/history/docs?cat=cancelled").get_data(as_text=True)
 assert h.index("mark=3&") < h.index("mark=11&") < h.index("mark=50&"), h
 assert h.split("hx-tree-total")[1][:300] == total_before, h

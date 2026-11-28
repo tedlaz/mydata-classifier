@@ -2006,10 +2006,6 @@ def document(mark):
     # σε γραμμή, μένουν στο κάτω μπλοκ.
     flags = [c for c in (inv.cls_info or []) if c.get("transaction_mode")]
     line_cls, doc_cls = _document_cls_rows(db.get_local_classification(row["id"]), inv)
-    # Κουμπί «Ιστορικό χαρακτηρισμών»: μόνο όταν υπάρχει προηγούμενη εγγραφή (στον κουβά).
-    cls_hist = db.cls_history(cid, mark)
-    if all(r["active"] for r in cls_hist):
-        cls_hist = []
     # URL επιστροφής στη λίστα, διατηρώντας ταξινόμηση/σελίδα/φίλτρα (fallback: view).
     # Έσοδα: ίδια προβολή, μόνο για ανάγνωση (χωρίς ενέργειες χαρακτηρισμού/απόρριψης).
     is_income = row.get("kind") == "income"
@@ -2039,7 +2035,6 @@ def document(mark):
         vat_cash=bool(row.get("vat_cash")),
         source=row.get("source") or "rest",
         classification_mark=row.get("classification_mark"),
-        cls_history=cls_hist,
         type_desc=INVOICE_TYPE_NAMES.get(inv.invoice_type or ""),
         is_credit=inv.invoice_type in CREDIT_INVOICE_TYPES,
         vat_rates=VAT_CATEGORY_RATES,
@@ -4532,58 +4527,6 @@ def _history_total(rows: list[dict]) -> float:
     return sum(r["amount"] or 0 for r in rows if r["kind"] not in _CLS_KINDS)
 
 
-def _local_dt(iso: str) -> str:
-    """ISO (UTC, όπως τα γράφει το db) → «yyyy-mm-dd HH:MM» σε ώρα Ελλάδας."""
-    try:
-        return datetime.fromisoformat(iso).astimezone(ATHENS).strftime("%Y-%m-%d %H:%M")
-    except ValueError:
-        return iso[:16]
-
-
-@app.route("/history/cls/<mark>")
-def cls_history(mark):
-    """Τμήμα HTML (modal): το ιστορικό χαρακτηρισμών ενός παραστατικού, από τον ισχύοντα προς τον παλαιότερο —
-    από την καρτέλα του παραστατικού και από το «myData λοιπά»."""
-    from itertools import groupby
-
-    from mydata_client import cls_record
-
-    cid = _active_company_id()
-    recs = [dict(r, **cls_record(r["xml"])) for r in db.cls_history(cid, mark)]
-    # Πίνακας σύγκρισης: στήλη ανά υποβολή (νεότερη αριστερά), σειρά ανά γραμμή του παραστατικού
-    # (None = χαρακτηρισμός ανά παραστατικό). Σε κάθε κελί, «new» ό,τι δεν υπήρχε στην αμέσως παλαιότερη
-    # υποβολή και «gone» ό,τι δεν κράτησε η αμέσως νεότερη — δηλαδή τι άλλαξε από υποβολή σε υποβολή.
-    def key(e):  # στον χαρακτηρισμό ΦΠΑ (VAT_xxx) η κατηγορία δεν έχει ουσία: ίδιος τύπος + ποσό = ίδιος
-        t = e.get("type") or ""
-        return t, None if t.startswith("VAT_") else e.get("category"), round(e.get("amount") or 0, 2)
-
-    for r in recs:
-        r["cells"] = {ln: list(es) for ln, es in groupby(r["entries"], key=lambda e: e.get("line"))}
-        # Ημερομηνία: το myDATA δεν δίνει· ακριβής μόνο όταν τον στείλαμε από την εφαρμογή.
-        r["sent"] = _local_dt(r["sent_at"]) if r.get("sent_at") else None
-    lines = sorted({ln for r in recs for ln in r["cells"]}, key=lambda ln: (ln is not None, ln or 0))
-    for i, r in enumerate(recs):
-        newer, older = (recs[i - 1] if i else None), (recs[i + 1] if i + 1 < len(recs) else None)
-        r["diff"] = {}
-        for ln in lines:
-            mine = r["cells"].get(ln, [])
-            o_keys = {key(e) for e in older["cells"].get(ln, [])} if older else None
-            n_keys = {key(e) for e in newer["cells"].get(ln, [])} if newer else None
-            r["diff"][ln] = [("new" if o_keys is not None and key(e) not in o_keys else "")
-                             + (" gone" if n_keys is not None and key(e) not in n_keys else "") for e in mine]
-    if not recs:
-        return "Δεν υπάρχει ιστορικό χαρακτηρισμών.", 404
-    row = db.get_document(cid, mark)
-    # Ισχύει στο myDATA η ΝΕΟΤΕΡΗ υποβολή (recs[0])· το βιβλίο μπορεί να δείχνει παλαιότερη, αν η νέα ήρθε
-    # (RequestTransmittedDocs έως σήμερα) χωρίς ανάκτηση της περιόδου του παραστατικού.
-    stale = next((r for r in recs[1:] if r["active"]), None)
-    return render_template("_cls_history.html", mark=mark, recs=recs, lines=lines, stale=stale,
-                           back=request.args.get("back"),
-                           doc_url=url_for("document", mark=mark) if row else None,
-                           categories={**EXPENSE_CATEGORIES, **INCOME_CATEGORIES},
-                           types={**EXPENSE_TYPES, **INCOME_TYPES}, vat_types=VAT_TYPES)
-
-
 @app.route("/reports/history/item")
 def reports_history_item():
     """Τμήμα HTML για το modal: όλα τα στοιχεία μίας εγγραφής του κουβά, όπως τα έδωσε το myDATA."""
@@ -4732,9 +4675,11 @@ def _mark_status(cid: int, rec: dict, own_vat: str) -> dict:
 
 
 def _mark_node(cid: int, mark: str, rel: str, own_vat: str, current: str) -> dict:
-    """Κόμβος του γράφου διασυνδέσεων: {mark, kind, rel, status, here, missing}."""
+    """Κόμβος του γράφου διασυνδέσεων: {mark, kind, rel, status, here, missing, facts}. facts (τύπος, σειρά, Α/Α)
+    μόνο για παραστατικά — να ξεχωρίζει π.χ. ένα συσχετιζόμενο 2.4 από χαρακτηρισμό."""
     rec = next(iter(db.mark_records(cid, mark)), None)
     return {"mark": mark, "rel": rel, "here": mark == current, "missing": rec is None,
+            "facts": _invoice_facts(rec["xml"]) if rec and rec["kind"] == "invoice" else {},
             "kind": rec["kind"] if rec else "invoice",
             "status": _mark_status(cid, rec, own_vat) if rec else
             {"label": "Δεν έχει ανακτηθεί", "tone": "muted", "why": "Κλικ για λήψη από το myDATA"}}

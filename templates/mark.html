@@ -128,8 +128,6 @@
         {% if status.why %}<p class="mk-why">{{ status.why }}</p>{% endif %}
         <div class="mk-actions">
           {% if doc %}<a class="btn btn-sm" href="{{ url_for('document', mark=inv_mark, back=request.full_path) }}">📄 Καρτέλα στα βιβλία</a>{% endif %}
-          {% if inv_mark and nodes|selectattr('rel', 'equalto', 'Χαρακτηρισμός')|list %}
-          <a class="btn btn-ghost btn-sm" href="#" data-hist="{{ url_for('cls_history', mark=inv_mark) }}">🕘 Ιστορικό χαρακτηρισμών</a>{% endif %}
           {% if rec.xml or xml_is_invoice %}<a class="btn btn-ghost btn-sm" href="{{ url_for('mark_xml', m=m if rec.xml else inv_mark) }}">⬇ XML</a>{% endif %}
         </div>
       </section>
@@ -196,6 +194,7 @@
           <a class="mk-node" href="{{ url_for('mark_lookup', back=back, m=n.mark, live=1 if n.missing else None) }}" {% if n.here %}aria-current="page"{% endif %}>
             <span class="mk-rel-kind">{{ n.rel }}{% if n.rel != kind_labels.get(n.kind) %} · {{ kind_labels.get(n.kind, n.kind) }}{% endif %}{% if n.here %} · εδώ{% endif %}</span>
             <span class="mk-rel-mark">{{ n.mark }}</span>
+            {% set nf = n.facts %}{% if nf.invoice_type %}<span class="mk-rel-kind">{{ nf.invoice_type }} {{ type_names.get(nf.invoice_type, '') }}{% if nf.series or nf.aa %} · {{ nf.series or '—' }}/{{ nf.aa or '—' }}{% endif %}</span>{% endif %}
             <span>{{ tone_pill(n.status) }}</span>
           </a>
         </li>
@@ -213,28 +212,5 @@
   </details>
   {% endif %}
   {% endif %}
-
-  <dialog class="modal modal--wide" id="mk-hist" aria-label="Ιστορικό χαρακτηρισμών" closedby="any"></dialog>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-(() => {
-  // «Ιστορικό χαρακτηρισμών»: το ίδιο modal με την καρτέλα παραστατικού (/history/cls/<mark>).
-  const dlg = document.getElementById('mk-hist');
-  document.addEventListener('click', async (e) => {
-    const a = e.target.closest('[data-hist]');
-    if (a) {
-      e.preventDefault();
-      dlg.innerHTML = '<p class="muted">Φόρτωση…</p>';
-      dlg.showModal();
-      const r = await fetch(a.dataset.hist);
-      dlg.innerHTML = await r.text();
-    } else if (e.target.closest('#mk-hist [data-close]')) {
-      dlg.close();
-    }
-  });
-})();
-</script>
 {% endblock %}
