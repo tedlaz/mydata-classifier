@@ -155,6 +155,9 @@
         <p class="mk-why">Στις <b>{{ dmy(rec.event_date) }}</b> ακυρώθηκε το παραστατικό <a href="{{ url_for('mark_lookup', back=back, m=inv_mark) }}"><b>{{ inv_mark }}</b></a>. Ένα ακυρωμένο παραστατικό δεν μετρά σε κανένα βιβλίο ή δήλωση.</p>
         {% else %}
         <div class="card-head"><h2>{{ kind_labels.get(kind) }}</h2></div>
+        {% if cls.no_xml %}
+        <div class="mk-banner" data-tone="info"><b>Χωρίς XML από το myDATA</b> — εμφανίζεται ο χαρακτηρισμός όπως είναι στα βιβλία (ανά παραστατικό, όχι ανά γραμμή). Το XML έρχεται με την επόμενη ανάκτηση.</div>
+        {% endif %}
         {% if cls.transaction_mode %}
         <div class="mk-banner" data-tone="warn"><b>{{ 'Απόρριψη' if cls.transaction_mode == '1' else 'Απόκλιση' }}</b> — ο λήπτης {{ 'απέρριψε το παραστατικό' if cls.transaction_mode == '1' else 'δήλωσε απόκλιση στα ποσά' }}.</div>
         {% endif %}

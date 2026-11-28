@@ -77,8 +77,7 @@ assert "classificationMark>10<" in db.get_document(cid, "2")["cls_xml"]
 
 # 2. Νέα αποστολή χαρακτηρισμού (MARK 12): ο 10 παύει να είναι ενεργός → κουβάς.
 d2 = db.get_document(cid, "2")
-db.mark_sent(d2["id"], "12")
-db.archive_sync(cid, [])
+db.mark_sent(d2["id"], "12")  # χωρίς archive_sync: η σελίδα MARK δεν πρέπει να δείχνει το παλιό XML
 check()
 assert archived() == ["1", "10", "11", "3", "9"] and not db.get_document(cid, "2")["cls_xml"]
 db.archive_sync(cid, fetch(page(classifications=cls(12, 2))))  # έρχεται από το myDATA → ενεργός στο documents

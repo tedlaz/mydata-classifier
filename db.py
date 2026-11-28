@@ -1872,6 +1872,17 @@ def mark_sent(doc_id: int, classification_mark: str | None) -> None:
             "WHERE id = ?",
             (classification_mark or "", now, doc_id),
         )
+    _retire_stale_cls(doc_id)
+
+
+def _retire_stale_cls(doc_id: int) -> None:
+    """Νέο MARK χαρακτηρισμού: το cls_xml του προηγούμενου (άλλο classificationMark) πάει στον κουβά,
+    αλλιώς η Αναζήτηση MARK δείχνει το νέο MARK με το παλιό περιεχόμενο ώς την επόμενη ανάκτηση."""
+    with get_conn() as conn:
+        r = conn.execute("SELECT company_id FROM documents WHERE id = ? AND COALESCE(cls_xml, '') <> ''",
+                         (doc_id,)).fetchone()
+    if r:
+        archive_sync(r["company_id"], [])
 
 
 def mark_late(company_id: int, marks) -> None:
@@ -1898,6 +1909,8 @@ def mark_confirmed(doc_id: int, classification_mark: str | None = None) -> None:
             f"{set_mark} WHERE id = ?",
             params,
         )
+    if classification_mark:
+        _retire_stale_cls(doc_id)
 
 
 def delete_document(company_id: int | None, mark: str) -> None:

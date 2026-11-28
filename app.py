@@ -4759,7 +4759,8 @@ def _mark_analysis(cid: int, mark: str, recs: list[dict]) -> dict:
         if rec["xml"]:
             cls = cls_record(rec["xml"])
         else:  # χαρακτηρισμός των βιβλίων χωρίς XML: ό,τι κρατά το documents
-            cls = {"entries": json.loads((doc or {}).get("cls_json") or "[]"), "transaction_mode": None}
+            cls = {"entries": [{"line": None, **e} for e in json.loads((doc or {}).get("cls_json") or "[]")],
+                   "transaction_mode": None, "no_xml": True}
         cls["lines"] = sorted({e.get("line") for e in cls["entries"]}, key=lambda ln: (ln is not None, ln or 0))
 
     # Διασυνδέσεις: παραστατικό, χαρακτηρισμοί, ακυρώσεις, ίδιο UID, συσχετιζόμενα (και προς τις δύο κατευθύνσεις).
